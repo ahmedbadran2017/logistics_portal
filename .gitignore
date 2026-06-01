@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.DS_Store
+.env
+.env.local
+node_modules/
+dist/
+.vite/
+*.log
+
+# Built bundle is committed so Frappe can serve it without npm.
+# (mirrors purchasing_portal — change later if you adopt a CI build step)
+!logistics_portal/public/*.css
+!logistics_portal/public/*.js

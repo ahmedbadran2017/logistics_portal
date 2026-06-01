@@ -1,0 +1,150 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --yol-v2-accent-50:  #fdf5f3;
+  --yol-v2-accent-100: #fbe6e0;
+  --yol-v2-accent-200: #f6ccbf;
+  --yol-v2-accent-300: #eea894;
+  --yol-v2-accent-400: #e17f62;
+  --yol-v2-accent-500: #d45d3e;
+  --yol-v2-accent-600: #c4492a;
+  --yol-v2-accent-700: #a33a22;
+  --yol-v2-accent-800: #852f1e;
+  --yol-v2-accent-900: #6d291d;
+}
+
+@layer base {
+  body {
+    @apply bg-stone-50 text-stone-900 antialiased;
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  html { scroll-behavior: smooth; }
+  /* Hide outline on mouse focus only; show it for keyboard navigation. */
+  *:focus { outline: none; }
+  *:focus-visible {
+    outline: 2px solid var(--yol-v2-accent-500);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  ::selection { background: var(--yol-v2-accent-100); color: var(--yol-v2-accent-900); }
+}
+
+@layer components {
+  /* Legacy button classes — kept for old refs; Button.vue is the primary path */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 h-8 px-3 text-[13px] font-medium rounded-lg
+           bg-stone-900 text-white hover:bg-stone-800 hover:shadow-md shadow-sm
+           active:scale-[0.97] transition-all duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed
+           focus:ring-2 focus:ring-stone-700/30 focus:ring-offset-1;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-1.5 h-8 px-3 text-[13px] font-medium rounded-lg
+           bg-white text-stone-700 border border-stone-200
+           hover:bg-stone-50 hover:border-stone-300 hover:shadow-sm
+           active:scale-[0.97] transition-all duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed
+           focus:ring-2 focus:ring-stone-400/20;
+  }
+  .btn-brand {
+    @apply inline-flex items-center justify-center gap-1.5 h-8 px-3 text-[13px] font-medium rounded-lg
+           text-white bg-[var(--yol-v2-accent-600)] hover:bg-[var(--yol-v2-accent-700)] hover:shadow-md shadow-sm
+           active:scale-[0.97] transition-all duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 h-8 px-2.5 text-[13px] font-medium rounded-lg
+           text-stone-700 hover:bg-stone-100
+           active:scale-[0.97] transition-all duration-150;
+  }
+
+  .card {
+    @apply bg-white rounded-xl border border-stone-200/70 p-5
+           shadow-[0_1px_3px_rgba(0,0,0,0.02)]
+           transition-all duration-200;
+  }
+  .card-hover { @apply card hover:border-stone-300 hover:shadow-[0_4px_20px_-6px_rgba(0,0,0,0.06)]; }
+
+  .input-field {
+    @apply w-full h-9 px-3 text-[13px] border border-stone-200 rounded-lg bg-white
+           focus:ring-2 focus:ring-[#d45d3e]/15
+           focus:border-[#d45d3e] outline-none
+           transition-all duration-150 placeholder:text-stone-400;
+  }
+  .label {
+    @apply block text-[10.5px] font-semibold text-stone-500 uppercase tracking-[0.05em] mb-1;
+  }
+
+  /* Ring-inset badges */
+  .badge {
+    @apply inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-md ring-1 ring-inset;
+  }
+  .badge-green  { @apply badge bg-emerald-50 text-emerald-700 ring-emerald-200/70; }
+  .badge-yellow { @apply badge bg-amber-50 text-amber-700 ring-amber-200/80; }
+  .badge-red    { @apply badge bg-rose-50 text-rose-700 ring-rose-200/70; }
+  .badge-blue   { @apply badge bg-sky-50 text-sky-700 ring-sky-200/70; }
+  .badge-violet { @apply badge bg-violet-50 text-violet-700 ring-violet-200/70; }
+  .badge-gray   { @apply badge bg-stone-100 text-stone-700 ring-stone-200; }
+}
+
+/* Custom scrollbar — Firefox + WebKit */
+html { scrollbar-width: thin; scrollbar-color: #d6d3d1 transparent; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #a8a29e; }
+
+/* Animations */
+@keyframes shimmer {
+  0% { background-position: -800px 0; }
+  100% { background-position: 800px 0; }
+}
+.skeleton-shimmer {
+  background: linear-gradient(90deg, #f5f5f4 0%, #e7e5e4 40%, #f5f5f4 80%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up { animation: fade-in-up 0.4s cubic-bezier(0.2, 0.9, 0.3, 1); }
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-scale-in { animation: scale-in 0.25s ease-out; }
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(196, 73, 42, 0.4); }
+  70% { box-shadow: 0 0 0 8px rgba(196, 73, 42, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(196, 73, 42, 0); }
+}
+.pulse-ring { animation: pulse-ring 2s infinite; }
+
+/* Stagger helpers */
+.stagger > *:nth-child(1)  { animation-delay: 0.02s; }
+.stagger > *:nth-child(2)  { animation-delay: 0.06s; }
+.stagger > *:nth-child(3)  { animation-delay: 0.1s; }
+.stagger > *:nth-child(4)  { animation-delay: 0.14s; }
+.stagger > *:nth-child(5)  { animation-delay: 0.18s; }
+.stagger > *:nth-child(6)  { animation-delay: 0.22s; }
+.stagger > *:nth-child(7)  { animation-delay: 0.26s; }
+.stagger > *:nth-child(8)  { animation-delay: 0.3s; }
+.stagger > *:nth-child(9)  { animation-delay: 0.34s; }
+.stagger > * { opacity: 0; animation: fade-in-up 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) forwards; }
+
+/* Respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

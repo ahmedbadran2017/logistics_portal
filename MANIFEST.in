@@ -1,0 +1,7 @@
+include MANIFEST.in
+include requirements.txt
+include logistics_portal/public/*.css
+include logistics_portal/public/*.js
+recursive-include logistics_portal/templates *
+recursive-include logistics_portal/www *
+recursive-include logistics_portal/locale *
