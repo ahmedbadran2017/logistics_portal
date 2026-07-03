@@ -6,7 +6,7 @@
   >
     <!-- Floating logo + role switcher, top-start -->
     <div class="absolute top-4 z-10 flex items-center gap-3" style="inset-inline-start:1rem">
-      <img src="/justyol-logo.png" alt="Justyol" class="h-4" />
+      <img :src="logoSrc" alt="Justyol" class="h-4" />
       <button
         type="button"
         class="flex items-center gap-2 ps-1.5 pe-2.5 py-1.5 rounded-lg bg-white/90 backdrop-blur ring-1 ring-stone-200/70 shadow-sm hover:bg-white transition-colors"
@@ -129,6 +129,7 @@ import { useI18n } from "@/composables/useI18n";
 import { isMobileRole, navItemsFor } from "@/lib/roles";
 
 const route = useRoute();
+const logoSrc = "/assets/logistics_portal/justyol-logo.png";
 const { role, roles, fullName, setActiveRole } = useAuth();
 const { t } = useI18n();
 

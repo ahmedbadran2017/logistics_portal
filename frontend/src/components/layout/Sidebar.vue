@@ -3,7 +3,7 @@
     <!-- Logo lockup -->
     <div class="px-4 pt-4 pb-2">
       <div class="flex items-center gap-2 min-w-0">
-        <img src="/justyol-logo.png" alt="Justyol" class="block h-3.5 flex-shrink-0" />
+        <img :src="logoSrc" alt="Justyol" class="block h-3.5 flex-shrink-0" />
         <span class="h-3.5 w-px bg-stone-200 flex-shrink-0" />
         <span class="text-[9.5px] font-semibold text-stone-400 tracking-[0.14em] uppercase">
           {{ t("nav.logistics", "Logistics") }}
@@ -117,6 +117,9 @@ import { navFor } from "@/lib/roles";
 
 defineEmits(["open-search"]);
 
+// Served by Frappe from the app's public/ dir; bound (not a static src) so vite
+// doesn't try to resolve it at build time.
+const logoSrc = "/assets/logistics_portal/justyol-logo.png";
 const { t } = useI18n();
 const { role, roles, fullName, setActiveRole } = useAuth();
 const route = useRoute();
