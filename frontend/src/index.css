@@ -1,0 +1,139 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   JUSTYOL LOGISTICS — design tokens (from the Claude Design handoff)
+   Warm "stone" neutrals + a themeable accent ramp (default Rust) exposed as
+   CSS variables. Dark mode is a curated utility remap keyed on
+   html[data-theme="dark"] so raw Tailwind stone/white classes flip cleanly.
+   ========================================================================== */
+:root {
+  --accent-50: #fdf5f3;  --accent-100: #fbe6e0; --accent-200: #f6ccbf;
+  --accent-300: #eea894; --accent-400: #e17f62; --accent-500: #d45d3e;
+  --accent-600: #c4492a; --accent-700: #a33a22; --accent-800: #852f1e;
+  --accent-900: #6d291d;
+
+  /* Surface/text tokens — stone (light). Space-separated RGB for <alpha-value>. */
+  --bg: 245 245 244;    --bg2: 231 229 228;
+  --card: 255 255 255;  --card2: 250 250 249;
+  --border: 231 229 228;
+  --text: 28 25 23; --text2: 68 64 60; --text3: 120 113 108; --text4: 168 162 158;
+}
+
+html[data-theme="dark"] {
+  --bg: 28 25 23;    --bg2: 41 37 36;
+  --card: 41 37 36;  --card2: 58 53 48;
+  --border: 68 64 60;
+  --text: 245 245 244; --text2: 231 229 228; --text3: 168 162 158; --text4: 140 133 124;
+}
+
+@layer base {
+  html, body {
+    font-family: "Inter", "Noto Sans Arabic", ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv11", "ss01";
+  }
+  body { background: #f5f5f4; color: #1c1917; margin: 0; }
+  html[dir="rtl"] body {
+    font-family: "Noto Sans Arabic", "Inter", ui-sans-serif, system-ui, sans-serif;
+  }
+  html[data-density="compact"] { font-size: 13.5px; }
+
+  * { -webkit-tap-highlight-color: transparent; }
+  ::selection { background: var(--accent-100); color: var(--accent-900); }
+  button:focus-visible, a:focus-visible, input:focus-visible {
+    outline: 2px solid var(--accent-500);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  .tabular { font-variant-numeric: tabular-nums; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+}
+
+/* Scrollbars — warm, unobtrusive. */
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #e7e5e4; border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background: #d6d3d1; background-clip: padding-box; }
+
+/* RTL drawer slide-in (mirror of drawer-in). */
+@keyframes drawerInL { 0% { opacity: 1; transform: translateX(-24px); } 100% { opacity: 1; transform: translateX(0); } }
+
+/* ==========================================================================
+   DARK THEME — curated remap (adopted from the handoff). Keys on
+   html[data-theme="dark"]; entrance keyframes keep opacity:1 so content is
+   never invisible when paused.
+   ========================================================================== */
+html[data-theme="dark"] body { background: #1c1917; color: #f5f5f4; }
+html[data-theme="dark"] .bg-white { background-color: #292524 !important; }
+html[data-theme="dark"] .bg-white\/80,
+html[data-theme="dark"] .bg-white\/90,
+html[data-theme="dark"] .bg-white\/95 { background-color: rgba(41,37,36,.92) !important; }
+html[data-theme="dark"] .bg-stone-50,
+html[data-theme="dark"] .bg-stone-50\/60,
+html[data-theme="dark"] .bg-stone-50\/80,
+html[data-theme="dark"] .bg-stone-50\/40,
+html[data-theme="dark"] .bg-stone-50\/30 { background-color: #1c1917 !important; }
+html[data-theme="dark"] .bg-stone-100,
+html[data-theme="dark"] .bg-stone-100\/80,
+html[data-theme="dark"] .bg-stone-100\/70,
+html[data-theme="dark"] .bg-stone-100\/60 { background-color: #3a3530 !important; }
+html[data-theme="dark"] .text-stone-900 { color: #f5f5f4 !important; }
+html[data-theme="dark"] .text-stone-800 { color: #e7e5e4 !important; }
+html[data-theme="dark"] .text-stone-700 { color: #d6d3d1 !important; }
+html[data-theme="dark"] .text-stone-600 { color: #c0bbb5 !important; }
+html[data-theme="dark"] .text-stone-500 { color: #a8a29e !important; }
+html[data-theme="dark"] .text-stone-400 { color: #8c857c !important; }
+html[data-theme="dark"] .text-stone-300 { color: #6b645c !important; }
+html[data-theme="dark"] .ring-stone-200,
+html[data-theme="dark"] .ring-stone-200\/70,
+html[data-theme="dark"] .ring-stone-200\/60,
+html[data-theme="dark"] .ring-stone-100,
+html[data-theme="dark"] .ring-stone-300 { --tw-ring-color: #44403c !important; }
+html[data-theme="dark"] .border-stone-100,
+html[data-theme="dark"] .border-stone-200,
+html[data-theme="dark"] .border-stone-200\/70,
+html[data-theme="dark"] .border-stone-200\/60,
+html[data-theme="dark"] .divide-stone-100 > :not([hidden]) ~ :not([hidden]) { border-color: #3a3530 !important; }
+html[data-theme="dark"] .hover\:bg-stone-50:hover,
+html[data-theme="dark"] .hover\:bg-stone-100:hover,
+html[data-theme="dark"] .hover\:bg-stone-100\/70:hover { background-color: #3a3530 !important; }
+html[data-theme="dark"] *::-webkit-scrollbar-thumb { background: #44403c; }
+html[data-theme="dark"] img[alt="Justyol"] { filter: invert(1) brightness(1.8); }
+
+/* ==========================================================================
+   PRIMITIVES — a few shared helper classes. Screens mostly use raw Tailwind
+   (stone/accent) to match the handoff; these are convenience wrappers.
+   ========================================================================== */
+@layer components {
+  .lp-card { @apply bg-white ring-1 ring-stone-200/70 rounded-xl; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+  .lp-card-pad { @apply lp-card p-4; }
+
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg font-medium text-[13px] px-3.5 py-2 transition-all duration-150 select-none disabled:opacity-50 disabled:cursor-not-allowed; }
+  .btn-primary { @apply btn text-white; background: var(--accent-600); }
+  .btn-primary:hover { background: var(--accent-700); }
+  .btn-outline { @apply btn bg-white ring-1 ring-stone-200 text-stone-700 hover:bg-stone-50; }
+  .btn-ghost { @apply btn text-stone-600 hover:bg-stone-100; }
+  .btn-danger { @apply btn bg-rose-600 text-white hover:bg-rose-700; }
+
+  .input { @apply w-full bg-white ring-1 ring-stone-200 rounded-lg px-3 py-2 text-[13px] text-stone-900 placeholder:text-stone-400 focus:ring-2 focus:outline-none transition; }
+  .input:focus { --tw-ring-color: var(--accent-500); }
+  .label { @apply block text-[12.5px] font-medium text-stone-600 mb-1.5; }
+
+  .badge { @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold leading-none ring-1; }
+  .caption { @apply text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-500; }
+
+  .skeleton { @apply relative overflow-hidden bg-stone-100 rounded-md; }
+  .skeleton::after { content: ""; @apply absolute inset-0 -translate-x-full; background: linear-gradient(90deg, transparent, rgba(0,0,0,.05), transparent); animation: shimmer 1.4s infinite; }
+}
+
+[dir="rtl"] .flip-rtl { transform: scaleX(-1); }
+@keyframes shimmer { 100% { transform: translateX(100%); } }

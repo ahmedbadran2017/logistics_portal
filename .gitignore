@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+# Built bundle is committed intentionally (served by Frappe):
+!logistics_portal/public/
+# OS
+.DS_Store

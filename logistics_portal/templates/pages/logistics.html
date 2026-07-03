@@ -1,0 +1,24 @@
+{%- block head %}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0f172a">
+<title>Justyol Logistics</title>
+{{ include_style("logistics_portal.bundle.css") }}
+{%- endblock %}
+
+{%- block page_content %}
+<div id="app"></div>
+{%- endblock %}
+
+{%- block script %}
+<script>
+    // Boot data injected by Frappe so the SPA knows the session user without a round-trip.
+    window.frappe_boot = {
+        user: "{{ frappe.session.user }}",
+        csrf_token: "{{ frappe.session.csrf_token if frappe.session else '' }}",
+        sitename: "{{ frappe.local.site }}",
+    };
+    window.csrf_token = "{{ frappe.session.csrf_token if frappe.session else '' }}";
+</script>
+{{ include_script("logistics_portal.bundle.js") }}
+{%- endblock %}

@@ -1,0 +1,86 @@
+[
+ {
+  "doctype": "Custom Field",
+  "name": "Sales Order-custom_picked_at",
+  "dt": "Sales Order",
+  "fieldname": "custom_picked_at",
+  "label": "Picked At",
+  "fieldtype": "Datetime",
+  "insert_after": "custom_logistics_status",
+  "read_only": 1,
+  "no_copy": 1,
+  "allow_on_submit": 1,
+  "description": "Stamped automatically when custom_logistics_status first reaches Picked."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Sales Order-custom_labeled_at",
+  "dt": "Sales Order",
+  "fieldname": "custom_labeled_at",
+  "label": "Labeled At",
+  "fieldtype": "Datetime",
+  "insert_after": "custom_picked_at",
+  "read_only": 1,
+  "no_copy": 1,
+  "allow_on_submit": 1,
+  "description": "Stamped when the label is generated/printed."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Sales Order-custom_shipped_at",
+  "dt": "Sales Order",
+  "fieldname": "custom_shipped_at",
+  "label": "Shipped At",
+  "fieldtype": "Datetime",
+  "insert_after": "custom_labeled_at",
+  "read_only": 1,
+  "no_copy": 1,
+  "allow_on_submit": 1,
+  "description": "Stamped when the order is added to a Shipment manifest."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Sales Order-custom_delivered_at",
+  "dt": "Sales Order",
+  "fieldname": "custom_delivered_at",
+  "label": "Delivered At",
+  "fieldtype": "Datetime",
+  "insert_after": "custom_shipped_at",
+  "read_only": 1,
+  "no_copy": 1,
+  "allow_on_submit": 1,
+  "description": "Stamped when the carrier confirms delivery."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Delivery Note-custom_assigned_packer",
+  "dt": "Delivery Note",
+  "fieldname": "custom_assigned_packer",
+  "label": "Assigned Packer",
+  "fieldtype": "Link",
+  "options": "User",
+  "insert_after": "custom_logistics_status",
+  "description": "Packer/shipper who built this parcel (explicit capture, set by the portal)."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "User-custom_logistics_role",
+  "dt": "User",
+  "fieldname": "custom_logistics_role",
+  "label": "Logistics Role",
+  "fieldtype": "Select",
+  "options": "\nmanager\ndispatcher\npicker\npacker\nreturns",
+  "insert_after": "role_profile_name",
+  "description": "Portal role. Overrides the emergent-role heuristic in logistics_portal.api.auth."
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "User-custom_logistics_zone",
+  "dt": "User",
+  "fieldname": "custom_logistics_zone",
+  "label": "Logistics Zone",
+  "fieldtype": "Data",
+  "insert_after": "custom_logistics_role",
+  "description": "Optional home zone shown on the portal role badge (e.g. FAST ZONE - JM)."
+ }
+]

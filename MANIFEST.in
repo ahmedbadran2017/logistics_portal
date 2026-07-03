@@ -1,0 +1,17 @@
+include MANIFEST.in
+include requirements.txt
+include *.json
+include *.md
+include *.py
+include *.txt
+recursive-include logistics_portal *.css
+recursive-include logistics_portal *.csv
+recursive-include logistics_portal *.html
+recursive-include logistics_portal *.ico
+recursive-include logistics_portal *.js
+recursive-include logistics_portal *.json
+recursive-include logistics_portal *.md
+recursive-include logistics_portal *.png
+recursive-include logistics_portal *.py
+recursive-include logistics_portal *.svg
+recursive-include logistics_portal *.txt
