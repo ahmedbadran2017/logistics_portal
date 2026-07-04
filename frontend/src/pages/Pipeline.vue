@@ -59,18 +59,18 @@
     </div>
 
     <!-- Flow strip -->
-    <div class="overflow-x-auto pb-1 -mx-1 px-1">
+    <div class="overflow-x-auto py-1 -mx-1 px-1">
       <div class="flex items-stretch gap-0 min-w-[980px]">
         <template v-for="(s, i) in stages" :key="s.key">
           <button
-            class="relative flex-1 text-start rounded-xl p-3 ring-1 transition-all duration-200 group"
+            class="relative flex-1 text-start rounded-xl p-3 ring-1 transition-all duration-200 group overflow-hidden"
             :class="activeStage === s.key
-              ? 'bg-white shadow-[0_8px_24px_-8px_rgba(0,0,0,0.14)] ring-2 -translate-y-0.5'
-              : 'bg-white/60 ring-stone-200/70 hover:bg-white hover:-translate-y-0.5 hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.1)]'"
+              ? 'bg-white shadow-[0_8px_24px_-8px_rgba(0,0,0,0.14)] ring-2'
+              : 'bg-white/60 ring-stone-200/70 hover:bg-white hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.1)]'"
             :style="activeStage === s.key ? { '--tw-ring-color': s.hex } : {}"
             @click="load(s.key)"
           >
-            <span class="absolute top-0 inset-x-3 h-[3px] rounded-b-full transition-opacity"
+            <span class="absolute top-0 inset-x-0 h-[3px] transition-opacity"
                   :style="{ background: s.hex, opacity: activeStage === s.key ? 1 : 0 }" />
             <div class="flex items-center gap-2 whitespace-nowrap">
               <span class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
