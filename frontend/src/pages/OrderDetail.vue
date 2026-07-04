@@ -174,8 +174,8 @@
 
       <!-- RIGHT -->
       <div class="space-y-4">
-        <!-- Fulfillment status timeline -->
-        <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+        <!-- Fulfillment status timeline (fabricated · preview only) -->
+        <div v-if="!isLive" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
           <div class="flex items-center justify-between mb-4">
             <div class="text-[13px] font-semibold text-stone-900">Fulfillment status</div>
             <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 bg-[var(--accent-50)] text-[var(--accent-700)] ring-[var(--accent-200,#c7d2fe)]">
@@ -212,9 +212,13 @@
         </div>
 
         <!-- Logistics activity (real audit trail) -->
+        <div v-if="isLive && !activityEvents.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-6 text-center">
+          <div class="text-[13px] font-semibold text-stone-900 mb-1">Fulfillment activity</div>
+          <div class="text-[12px] text-stone-400">No logistics activity recorded yet for this order.</div>
+        </div>
         <div v-if="activityEvents.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
           <div class="flex items-center justify-between mb-4">
-            <div class="text-[13px] font-semibold text-stone-900">Logistics activity</div>
+            <div class="text-[13px] font-semibold text-stone-900">Fulfillment activity</div>
             <span class="text-[10.5px] text-stone-400">who · what · when</span>
           </div>
           <ol class="relative">
@@ -427,6 +431,7 @@ const slaBadge = computed(() => {
 
 // ── Line items (deterministic, mirrors genLineItems) ──────────────────
 const liveItems = ref([]);
+const isLive = computed(() => !!liveOrder.value);
 const items = computed(() => {
   if (liveItems.value.length) return liveItems.value;
   const o = order.value;
