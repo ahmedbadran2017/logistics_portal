@@ -1,247 +1,387 @@
 <template>
-  <div class="max-w-[1320px] mx-auto px-6 py-6">
-    <!-- Header -->
-    <div class="flex items-start justify-between gap-4 mb-5 flex-wrap">
+  <div class="p-5 sm:p-6 space-y-5 max-w-[1500px] mx-auto animate-fade-in">
+    <!-- Title -->
+    <div class="flex items-start justify-between gap-4 flex-wrap">
       <div>
-        <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">Orders</h1>
-        <p class="text-[12.5px] text-stone-500 mt-0.5">
-          Confirmed orders — logistics queue · {{ orders.length }} orders · {{ WAREHOUSE }}
+        <h1 class="text-[22px] font-semibold text-stone-900 tracking-[-0.01em]">Orders</h1>
+        <p class="text-[13px] text-stone-500 mt-0.5 flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          Operations theater — the Confirmed flow · {{ WAREHOUSE }}
         </p>
       </div>
       <button
-        class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium text-stone-700 bg-white rounded-lg ring-1 ring-stone-200 hover:ring-stone-300 transition-colors whitespace-nowrap"
+        class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
+        :class="loading ? 'opacity-60 pointer-events-none' : ''"
+        @click="load(activeStage)"
       >
-        <Icon name="file-text" :size="15" /> Export
+        <Icon name="refresh-cw" :size="14" :class="loading ? 'animate-spin' : ''" /> Refresh
       </button>
     </div>
 
-    <!-- KPI strip -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-      <div
-        v-for="k in kpis"
-        :key="k.label"
-        class="bg-white rounded-xl ring-1 ring-stone-200/70 px-4 py-3.5"
-      >
-        <div class="flex items-center gap-1.5 text-[11.5px] font-medium text-stone-500">
-          <span
-            class="w-6 h-6 rounded-lg flex items-center justify-center"
-            :class="k.tone"
-          >
-            <Icon :name="k.icon" :size="13" />
-          </span>
-          {{ k.label }}
-        </div>
-        <div class="text-[22px] font-semibold text-stone-900 tabular-nums mt-1.5 leading-none">
-          {{ k.value }}<span v-if="k.unit" class="text-[11px] text-stone-400 ms-1 font-normal">{{ k.unit }}</span>
-        </div>
+    <!-- Attention bar -->
+    <div
+      v-if="attentionTotal > 0"
+      class="rounded-2xl ring-1 ring-rose-200/70 bg-gradient-to-r from-rose-50 via-amber-50/60 to-white p-3.5 flex items-center gap-3 flex-wrap"
+    >
+      <span class="w-9 h-9 rounded-xl bg-rose-500 text-white flex items-center justify-center flex-shrink-0">
+        <Icon name="alert-triangle" :size="18" />
+      </span>
+      <div class="me-1">
+        <div class="text-[13.5px] font-semibold text-stone-900 leading-tight">Needs a human</div>
+        <div class="text-[11.5px] text-stone-500">faults, not stages</div>
       </div>
-    </div>
-
-    <!-- search + SLA filters -->
-    <div class="flex items-center gap-2 mb-3 flex-wrap">
-      <div class="relative flex-1 min-w-[200px]">
-        <Icon name="search" :size="14" class="absolute start-3 top-1/2 -translate-y-1/2 text-stone-400" />
-        <input
-          v-model="q"
-          placeholder="Search order, AWB, pick list…"
-          class="w-full h-9 ps-9 pe-3 text-[13px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none"
-        />
-      </div>
-      <div class="flex items-center gap-1.5 overflow-x-auto">
-        <button
-          v-for="s in slaFilters"
-          :key="s.key"
-          class="px-2.5 h-7 text-[12px] font-medium rounded-lg ring-1 transition-colors whitespace-nowrap"
-          :class="sla === s.key ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200 hover:ring-stone-300'"
-          @click="sla = s.key"
-        >
-          {{ s.label }}
-        </button>
-      </div>
-    </div>
-
-    <!-- stage filters -->
-    <div class="flex items-center gap-1.5 mb-3 overflow-x-auto pb-1">
       <button
-        v-for="s in stageFilters"
-        :key="s.key"
-        class="px-2.5 h-7 text-[12px] font-medium rounded-lg ring-1 transition-colors whitespace-nowrap"
-        :class="stage === s.key ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200 hover:ring-stone-300'"
-        @click="stage = s.key"
+        v-for="a in attentionChips" :key="a.key"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold ring-1 transition-all hover:-translate-y-px"
+        :class="activeStage === 'attention' ? 'bg-rose-600 text-white ring-rose-600' : 'bg-white text-stone-700 ring-stone-200 hover:ring-rose-300'"
+        @click="load('attention')"
       >
-        {{ s.label }}
+        <span class="w-1.5 h-1.5 rounded-full" :style="{ background: a.hex }" />
+        {{ a.label }}
+        <span class="font-mono tabular-nums" :style="activeStage === 'attention' ? {} : { color: a.hex }">{{ a.count }}</span>
       </button>
     </div>
 
-    <!-- table -->
-    <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
-      <div class="overflow-x-auto">
-        <table class="w-full min-w-[820px]">
+    <!-- Flow strip -->
+    <div class="overflow-x-auto pb-1 -mx-1 px-1">
+      <div class="flex items-stretch gap-0 min-w-[980px]">
+        <template v-for="(s, i) in stages" :key="s.key">
+          <button
+            class="relative flex-1 text-start rounded-xl p-3 ring-1 transition-all duration-200 group"
+            :class="activeStage === s.key
+              ? 'bg-white shadow-[0_8px_24px_-8px_rgba(0,0,0,0.14)] ring-2 -translate-y-0.5'
+              : 'bg-white/60 ring-stone-200/70 hover:bg-white hover:-translate-y-0.5 hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.1)]'"
+            :style="activeStage === s.key ? { '--tw-ring-color': s.hex } : {}"
+            @click="load(s.key)"
+          >
+            <div class="flex items-center gap-2">
+              <span class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                    :style="{ background: s.hex + '1c', color: s.hex }">
+                <Icon :name="s.icon" :size="15" />
+              </span>
+              <span class="text-[11px] font-semibold uppercase tracking-[0.04em]"
+                    :class="activeStage === s.key ? 'text-stone-900' : 'text-stone-500'">{{ s.label }}</span>
+            </div>
+            <div class="mt-2 text-[24px] leading-none font-semibold tabular-nums"
+                 :style="{ color: (counts[s.key] ?? 0) > 0 ? s.hex : '#d6d3d1' }">
+              {{ counts[s.key] ?? "—" }}
+            </div>
+            <div class="mt-1 text-[10.5px] text-stone-400 leading-tight">{{ s.hint }}</div>
+          </button>
+          <div v-if="i < stages.length - 1" class="flex items-center px-0.5 text-stone-300 flex-shrink-0">
+            <Icon name="chevron-right" :size="14" class="flip-rtl" />
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Shipped sub-segmentation -->
+    <div v-if="activeStage === 'shipped'" class="flex items-center gap-2 flex-wrap">
+      <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">Carrier status</span>
+      <button
+        v-for="tchip in trackChips" :key="tchip.key"
+        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium ring-1 transition-colors"
+        :class="activeTrack === tchip.key
+          ? 'text-white ring-transparent'
+          : 'bg-white text-stone-600 ring-stone-200 hover:ring-stone-300'"
+        :style="activeTrack === tchip.key ? { background: tchip.hex } : {}"
+        @click="setTrack(tchip.key)"
+      >
+        {{ tchip.label }}
+        <span class="font-mono tabular-nums" :style="activeTrack === tchip.key ? {} : { color: tchip.hex }">{{ tchip.count }}</span>
+      </button>
+    </div>
+
+    <!-- Rows -->
+    <div class="bg-white rounded-xl ring-1 ring-stone-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.03)] overflow-hidden">
+      <div v-if="loading" class="divide-y divide-stone-100">
+        <div v-for="n in 6" :key="n" class="px-4 py-3.5 flex items-center gap-4">
+          <div class="h-3.5 w-20 rounded bg-stone-100 animate-pulse" />
+          <div class="h-3.5 w-40 rounded bg-stone-100 animate-pulse" />
+          <div class="h-3.5 w-24 rounded bg-stone-100 animate-pulse ms-auto" />
+        </div>
+      </div>
+
+      <div v-else-if="!rows.length" class="py-16 text-center">
+        <span class="inline-flex w-12 h-12 rounded-2xl items-center justify-center mb-3"
+              :style="{ background: activeMeta.hex + '1c', color: activeMeta.hex }">
+          <Icon :name="activeMeta.icon" :size="22" />
+        </span>
+        <div class="text-[14.5px] font-semibold text-stone-900">{{ activeMeta.emptyTitle }}</div>
+        <div class="text-[12.5px] text-stone-500 mt-0.5">{{ activeMeta.emptyHint }}</div>
+      </div>
+
+      <div v-else class="overflow-x-auto">
+        <table class="w-full text-[13px]">
           <thead>
-            <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
-              <th class="text-start px-4 py-2.5">Order</th>
-              <th class="text-start px-4 py-2.5">Customer</th>
-              <th class="text-start px-4 py-2.5 hidden md:table-cell">Channel</th>
-              <th class="text-start px-4 py-2.5 hidden lg:table-cell">Zone</th>
-              <th class="text-start px-4 py-2.5">Picker</th>
-              <th class="text-start px-4 py-2.5">Stage</th>
-              <th class="text-start px-4 py-2.5">SLA</th>
-              <th class="text-start px-4 py-2.5 hidden sm:table-cell">Placed</th>
-              <th class="text-end px-4 py-2.5">Value</th>
+            <tr class="text-start border-b border-stone-100">
+              <th class="text-start px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Order</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Customer</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Documents</th>
+              <th v-if="activeStage === 'attention'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Fault</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Picker</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">In stage</th>
+              <th class="text-end px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Value</th>
+              <th class="text-end px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400"></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-stone-100">
-            <tr
-              v-for="o in rows"
-              :key="o.no"
-              class="cursor-pointer transition-colors hover:bg-stone-50"
-              @click="openOrder(o)"
-            >
-              <td class="px-4 py-2.5 font-mono text-[12px] font-semibold text-stone-900 whitespace-nowrap">{{ o.no }}</td>
-              <td class="px-4 py-2.5 text-[12.5px] text-stone-800 truncate max-w-[150px]">{{ o.customer }}</td>
-              <td class="px-4 py-2.5 hidden md:table-cell">
-                <span
-                  class="inline-flex items-center px-2 py-0.5 rounded-md text-[10.5px] font-semibold ring-1 whitespace-nowrap"
-                  :class="channelChip(o.channel)"
-                >
-                  {{ CHANNELS[o.channel]?.label || o.channel }}
-                </span>
-              </td>
-              <td class="px-4 py-2.5 text-[11.5px] text-stone-500 hidden lg:table-cell whitespace-nowrap">{{ o.zone }}</td>
-              <td class="px-4 py-2.5">
-                <div v-if="o.picker" class="flex items-center gap-1.5">
-                  <span class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 text-[9px] font-bold flex items-center justify-center flex-shrink-0">{{ initials(byId(o.picker).name) }}</span>
-                  <span class="text-[11.5px] text-stone-600 hidden xl:inline">{{ byId(o.picker).short }}</span>
+            <tr v-for="r in rows" :key="r.no" class="hover:bg-stone-50/70 transition-colors cursor-pointer group"
+                @click="openOrder(r)">
+              <td class="px-4 py-3">
+                <div class="font-mono font-bold text-stone-900">{{ r.no }}</div>
+                <div class="text-[11px] text-stone-400 flex items-center gap-1 mt-0.5">
+                  <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="{ background: channelHex(r.channel) }" />
+                  {{ r.channel }}<span v-if="r.city"> · {{ r.city }}</span>
                 </div>
-                <span v-else class="text-[11.5px] text-stone-300">—</span>
               </td>
-              <td class="px-4 py-2.5">
-                <span
-                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold ring-1 whitespace-nowrap"
-                  :class="[STAGE[o.stage].txt, STAGE[o.stage].bg, STAGE[o.stage].ring]"
-                >
-                  <span class="w-1.5 h-1.5 rounded-full" :class="STAGE[o.stage].dot" />
-                  {{ STAGE_LABEL[o.stage] }}
+              <td class="px-3 py-3">
+                <div class="font-medium text-stone-800 truncate max-w-[180px]">{{ r.customer }}</div>
+                <div class="text-[11px] text-stone-400 tabular-nums">{{ r.items }} item{{ r.items > 1 ? "s" : "" }}</div>
+              </td>
+              <td class="px-3 py-3">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <a v-if="r.pl" :href="desk('pick-list', r.pl)" target="_blank" @click.stop
+                     class="doc-chip text-violet-700 bg-violet-50 hover:bg-violet-100" style="--chip-ring:#ddd6fe">
+                    <Icon name="package" :size="11" />{{ r.pl }}
+                  </a>
+                  <a v-if="r.awb" :href="r.labelUrl || desk('sales-order', r.no)" target="_blank" @click.stop
+                     class="doc-chip text-stone-600 bg-stone-100 hover:bg-stone-200" style="--chip-ring:#e7e5e4">
+                    <Icon name="tag" :size="11" />{{ r.awb }}
+                  </a>
+                  <a v-if="r.sh" :href="desk('shipment', r.sh)" target="_blank" @click.stop
+                     class="doc-chip text-emerald-700 bg-emerald-50 hover:bg-emerald-100" style="--chip-ring:#a7f3d0">
+                    <Icon name="truck" :size="11" />{{ r.sh }}
+                  </a>
+                  <a v-if="r.ret" :href="desk('return-shipment', r.ret)" target="_blank" @click.stop
+                     class="doc-chip text-rose-700 bg-rose-50 hover:bg-rose-100" style="--chip-ring:#fecdd3">
+                    <Icon name="rotate-ccw" :size="11" />{{ r.ret }}
+                  </a>
+                  <span v-if="activeStage === 'shipped' && r.track" class="doc-chip"
+                        :style="{ color: trackHexOf(r.track), background: trackHexOf(r.track) + '14', '--chip-ring': trackHexOf(r.track) + '40' }">
+                    {{ r.track }}
+                  </span>
+                  <span v-if="!r.pl && !r.awb && !r.sh && !r.ret" class="text-[11px] text-stone-300">—</span>
+                </div>
+              </td>
+              <td v-if="activeStage === 'attention'" class="px-3 py-3">
+                <span class="doc-chip" :style="{ color: faultHex(r.kind), background: faultHex(r.kind) + '14', '--chip-ring': faultHex(r.kind) + '40' }">
+                  {{ faultLabel(r.kind) }}
                 </span>
               </td>
-              <td class="px-4 py-2.5">
-                <span
-                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold ring-1 whitespace-nowrap"
-                  :class="[SLA[o.sla].txt, SLA[o.sla].bg, SLA[o.sla].ring]"
-                >
-                  <span class="w-1.5 h-1.5 rounded-full" :class="SLA[o.sla].dot" />
-                  {{ SLA_LABEL[o.sla] }}
+              <td class="px-3 py-3">
+                <div v-if="r.picker" class="flex items-center gap-1.5">
+                  <span class="w-6 h-6 rounded-full bg-stone-100 text-stone-600 text-[10px] font-bold flex items-center justify-center">
+                    {{ initials(r.picker) }}
+                  </span>
+                  <span class="text-[12px] text-stone-600 truncate max-w-[90px]">{{ pickerShort(r.picker) }}</span>
+                </div>
+                <span v-else class="text-[11px] text-stone-300">—</span>
+              </td>
+              <td class="px-3 py-3">
+                <span class="inline-flex items-center gap-1 text-[12px] font-semibold tabular-nums"
+                      :style="{ color: ageHex(r.ageMins) }">
+                  <Icon name="clock" :size="12" />{{ ageFmt(r.ageMins) }}
                 </span>
               </td>
-              <td class="px-4 py-2.5 hidden sm:table-cell whitespace-nowrap">
-                <span class="text-[12px] text-stone-600 tabular-nums">{{ o._p.hhmm }}</span>
-                <span class="text-[10.5px] text-stone-400"> · {{ o._p.age }}</span>
+              <td class="px-3 py-3 text-end">
+                <span class="font-mono font-semibold text-stone-900 tabular-nums">{{ fmtMAD(r.total) }}</span>
+                <span class="text-[10px] text-stone-400"> MAD</span>
               </td>
-              <td class="px-4 py-2.5 text-end text-[12.5px] font-semibold text-stone-900 tabular-nums whitespace-nowrap">{{ fmtMAD(o.total) }}</td>
+              <td class="px-4 py-3 text-end">
+                <component
+                  :is="actionFor(r) && actionFor(r).href ? 'a' : 'button'"
+                  v-if="actionFor(r)"
+                  v-bind="actionFor(r).href ? { href: actionFor(r).href, target: '_blank' } : {}"
+                  class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                  :style="{ background: activeMeta.hex }"
+                  @click.stop="actionFor(r).go && actionFor(r).go(r)"
+                >
+                  {{ actionFor(r).label }} <Icon name="chevron-right" :size="12" class="flip-rtl" />
+                </component>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
-      <div v-if="rows.length === 0" class="text-center text-[12.5px] text-stone-400 py-12">
-        No orders match these filters.
-      </div>
+    </div>
+
+    <div class="text-[11px] text-stone-400 text-center">
+      Stage is derived from documents (Pick List → AWB → print → manifest → tracking) — updated {{ updatedAgo }}
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
-import {
-  ORDERS as DEMO_ORDERS, STAGE, STAGE_LABEL, SLA, SLA_LABEL,
-  CHANNELS, byId, fmtMAD, WAREHOUSE,
-} from "@/lib/handoffData";
+import { WAREHOUSE, fmtMAD } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
 
 const router = useRouter();
 
-const q = ref("");
-const stage = ref("all");
-const sla = ref("all");
+// ── Stage model (production-verified signals) ────────────────────────
+const stages = [
+  { key: "to_pick",   label: "To Pick",       icon: "list-checks",  hex: "#d97706", hint: "Confirmed · no pick list",    emptyTitle: "Nothing to pick 🎉",    emptyHint: "Every confirmed order has a pick list." },
+  { key: "picking",   label: "Picking",       icon: "package",      hex: "#0891b2", hint: "Pick list in progress",       emptyTitle: "No picks running",      emptyHint: "Create pick lists from To Pick." },
+  { key: "prepared",  label: "Prepared",      icon: "tag",          hex: "#7c3aed", hint: "AWB created · to print",      emptyTitle: "Nothing to print",      emptyHint: "Submitting a pick list creates the AWB." },
+  { key: "ready",     label: "Ready to Ship", icon: "printer",      hex: "#4f46e5", hint: "Printed · awaiting manifest", emptyTitle: "Nothing staged",        emptyHint: "Printed orders wait here for the manifest." },
+  { key: "shipped",   label: "Shipped",       icon: "truck",        hex: "#059669", hint: "With Cathedis",               emptyTitle: "Nothing with carrier",  emptyHint: "Close a manifest to hand parcels over." },
+  { key: "delivered", label: "Delivered",     icon: "check-circle", hex: "#10b981", hint: "Last 30 days",                emptyTitle: "No deliveries yet",     emptyHint: "Delivered orders land here." },
+  { key: "to_return", label: "To Return",     icon: "rotate-ccw",   hex: "#ea580c", hint: "Coming back · with carrier",  emptyTitle: "No returns in transit", emptyHint: "Carrier-flagged returns appear here." },
+  { key: "returned",  label: "Returned",      icon: "archive",      hex: "#78716c", hint: "Received in RET batch",       emptyTitle: "No returns received",   emptyHint: "Scanned return batches land here." },
+];
+const ATTENTION_META = { key: "attention", label: "Attention", icon: "alert-triangle", hex: "#e11d48", emptyTitle: "All clear", emptyHint: "No operational faults right now." };
 
-// Live-or-demo orders. `orders.list` (floor scope) fills this once installed;
-// falls back to the demo seed in local preview / on error.
-const orders = ref(DEMO_ORDERS);
-
-onMounted(async () => {
-  const live = await liveOr(null, () => api("orders.list", { scope: "floor", limit: 60 }));
-  if (live && live.length) orders.value = live;
-});
-
-const kpis = computed(() => [
-  { label: "orders", icon: "package", tone: "bg-stone-100 text-stone-500", value: orders.value.length },
-  { label: "At risk now", icon: "clock", tone: "bg-amber-50 text-amber-600", value: orders.value.filter((o) => o.sla === "atrisk").length },
-  { label: "SLA breaches", icon: "alert-circle", tone: "bg-rose-50 text-rose-600", value: orders.value.filter((o) => o.sla === "breached").length },
-  { label: "Open value", icon: "dollar-sign", tone: "bg-emerald-50 text-emerald-600", value: fmtMAD(rows.value.reduce((a, o) => a + o.total, 0)), unit: "MAD" },
-]);
-
-const slaFilters = [
-  { key: "all", label: "SLA: All" },
-  { key: "ontrack", label: "On Track" },
-  { key: "atrisk", label: "At Risk" },
-  { key: "breached", label: "Breached" },
+const TRACK_ORDER = [
+  { key: "In Transit",         label: "In Transit",       hex: "#0891b2" },
+  { key: "Out For Delivery",   label: "Out for Delivery", hex: "#4f46e5" },
+  { key: "Delivery Exception", label: "Exception",        hex: "#e11d48" },
+  { key: "Failed Attempt",     label: "Failed",           hex: "#ea580c" },
+  { key: "Pending",            label: "Pending",          hex: "#a8a29e" },
+  { key: "Delivered",          label: "Awaiting sync",    hex: "#10b981" },
+  { key: "none",               label: "No tracking",      hex: "#78716c" },
 ];
 
-const stageFilters = [
-  { key: "all", label: "All stages" },
-  { key: "pending", label: "Pending" },
-  { key: "picking", label: "Picking" },
-  { key: "picked", label: "Picked" },
-  { key: "label", label: "Label Printed" },
-  { key: "shipped", label: "Shipped" },
-  { key: "transit", label: "In Transit" },
-  { key: "exception", label: "Exception" },
-  { key: "delivered", label: "Delivered" },
-  { key: "returned", label: "Returned" },
-];
-
-// Channel chip tone → Tailwind classes (label + tone)
-const CHANNEL_TONES = {
-  emerald: "text-emerald-700 bg-emerald-50 ring-emerald-200",
-  violet: "text-violet-700 bg-violet-50 ring-violet-200",
-  amber: "text-amber-700 bg-amber-50 ring-amber-200",
-  slate: "text-slate-700 bg-slate-50 ring-slate-200",
-  green: "text-green-700 bg-green-50 ring-green-200",
+// ── Demo fallback (preview without a backend) ────────────────────────
+const DEMO_BOARD = {
+  counts: { to_pick: 12, picking: 4, prepared: 6, ready: 5, shipped: 42, delivered: 210, to_return: 9, returned: 6 },
+  shippedTracks: { "In Transit": 12, "Out For Delivery": 9, "Delivery Exception": 11, "Failed Attempt": 5, Pending: 3, none: 2 },
+  attention: { cancelled_midflow: 2, no_awb: 1, sync_lag: 3 },
+  rows: [
+    { no: "#242646", customer: "oualid elmouden", total: 149, channel: "shopify", items: 1, city: "Casablanca", awb: "", track: "", ageMins: 41 },
+    { no: "#242644", customer: "Chada Rami", total: 198, channel: "shopify", items: 2, city: "Rabat", awb: "", track: "", ageMins: 12 },
+    { no: "SAL-ORD-2026-00299", customer: "Salma", total: 149, channel: "manual", items: 1, city: "Tangier", awb: "", track: "", ageMins: 8 },
+  ],
 };
-function channelChip(key) {
-  return CHANNEL_TONES[CHANNELS[key]?.tone] || "text-stone-600 bg-stone-100 ring-stone-200";
-}
 
-function initials(name) {
-  if (!name) return "?";
-  const p = name.trim().split(/\s+/);
-  return ((p[0]?.[0] || "") + (p.length > 1 ? p[p.length - 1][0] : "")).toUpperCase();
-}
+// ── State ────────────────────────────────────────────────────────────
+const counts = ref(DEMO_BOARD.counts);
+const shippedTracks = ref(DEMO_BOARD.shippedTracks);
+const attention = ref(DEMO_BOARD.attention);
+const rows = ref(DEMO_BOARD.rows);
+const activeStage = ref("to_pick");
+const activeTrack = ref("");
+const loading = ref(false);
+const updatedAt = ref(Date.now());
+const tick = ref(0);
+let timer = null;
 
-// deterministic placed-time + age per order
-function placed(o) {
-  const n = parseInt((o.no.match(/\d+/) || [10])[0]);
-  const ageMin = (n * 37) % 540 + (o.stage === "pending" ? 4 : 30);
-  const d = new Date();
-  d.setHours(7, 0, 0, 0);
-  d.setMinutes(d.getMinutes() + ((n * 53) % 600));
-  const hhmm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  const age = ageMin >= 60 ? `${Math.floor(ageMin / 60)}h` : `${ageMin}m`;
-  return { hhmm, ageMin, age };
-}
+const activeMeta = computed(() =>
+  activeStage.value === "attention" ? ATTENTION_META : stages.find((s) => s.key === activeStage.value) || stages[0]
+);
+const attentionTotal = computed(() =>
+  (attention.value.cancelled_midflow || 0) + (attention.value.no_awb || 0) + (attention.value.sync_lag || 0)
+);
+const attentionChips = computed(() => [
+  { key: "cancelled_midflow", label: "Cancelled mid-flow", count: attention.value.cancelled_midflow || 0, hex: "#e11d48" },
+  { key: "no_awb", label: "PL submitted · no AWB", count: attention.value.no_awb || 0, hex: "#ea580c" },
+  { key: "sync_lag", label: "Delivered · not synced", count: attention.value.sync_lag || 0, hex: "#d97706" },
+].filter((c) => c.count > 0));
 
-const rows = computed(() => {
-  const filtered = orders.value.filter((o) => {
-    if (stage.value !== "all" && o.stage !== stage.value) return false;
-    if (sla.value !== "all" && o.sla !== sla.value) return false;
-    if (q.value && !(`${o.no} ${o.customer} ${o.awb || ""}`.toLowerCase().includes(q.value.toLowerCase()))) return false;
-    return true;
-  }).map((o) => ({ ...o, _p: placed(o) }));
-  return filtered.sort((a, b) => a._p.ageMin - b._p.ageMin);
+const trackChips = computed(() => {
+  const chips = [{ key: "", label: "All", count: counts.value.shipped || 0, hex: "#059669" }];
+  for (const t of TRACK_ORDER) {
+    const c = shippedTracks.value[t.key] || 0;
+    if (c > 0) chips.push({ ...t, count: c });
+  }
+  return chips;
 });
 
-function openOrder(o) {
-  router.push({ name: "OrderDetail", params: { name: o.no.replace("#", "") } });
+async function load(stage, track = "") {
+  activeStage.value = stage;
+  activeTrack.value = stage === "shipped" ? track : "";
+  loading.value = true;
+  const live = await liveOr(null, () =>
+    api("orders.board", { stage, track: track || undefined, limit: 50 })
+  );
+  if (live && live.counts) {
+    counts.value = live.counts;
+    shippedTracks.value = live.shippedTracks || {};
+    attention.value = live.attention || {};
+    rows.value = live.rows || [];
+    updatedAt.value = Date.now();
+  } else {
+    rows.value = stage === "to_pick" ? DEMO_BOARD.rows : [];
+  }
+  loading.value = false;
+}
+function setTrack(t) { load("shipped", t); }
+
+const updatedAgo = computed(() => {
+  tick.value; // reactive tick
+  const s = Math.max(0, Math.round((Date.now() - updatedAt.value) / 1000));
+  return s < 5 ? "just now" : s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`;
+});
+
+onMounted(() => {
+  load("to_pick");
+  timer = setInterval(() => { tick.value++; }, 5000);
+});
+onUnmounted(() => timer && clearInterval(timer));
+
+// ── Row helpers ──────────────────────────────────────────────────────
+function desk(doctype, name) {
+  return `/app/${doctype}/${encodeURIComponent(name)}`;
+}
+function openOrder(r) {
+  router.push({ name: "OrderDetail", params: { name: r.no.replace("#", "") } });
+}
+const PICKER_SHORT = {
+  marouaneelmessaoudi07: "Marouane", mouakkalanass: "Anass", asmaazirary7: "Asmaa",
+  lamdanisaad12: "Saad", ossamanahila: "Oussama", saidnakri65: "Said", redazaari47: "Reda",
+};
+function pickerShort(email) {
+  const k = (email || "").split("@")[0];
+  return PICKER_SHORT[k] || k;
+}
+function initials(email) {
+  const s = pickerShort(email);
+  return (s[0] || "?").toUpperCase() + (s[1] || "").toLowerCase();
+}
+function ageFmt(mins) {
+  if (mins < 60) return `${mins}m`;
+  if (mins < 1440) return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  return `${Math.floor(mins / 1440)}d ${Math.floor((mins % 1440) / 60)}h`;
+}
+function ageHex(mins) {
+  return mins < 120 ? "#10b981" : mins < 360 ? "#d97706" : "#e11d48";
+}
+function channelHex(ch) {
+  return { shopify: "#10b981", youcan: "#7c3aed", landing: "#d97706", manual: "#78716c", whatsapp: "#16a34a" }[ch] || "#a8a29e";
+}
+function trackHexOf(t) {
+  return TRACK_ORDER.find((x) => x.key === t)?.hex || "#a8a29e";
+}
+function faultHex(kind) {
+  return { cancelled_midflow: "#e11d48", no_awb: "#ea580c", sync_lag: "#d97706" }[kind] || "#78716c";
+}
+function faultLabel(kind) {
+  return { cancelled_midflow: "Cancelled mid-flow — restock", no_awb: "AWB automation failed", sync_lag: "Delivered — status stuck" }[kind] || kind;
+}
+function actionFor(r) {
+  switch (activeStage.value) {
+    case "to_pick":   return { label: "Assign", go: () => router.push({ name: "Assign" }) };
+    case "picking":   return r.pl ? { label: "Open PL", href: desk("pick-list", r.pl) } : null;
+    case "prepared":  return r.labelUrl ? { label: "Print", href: r.labelUrl } : { label: "Open", href: desk("sales-order", r.no) };
+    case "ready":     return { label: "Manifest", go: () => router.push({ name: "Manifest" }) };
+    case "shipped":   return { label: "Track", href: desk("sales-order", r.no) };
+    case "to_return": return { label: "Track", href: desk("sales-order", r.no) };
+    case "returned":  return r.ret ? { label: "Open RET", href: desk("return-shipment", r.ret) } : null;
+    case "attention": return r.pl ? { label: "Fix", href: desk("pick-list", r.pl) } : { label: "Open", href: desk("sales-order", r.no) };
+    default: return null;
+  }
 }
 </script>
+
+<style scoped>
+.doc-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: 6px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px; font-weight: 500;
+  box-shadow: inset 0 0 0 1px var(--chip-ring, transparent);
+  transition: background-color .15s;
+}
+</style>

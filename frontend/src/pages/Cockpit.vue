@@ -115,6 +115,7 @@
               <span class="text-[12px] font-medium text-stone-500">{{ k.label }}</span>
             </div>
             <span
+              v-if="k.trend != null"
               class="inline-flex items-center gap-0.5 text-[11px] font-semibold tabular-nums"
               :class="k.good ? 'text-emerald-600' : 'text-rose-600'"
             >
@@ -245,20 +246,24 @@ function cutoffDelta(cutoff = "14:00") {
   return (now > cut ? "+" : "−") + `${hh}:${mm}:${ss}`;
 }
 
+const isLive = ref(false);
+
 onMounted(async () => {
   const live = await liveOr(null, () => api("performance.cockpit"));
   if (live && live.summary) {
+    isLive.value = true;
     cockpit.value = {
       ...DEMO_COCKPIT,
       ...live.summary,
       pastCutoff: cutoffDelta(live.summary.cutoff || "14:00"),
+      // Real data only: drop the demo sparkline trends so nothing invented shows.
+      sameDayTrend: [], breachTrend: [], atRiskTrend: [], transitTrend: [],
     };
     if (live.pipeline && live.pipeline.length) pipeline.value = live.pipeline;
     if (live.leaderboard && live.leaderboard.length) {
-      leaderboard.value = live.leaderboard.map((r) => ({
-        ...r,
-        trend: r.trend && r.trend.length ? r.trend : (DEMO_LEADERBOARD.find((d) => d.id === r.id)?.trend || []),
-      }));
+      // Keep live rows as-is; empty trend renders a flat placeholder line
+      // instead of borrowing a fake demo sparkline.
+      leaderboard.value = live.leaderboard;
     }
   }
 });
@@ -284,11 +289,12 @@ const flowCells = computed(() => [
   { label: "To ship", value: cockpit.value.toShip, tone: "text-amber-600" },
 ]);
 
+// Trend %s are demo-only; on live data they're hidden until real history exists.
 const kpis = computed(() => [
-  { label: "Shipped same-day", icon: "zap", toneClass: "text-emerald-600 bg-emerald-50", value: cockpit.value.sameDayPct, unit: "%", trend: 4, good: true, spark: cockpit.value.sameDayTrend },
-  { label: "SLA breaches", icon: "alert-circle", toneClass: "text-rose-600 bg-rose-50", value: cockpit.value.breaches, unit: "", trend: -2, good: true, spark: cockpit.value.breachTrend },
-  { label: "At risk now", icon: "clock", toneClass: "text-amber-600 bg-amber-50", value: cockpit.value.atRisk, unit: "", trend: 1, good: false, spark: cockpit.value.atRiskTrend },
-  { label: "In Transit", icon: "globe", toneClass: "text-cyan-600 bg-cyan-50", value: cockpit.value.inTransit, unit: "", trend: 6, good: true, spark: cockpit.value.transitTrend },
+  { label: "Shipped same-day", icon: "zap", toneClass: "text-emerald-600 bg-emerald-50", value: cockpit.value.sameDayPct, unit: "%", trend: isLive.value ? null : 4, good: true, spark: cockpit.value.sameDayTrend },
+  { label: "SLA breaches", icon: "alert-circle", toneClass: "text-rose-600 bg-rose-50", value: cockpit.value.breaches, unit: "", trend: isLive.value ? null : -2, good: true, spark: cockpit.value.breachTrend },
+  { label: "At risk now", icon: "clock", toneClass: "text-amber-600 bg-amber-50", value: cockpit.value.atRisk, unit: "", trend: isLive.value ? null : 1, good: false, spark: cockpit.value.atRiskTrend },
+  { label: "In Transit", icon: "globe", toneClass: "text-cyan-600 bg-cyan-50", value: cockpit.value.inTransit, unit: "", trend: isLive.value ? null : 6, good: true, spark: cockpit.value.transitTrend },
 ]);
 
 // ── Avatar helpers (gradient-seeded, warm palette) ──────────────────
