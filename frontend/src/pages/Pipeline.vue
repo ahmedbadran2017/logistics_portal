@@ -174,13 +174,14 @@
               </th>
               <th class="text-start px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Order</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Customer</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Status</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Channel</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Stage</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">SLA</th>
               <th v-if="activeStage !== 'to_pick'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Documents</th>
               <th v-if="activeStage === 'attention'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Fault</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">City</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Picker</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Placed</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">In stage</th>
               <th class="text-end px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Value</th>
               <th class="text-end px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400"></th>
             </tr>
@@ -202,10 +203,7 @@
                     missed cutoff
                   </span>
                 </div>
-                <div class="text-[11px] text-stone-400 flex items-center gap-1 mt-0.5 capitalize">
-                  <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="{ background: channelHex(channelOf(r)) }" />
-                  {{ channelOf(r) }}
-                </div>
+
               </td>
               <td class="px-3 py-3">
                 <div class="font-medium text-stone-800 truncate max-w-[200px]">{{ r.customer }}</div>
@@ -229,12 +227,25 @@
                 </div>
               </td>
               <td class="px-3 py-3">
-                <span v-if="r.status" class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-semibold whitespace-nowrap"
-                      :style="{ color: statusHex(r.status), background: statusHex(r.status) + '14' }">
+                <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-semibold ring-1 ring-inset whitespace-nowrap bg-white"
+                      :style="{ color: channelHex(channelOf(r)), '--tw-ring-color': channelHex(channelOf(r)) + '55' }">
+                  {{ channelLabel(channelOf(r)) }}
+                </span>
+              </td>
+              <td class="px-3 py-3">
+                <span v-if="r.status" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold ring-1 ring-inset whitespace-nowrap bg-white"
+                      :style="{ color: statusHex(r.status), '--tw-ring-color': statusHex(r.status) + '55' }">
                   <span class="w-1.5 h-1.5 rounded-full" :style="{ background: statusHex(r.status) }" />
-                  {{ r.status }}
+                  {{ r.status === 'Pending' ? stageLabelOf() : r.status }}
                 </span>
                 <span v-else class="text-[11px] text-stone-300">—</span>
+              </td>
+              <td class="px-3 py-3">
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold ring-1 ring-inset whitespace-nowrap"
+                      :style="{ color: slaOf(r).hex, background: slaOf(r).hex + '10', '--tw-ring-color': slaOf(r).hex + '45' }">
+                  <span class="w-1.5 h-1.5 rounded-full" :style="{ background: slaOf(r).hex }" />
+                  {{ slaOf(r).label }}
+                </span>
               </td>
               <td v-if="activeStage !== 'to_pick'" class="px-3 py-3">
                 <div class="flex items-center gap-1.5 flex-wrap">
@@ -272,22 +283,16 @@
               </td>
               <td class="px-3 py-3">
                 <div v-if="r.picker" class="flex items-center gap-1.5">
-                  <span class="w-6 h-6 rounded-full bg-stone-100 text-stone-600 text-[10px] font-bold flex items-center justify-center">
+                  <span class="w-6 h-6 rounded-full bg-stone-200/80 text-stone-600 text-[9.5px] font-bold flex items-center justify-center uppercase">
                     {{ initials(r.picker) }}
                   </span>
                   <span class="text-[12px] text-stone-600 truncate max-w-[90px]">{{ pickerShort(r.picker) }}</span>
                 </div>
                 <span v-else class="text-[11px] text-stone-300">—</span>
               </td>
-              <td class="px-3 py-3">
-                <span v-if="r.created" class="text-[12px] text-stone-600 tabular-nums whitespace-nowrap">{{ createdFmt(r.created) }}</span>
-                <span v-else class="text-[11px] text-stone-300">—</span>
-              </td>
-              <td class="px-3 py-3">
-                <span class="inline-flex items-center gap-1 text-[12px] font-semibold tabular-nums"
-                      :style="{ color: ageHex(r.ageMins) }">
-                  <Icon name="clock" :size="12" />{{ ageFmt(r.ageMins) }}
-                </span>
+              <td class="px-3 py-3 whitespace-nowrap">
+                <span v-if="r.created" class="text-[12.5px] font-medium text-stone-700 tabular-nums">{{ createdFmt(r.created) }}</span>
+                <span class="text-[11.5px] tabular-nums ms-1.5 font-semibold" :style="{ color: ageHex(r.ageMins) }">· {{ ageFmt(r.ageMins) }}</span>
               </td>
               <td class="px-3 py-3 text-end">
                 <span class="font-mono font-semibold text-stone-900 tabular-nums">{{ fmtMAD(r.total) }}</span>
@@ -625,6 +630,32 @@ function waLink(phone) {
 }
 function trackHexOf(t) {
   return TRACK_ORDER.find((x) => x.key === t)?.hex || "#a8a29e";
+}
+const CHANNEL_LABEL = { shopify: "Shopify", youcan: "YouCan", landing: "Landing Page", manual: "Manual", whatsapp: "WhatsApp" };
+function channelLabel(ch) { return CHANNEL_LABEL[ch] || ch; }
+function stageLabelOf() {
+  // Raw status "Pending" is ambiguous — show the derived stage instead.
+  return activeStage.value === "picking" ? "Picking" : "Pending";
+}
+// Honest SLA until the DN SLA engine has history: same-day cutoff before the
+// carrier has it; carrier exceptions after.
+function slaOf(r) {
+  const st = activeStage.value;
+  if (st === "delivered") return { label: "Delivered", hex: "#10b981" };
+  if (st === "to_return" || st === "returned") return { label: "Returned", hex: "#78716c" };
+  if (st === "shipped") {
+    if (r.track === "Delivery Exception" || r.track === "Failed Attempt") return { label: "Late", hex: "#ea580c" };
+    return { label: "On Track", hex: "#10b981" };
+  }
+  if (missedCutoff(r)) return { label: "Breached", hex: "#e11d48" };
+  if (r.created) {
+    const created = new Date(r.created.replace(" ", "T"));
+    const cut = new Date(); cut.setHours(14, 0, 0, 0);
+    const now = new Date();
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (created >= today && now < cut && (cut - now) < 90 * 60000) return { label: "At Risk", hex: "#d97706" };
+  }
+  return { label: "On Track", hex: "#10b981" };
 }
 function statusHex(s) {
   return {
