@@ -83,22 +83,41 @@ def cockpit():
         )
         by = {p["key"]: p["count"] for p in pipeline}
 
-        # SLA-derived numbers come from Delivery Note fields the SLA engine fills.
-        breaches = frappe.db.count("Delivery Note", {"custom_sla_status": "Breached"})
-        at_risk = frappe.db.count("Delivery Note", {"custom_sla_status": "At Risk"})
+        # SLA-derived numbers: scoped to the recent window so historical archive
+        # never reads as "breached now".
+        sla_since = add_days(nowdate(), -14)
+        breaches = frappe.db.count(
+            "Delivery Note", {"custom_sla_status": "Breached", "posting_date": [">=", sla_since]}
+        )
+        at_risk = frappe.db.count(
+            "Delivery Note", {"custom_sla_status": "At Risk", "posting_date": [">=", sla_since]}
+        )
+        # In-transit is truest from carrier tracking on recent DNs (SO stage lags).
+        in_transit = frappe.db.count(
+            "Delivery Note",
+            {"custom_track_shipment_status": ["in", ["In Transit", "Out For Delivery"]],
+             "posting_date": [">=", sla_since]},
+        ) or by.get("transit", 0)
+        # Orders created today before the 14:00 cutoff (same-day ship window).
+        before_cutoff = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabSales Order` WHERE docstatus=1 AND DATE(creation)=%s AND TIME(creation) < '14:00:00'",
+            (nowdate(),),
+        )[0][0]
 
         summary = {
             "ordersIn": orders_in,
             "shipped": by.get("shipped", 0),
             "printed": by.get("label", 0),
             "toShip": by.get("pending", 0) + by.get("picked", 0) + by.get("labelgen", 0) + by.get("label", 0),
-            "inTransit": by.get("transit", 0),
+            "inTransit": in_transit,
             "breaches": breaches,
             "atRisk": at_risk,
             "returns": by.get("returned", 0),
             "totalOrders": total,
-            "sameDayPct": _sla_hit_rate(),
+            "sameDayPct": _sla_hit_rate(sla_since),
             "cutoff": "14:00",
+            "beforeCutoff": int(before_cutoff or 0),
+            "cutoffPct": round((before_cutoff or 0) * 100 / max(1, orders_in)),
         }
 
         return {"summary": summary, "pipeline": pipeline, "leaderboard": _leaderboard(), "atRisk": _at_risk()}
@@ -161,19 +180,27 @@ def me(user=None):
 
 
 # ---------------------------------------------------------------------------
-def _sla_hit_rate():
-    total = frappe.db.count("Delivery Note", {"custom_sla_status": ["not in", ["", None]]})
+def _sla_hit_rate(since=None):
+    filters = {"custom_sla_status": ["not in", ["", None]]}
+    if since:
+        filters["posting_date"] = [">=", since]
+    total = frappe.db.count("Delivery Note", dict(filters))
     if not total:
         return 0
-    good = frappe.db.count("Delivery Note", {"custom_sla_status": ["in", ["On Track", "Delivered"]]})
+    filters["custom_sla_status"] = ["in", ["On Track", "Delivered"]]
+    good = frappe.db.count("Delivery Note", dict(filters))
     return round(good * 100 / total)
 
 
 def _at_risk(limit=8):
     rows = frappe.get_all(
         "Delivery Note",
-        filters={"custom_sla_status": ["in", ["At Risk", "Breached"]]},
+        filters={
+            "custom_sla_status": ["in", ["At Risk", "Breached"]],
+            "posting_date": [">=", add_days(nowdate(), -14)],
+        },
         fields=["name", "customer_name as customer", "custom_sla_status as sla"],
+        order_by="posting_date desc",
         limit=limit,
     )
     out = []

@@ -233,10 +233,26 @@ const cockpit = ref(DEMO_COCKPIT);
 const pipeline = ref(DEMO_PIPELINE);
 const leaderboard = ref(DEMO_LEADERBOARD);
 
+// Live time-vs-cutoff, computed client-side so it's always current.
+function cutoffDelta(cutoff = "14:00") {
+  const [h, m] = cutoff.split(":").map(Number);
+  const now = new Date();
+  const cut = new Date(now); cut.setHours(h, m, 0, 0);
+  const diff = Math.abs(now - cut) / 1000;
+  const hh = String(Math.floor(diff / 3600)).padStart(2, "0");
+  const mm = String(Math.floor((diff % 3600) / 60)).padStart(2, "0");
+  const ss = String(Math.floor(diff % 60)).padStart(2, "0");
+  return (now > cut ? "+" : "−") + `${hh}:${mm}:${ss}`;
+}
+
 onMounted(async () => {
   const live = await liveOr(null, () => api("performance.cockpit"));
   if (live && live.summary) {
-    cockpit.value = { ...DEMO_COCKPIT, ...live.summary };
+    cockpit.value = {
+      ...DEMO_COCKPIT,
+      ...live.summary,
+      pastCutoff: cutoffDelta(live.summary.cutoff || "14:00"),
+    };
     if (live.pipeline && live.pipeline.length) pipeline.value = live.pipeline;
     if (live.leaderboard && live.leaderboard.length) {
       leaderboard.value = live.leaderboard.map((r) => ({

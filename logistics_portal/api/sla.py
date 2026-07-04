@@ -26,10 +26,22 @@ def run_sla_engine():
         return
 
     days = _delivery_days()
+    # Scope to the recent operational window — historical DNs are archive, not
+    # "breached now". Also clear any stale SLA status the engine may have set on
+    # old documents (one-time cleanup, cheap when nothing matches).
+    from frappe.utils import add_days as _add_days
+    window_start = _add_days(nowdate(), -14)
+    frappe.db.sql(
+        """UPDATE `tabDelivery Note`
+           SET custom_sla_status = '', custom_sla_days_remaining = NULL
+           WHERE posting_date < %s AND custom_sla_status IN ('Breached', 'At Risk', 'On Track')""",
+        (window_start,),
+    )
     dns = frappe.get_all(
         "Delivery Note",
         filters={
             "docstatus": 1,
+            "posting_date": [">=", window_start],
             "custom_sla_status": ["in", ["", "On Track", "At Risk", "Breached", None]],
         },
         fields=["name", "posting_date", "custom_expected_delivery_date", "custom_track_shipment_status"],
