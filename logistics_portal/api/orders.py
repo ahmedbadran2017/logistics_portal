@@ -57,13 +57,14 @@ def _win(days):
 
 
 @frappe.whitelist()
-def board(stage="to_pick", track=None, limit=50):
-    """Counts for every stage + rows for the requested stage."""
+def board(stage="to_pick", track=None, limit=50, q=None):
+    """Counts + MAD value per stage, and rows for the requested stage.
+    `q` searches order no / customer / AWB within the stage."""
     limit = min(int(limit), 100)
     try:
-        counts, shipped_tracks, attention = _board_counts()
-        rows = _board_rows(stage, track, limit)
-        return {"counts": counts, "shippedTracks": shipped_tracks,
+        counts, values, shipped_tracks, attention = _board_counts()
+        rows = _board_rows(stage, track, limit, q)
+        return {"counts": counts, "values": values, "shippedTracks": shipped_tracks,
                 "attention": attention, "rows": rows, "stage": stage}
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.orders.board")
@@ -73,17 +74,22 @@ def board(stage="to_pick", track=None, limit=50):
 def _board_counts():
     w, dw = _win(BOARD_WINDOW_DAYS), _win(DONE_WINDOW_DAYS)
 
-    # Status-level counts among Confirmed orders (one cheap grouped pass).
-    st = {r.s: int(r.c) for r in frappe.db.sql(
-        """SELECT custom_logistics_status s, COUNT(*) c FROM `tabSales Order`
+    # Status-level counts + MAD among Confirmed orders (one cheap grouped pass).
+    strows = frappe.db.sql(
+        """SELECT custom_logistics_status s, COUNT(*) c, ROUND(SUM(grand_total)) v
+           FROM `tabSales Order`
            WHERE docstatus=1 AND custom_sales_status='Confirmed' AND creation >= %s
-           GROUP BY custom_logistics_status""", (w,), as_dict=True)}
+           GROUP BY custom_logistics_status""", (w,), as_dict=True)
+    st = {r.s: int(r.c) for r in strows}
+    sv = {r.s: float(r.v or 0) for r in strows}
 
     # Split 'Pending' into to_pick / picking via Pick List existence.
     pend = frappe.db.sql(
         """SELECT
              SUM(CASE WHEN pl.sales_order IS NULL THEN 1 ELSE 0 END) no_pl,
-             SUM(CASE WHEN pl.docstatus = 0 THEN 1 ELSE 0 END) pl_draft
+             SUM(CASE WHEN pl.sales_order IS NULL THEN so.grand_total ELSE 0 END) no_pl_v,
+             SUM(CASE WHEN pl.docstatus = 0 THEN 1 ELSE 0 END) pl_draft,
+             SUM(CASE WHEN pl.docstatus = 0 THEN so.grand_total ELSE 0 END) pl_draft_v
            FROM `tabSales Order` so
            LEFT JOIN (SELECT pli.sales_order, MAX(p.docstatus) docstatus
                       FROM `tabPick List Item` pli JOIN `tabPick List` p ON p.name=pli.parent
@@ -127,6 +133,14 @@ def _board_counts():
         "to_return": max(0, int(ret.total or 0) - received),
         "returned": received,
     }
+    # MAD sitting in each ACTIVE stage (money-at-stage; done stages omitted).
+    values = {
+        "to_pick": round(float(pend.no_pl_v or 0)),
+        "picking": round(float(pend.pl_draft_v or 0)),
+        "prepared": round(sv.get("Label Generated", 0)),
+        "ready": round(sv.get("Label Printed", 0)),
+        "shipped": round(sv.get("Shipped", 0)),
+    }
 
     # Attention: operational faults, not stages.
     attention = {
@@ -152,12 +166,22 @@ def _board_counts():
             "custom_logistics_status": "Shipped",
             "custom_track_shipment_status": "Delivered", "creation": [">=", _win(BOARD_WINDOW_DAYS)]}),
     }
-    return counts, tracks, attention
+    return counts, values, tracks, attention
 
 
 _SO_FIELDS = """so.name, so.customer_name, so.grand_total, so.custom_channel,
     so.custom_items_count, so.custom_awb, so.custom_label_url, so.custom_shipping_city,
-    so.custom_track_shipment_status, so.creation, so.modified"""
+    so.custom_track_shipment_status, so.creation, so.modified,
+    COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone) AS phone"""
+
+
+def _q_cond(q, args):
+    """Search filter over order no / customer / AWB (parameterized LIKE)."""
+    if not q:
+        return ""
+    like = f"%{q.strip()}%"
+    args.extend([like, like, like])
+    return " AND (so.name LIKE %s OR so.customer_name LIKE %s OR so.custom_awb LIKE %s)"
 
 
 def _row(r, **extra):
@@ -165,41 +189,52 @@ def _row(r, **extra):
     age = max(0, int(time_diff_in_seconds(now_datetime(), r.modified) // 60))
     return dict({
         "no": r.name, "customer": r.customer_name, "total": r.grand_total or 0,
-        "channel": (r.custom_channel or "").lower() or "manual",
+        "channel": (r.custom_channel or "").lower(),
         "items": r.custom_items_count or 1, "city": r.get("custom_shipping_city") or "",
+        "phone": r.get("phone") or "",
         "awb": r.custom_awb or "", "labelUrl": r.get("custom_label_url") or "",
         "track": r.custom_track_shipment_status or "", "ageMins": age,
     }, **extra)
 
 
-def _board_rows(stage, track, limit):
+def _board_rows(stage, track, limit, q=None):
     w, dw = _win(BOARD_WINDOW_DAYS), _win(DONE_WINDOW_DAYS)
     pl_join = """LEFT JOIN (SELECT pli.sales_order, MAX(p.name) pl, MAX(p.docstatus) pl_ds,
-                        MAX(p.custom_assigned_picker) picker
+                        MAX(p.custom_assigned_picker) picker, MAX(p.owner) pl_owner
                  FROM `tabPick List Item` pli JOIN `tabPick List` p ON p.name=pli.parent
                  GROUP BY pli.sales_order) pl ON pl.sales_order = so.name"""
 
     if stage == "to_pick":
+        args = [w]
+        qc = _q_cond(q, args)
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS} FROM `tabSales Order` so {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Pending' AND pl.sales_order IS NULL
-              AND so.creation >= %s ORDER BY so.creation ASC LIMIT {limit}""", (w,), as_dict=True)
+              AND so.creation >= %s {qc} ORDER BY so.creation ASC LIMIT {limit}""",
+            tuple(args), as_dict=True)
         return [_row(r) for r in rows]
 
     if stage == "picking":
-        rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, pl.pl, pl.picker FROM `tabSales Order` so {pl_join}
+        args = [w]
+        qc = _q_cond(q, args)
+        rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, pl.pl, pl.picker, pl.pl_owner
+            FROM `tabSales Order` so {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Pending' AND pl.pl_ds = 0
-              AND so.creation >= %s ORDER BY so.modified DESC LIMIT {limit}""", (w,), as_dict=True)
-        return [_row(r, pl=r.pl, picker=r.picker) for r in rows]
+              AND so.creation >= %s {qc} ORDER BY so.modified DESC LIMIT {limit}""",
+            tuple(args), as_dict=True)
+        return [_row(r, pl=r.pl, picker=r.picker or r.pl_owner) for r in rows]
 
     if stage in ("prepared", "ready"):
         status = "Label Generated" if stage == "prepared" else "Label Printed"
-        rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, pl.pl, pl.picker FROM `tabSales Order` so {pl_join}
+        args = [status, w]
+        qc = _q_cond(q, args)
+        rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, pl.pl, pl.picker, pl.pl_owner
+            FROM `tabSales Order` so {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
-              AND so.custom_logistics_status=%s AND so.creation >= %s
-            ORDER BY so.modified ASC LIMIT {limit}""", (status, w), as_dict=True)
-        return [_row(r, pl=r.pl, picker=r.picker) for r in rows]
+              AND so.custom_logistics_status=%s AND so.creation >= %s {qc}
+            ORDER BY so.modified ASC LIMIT {limit}""", tuple(args), as_dict=True)
+        return [_row(r, pl=r.pl, picker=r.picker or r.pl_owner) for r in rows]
 
     if stage == "shipped":
         cond, args = "", [w]
@@ -208,34 +243,39 @@ def _board_rows(stage, track, limit):
         elif track:
             cond = "AND so.custom_track_shipment_status = %s"
             args.append(track)
+        qc = _q_cond(q, args)
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, sh.sh FROM `tabSales Order` so
             LEFT JOIN (SELECT dni.against_sales_order so_name, MAX(sdn.parent) sh
                        FROM `tabDelivery Note Item` dni
                        JOIN `tabShipment Delivery Note` sdn ON sdn.delivery_note = dni.parent
                        GROUP BY dni.against_sales_order) sh ON sh.so_name = so.name
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
-              AND so.custom_logistics_status='Shipped' AND so.creation >= %s {cond}
+              AND so.custom_logistics_status='Shipped' AND so.creation >= %s {cond} {qc}
             ORDER BY so.modified ASC LIMIT {limit}""", tuple(args), as_dict=True)
         return [_row(r, sh=r.sh) for r in rows]
 
     if stage == "delivered":
+        args = [dw]
+        qc = _q_cond(q, args)
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS} FROM `tabSales Order` so
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
-              AND so.custom_logistics_status='Delivered' AND so.creation >= %s
-            ORDER BY so.modified DESC LIMIT {limit}""", (dw,), as_dict=True)
+              AND so.custom_logistics_status='Delivered' AND so.creation >= %s {qc}
+            ORDER BY so.modified DESC LIMIT {limit}""", tuple(args), as_dict=True)
         return [_row(r) for r in rows]
 
     if stage in ("to_return", "returned"):
         cond = "AND (dn.ret IS NOT NULL AND dn.ret != '')" if stage == "returned" \
             else "AND (dn.ret IS NULL OR dn.ret = '')"
+        args = [dw]
+        qc = _q_cond(q, args)
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, dn.ret, dn.dn FROM `tabSales Order` so
             LEFT JOIN (SELECT dni.against_sales_order so_name, MAX(d.custom_return_shipment) ret,
                               MAX(d.name) dn
                        FROM `tabDelivery Note Item` dni JOIN `tabDelivery Note` d ON d.name=dni.parent
                        WHERE d.docstatus=1 GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
-              AND so.custom_logistics_status='Returned' AND so.creation >= %s {cond}
-            ORDER BY so.modified ASC LIMIT {limit}""", (dw,), as_dict=True)
+              AND so.custom_logistics_status='Returned' AND so.creation >= %s {cond} {qc}
+            ORDER BY so.modified ASC LIMIT {limit}""", tuple(args), as_dict=True)
         return [_row(r, ret=r.ret, dn=r.dn) for r in rows]
 
     if stage == "attention":

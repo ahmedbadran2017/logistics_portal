@@ -9,13 +9,29 @@
           Operations theater — the Confirmed flow · {{ WAREHOUSE }}
         </p>
       </div>
-      <button
-        class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
-        :class="loading ? 'opacity-60 pointer-events-none' : ''"
-        @click="load(activeStage)"
-      >
-        <Icon name="refresh-cw" :size="14" :class="loading ? 'animate-spin' : ''" /> Refresh
-      </button>
+      <div class="flex items-center gap-2 flex-wrap">
+        <div class="relative">
+          <Icon name="search" :size="14" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-start:.65rem" />
+          <input
+            v-model="q"
+            placeholder="Order · customer · AWB…"
+            class="h-9 w-[230px] ps-8 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[13px] text-stone-900 placeholder:text-stone-400 focus:ring-2 focus:outline-none transition"
+            style="--tw-ring-color: var(--accent-400)"
+            @input="onSearch"
+          />
+          <button v-if="q" class="absolute top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600" style="inset-inline-end:.5rem"
+                  @click="q=''; onSearch()">
+            <Icon name="x" :size="13" />
+          </button>
+        </div>
+        <button
+          class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
+          :class="loading ? 'opacity-60 pointer-events-none' : ''"
+          @click="load(activeStage, activeTrack)"
+        >
+          <Icon name="refresh-cw" :size="14" :class="loading ? 'animate-spin' : ''" /> Refresh
+        </button>
+      </div>
     </div>
 
     <!-- Attention bar -->
@@ -62,9 +78,14 @@
               <span class="text-[11px] font-semibold uppercase tracking-[0.04em]"
                     :class="activeStage === s.key ? 'text-stone-900' : 'text-stone-500'">{{ s.label }}</span>
             </div>
-            <div class="mt-2 text-[24px] leading-none font-semibold tabular-nums"
-                 :style="{ color: (counts[s.key] ?? 0) > 0 ? s.hex : '#d6d3d1' }">
-              {{ counts[s.key] ?? "—" }}
+            <div class="mt-2 flex items-baseline gap-1.5">
+              <span class="text-[24px] leading-none font-semibold tabular-nums"
+                    :style="{ color: (counts[s.key] ?? 0) > 0 ? s.hex : '#d6d3d1' }">
+                {{ counts[s.key] ?? "—" }}
+              </span>
+              <span v-if="values[s.key]" class="text-[10.5px] font-mono font-medium text-stone-400 tabular-nums">
+                {{ fmtK(values[s.key]) }}
+              </span>
             </div>
             <div class="mt-1 text-[10.5px] text-stone-400 leading-tight">{{ s.hint }}</div>
           </button>
@@ -131,13 +152,27 @@
               <td class="px-4 py-3">
                 <div class="font-mono font-bold text-stone-900">{{ r.no }}</div>
                 <div class="text-[11px] text-stone-400 flex items-center gap-1 mt-0.5">
-                  <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="{ background: channelHex(r.channel) }" />
-                  {{ r.channel }}<span v-if="r.city"> · {{ r.city }}</span>
+                  <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="{ background: channelHex(channelOf(r)) }" />
+                  {{ channelOf(r) }}<span v-if="r.city"> · {{ r.city }}</span>
                 </div>
               </td>
               <td class="px-3 py-3">
                 <div class="font-medium text-stone-800 truncate max-w-[180px]">{{ r.customer }}</div>
-                <div class="text-[11px] text-stone-400 tabular-nums">{{ r.items }} item{{ r.items > 1 ? "s" : "" }}</div>
+                <div class="flex items-center gap-1.5 mt-0.5">
+                  <span class="text-[11px] text-stone-400 tabular-nums">{{ r.items }} item{{ r.items > 1 ? "s" : "" }}</span>
+                  <template v-if="r.phone">
+                    <a :href="'tel:' + r.phone" @click.stop
+                       class="w-5 h-5 rounded-md bg-stone-100 text-stone-500 hover:bg-emerald-100 hover:text-emerald-700 flex items-center justify-center transition-colors"
+                       :title="r.phone">
+                      <Icon name="phone" :size="11" />
+                    </a>
+                    <a :href="waLink(r.phone)" target="_blank" @click.stop
+                       class="w-5 h-5 rounded-md bg-stone-100 text-stone-500 hover:bg-emerald-100 hover:text-emerald-700 flex items-center justify-center transition-colors"
+                       title="WhatsApp">
+                      <Icon name="message-circle" :size="11" />
+                    </a>
+                  </template>
+                </div>
               </td>
               <td class="px-3 py-3">
                 <div class="flex items-center gap-1.5 flex-wrap">
@@ -203,6 +238,15 @@
             </tr>
           </tbody>
         </table>
+        <div class="flex items-center justify-between px-4 py-2.5 border-t border-stone-100 bg-stone-50/50">
+          <span class="text-[11.5px] text-stone-500 tabular-nums">
+            {{ rows.length }} order{{ rows.length === 1 ? "" : "s" }} shown
+            <span v-if="(counts[activeStage] ?? 0) > rows.length" class="text-stone-400">of {{ counts[activeStage] }}</span>
+          </span>
+          <span class="text-[12px] font-mono font-semibold text-stone-700 tabular-nums">
+            {{ fmtMAD(rowsTotal) }} <span class="text-[10px] font-sans font-normal text-stone-400">MAD</span>
+          </span>
+        </div>
       </div>
     </div>
 
@@ -258,15 +302,18 @@ const DEMO_BOARD = {
 
 // ── State ────────────────────────────────────────────────────────────
 const counts = ref(DEMO_BOARD.counts);
+const values = ref({ to_pick: 5900, picking: 2100, prepared: 3400, ready: 2800, shipped: 21400 });
 const shippedTracks = ref(DEMO_BOARD.shippedTracks);
 const attention = ref(DEMO_BOARD.attention);
 const rows = ref(DEMO_BOARD.rows);
 const activeStage = ref("to_pick");
 const activeTrack = ref("");
+const q = ref("");
 const loading = ref(false);
 const updatedAt = ref(Date.now());
 const tick = ref(0);
 let timer = null;
+let searchTimer = null;
 
 const activeMeta = computed(() =>
   activeStage.value === "attention" ? ATTENTION_META : stages.find((s) => s.key === activeStage.value) || stages[0]
@@ -294,10 +341,11 @@ async function load(stage, track = "") {
   activeTrack.value = stage === "shipped" ? track : "";
   loading.value = true;
   const live = await liveOr(null, () =>
-    api("orders.board", { stage, track: track || undefined, limit: 50 })
+    api("orders.board", { stage, track: track || undefined, limit: 50, q: q.value.trim() || undefined })
   );
   if (live && live.counts) {
     counts.value = live.counts;
+    values.value = live.values || {};
     shippedTracks.value = live.shippedTracks || {};
     attention.value = live.attention || {};
     rows.value = live.rows || [];
@@ -308,6 +356,14 @@ async function load(stage, track = "") {
   loading.value = false;
 }
 function setTrack(t) { load("shipped", t); }
+function onSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => load(activeStage.value, activeTrack.value), 350);
+}
+const rowsTotal = computed(() => rows.value.reduce((a, r) => a + (r.total || 0), 0));
+function fmtK(v) {
+  return v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${v}`;
+}
 
 const updatedAgo = computed(() => {
   tick.value; // reactive tick
@@ -350,6 +406,24 @@ function ageHex(mins) {
 }
 function channelHex(ch) {
   return { shopify: "#10b981", youcan: "#7c3aed", landing: "#d97706", manual: "#78716c", whatsapp: "#16a34a" }[ch] || "#a8a29e";
+}
+// 77% of orders have no custom_channel — derive it from the naming series.
+function channelOf(r) {
+  if (r.channel) return r.channel;
+  const no = r.no || "";
+  if (no.startsWith("#")) return "shopify";
+  if (no.startsWith("YC-")) return "youcan";
+  if (no.startsWith("J-")) return "landing";
+  if (no.startsWith("WA-")) return "whatsapp";
+  return "manual";
+}
+// Moroccan mobile → wa.me international format (0612… → 212612…).
+function waLink(phone) {
+  let d = (phone || "").replace(/\D/g, "");
+  if (d.startsWith("00")) d = d.slice(2);
+  if (d.startsWith("0")) d = "212" + d.slice(1);
+  else if (!d.startsWith("212")) d = "212" + d;
+  return `https://wa.me/${d}`;
 }
 function trackHexOf(t) {
   return TRACK_ORDER.find((x) => x.key === t)?.hex || "#a8a29e";
