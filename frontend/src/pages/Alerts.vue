@@ -104,12 +104,20 @@
 </template>
 
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
-import { AUDIT } from "@/lib/handoffData";
+import { AUDIT as DEMO_AUDIT } from "@/lib/handoffData";
+import { api, liveOr } from "@/lib/resource";
 
 const router = useRouter();
+
+// Live-or-demo alert feed: `audit.recent_alerts` returns the same shape as AUDIT.
+const AUDIT = ref(DEMO_AUDIT);
+onMounted(async () => {
+  const live = await liveOr(null, () => api("audit.recent_alerts"));
+  if (Array.isArray(live) && live.length) AUDIT.value = live;
+});
 
 // severity → group (for filters + counts)
 const SEV_GROUP = { red: "critical", orange: "warning", yellow: "warning", insight: "info" };
@@ -134,26 +142,26 @@ const filters = [
 ];
 
 const items = computed(() =>
-  AUDIT.map((a, i) => ({ ...a, _id: i }))
+  AUDIT.value.map((a, i) => ({ ...a, _id: i }))
     .filter((a) => filter.value === "all" || SEV_GROUP[a.sev] === filter.value)
 );
 
-const counts = {
-  critical: AUDIT.filter((a) => SEV_GROUP[a.sev] === "critical").length,
-  warning: AUDIT.filter((a) => SEV_GROUP[a.sev] === "warning").length,
-  info: AUDIT.filter((a) => SEV_GROUP[a.sev] === "info").length,
-};
-const unread = computed(() => AUDIT.length - read.value.size);
+const counts = computed(() => ({
+  critical: AUDIT.value.filter((a) => SEV_GROUP[a.sev] === "critical").length,
+  warning: AUDIT.value.filter((a) => SEV_GROUP[a.sev] === "warning").length,
+  info: AUDIT.value.filter((a) => SEV_GROUP[a.sev] === "info").length,
+}));
+const unread = computed(() => AUDIT.value.length - read.value.size);
 
 const kpis = computed(() => [
   { label: "Unread", icon: "bell", tone: "text-stone-500 bg-stone-100", value: unread.value },
-  { label: "Critical", icon: "alert-circle", tone: "text-rose-600 bg-rose-50", value: counts.critical },
-  { label: "Warning", icon: "alert-circle", tone: "text-amber-600 bg-amber-50", value: counts.warning },
-  { label: "Info", icon: "sparkles", tone: "text-violet-600 bg-violet-50", value: counts.info },
+  { label: "Critical", icon: "alert-circle", tone: "text-rose-600 bg-rose-50", value: counts.value.critical },
+  { label: "Warning", icon: "alert-circle", tone: "text-amber-600 bg-amber-50", value: counts.value.warning },
+  { label: "Info", icon: "sparkles", tone: "text-violet-600 bg-violet-50", value: counts.value.info },
 ]);
 
 function markAll() {
-  read.value = new Set(AUDIT.map((_, i) => i));
+  read.value = new Set(AUDIT.value.map((_, i) => i));
 }
 function dismiss(a) {
   read.value = new Set([...read.value, a._id]);

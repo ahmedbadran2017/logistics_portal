@@ -79,15 +79,33 @@ def generate_daily_digest():
 
 @frappe.whitelist()
 def recent_alerts():
-    """Recent alerts for the Audit screen (from Notification Log)."""
+    """Recent alerts for the Audit/Alerts screens, in the SPA's AUDIT item shape
+    (sev/kind/t/title/body). Sourced from Notification Log entries written by the
+    rule engine — empty until it has run at least once."""
+    from frappe.utils import pretty_date
+
     try:
-        return frappe.get_all(
+        rows = frappe.get_all(
             "Notification Log",
             filters={"type": "Alert"},
-            fields=["subject as title", "email_content as detail", "creation"],
+            fields=["subject", "email_content", "creation"],
             order_by="creation desc",
             limit=30,
         )
+        out = []
+        for r in rows:
+            title = r.subject or ""
+            sev = "red" if ("breach" in title.lower() or "sla" in title.lower()) else "yellow"
+            out.append({
+                "sev": sev,
+                "kind": "alert",
+                "t": pretty_date(r.creation),
+                "title": title,
+                "body": r.email_content or "",
+                "action": None,
+                "order": None,
+            })
+        return out
     except Exception:
         return []
 

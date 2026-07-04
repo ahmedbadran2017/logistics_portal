@@ -147,12 +147,18 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import ScanInput from "@/components/ui/ScanInput.vue";
 import {
-  MANIFEST, RECENT_MANIFESTS, PARCELS, SLA, SLA_LABEL,
-  CARRIER, CUTOFF, fmtMAD,
+  MANIFEST as DEMO_MANIFEST, RECENT_MANIFESTS as DEMO_RECENT_MANIFESTS, PARCELS, SLA, SLA_LABEL,
+  CARRIER, CUTOFF as DEMO_CUTOFF, fmtMAD,
 } from "@/lib/handoffData.js";
+import { api, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
 
 const { success, warn } = useToast();
+
+// Live-or-demo refs (same names as the demo consts so the template keeps working).
+const MANIFEST = ref({ ...DEMO_MANIFEST });
+const RECENT_MANIFESTS = ref(DEMO_RECENT_MANIFESTS);
+const CUTOFF = ref(DEMO_CUTOFF);
 
 const scanner = ref(null);
 // preload the first two parcels as "just added" so the manifest isn't empty
@@ -167,7 +173,7 @@ const now = ref(new Date());
 let timer = null;
 
 const minsToCutoff = computed(() => {
-  const [h, m] = CUTOFF.split(":").map(Number);
+  const [h, m] = String(CUTOFF.value || "14:00").split(":").map(Number);
   const target = new Date(now.value);
   target.setHours(h, m, 0, 0);
   return Math.round((target - now.value) / 60000);
@@ -198,7 +204,7 @@ function onScan(code) {
   }
   parcels.value.unshift(parcel);
   if (notLabeled.value > 0) notLabeled.value -= 1;
-  scanner.value?.showSuccess(`${parcel.dn} → ${MANIFEST.no}`);
+  scanner.value?.showSuccess(`${parcel.dn} → ${MANIFEST.value.no}`);
 }
 
 function remove(i) {
@@ -213,8 +219,39 @@ function closeManifest() {
   success("Shipment SH-000180 submitted", `${parcels.value.length} parcels handed to ${CARRIER}`);
 }
 
-onMounted(() => {
+onMounted(async () => {
   timer = setInterval(() => (now.value = new Date()), 30000);
+
+  // Live-or-demo: today's manifest from `shipping.today_manifest`.
+  const live = await liveOr(null, () => api("shipping.today_manifest"));
+  if (live && live.no) {
+    MANIFEST.value = { ...DEMO_MANIFEST, ...live };
+    if (live.cutoff) CUTOFF.value = live.cutoff;
+    if (Array.isArray(live.parcelRows) && live.parcelRows.length) {
+      parcels.value = live.parcelRows.map((p) => ({
+        dn: p.dn || "—",
+        awb: p.awb || "—",
+        order: p.order || "—",
+        customer: p.customer || "—",
+        value: Number(p.value || 0),
+        sla: p.sla || "ontrack",
+      }));
+      pool.value = [];
+    }
+    if (live.notOnManifest != null) notLabeled.value = Number(live.notOnManifest) || 0;
+  }
+
+  // Recent manifests from `shipping.shipments` (demo rows stay as fallback).
+  const recents = await liveOr(null, () => api("shipping.shipments", { limit: 5 }));
+  if (Array.isArray(recents) && recents.length) {
+    RECENT_MANIFESTS.value = recents.map((m) => ({
+      no: m.no || m.name || "—",
+      date: m.date || "—",
+      parcels: Number(m.parcels || 0),
+      value: Number(m.value || 0),
+      status: m.status || "—",
+    }));
+  }
 });
 onUnmounted(() => timer && clearInterval(timer));
 </script>

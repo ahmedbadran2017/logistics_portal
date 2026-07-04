@@ -73,15 +73,25 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { AUDIT, WAREHOUSE } from "@/lib/handoffData";
+import { api, liveOr } from "@/lib/resource";
 
 const router = useRouter();
 
-const alerts = computed(() => AUDIT.filter((a) => a.kind === "alert"));
+// Live-or-demo alerts (Layer A). Insights stay demo — LLM layer not live yet.
+const alerts = ref(AUDIT.filter((a) => a.kind === "alert"));
 const insights = computed(() => AUDIT.filter((a) => a.kind === "note"));
+
+onMounted(async () => {
+  const live = await liveOr(null, () => api("audit.recent_alerts"));
+  if (Array.isArray(live) && live.length) {
+    const liveAlerts = live.filter((a) => a.kind === "alert");
+    if (liveAlerts.length) alerts.value = liveAlerts;
+  }
+});
 
 const SEV = {
   red:     { hex: "#e11d48", tint: "#ffe4e6", icon: "alert-triangle" },
@@ -94,9 +104,9 @@ const sevTint = (s) => (SEV[s] || SEV.yellow).tint;
 const sevIcon = (s) => (SEV[s] || SEV.yellow).icon;
 
 const severities = computed(() => [
-  { key: "red", label: "Critical", icon: "alert-triangle", hex: "#e11d48", tint: "#ffe4e6", count: AUDIT.filter((a) => a.sev === "red").length },
-  { key: "orange", label: "Warning", icon: "alert-circle", hex: "#ea580c", tint: "#ffedd5", count: AUDIT.filter((a) => a.sev === "orange").length },
-  { key: "yellow", label: "Info", icon: "bell", hex: "#d97706", tint: "#fef3c7", count: AUDIT.filter((a) => a.sev === "yellow").length },
+  { key: "red", label: "Critical", icon: "alert-triangle", hex: "#e11d48", tint: "#ffe4e6", count: alerts.value.filter((a) => a.sev === "red").length },
+  { key: "orange", label: "Warning", icon: "alert-circle", hex: "#ea580c", tint: "#ffedd5", count: alerts.value.filter((a) => a.sev === "orange").length },
+  { key: "yellow", label: "Info", icon: "bell", hex: "#d97706", tint: "#fef3c7", count: alerts.value.filter((a) => a.sev === "yellow").length },
 ]);
 
 function openOrder(no) {

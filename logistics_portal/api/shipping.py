@@ -173,14 +173,59 @@ def carriers():
 
 @frappe.whitelist()
 def today_manifest():
-    """Today's open manifest snapshot (parcels not yet handed to carrier)."""
-    return {
-        "date": nowdate(),
-        "carrier": "Cathedis",
-        "cutoff": "17:00",
-        "parcels": [],
-        "notOnManifest": 0,
-    }
+    """Latest manifest snapshot in the SPA's MANIFEST shape: the current Draft
+    Shipment if one exists, else the most recent one. Parcels = its Delivery
+    Note children; notOnManifest = labeled orders not yet on any manifest."""
+    try:
+        sh = frappe.get_all(
+            "Shipment",
+            fields=["name", "pickup_date", "value_of_goods", "status"],
+            filters={"status": "Draft"},
+            order_by="modified desc", limit=1,
+        ) or frappe.get_all(
+            "Shipment",
+            fields=["name", "pickup_date", "value_of_goods", "status"],
+            order_by="pickup_date desc", limit=1,
+        )
+        if not sh:
+            return {}
+        sh = sh[0]
+        rows = frappe.db.sql(
+            """
+            SELECT sdn.delivery_note AS dn, dn.custom_awb AS awb,
+                   dn.customer_name AS customer, dn.grand_total AS value
+            FROM `tabShipment Delivery Note` sdn
+            LEFT JOIN `tabDelivery Note` dn ON dn.name = sdn.delivery_note
+            WHERE sdn.parent = %s
+            ORDER BY sdn.idx DESC
+            LIMIT 40
+            """,
+            (sh.name,), as_dict=True,
+        )
+        parcels = [{
+            "awb": r.awb or "", "dn": r.dn, "order": "",
+            "customer": r.customer or "", "value": r.value or 0,
+        } for r in rows]
+        total_parcels = frappe.db.count("Shipment Delivery Note", {"parent": sh.name})
+        not_on = frappe.db.count(
+            "Sales Order",
+            {"docstatus": 1, "custom_logistics_status": ["in", ["Label Generated", "Label Printed"]]},
+        )
+        return {
+            "no": sh.name,
+            "parcels": total_parcels,
+            "parcelRows": parcels,
+            "value": sh.value_of_goods or 0,
+            "carrier": "Cathedis",
+            "pickupDate": str(sh.pickup_date) if sh.pickup_date else nowdate(),
+            "window": "09:00 – 17:00",
+            "cutoff": "14:00",
+            "status": sh.status or "Draft",
+            "notOnManifest": not_on,
+        }
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.today_manifest")
+        return {}
 
 
 @frappe.whitelist()

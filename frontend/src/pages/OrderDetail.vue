@@ -126,7 +126,7 @@
               <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Phone</span><span class="font-mono font-medium text-stone-800">{{ phone }}</span></div>
               <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Zone</span><span class="font-medium text-stone-800 text-end truncate">{{ (order.city || CITY) + ' · ' + order.zone.replace(' - JM', '') }}</span></div>
               <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Governorate</span><span class="font-medium text-stone-800">{{ govern }}</span></div>
-              <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Reference</span><span class="font-mono font-medium text-stone-800">{{ ref }}</span></div>
+              <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Reference</span><span class="font-mono font-medium text-stone-800">{{ refNo }}</span></div>
             </div>
           </div>
           <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
@@ -262,13 +262,14 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import {
   ORDERS, CHANNELS, STAGE, SLA, STAGE_LABEL, SLA_LABEL, TRACK_LABEL,
   byId, fmtMAD, CARRIER, CITY, WAREHOUSE, MANIFEST,
 } from "@/lib/handoffData";
+import { api, liveOr } from "@/lib/resource";
 
 const props = defineProps({
   name: { type: String, required: true },
@@ -282,18 +283,57 @@ function goBack() {
 
 const STAGE_SEQ = ["pending", "picking", "picked", "labelgen", "label", "shipped", "transit", "exception", "delivered", "returned"];
 
+// Raw ERPNext status string → screen stage key.
+const RAW_STAGE = {
+  "Pending": "pending", "Picked": "picked", "In transit": "transit",
+  "Received": "labelgen", "Label Generated": "labelgen", "Label Printed": "label",
+  "Shipped": "shipped", "Delivered": "delivered", "Returned": "returned",
+};
+
+// Normalize a live tracking status to a TRACK_LABEL key when possible.
+function normTrack(ts) {
+  if (!ts) return null;
+  const k = String(ts).toLowerCase().replace(/[\s_-]+/g, "");
+  return TRACK_LABEL[k] ? k : String(ts);
+}
+
+// "2026-07-04 10:23:45" → "10:23"; anything else passes through.
+function fmtTs(ts) {
+  const m = String(ts || "").match(/(\d{1,2}):(\d{2})/);
+  return m ? `${m[1].padStart(2, "0")}:${m[2]}` : String(ts || "—");
+}
+
+// Live order from `orders.detail`; demo/fabricated data stays as fallback.
+const liveOrder = ref(null);
+onMounted(async () => {
+  const live = await liveOr(null, () => api("orders.detail", { name: props.name }));
+  if (live && live.name) liveOrder.value = live;
+});
+
 // Build the order by matching no (with/without '#'), fallback to a sensible object.
 const order = computed(() => {
   const q = String(props.name || "");
   const found = ORDERS.find(
     (o) => o.no === q || o.no === "#" + q || o.no.replace(/^#/, "") === q.replace(/^#/, "")
   );
-  return found || {
+  const base = found || {
     no: q.startsWith("#") || /^\d+$/.test(q) ? q : q,
     channel: "shopify", customer: "Khadija abhaoui", total: 349, items: 1,
     stage: "label", sla: "ontrack", bin: "J7C - JM", zone: "FAST ZONE - JM",
     picker: "marouane", mins: 40, awb: "LD007706673", dn: "MAT-DN-2026-74477",
     track: "pending", city: "Casablanca",
+  };
+  const live = liveOrder.value;
+  if (!live || !live.name) return base;
+  return {
+    ...base,
+    no: live.name || base.no,
+    customer: live.customer || base.customer || "—",
+    channel: live.channel || base.channel,
+    total: live.total != null ? live.total : base.total,
+    stage: RAW_STAGE[live.stage] || base.stage,
+    awb: live.awb || base.awb,
+    track: normTrack(live.tracking_status) || base.track,
   };
 });
 
@@ -346,7 +386,7 @@ const tax = computed(() => Math.round((subtotal.value + shipping.value - discoun
 const grand = computed(() => subtotal.value + shipping.value - discount.value + tax.value);
 const phone = computed(() => `+212 6${String(nseed.value % 10)}${String((nseed.value * 7) % 90 + 10)} ${String((nseed.value * 13) % 900 + 100)}`);
 const govern = computed(() => ["Casablanca-Settat", "Rabat-Salé-Kénitra", "Tanger-Tétouan", "Marrakech-Safi"][nseed.value % 4]);
-const ref = computed(() => {
+const refNo = computed(() => {
   const o = order.value;
   return `${o.channel === "shopify" ? "#" : o.channel === "youcan" ? "YC" : "REF"}${4400 + nseed.value % 600}`;
 });
@@ -376,6 +416,12 @@ const timeline = computed(() => {
   ];
   const isException = o.stage === "exception";
   const isOos = o.stage === "oos";
+  // Live timestamps (from orders.detail) win over the fabricated clock.
+  const lv = liveOrder.value;
+  const liveAt = lv ? {
+    picked: lv.picked_at, labelgen: lv.labeled_at, label: lv.labeled_at,
+    shipped: lv.shipped_at, delivered: lv.delivered_at,
+  } : {};
   return all
     .filter((e) => {
       if (e.key === "oos") return isOos;
@@ -385,7 +431,10 @@ const timeline = computed(() => {
       if (e.key === "delivered") return idx >= 8 && o.stage !== "returned";
       return e.reached <= idx || (isException && e.reached <= 6);
     })
-    .map((e) => ({ ...e, at: step(), done: true }));
+    .map((e) => {
+      const fake = step();
+      return { ...e, at: liveAt[e.key] ? fmtTs(liveAt[e.key]) : fake, done: true };
+    });
 });
 
 // ── Documents ─────────────────────────────────────────────────────────

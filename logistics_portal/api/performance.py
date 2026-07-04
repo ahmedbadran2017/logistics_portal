@@ -108,6 +108,41 @@ def cockpit():
 
 
 @frappe.whitelist()
+def floor():
+    """Andon floor board: real hourly order intake today + headline counts."""
+    try:
+        rows = frappe.db.sql(
+            """
+            SELECT HOUR(creation) AS h, COUNT(*) AS c
+            FROM `tabSales Order`
+            WHERE DATE(creation) = %s AND docstatus = 1
+            GROUP BY HOUR(creation) ORDER BY h
+            """,
+            (nowdate(),), as_dict=True,
+        )
+        by_hour = {int(r.h): int(r.c) for r in rows}
+        # 8:00 → 20:00 window like the design
+        hours = [{"h": h, "count": by_hour.get(h, 0)} for h in range(8, 21)]
+        total_today = sum(by_hour.values())
+        picked_today = frappe.db.count(
+            "Pick List", {"docstatus": 1, "modified": [">=", nowdate()]}
+        )
+        shipped_today = frappe.db.count(
+            "Sales Order", {"docstatus": 1, "custom_logistics_status": "Shipped", "modified": [">=", nowdate()]}
+        )
+        return {
+            "hours": hours,
+            "ordersToday": total_today,
+            "pickedToday": picked_today,
+            "shippedToday": shipped_today,
+            "perHour": round(total_today / max(1, len([h for h in by_hour if by_hour[h]])), 1),
+        }
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.floor")
+        return {}
+
+
+@frappe.whitelist()
 def team():
     return {"leaderboard": _leaderboard()}
 

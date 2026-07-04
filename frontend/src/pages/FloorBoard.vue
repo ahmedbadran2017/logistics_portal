@@ -116,9 +116,10 @@
 import { computed, h, ref, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { WAREHOUSE, CITY } from "@/lib/handoffData";
+import { api, liveOr } from "@/lib/resource";
 
-// ── Andon board snapshot (not in handoffData exports — inlined from data.jsx) ──
-const ANDON = {
+// ── Andon board snapshot (demo fallback — `performance.floor` overwrites) ──
+const DEMO_ANDON = {
   ordersPerHour: 73, target: 80, packedToday: 412, shippedToday: 389, cutoffMin: 156,
   hourly: [38, 44, 52, 61, 58, 67, 73],
   stations: [
@@ -130,15 +131,31 @@ const ANDON = {
   laggingZone: "Cosmetic zone - JM",
 };
 
-const pace = computed(() => ANDON.ordersPerHour / ANDON.target);
-const hourlyMax = computed(() => Math.max(...ANDON.hourly));
+const ANDON = ref({ ...DEMO_ANDON });
 
-const kpis = [
-  { label: "Packed today", icon: "tag", tone: "text-stone-500 bg-stone-100", value: ANDON.packedToday },
-  { label: "Shipped today", icon: "send", tone: "text-cyan-600 bg-cyan-50", value: ANDON.shippedToday },
+onMounted(async () => {
+  const live = await liveOr(null, () => api("performance.floor"));
+  if (live && Array.isArray(live.hours)) {
+    ANDON.value = {
+      ...ANDON.value, // stations / target / laggingZone stay demo
+      ordersPerHour: live.perHour != null ? Number(live.perHour) : ANDON.value.ordersPerHour,
+      packedToday: live.pickedToday != null ? Number(live.pickedToday) : ANDON.value.packedToday,
+      shippedToday: live.shippedToday != null ? Number(live.shippedToday) : ANDON.value.shippedToday,
+      ordersToday: live.ordersToday != null ? Number(live.ordersToday) : ANDON.value.ordersToday,
+      hourly: live.hours.length ? live.hours.map((x) => Number(x.count) || 0) : ANDON.value.hourly,
+    };
+  }
+});
+
+const pace = computed(() => ANDON.value.ordersPerHour / (ANDON.value.target || 1));
+const hourlyMax = computed(() => Math.max(...ANDON.value.hourly, 1));
+
+const kpis = computed(() => [
+  { label: "Packed today", icon: "tag", tone: "text-stone-500 bg-stone-100", value: ANDON.value.packedToday },
+  { label: "Shipped today", icon: "send", tone: "text-cyan-600 bg-cyan-50", value: ANDON.value.shippedToday },
   { label: "Cutoff in", icon: "clock", tone: "text-violet-600 bg-violet-50", value: "2h 36m" },
-  { label: "Lagging zone", icon: "alert-circle", tone: "text-amber-600 bg-amber-50", value: ANDON.laggingZone.replace(" zone - JM", "").replace(" - JM", "") },
-];
+  { label: "Lagging zone", icon: "alert-circle", tone: "text-amber-600 bg-amber-50", value: ANDON.value.laggingZone.replace(" zone - JM", "").replace(" - JM", "") },
+]);
 
 // ── Inline CountUp (ported from primitives.jsx) ─────────────────────
 const CountUp = {
