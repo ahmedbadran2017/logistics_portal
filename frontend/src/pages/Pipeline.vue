@@ -175,7 +175,7 @@
               <th class="text-start px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Order</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Customer</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Status</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Documents</th>
+              <th v-if="activeStage !== 'to_pick'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Documents</th>
               <th v-if="activeStage === 'attention'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Fault</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">City</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Picker</th>
@@ -236,7 +236,7 @@
                 </span>
                 <span v-else class="text-[11px] text-stone-300">—</span>
               </td>
-              <td class="px-3 py-3">
+              <td v-if="activeStage !== 'to_pick'" class="px-3 py-3">
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <a v-if="r.pl" :href="desk('pick-list', r.pl)" target="_blank" @click.stop
                      class="doc-chip text-violet-700 bg-violet-50 hover:bg-violet-100" style="--chip-ring:#ddd6fe">
@@ -399,9 +399,9 @@ const DEMO_BOARD = {
   shippedTracks: { "In Transit": 12, "Out For Delivery": 9, "Delivery Exception": 11, "Failed Attempt": 5, Pending: 3, none: 2 },
   attention: { cancelled_midflow: 2, no_awb: 1, sync_lag: 3 },
   rows: [
-    { no: "#242646", customer: "oualid elmouden", total: 149, channel: "shopify", items: 1, city: "Casablanca", awb: "", track: "", ageMins: 41 },
-    { no: "#242644", customer: "Chada Rami", total: 198, channel: "shopify", items: 2, city: "Rabat", awb: "", track: "", ageMins: 12 },
-    { no: "SAL-ORD-2026-00299", customer: "Salma", total: 149, channel: "manual", items: 1, city: "Tangier", awb: "", track: "", ageMins: 8 },
+    { no: "#242646", customer: "oualid elmouden", total: 149, channel: "shopify", items: 1, city: "Casablanca", status: "Pending", awb: "", track: "", ageMins: 41 },
+    { no: "#242644", customer: "Chada Rami", total: 198, channel: "shopify", items: 2, city: "Rabat", status: "Pending", awb: "", track: "", ageMins: 12 },
+    { no: "SAL-ORD-2026-00299", customer: "Salma", total: 149, channel: "manual", items: 1, city: "Tangier", status: "Pending", awb: "", track: "", ageMins: 8 },
   ],
 };
 
