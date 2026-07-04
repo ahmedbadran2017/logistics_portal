@@ -88,8 +88,16 @@
               <span v-if="values[s.key]" class="text-[10.5px] font-mono font-medium text-stone-400 tabular-nums">
                 {{ fmtK(values[s.key]) }}
               </span>
+              <span v-if="s.key === 'to_pick' && counts.to_pick_late > 0"
+                    class="ms-auto text-[9.5px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md ring-1 ring-rose-200/60 tabular-nums whitespace-nowrap">
+                {{ counts.to_pick_late }} late
+              </span>
             </div>
             <div class="mt-1 text-[10.5px] text-stone-400 leading-tight">{{ s.hint }}</div>
+            <div class="mt-2 h-[3px] rounded-full bg-stone-100 overflow-hidden">
+              <div class="h-full rounded-full transition-all duration-500"
+                   :style="{ width: stageShare(s.key) + '%', background: s.hex, opacity: 0.7 }" />
+            </div>
           </button>
           <div v-if="i < stages.length - 1" class="flex items-center px-0.5 text-stone-300 flex-shrink-0">
             <Icon name="chevron-right" :size="14" class="flip-rtl" />
@@ -130,14 +138,16 @@
               :style="{ background: activeMeta.hex + '1c', color: activeMeta.hex }">
           <Icon :name="activeMeta.icon" :size="22" />
         </span>
-        <div class="text-[14.5px] font-semibold text-stone-900">{{ activeMeta.emptyTitle }}</div>
-        <div class="text-[12.5px] text-stone-500 mt-0.5">{{ activeMeta.emptyHint }}</div>
+        <div class="text-[14.5px] font-semibold text-stone-900">{{ q ? "No matches" : activeMeta.emptyTitle }}</div>
+        <div class="text-[12.5px] text-stone-500 mt-0.5">
+          {{ q ? `Nothing in ${activeMeta.label} matches “${q}”.` : activeMeta.emptyHint }}
+        </div>
       </div>
 
       <div v-else class="overflow-x-auto">
         <table class="w-full text-[13px]">
-          <thead>
-            <tr class="text-start border-b border-stone-100 bg-stone-50/60">
+          <thead class="sticky top-0 z-10">
+            <tr class="text-start border-b border-stone-100 bg-white/95 backdrop-blur-sm">
               <th v-if="activeStage === 'to_pick'" class="w-10 px-3 py-2.5 text-center">
                 <input type="checkbox" class="board-cb" :checked="allSelected" @change="toggleAll" />
               </th>
@@ -154,6 +164,8 @@
           <tbody class="divide-y divide-stone-100">
             <tr v-for="r in rows" :key="r.no" class="hover:bg-stone-50/70 transition-colors cursor-pointer group"
                 :class="selected.has(r.no) ? 'bg-amber-50/50' : ''"
+                :style="activeStage === 'to_pick' && missedCutoff(r)
+                  ? { boxShadow: 'inset 3px 0 0 #f43f5e' } : {}"
                 @click="openOrder(r)">
               <td v-if="activeStage === 'to_pick'" class="px-3 py-3 text-center" @click.stop>
                 <input type="checkbox" class="board-cb" :checked="selected.has(r.no)" @change="toggleRow(r.no)" />
@@ -166,13 +178,16 @@
                     missed cutoff
                   </span>
                 </div>
-                <div class="text-[11px] text-stone-400 flex items-center gap-1 mt-0.5">
+                <div class="text-[11px] text-stone-400 flex items-center gap-1 mt-0.5 capitalize">
                   <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="{ background: channelHex(channelOf(r)) }" />
                   {{ channelOf(r) }}<span v-if="r.city"> · {{ r.city }}</span>
                 </div>
               </td>
               <td class="px-3 py-3">
-                <div class="font-medium text-stone-800 truncate max-w-[180px]">{{ r.customer }}</div>
+                <div class="font-medium text-stone-800 truncate max-w-[200px]">{{ r.customer }}</div>
+                <div v-if="r.itemsDesc" class="text-[10.5px] text-stone-400 truncate max-w-[200px] mt-0.5" :title="r.itemsDesc">
+                  {{ r.itemsDesc }}
+                </div>
                 <div class="flex items-center gap-1.5 mt-0.5">
                   <span class="text-[11px] text-stone-400 tabular-nums">{{ r.items }} item{{ r.items > 1 ? "s" : "" }}</span>
                   <template v-if="r.phone">
@@ -233,6 +248,7 @@
                       :style="{ color: ageHex(r.ageMins) }">
                   <Icon name="clock" :size="12" />{{ ageFmt(r.ageMins) }}
                 </span>
+                <div v-if="r.created" class="text-[10px] text-stone-400 tabular-nums mt-0.5">{{ createdFmt(r.created) }}</div>
               </td>
               <td class="px-3 py-3 text-end">
                 <span class="font-mono font-semibold text-stone-900 tabular-nums">{{ fmtMAD(r.total) }}</span>
@@ -484,11 +500,33 @@ const updatedAgo = computed(() => {
   return s < 5 ? "just now" : s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`;
 });
 
+let refreshTimer = null;
 onMounted(() => {
   load("to_pick");
   timer = setInterval(() => { tick.value++; }, 5000);
+  // Silent refresh — skipped while the dispatcher has a selection in hand.
+  refreshTimer = setInterval(() => {
+    if (!selected.value.size && !loading.value && document.visibilityState === "visible") {
+      load(activeStage.value, activeTrack.value);
+    }
+  }, 120000);
 });
-onUnmounted(() => timer && clearInterval(timer));
+onUnmounted(() => { timer && clearInterval(timer); refreshTimer && clearInterval(refreshTimer); });
+
+// Visual weight of each stage relative to the busiest one.
+function stageShare(key) {
+  const max = Math.max(...stages.map((s) => counts.value[s.key] || 0), 1);
+  const c = counts.value[key] || 0;
+  return c ? Math.max(4, Math.round((c / max) * 100)) : 0;
+}
+// "2026-07-03 10:23" → "10:23" today, else "Jul 3 · 10:23".
+function createdFmt(created) {
+  const [d, t] = created.split(" ");
+  const today = new Date().toISOString().slice(0, 10);
+  if (d === today) return t;
+  const dt = new Date(d + "T00:00:00");
+  return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " · " + t;
+}
 
 // ── Row helpers ──────────────────────────────────────────────────────
 function desk(doctype, name) {

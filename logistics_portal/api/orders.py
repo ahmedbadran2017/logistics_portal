@@ -122,8 +122,22 @@ def _board_counts():
         (dw,), as_dict=True)[0]
     received = int(ret.received or 0)
 
+    # How many To Pick orders already missed today's 14:00 same-day cutoff.
+    from frappe.utils import now_datetime, nowdate
+    _now = now_datetime()
+    cutoff_dt = f"{nowdate()} 14:00:00" if str(_now)[11:16] >= "14:00" else f"{nowdate()} 00:00:00"
+    late = frappe.db.sql(
+        """SELECT COUNT(*) FROM `tabSales Order` so
+           LEFT JOIN (SELECT DISTINCT pli.sales_order FROM `tabPick List Item` pli) pl
+             ON pl.sales_order = so.name
+           WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
+             AND so.custom_logistics_status='Pending' AND pl.sales_order IS NULL
+             AND so.creation >= %s AND so.creation < %s""",
+        (w, cutoff_dt))[0][0]
+
     counts = {
         "to_pick": int(pend.no_pl or 0),
+        "to_pick_late": int(late or 0),
         "picking": int(pend.pl_draft or 0),
         "prepared": st.get("Label Generated", 0),
         "ready": st.get("Label Printed", 0),
@@ -173,7 +187,8 @@ def _board_counts():
 _SO_FIELDS = """so.name, so.customer_name, so.grand_total, so.custom_channel,
     so.custom_items_count, so.custom_awb, so.custom_label_url, so.custom_shipping_city,
     so.custom_track_shipment_status, so.creation, so.modified,
-    COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone) AS phone"""
+    COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone) AS phone,
+    LEFT(so.custom_items_description, 160) AS items_desc"""
 
 
 def _q_cond(q, args):
@@ -196,6 +211,7 @@ def _row(r, **extra):
         "awb": r.custom_awb or "", "labelUrl": r.get("custom_label_url") or "",
         "track": r.custom_track_shipment_status or "", "ageMins": age,
         "created": str(r.creation)[:16],
+        "itemsDesc": (r.get("items_desc") or "").strip(),
     }, **extra)
 
 
