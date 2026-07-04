@@ -406,7 +406,7 @@ const DEMO_BOARD = {
   rows: [
     { no: "#242646", customer: "oualid elmouden", total: 149, channel: "shopify", items: 1, city: "Casablanca", status: "Pending", awb: "", track: "", ageMins: 41 },
     { no: "#242644", customer: "Chada Rami", total: 198, channel: "shopify", items: 2, city: "Rabat", status: "Pending", awb: "", track: "", ageMins: 12 },
-    { no: "SAL-ORD-2026-00299", customer: "Salma", total: 149, channel: "manual", items: 1, city: "Tangier", status: "Pending", awb: "", track: "", ageMins: 8 },
+    { no: "SAL-ORD-2026-00299", customer: "Salma", total: 149, channel: "joyagent", items: 1, city: "Tangier", status: "Pending", awb: "", track: "", ageMins: 8 },
   ],
 };
 
@@ -608,7 +608,7 @@ function ageHex(mins) {
   return mins < 120 ? "#10b981" : mins < 360 ? "#d97706" : "#e11d48";
 }
 function channelHex(ch) {
-  return { shopify: "#10b981", youcan: "#7c3aed", landing: "#d97706", manual: "#78716c", whatsapp: "#16a34a" }[ch] || "#a8a29e";
+  return { shopify: "#10b981", youcan: "#7c3aed", landing: "#d97706", joyagent: "#0284c7", manual: "#78716c", whatsapp: "#16a34a" }[ch] || "#a8a29e";
 }
 // 77% of orders have no custom_channel — derive it from the naming series.
 function channelOf(r) {
@@ -618,6 +618,7 @@ function channelOf(r) {
   if (no.startsWith("YC-")) return "youcan";
   if (no.startsWith("J-")) return "landing";
   if (no.startsWith("WA-")) return "whatsapp";
+  if (no.startsWith("SAL-ORD")) return "joyagent";
   return "manual";
 }
 // Moroccan mobile → wa.me international format (0612… → 212612…).
@@ -631,7 +632,7 @@ function waLink(phone) {
 function trackHexOf(t) {
   return TRACK_ORDER.find((x) => x.key === t)?.hex || "#a8a29e";
 }
-const CHANNEL_LABEL = { shopify: "Shopify", youcan: "YouCan", landing: "Landing Page", manual: "Manual", whatsapp: "WhatsApp" };
+const CHANNEL_LABEL = { shopify: "Shopify", youcan: "YouCan", landing: "Landing Page", joyagent: "JoyAgent", manual: "Manual", whatsapp: "WhatsApp" };
 function channelLabel(ch) { return CHANNEL_LABEL[ch] || ch; }
 function stageLabelOf() {
   // Raw status "Pending" is ambiguous — show the derived stage instead.
