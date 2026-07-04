@@ -158,6 +158,71 @@ def pick_lists(limit=40):
 
 
 @frappe.whitelist()
+def create_pick_list_from_orders(orders, picker=None):
+    """Create ONE draft (combined) Pick List from selected Confirmed orders.
+    Mirrors the ops flow: dispatcher groups orders → picker works the list →
+    submit auto-creates the AWBs. Dispatcher/manager only."""
+    import json
+    from logistics_portal.api.auth import resolve_role
+
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Only a dispatcher or manager can create pick lists.", frappe.PermissionError)
+
+    if isinstance(orders, str):
+        orders = json.loads(orders)
+    orders = [o.strip() for o in (orders or []) if o and o.strip()]
+    if not orders:
+        frappe.throw("No orders selected.")
+    if len(orders) > 50:
+        frappe.throw("Too many orders for one pick list (max 50).")
+
+    sos = []
+    for name in orders:
+        if not frappe.db.exists("Sales Order", name):
+            frappe.throw(f"Unknown order: {name}")
+        so = frappe.get_doc("Sales Order", name)
+        if so.docstatus != 1 or so.get("custom_sales_status") != "Confirmed":
+            frappe.throw(f"{name} is not a submitted Confirmed order.")
+        if so.get("custom_logistics_status") not in (None, "", "Pending"):
+            frappe.throw(f"{name} is already in the flow ({so.custom_logistics_status}).")
+        if frappe.db.exists("Pick List Item", {"sales_order": name, "docstatus": ["<", 2]}):
+            frappe.throw(f"{name} already has a pick list.")
+        sos.append(so)
+
+    pl = frappe.new_doc("Pick List")
+    pl.company = sos[0].company
+    pl.purpose = "Delivery"
+    if picker and frappe.get_meta("Pick List").has_field("custom_assigned_picker"):
+        pl.custom_assigned_picker = picker
+    for so in sos:
+        for it in so.items:
+            pending = (it.qty or 0) - (it.delivered_qty or 0)
+            if pending <= 0:
+                continue
+            pl.append("locations", {
+                "item_code": it.item_code,
+                "qty": pending,
+                "stock_qty": pending,
+                "conversion_factor": it.conversion_factor or 1,
+                "sales_order": so.name,
+                "sales_order_item": it.name,
+                "uom": it.uom,
+                "warehouse": it.warehouse,
+            })
+    if not pl.get("locations"):
+        frappe.throw("Nothing left to pick on the selected orders.")
+
+    # Let ERPNext resolve bins/batches the standard way; fall back to the
+    # SO-item warehouses if location assignment isn't available.
+    try:
+        pl.set_item_locations()
+    except Exception:
+        pass
+    pl.insert()
+    return {"pl": pl.name, "orders": len(sos), "items": len(pl.locations)}
+
+
+@frappe.whitelist()
 def pickers():
     """Active pickers + live load (open pick lists), for the dispatcher board."""
     try:

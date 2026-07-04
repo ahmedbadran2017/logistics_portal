@@ -57,13 +57,14 @@ def _win(days):
 
 
 @frappe.whitelist()
-def board(stage="to_pick", track=None, limit=50, q=None):
+def board(stage="to_pick", track=None, limit=50, q=None, offset=0):
     """Counts + MAD value per stage, and rows for the requested stage.
-    `q` searches order no / customer / AWB within the stage."""
+    `q` searches order no / customer / AWB; `offset` pages within the stage."""
     limit = min(int(limit), 100)
+    offset = min(max(int(offset), 0), 5000)
     try:
         counts, values, shipped_tracks, attention = _board_counts()
-        rows = _board_rows(stage, track, limit, q)
+        rows = _board_rows(stage, track, limit, q, offset)
         return {"counts": counts, "values": values, "shippedTracks": shipped_tracks,
                 "attention": attention, "rows": rows, "stage": stage}
     except Exception:
@@ -194,10 +195,11 @@ def _row(r, **extra):
         "phone": r.get("phone") or "",
         "awb": r.custom_awb or "", "labelUrl": r.get("custom_label_url") or "",
         "track": r.custom_track_shipment_status or "", "ageMins": age,
+        "created": str(r.creation)[:16],
     }, **extra)
 
 
-def _board_rows(stage, track, limit, q=None):
+def _board_rows(stage, track, limit, q=None, offset=0):
     w, dw = _win(BOARD_WINDOW_DAYS), _win(DONE_WINDOW_DAYS)
     pl_join = """LEFT JOIN (SELECT pli.sales_order, MAX(p.name) pl, MAX(p.docstatus) pl_ds,
                         MAX(p.custom_assigned_picker) picker, MAX(p.owner) pl_owner
@@ -210,7 +212,7 @@ def _board_rows(stage, track, limit, q=None):
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS} FROM `tabSales Order` so {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Pending' AND pl.sales_order IS NULL
-              AND so.creation >= %s {qc} ORDER BY so.creation ASC LIMIT {limit}""",
+              AND so.creation >= %s {qc} ORDER BY so.creation ASC LIMIT {limit} OFFSET {offset}""",
             tuple(args), as_dict=True)
         return [_row(r) for r in rows]
 
@@ -221,7 +223,7 @@ def _board_rows(stage, track, limit, q=None):
             FROM `tabSales Order` so {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Pending' AND pl.pl_ds = 0
-              AND so.creation >= %s {qc} ORDER BY so.modified DESC LIMIT {limit}""",
+              AND so.creation >= %s {qc} ORDER BY so.modified DESC LIMIT {limit} OFFSET {offset}""",
             tuple(args), as_dict=True)
         return [_row(r, pl=r.pl, picker=r.picker or r.pl_owner) for r in rows]
 
@@ -233,7 +235,7 @@ def _board_rows(stage, track, limit, q=None):
             FROM `tabSales Order` so {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status=%s AND so.creation >= %s {qc}
-            ORDER BY so.modified ASC LIMIT {limit}""", tuple(args), as_dict=True)
+            ORDER BY so.modified ASC LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
         return [_row(r, pl=r.pl, picker=r.picker or r.pl_owner) for r in rows]
 
     if stage == "shipped":
@@ -251,7 +253,7 @@ def _board_rows(stage, track, limit, q=None):
                        GROUP BY dni.against_sales_order) sh ON sh.so_name = so.name
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Shipped' AND so.creation >= %s {cond} {qc}
-            ORDER BY so.modified ASC LIMIT {limit}""", tuple(args), as_dict=True)
+            ORDER BY so.modified ASC LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
         return [_row(r, sh=r.sh) for r in rows]
 
     if stage == "delivered":
@@ -260,7 +262,7 @@ def _board_rows(stage, track, limit, q=None):
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS} FROM `tabSales Order` so
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Delivered' AND so.creation >= %s {qc}
-            ORDER BY so.modified DESC LIMIT {limit}""", tuple(args), as_dict=True)
+            ORDER BY so.modified DESC LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
         return [_row(r) for r in rows]
 
     if stage in ("to_return", "returned"):
@@ -275,7 +277,7 @@ def _board_rows(stage, track, limit, q=None):
                        WHERE d.docstatus=1 GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Returned' AND so.creation >= %s {cond} {qc}
-            ORDER BY so.modified ASC LIMIT {limit}""", tuple(args), as_dict=True)
+            ORDER BY so.modified ASC LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
         return [_row(r, ret=r.ret, dn=r.dn) for r in rows]
 
     if stage == "attention":

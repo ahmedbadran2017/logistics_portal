@@ -22,6 +22,9 @@ async function init(force = false) {
     role.value = boot.role;
     roles.value = boot.roles || (boot.role ? [boot.role] : []);
     zone.value = boot.zone || "";
+    // The page template can't inject the CSRF token reliably; the boot endpoint
+    // returns it so POST writes (apiPost) work from the browser session.
+    if (boot.csrf_token) window.csrf_token = boot.csrf_token;
   } catch (e) {
     // Dev-only: with no Frappe backend running (preview/design work), fall back to
     // a demo identity so the SPA is fully browsable. Never reached in production

@@ -57,6 +57,13 @@ def get_boot():
     if user == "Guest":
         return {"user": "Guest", "role": None, "roles": [], "full_name": "", "zone": ""}
 
+    # The page template can't reliably inject the CSRF token (sandboxed Jinja),
+    # so the SPA fetches it here over GET and uses it for POST writes.
+    try:
+        csrf = frappe.sessions.get_csrf_token()
+    except Exception:
+        csrf = ""
+
     role = resolve_role(user)
     return {
         "user": user,
@@ -64,4 +71,5 @@ def get_boot():
         "role": role,
         "roles": [role] if role else [],
         "zone": resolve_zone(user),
+        "csrf_token": csrf,
     }

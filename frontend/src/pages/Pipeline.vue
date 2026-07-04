@@ -70,12 +70,14 @@
             :style="activeStage === s.key ? { '--tw-ring-color': s.hex } : {}"
             @click="load(s.key)"
           >
-            <div class="flex items-center gap-2">
+            <span class="absolute top-0 inset-x-3 h-[3px] rounded-b-full transition-opacity"
+                  :style="{ background: s.hex, opacity: activeStage === s.key ? 1 : 0 }" />
+            <div class="flex items-center gap-2 whitespace-nowrap">
               <span class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
                     :style="{ background: s.hex + '1c', color: s.hex }">
                 <Icon :name="s.icon" :size="15" />
               </span>
-              <span class="text-[11px] font-semibold uppercase tracking-[0.04em]"
+              <span class="text-[10.5px] font-semibold uppercase tracking-[0.04em]"
                     :class="activeStage === s.key ? 'text-stone-900' : 'text-stone-500'">{{ s.label }}</span>
             </div>
             <div class="mt-2 flex items-baseline gap-1.5">
@@ -135,7 +137,10 @@
       <div v-else class="overflow-x-auto">
         <table class="w-full text-[13px]">
           <thead>
-            <tr class="text-start border-b border-stone-100">
+            <tr class="text-start border-b border-stone-100 bg-stone-50/60">
+              <th v-if="activeStage === 'to_pick'" class="w-10 px-3 py-2.5 text-center">
+                <input type="checkbox" class="board-cb" :checked="allSelected" @change="toggleAll" />
+              </th>
               <th class="text-start px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Order</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Customer</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Documents</th>
@@ -148,9 +153,19 @@
           </thead>
           <tbody class="divide-y divide-stone-100">
             <tr v-for="r in rows" :key="r.no" class="hover:bg-stone-50/70 transition-colors cursor-pointer group"
+                :class="selected.has(r.no) ? 'bg-amber-50/50' : ''"
                 @click="openOrder(r)">
+              <td v-if="activeStage === 'to_pick'" class="px-3 py-3 text-center" @click.stop>
+                <input type="checkbox" class="board-cb" :checked="selected.has(r.no)" @change="toggleRow(r.no)" />
+              </td>
               <td class="px-4 py-3">
-                <div class="font-mono font-bold text-stone-900">{{ r.no }}</div>
+                <div class="font-mono font-bold text-stone-900 flex items-center gap-1.5">
+                  {{ r.no }}
+                  <span v-if="activeStage === 'to_pick' && missedCutoff(r)"
+                        class="text-[9.5px] font-sans font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded ring-1 ring-rose-200/70 whitespace-nowrap">
+                    missed cutoff
+                  </span>
+                </div>
                 <div class="text-[11px] text-stone-400 flex items-center gap-1 mt-0.5">
                   <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="{ background: channelHex(channelOf(r)) }" />
                   {{ channelOf(r) }}<span v-if="r.city"> · {{ r.city }}</span>
@@ -228,7 +243,7 @@
                   :is="actionFor(r) && actionFor(r).href ? 'a' : 'button'"
                   v-if="actionFor(r)"
                   v-bind="actionFor(r).href ? { href: actionFor(r).href, target: '_blank' } : {}"
-                  class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                  class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11.5px] font-semibold text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                   :style="{ background: activeMeta.hex }"
                   @click.stop="actionFor(r).go && actionFor(r).go(r)"
                 >
@@ -243,9 +258,19 @@
             {{ rows.length }} order{{ rows.length === 1 ? "" : "s" }} shown
             <span v-if="(counts[activeStage] ?? 0) > rows.length" class="text-stone-400">of {{ counts[activeStage] }}</span>
           </span>
-          <span class="text-[12px] font-mono font-semibold text-stone-700 tabular-nums">
-            {{ fmtMAD(rowsTotal) }} <span class="text-[10px] font-sans font-normal text-stone-400">MAD</span>
-          </span>
+          <div class="flex items-center gap-3">
+            <button
+              v-if="canLoadMore"
+              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
+              :class="loadingMore ? 'opacity-60 pointer-events-none' : ''"
+              @click="loadMore"
+            >
+              <Icon name="chevron-down" :size="12" :class="loadingMore ? 'animate-bounce' : ''" /> Load more
+            </button>
+            <span class="text-[12px] font-mono font-semibold text-stone-700 tabular-nums">
+              {{ fmtMAD(rowsTotal) }} <span class="text-[10px] font-sans font-normal text-stone-400">MAD</span>
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -253,6 +278,29 @@
     <div class="text-[11px] text-stone-400 text-center">
       Stage is derived from documents (Pick List → AWB → print → manifest → tracking) — updated {{ updatedAgo }}
     </div>
+
+    <!-- Floating selection bar -->
+    <transition name="selbar">
+      <div v-if="selected.size" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+        <div class="flex items-center gap-3 bg-stone-900 text-white rounded-2xl ps-4 pe-2 py-2 shadow-[0_16px_48px_-12px_rgba(0,0,0,0.45)]">
+          <span class="text-[13px] font-semibold tabular-nums whitespace-nowrap">{{ selected.size }} selected</span>
+          <span class="text-[12px] font-mono text-stone-300 tabular-nums whitespace-nowrap">{{ fmtMAD(selectedTotal) }} MAD</span>
+          <button
+            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12.5px] font-semibold text-white transition-all"
+            :class="creating ? 'opacity-60 pointer-events-none' : 'hover:brightness-110'"
+            style="background: var(--accent-600)"
+            @click="createPL"
+          >
+            <Icon name="package" :size="14" :class="creating ? 'animate-pulse' : ''" />
+            {{ creating ? "Creating…" : "Create Pick List" }}
+          </button>
+          <button class="w-7 h-7 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 flex items-center justify-center"
+                  @click="selected = new Set()">
+            <Icon name="x" :size="14" />
+          </button>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -261,16 +309,18 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { WAREHOUSE, fmtMAD } from "@/lib/handoffData";
-import { api, liveOr } from "@/lib/resource";
+import { api, apiPost, liveOr } from "@/lib/resource";
+import { useToast } from "@/composables/useToast";
 
 const router = useRouter();
+const { success, warn } = useToast();
 
 // ── Stage model (production-verified signals) ────────────────────────
 const stages = [
   { key: "to_pick",   label: "To Pick",       icon: "list-checks",  hex: "#d97706", hint: "Confirmed · no pick list",    emptyTitle: "Nothing to pick 🎉",    emptyHint: "Every confirmed order has a pick list." },
   { key: "picking",   label: "Picking",       icon: "package",      hex: "#0891b2", hint: "Pick list in progress",       emptyTitle: "No picks running",      emptyHint: "Create pick lists from To Pick." },
   { key: "prepared",  label: "Prepared",      icon: "tag",          hex: "#7c3aed", hint: "AWB created · to print",      emptyTitle: "Nothing to print",      emptyHint: "Submitting a pick list creates the AWB." },
-  { key: "ready",     label: "Ready to Ship", icon: "printer",      hex: "#4f46e5", hint: "Printed · awaiting manifest", emptyTitle: "Nothing staged",        emptyHint: "Printed orders wait here for the manifest." },
+  { key: "ready",     label: "Ready",         icon: "printer",      hex: "#4f46e5", hint: "Printed · awaiting manifest", emptyTitle: "Nothing staged",        emptyHint: "Printed orders wait here for the manifest." },
   { key: "shipped",   label: "Shipped",       icon: "truck",        hex: "#059669", hint: "With Cathedis",               emptyTitle: "Nothing with carrier",  emptyHint: "Close a manifest to hand parcels over." },
   { key: "delivered", label: "Delivered",     icon: "check-circle", hex: "#10b981", hint: "Last 30 days",                emptyTitle: "No deliveries yet",     emptyHint: "Delivered orders land here." },
   { key: "to_return", label: "To Return",     icon: "rotate-ccw",   hex: "#ea580c", hint: "Coming back · with carrier",  emptyTitle: "No returns in transit", emptyHint: "Carrier-flagged returns appear here." },
@@ -336,10 +386,17 @@ const trackChips = computed(() => {
   return chips;
 });
 
+const selected = ref(new Set());
+const creating = ref(false);
+const offset = ref(0);
+const loadingMore = ref(false);
+
 async function load(stage, track = "") {
   activeStage.value = stage;
   activeTrack.value = stage === "shipped" ? track : "";
   loading.value = true;
+  offset.value = 0;
+  selected.value = new Set();
   const live = await liveOr(null, () =>
     api("orders.board", { stage, track: track || undefined, limit: 50, q: q.value.trim() || undefined })
   );
@@ -356,6 +413,62 @@ async function load(stage, track = "") {
   loading.value = false;
 }
 function setTrack(t) { load("shipped", t); }
+
+const canLoadMore = computed(() =>
+  rows.value.length >= 50 && (counts.value[activeStage.value] ?? 0) > rows.value.length
+);
+async function loadMore() {
+  loadingMore.value = true;
+  offset.value += 50;
+  const live = await liveOr(null, () =>
+    api("orders.board", {
+      stage: activeStage.value, track: activeTrack.value || undefined,
+      limit: 50, offset: offset.value, q: q.value.trim() || undefined,
+    })
+  );
+  if (live && live.rows) rows.value = rows.value.concat(live.rows);
+  loadingMore.value = false;
+}
+
+// ── Selection → create a combined Pick List (dispatcher action) ──────
+const allSelected = computed(() => rows.value.length > 0 && rows.value.every((r) => selected.value.has(r.no)));
+const selectedTotal = computed(() =>
+  rows.value.filter((r) => selected.value.has(r.no)).reduce((a, r) => a + (r.total || 0), 0)
+);
+function toggleRow(no) {
+  const s = new Set(selected.value);
+  s.has(no) ? s.delete(no) : s.add(no);
+  selected.value = s;
+}
+function toggleAll() {
+  selected.value = allSelected.value ? new Set() : new Set(rows.value.map((r) => r.no));
+}
+async function createPL() {
+  creating.value = true;
+  try {
+    const res = await apiPost("picking.create_pick_list_from_orders", {
+      orders: Array.from(selected.value),
+    });
+    success(`Pick List ${res.pl} created`, `${res.orders} orders · ${res.items} items — draft, ready to assign`);
+    selected.value = new Set();
+    load("to_pick");
+  } catch (e) {
+    warn("Couldn't create the pick list", String(e.message || e));
+  } finally {
+    creating.value = false;
+  }
+}
+
+// Same-day cutoff (14:00): flag To Pick orders that already missed it.
+function missedCutoff(r) {
+  if (!r.created) return false;
+  const created = new Date(r.created.replace(" ", "T"));
+  const cut = new Date(); cut.setHours(14, 0, 0, 0);
+  const now = new Date();
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+  if (created < startOfToday) return true;           // from a previous day
+  return created < cut && now > cut;                 // placed before today's cutoff, cutoff passed
+}
 function onSearch() {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => load(activeStage.value, activeTrack.value), 350);
@@ -452,10 +565,16 @@ function actionFor(r) {
 <style scoped>
 .doc-chip {
   display: inline-flex; align-items: center; gap: 4px;
-  padding: 3px 8px; border-radius: 6px;
+  padding: 4px 9px; border-radius: 7px;
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 11px; font-weight: 500;
   box-shadow: inset 0 0 0 1px var(--chip-ring, transparent);
   transition: background-color .15s;
 }
+.board-cb {
+  width: 15px; height: 15px; cursor: pointer;
+  accent-color: var(--accent-600);
+}
+.selbar-enter-from, .selbar-leave-to { opacity: 0; transform: translate(-50%, 12px); }
+.selbar-enter-active, .selbar-leave-active { transition: all .22s cubic-bezier(.16,1,.3,1); }
 </style>
