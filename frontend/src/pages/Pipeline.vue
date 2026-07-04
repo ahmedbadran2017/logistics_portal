@@ -58,8 +58,20 @@
       </button>
     </div>
 
-    <!-- Flow strip -->
-    <div class="overflow-x-auto py-1 -mx-1 px-1">
+    <!-- Flow strip (skeleton on first load — never dummy numbers) -->
+    <div v-if="mode === 'loading'" class="overflow-x-auto py-1 -mx-1 px-1">
+      <div class="flex items-stretch gap-2 min-w-[980px]">
+        <div v-for="n in 8" :key="n" class="flex-1 rounded-xl ring-1 ring-stone-200/60 bg-white/70 p-3 animate-pulse">
+          <div class="flex items-center gap-2">
+            <div class="w-7 h-7 rounded-lg bg-stone-100" />
+            <div class="h-2.5 w-14 rounded bg-stone-100" />
+          </div>
+          <div class="mt-3 h-6 w-12 rounded bg-stone-100" />
+          <div class="mt-2 h-2 w-20 rounded bg-stone-100" />
+        </div>
+      </div>
+    </div>
+    <div v-else class="overflow-x-auto py-1 -mx-1 px-1">
       <div class="flex items-stretch gap-0 min-w-[980px]">
         <template v-for="(s, i) in stages" :key="s.key">
           <button
@@ -313,23 +325,37 @@
             </tr>
           </tbody>
         </table>
-        <div class="flex items-center justify-between px-4 py-2.5 border-t border-stone-100 bg-stone-50/50">
-          <span class="text-[11.5px] text-stone-500 tabular-nums">
-            {{ rows.length }} order{{ rows.length === 1 ? "" : "s" }} shown
-            <span v-if="(counts[activeStage] ?? 0) > rows.length" class="text-stone-400">of {{ counts[activeStage] }}</span>
+        <div class="flex items-center justify-between gap-3 px-4 py-2.5 border-t border-stone-100 bg-stone-50/50 flex-wrap">
+          <span class="text-[11.5px] text-stone-500 tabular-nums whitespace-nowrap">
+            {{ rangeStart }}–{{ rangeEnd }} of {{ total }}
+            <span class="text-stone-400 ms-2 font-mono">{{ fmtMAD(rowsTotal) }} MAD</span>
           </span>
-          <div class="flex items-center gap-3">
-            <button
-              v-if="canLoadMore"
-              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
-              :class="loadingMore ? 'opacity-60 pointer-events-none' : ''"
-              @click="loadMore"
+          <div class="flex items-center gap-2">
+            <select
+              :value="pageSize"
+              class="h-7 ps-2 pe-6 rounded-md bg-white ring-1 ring-stone-200 text-[11.5px] text-stone-600 appearance-none cursor-pointer focus:outline-none"
+              @change="setPageSize"
             >
-              <Icon name="chevron-down" :size="12" :class="loadingMore ? 'animate-bounce' : ''" /> Load more
-            </button>
-            <span class="text-[12px] font-mono font-semibold text-stone-700 tabular-nums">
-              {{ fmtMAD(rowsTotal) }} <span class="text-[10px] font-sans font-normal text-stone-400">MAD</span>
-            </span>
+              <option :value="20">20 / page</option>
+              <option :value="25">25 / page</option>
+              <option :value="50">50 / page</option>
+              <option :value="100">100 / page</option>
+            </select>
+            <div class="flex items-center gap-0.5">
+              <button class="pager-btn" :disabled="page <= 1" @click="goPage(page - 1)">
+                <Icon name="chevron-left" :size="13" class="flip-rtl" />
+              </button>
+              <button
+                v-for="p in pageWindow" :key="p"
+                class="pager-btn min-w-[28px] tabular-nums"
+                :class="p === page ? 'pager-active' : ''"
+                :disabled="typeof p !== 'number'"
+                @click="goPage(p)"
+              >{{ typeof p === 'number' ? p : '…' }}</button>
+              <button class="pager-btn" :disabled="page >= totalPages" @click="goPage(page + 1)">
+                <Icon name="chevron-right" :size="13" class="flip-rtl" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -411,11 +437,12 @@ const DEMO_BOARD = {
 };
 
 // ── State ────────────────────────────────────────────────────────────
-const counts = ref(DEMO_BOARD.counts);
-const values = ref({ to_pick: 5900, picking: 2100, prepared: 3400, ready: 2800, shipped: 21400 });
-const shippedTracks = ref(DEMO_BOARD.shippedTracks);
-const attention = ref(DEMO_BOARD.attention);
-const rows = ref(DEMO_BOARD.rows);
+const mode = ref("loading"); // loading → skeleton · live → real · demo → preview fallback
+const counts = ref({});
+const values = ref({});
+const shippedTracks = ref({});
+const attention = ref({});
+const rows = ref([]);
 const activeStage = ref("to_pick");
 const activeTrack = ref("");
 const q = ref("");
@@ -448,55 +475,77 @@ const trackChips = computed(() => {
 
 const selected = ref(new Set());
 const creating = ref(false);
-const offset = ref(0);
-const loadingMore = ref(false);
 const cities = ref([]);
 const cityFilter = ref("");
+const page = ref(1);
+const pageSize = ref(20);
+const total = ref(0);
 
-async function load(stage, track = "") {
+async function load(stage, track = "", keepPage = false) {
   if (stage !== activeStage.value) cityFilter.value = "";
+  if (!keepPage) page.value = 1;
   activeStage.value = stage;
   activeTrack.value = stage === "shipped" ? track : "";
   loading.value = true;
-  offset.value = 0;
   selected.value = new Set();
   const live = await liveOr(null, () =>
     api("orders.board", {
-      stage, track: track || undefined, limit: 50,
+      stage, track: track || undefined,
+      limit: pageSize.value, offset: (page.value - 1) * pageSize.value,
       q: q.value.trim() || undefined, city: cityFilter.value || undefined,
     })
   );
   if (live && live.counts) {
+    mode.value = "live";
     counts.value = live.counts;
     values.value = live.values || {};
     shippedTracks.value = live.shippedTracks || {};
     attention.value = live.attention || {};
     rows.value = live.rows || [];
     cities.value = live.cities || [];
+    total.value = live.total ?? (live.rows || []).length;
     updatedAt.value = Date.now();
-  } else {
+  } else if (mode.value !== "live") {
+    // Backend truly unreachable (local preview) — demo, clearly a fallback.
+    mode.value = "demo";
+    counts.value = DEMO_BOARD.counts;
+    values.value = { to_pick: 5900, picking: 2100, prepared: 3400, ready: 2800, shipped: 21400 };
+    shippedTracks.value = DEMO_BOARD.shippedTracks;
+    attention.value = DEMO_BOARD.attention;
     rows.value = stage === "to_pick" ? DEMO_BOARD.rows : [];
+    total.value = rows.value.length;
+  } else {
+    rows.value = [];
+    total.value = 0;
   }
   loading.value = false;
 }
-function setTrack(t) { load("shipped", t); }
 
-const canLoadMore = computed(() =>
-  rows.value.length >= 50 && (counts.value[activeStage.value] ?? 0) > rows.value.length
-);
-async function loadMore() {
-  loadingMore.value = true;
-  offset.value += 50;
-  const live = await liveOr(null, () =>
-    api("orders.board", {
-      stage: activeStage.value, track: activeTrack.value || undefined,
-      limit: 50, offset: offset.value, q: q.value.trim() || undefined,
-      city: cityFilter.value || undefined,
-    })
-  );
-  if (live && live.rows) rows.value = rows.value.concat(live.rows);
-  loadingMore.value = false;
+// ── Pagination (numbered, like Next) ─────────────────────────────────
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
+const pageWindow = computed(() => {
+  const tp = totalPages.value, c = page.value, out = [];
+  const push = (v) => { if (!out.includes(v)) out.push(v); };
+  push(1);
+  if (c - 1 > 2) push("…");
+  for (let p = Math.max(2, c - 1); p <= Math.min(tp - 1, c + 1); p++) push(p);
+  if (c + 1 < tp - 1) push("…2");
+  if (tp > 1) push(tp);
+  return out;
+});
+const rangeStart = computed(() => total.value === 0 ? 0 : (page.value - 1) * pageSize.value + 1);
+const rangeEnd = computed(() => Math.min(page.value * pageSize.value, total.value));
+function goPage(p) {
+  if (p === "…" || p === "…2" || p === page.value || p < 1 || p > totalPages.value) return;
+  page.value = p;
+  load(activeStage.value, activeTrack.value, true);
 }
+function setPageSize(e) {
+  pageSize.value = Number(e.target.value);
+  page.value = 1;
+  load(activeStage.value, activeTrack.value, true);
+}
+function setTrack(t) { load("shipped", t); }
 
 // ── Selection → create a combined Pick List (dispatcher action) ──────
 const allSelected = computed(() => rows.value.length > 0 && rows.value.every((r) => selected.value.has(r.no)));
@@ -559,7 +608,7 @@ onMounted(() => {
   // Silent refresh — skipped while the dispatcher has a selection in hand.
   refreshTimer = setInterval(() => {
     if (!selected.value.size && !loading.value && document.visibilityState === "visible") {
-      load(activeStage.value, activeTrack.value);
+      load(activeStage.value, activeTrack.value, true);
     }
   }, 120000);
 });
@@ -699,6 +748,16 @@ function actionFor(r) {
   width: 15px; height: 15px; cursor: pointer;
   accent-color: var(--accent-600);
 }
+.pager-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 28px; padding: 0 7px; border-radius: 7px;
+  font-size: 12px; font-weight: 600; color: #57534e;
+  background: #fff; box-shadow: inset 0 0 0 1px #e7e5e4;
+  transition: background-color .12s;
+}
+.pager-btn:hover:not(:disabled):not(.pager-active) { background: #fafaf9; }
+.pager-btn:disabled { opacity: .4; cursor: default; box-shadow: none; background: transparent; }
+.pager-active { color: #fff; background: var(--accent-600); box-shadow: none; }
 .selbar-enter-from, .selbar-leave-to { opacity: 0; transform: translate(-50%, 12px); }
 .selbar-enter-active, .selbar-leave-active { transition: all .22s cubic-bezier(.16,1,.3,1); }
 </style>

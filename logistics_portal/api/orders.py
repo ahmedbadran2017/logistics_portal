@@ -60,17 +60,91 @@ def _win(days):
 def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None):
     """Counts + MAD value per stage, rows for the requested stage, and a city
     facet for filtering. `q` searches order no / customer / AWB."""
+    import json as _json
+
     limit = min(int(limit), 100)
     offset = min(max(int(offset), 0), 5000)
     try:
-        counts, values, shipped_tracks, attention = _board_counts()
+        # Counts/values/tracks/attention are global (not filter-dependent) and
+        # cost several table scans — cache for 60s so tab switches are instant.
+        cache = frappe.cache()
+        cached = cache.get_value("lp_board_summary")
+        if cached:
+            summary = _json.loads(cached)
+            counts, values = summary["counts"], summary["values"]
+            shipped_tracks, attention = summary["tracks"], summary["attention"]
+        else:
+            counts, values, shipped_tracks, attention = _board_counts()
+            cache.set_value("lp_board_summary", _json.dumps({
+                "counts": counts, "values": values,
+                "tracks": shipped_tracks, "attention": attention,
+            }), expires_in_sec=60)
+
+        facet_key = f"lp_board_cities:{stage}:{track or ''}"
+        cached_facet = cache.get_value(facet_key)
+        if cached_facet:
+            cities = _json.loads(cached_facet)
+        else:
+            cities = _city_facet(stage, track)
+            cache.set_value(facet_key, _json.dumps(cities), expires_in_sec=120)
+
         rows = _board_rows(stage, track, limit, q, offset, city)
-        cities = _city_facet(stage, track)
+        total = _board_total(stage, track, q, city)
         return {"counts": counts, "values": values, "shippedTracks": shipped_tracks,
-                "attention": attention, "rows": rows, "cities": cities, "stage": stage}
+                "attention": attention, "rows": rows, "cities": cities,
+                "total": total, "stage": stage}
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.orders.board")
         return {}
+
+
+def _board_total(stage, track, q=None, city=None):
+    """Filtered row count for the stage — powers real pagination."""
+    w, dw = _win(BOARD_WINDOW_DAYS), _win(DONE_WINDOW_DAYS)
+    addr = """LEFT JOIN `tabAddress` addr
+        ON addr.name = COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address)"""
+    base = "so.docstatus=1 AND so.custom_sales_status='Confirmed'"
+    args = []
+
+    if stage in ("to_pick", "picking"):
+        pl_cond = "pl.sales_order IS NULL" if stage == "to_pick" else "pl.docstatus = 0"
+        joins = addr + """ LEFT JOIN (SELECT pli.sales_order, MAX(p.docstatus) docstatus
+            FROM `tabPick List Item` pli JOIN `tabPick List` p ON p.name=pli.parent
+            GROUP BY pli.sales_order) pl ON pl.sales_order = so.name"""
+        where = f"{base} AND so.custom_logistics_status='Pending' AND {pl_cond} AND so.creation >= %s"
+        args = [w]
+    elif stage in ("to_return", "returned"):
+        cond = "AND (dn.ret IS NOT NULL AND dn.ret != '')" if stage == "returned" \
+            else "AND (dn.ret IS NULL OR dn.ret = '')"
+        joins = addr + """ LEFT JOIN (SELECT dni.against_sales_order so_name,
+                MAX(d.custom_return_shipment) ret
+            FROM `tabDelivery Note Item` dni JOIN `tabDelivery Note` d ON d.name=dni.parent
+            WHERE d.docstatus=1 GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name"""
+        where = f"{base} AND so.custom_logistics_status='Returned' AND so.creation >= %s {cond}"
+        args = [dw]
+    else:
+        status = {"prepared": "Label Generated", "ready": "Label Printed",
+                  "shipped": "Shipped", "delivered": "Delivered"}.get(stage)
+        if not status:
+            return 0
+        joins = addr
+        where = f"{base} AND so.custom_logistics_status=%s AND so.creation >= %s"
+        args = [status, dw if stage == "delivered" else w]
+        if stage == "shipped":
+            if track == "none":
+                where += " AND (so.custom_track_shipment_status IS NULL OR so.custom_track_shipment_status='')"
+            elif track:
+                where += " AND so.custom_track_shipment_status = %s"
+                args.append(track)
+
+    where += _q_cond(q, args)
+    where += _city_cond(city, args)
+    try:
+        return int(frappe.db.sql(
+            f"SELECT COUNT(*) FROM `tabSales Order` so {joins} WHERE {where}",
+            tuple(args))[0][0] or 0)
+    except Exception:
+        return 0
 
 
 def _city_facet(stage, track, top=14):
@@ -576,10 +650,25 @@ def activity(name):
 def detail(name):
     """Full order detail for the shared OrderDetail screen."""
     name = (name or "").lstrip("#")
-    if not frappe.db.exists("Sales Order", name):
+    for cand in (name, f"#{name}"):
+        if frappe.db.exists("Sales Order", cand):
+            name = cand
+            break
+    else:
         return {}
     so = frappe.get_doc("Sales Order", name)
+
+    # Line items with the product image (97% of items carry one).
+    items = frappe.db.sql(
+        """SELECT soi.item_code sku, soi.item_name name, soi.qty, soi.rate price,
+                  soi.amount line, soi.warehouse bin, i.image
+           FROM `tabSales Order Item` soi
+           LEFT JOIN `tabItem` i ON i.name = soi.item_code
+           WHERE soi.parent = %s ORDER BY soi.idx""",
+        (name,), as_dict=True)
+
     return {
+        "items": [dict(r) for r in items],
         "name": "#" + so.name,
         "customer": so.customer_name,
         "channel": so.get("custom_channel"),

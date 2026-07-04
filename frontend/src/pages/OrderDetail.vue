@@ -75,7 +75,10 @@
               <tr v-for="(it, i) in items" :key="i">
                 <td class="px-4 py-2.5">
                   <div class="flex items-center gap-2.5">
-                    <span class="w-9 h-9 rounded-lg bg-stone-100 ring-1 ring-stone-200/70 flex items-center justify-center flex-shrink-0 text-stone-400">
+                    <img v-if="it.image" :src="it.image" loading="lazy"
+                         class="w-9 h-9 rounded-lg object-cover ring-1 ring-stone-200/70 flex-shrink-0 bg-stone-100"
+                         @error="it.image = ''" />
+                    <span v-else class="w-9 h-9 rounded-lg bg-stone-100 ring-1 ring-stone-200/70 flex items-center justify-center flex-shrink-0 text-stone-400">
                       <Icon name="package" :size="15" />
                     </span>
                     <div class="min-w-0">
@@ -361,7 +364,16 @@ onMounted(async () => {
     if (Array.isArray(ev) && ev.length) activityEvents.value = ev;
   });
   const live = await liveOr(null, () => api("orders.detail", { name: props.name }));
-  if (live && live.name) liveOrder.value = live;
+  if (live && live.name) {
+    liveOrder.value = live;
+    if (Array.isArray(live.items) && live.items.length) {
+      liveItems.value = live.items.map((it) => ({
+        sku: it.sku, name: it.name || it.sku, bin: it.bin || "—",
+        qty: it.qty || 1, price: it.price || 0, line: it.line || 0,
+        image: it.image || "",
+      }));
+    }
+  }
 });
 
 // Build the order by matching no (with/without '#'), fallback to a sensible object.
@@ -414,7 +426,9 @@ const slaBadge = computed(() => {
 });
 
 // ── Line items (deterministic, mirrors genLineItems) ──────────────────
+const liveItems = ref([]);
 const items = computed(() => {
+  if (liveItems.value.length) return liveItems.value;
   const o = order.value;
   const names = [
     ["MCH100013", "Diffuseur huile MCH — box", o.bin],
