@@ -463,6 +463,115 @@ def _age_mins(creation):
         return 0
 
 
+# Version-log fields worth surfacing in the order's logistics activity feed.
+_ACT_FIELDS = {
+    "custom_logistics_status": ("status", "Status"),
+    "custom_sales_status": ("sales", "Sales status"),
+    "custom_track_shipment_status": ("track", "Carrier tracking"),
+    "custom_awb": ("awb", "AWB"),
+    "custom_assigned_picker": ("picker", "Picker assigned"),
+}
+
+
+@frappe.whitelist()
+def activity(name):
+    """Merged logistics activity feed for one order: field transitions from the
+    Version log + comments + linked-document events, newest first."""
+    import json as _json
+
+    name = (name or "").lstrip("#")
+    candidates = [name, f"#{name}"]
+    so_name = None
+    for c in candidates:
+        if frappe.db.exists("Sales Order", c):
+            so_name = c
+            break
+    if not so_name:
+        return []
+
+    events = []
+
+    # 1) Field transitions (who changed what, when) from the Version log.
+    for v in frappe.get_all(
+        "Version",
+        filters={"ref_doctype": "Sales Order", "docname": so_name},
+        fields=["owner", "creation", "data"],
+        order_by="creation asc", limit=60,
+    ):
+        try:
+            d = _json.loads(v.data or "{}")
+        except Exception:
+            continue
+        for ch in (d.get("changed") or []):
+            f, old, new = str(ch[0]), ch[1], ch[2]
+            if f == "docstatus" and old == 0 and new == 1:
+                events.append({"when": str(v.creation)[:16], "kind": "submit",
+                               "title": "Order submitted", "detail": "", "actor": v.owner})
+            elif f in _ACT_FIELDS:
+                kind, label = _ACT_FIELDS[f]
+                if kind == "awb":
+                    events.append({"when": str(v.creation)[:16], "kind": "awb",
+                                   "title": "AWB created", "detail": str(new or ""), "actor": v.owner})
+                else:
+                    events.append({"when": str(v.creation)[:16], "kind": kind,
+                                   "title": f"{label}: {old or '—'} → {new or '—'}",
+                                   "detail": "", "actor": v.owner})
+
+    # 2) Comments on the order.
+    for c in frappe.get_all(
+        "Comment",
+        filters={"reference_doctype": "Sales Order", "reference_name": so_name,
+                 "comment_type": "Comment"},
+        fields=["owner", "creation", "content"],
+        order_by="creation asc", limit=20,
+    ):
+        text = frappe.utils.strip_html(c.content or "").strip()
+        if text:
+            events.append({"when": str(c.creation)[:16], "kind": "comment",
+                           "title": "Comment", "detail": text[:200], "actor": c.owner})
+
+    # 3) Linked logistics documents.
+    for pl in frappe.get_all(
+        "Pick List",
+        filters={"name": ["in", [r.parent for r in frappe.get_all(
+            "Pick List Item", filters={"sales_order": so_name}, fields=["parent"], limit=5)]]},
+        fields=["name", "owner", "creation", "modified", "docstatus", "custom_assigned_picker"],
+    ):
+        events.append({"when": str(pl.creation)[:16], "kind": "pl",
+                       "title": "Pick List created", "detail": pl.name, "actor": pl.owner})
+        if pl.docstatus == 1:
+            events.append({"when": str(pl.modified)[:16], "kind": "pl",
+                           "title": "Pick List submitted", "detail": pl.name,
+                           "actor": pl.custom_assigned_picker or pl.owner})
+
+    dns = frappe.get_all(
+        "Delivery Note Item", filters={"against_sales_order": so_name},
+        fields=["parent"], limit=3)
+    for dnr in {r.parent for r in dns}:
+        dn = frappe.db.get_value("Delivery Note", dnr,
+                                 ["owner", "creation", "custom_return_shipment"], as_dict=True)
+        if not dn:
+            continue
+        events.append({"when": str(dn.creation)[:16], "kind": "dn",
+                       "title": "Delivery Note created", "detail": dnr, "actor": dn.owner})
+        sh = frappe.db.get_value("Shipment Delivery Note", {"delivery_note": dnr}, "parent")
+        if sh:
+            shd = frappe.db.get_value("Shipment", sh, ["owner", "creation"], as_dict=True)
+            if shd:
+                events.append({"when": str(shd.creation)[:16], "kind": "sh",
+                               "title": "Added to manifest", "detail": sh, "actor": shd.owner})
+        if dn.custom_return_shipment:
+            rt = frappe.db.get_value("Return Shipment", dn.custom_return_shipment,
+                                     ["owner", "creation"], as_dict=True)
+            if rt:
+                events.append({"when": str(rt.creation)[:16], "kind": "ret",
+                               "title": "Received in return batch",
+                               "detail": dn.custom_return_shipment, "actor": rt.owner})
+
+    events.sort(key=lambda e: e["when"], reverse=True)
+    return events[:50]
+
+
 @frappe.whitelist()
 def detail(name):
     """Full order detail for the shared OrderDetail screen."""

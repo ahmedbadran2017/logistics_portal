@@ -208,6 +208,33 @@
           </ol>
         </div>
 
+        <!-- Logistics activity (real audit trail) -->
+        <div v-if="activityEvents.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-[13px] font-semibold text-stone-900">Logistics activity</div>
+            <span class="text-[10.5px] text-stone-400">who · what · when</span>
+          </div>
+          <ol class="relative">
+            <li v-for="(e, i) in activityEvents" :key="i" class="relative flex gap-3 pb-3.5 last:pb-0">
+              <span v-if="i < activityEvents.length - 1" class="absolute top-6 w-px left-[11px] bg-stone-200" style="bottom:0" />
+              <span class="relative z-10 w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
+                    :style="{ background: actMeta(e.kind).hex + '18', color: actMeta(e.kind).hex }">
+                <Icon :name="actMeta(e.kind).icon" :size="12" />
+              </span>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-[12.5px] font-medium text-stone-900 truncate">{{ e.title }}</span>
+                  <span class="text-[11px] text-stone-400 tabular-nums flex-shrink-0">{{ e.when }}</span>
+                </div>
+                <div class="flex items-center gap-1.5 mt-0.5 min-w-0">
+                  <span class="text-[11px] text-stone-500 truncate">{{ actorShort(e.actor) }}</span>
+                  <span v-if="e.detail" class="font-mono text-[10px] text-stone-500 bg-stone-50 ring-1 ring-stone-200/70 rounded px-1 truncate">{{ e.detail }}</span>
+                </div>
+              </div>
+            </li>
+          </ol>
+        </div>
+
         <!-- Carrier / tracking -->
         <div v-if="order.awb" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
           <div class="flex items-center justify-between mb-3">
@@ -271,6 +298,30 @@ import {
 } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
 
+// ── Real logistics activity feed (Version log + comments + doc events) ──
+const activityEvents = ref([]);
+const ACT_META = {
+  submit: { icon: "check-circle", hex: "#10b981" },
+  status: { icon: "git-branch", hex: "#7c3aed" },
+  sales: { icon: "user", hex: "#d97706" },
+  track: { icon: "truck", hex: "#0891b2" },
+  awb: { icon: "tag", hex: "#4f46e5" },
+  picker: { icon: "users", hex: "#0284c7" },
+  comment: { icon: "message-circle", hex: "#78716c" },
+  pl: { icon: "package", hex: "#7c3aed" },
+  dn: { icon: "file-text", hex: "#78716c" },
+  sh: { icon: "truck", hex: "#059669" },
+  ret: { icon: "rotate-ccw", hex: "#e11d48" },
+};
+function actMeta(kind) { return ACT_META[kind] || { icon: "info", hex: "#78716c" }; }
+function actorShort(actor) {
+  const MAP = { marouaneelmessaoudi07: "Marouane", mouakkalanass: "Anass", asmaazirary7: "Asmaa",
+    lamdanisaad12: "Saad", ossamanahila: "Oussama", saidnakri65: "Said", redazaari47: "Reda",
+    Administrator: "System" };
+  const k = (actor || "").split("@")[0];
+  return MAP[k] || MAP[actor] || k;
+}
+
 const props = defineProps({
   name: { type: String, required: true },
 });
@@ -306,6 +357,9 @@ function fmtTs(ts) {
 // Live order from `orders.detail`; demo/fabricated data stays as fallback.
 const liveOrder = ref(null);
 onMounted(async () => {
+  liveOr(null, () => api("orders.activity", { name: props.name })).then((ev) => {
+    if (Array.isArray(ev) && ev.length) activityEvents.value = ev;
+  });
   const live = await liveOr(null, () => api("orders.detail", { name: props.name }));
   if (live && live.name) liveOrder.value = live;
 });
