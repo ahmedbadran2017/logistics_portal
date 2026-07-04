@@ -106,6 +106,27 @@
       </div>
     </div>
 
+    <!-- City filter -->
+    <div v-if="cities.length" class="flex items-center gap-2 flex-wrap">
+      <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">City</span>
+      <div class="relative">
+        <select
+          v-model="cityFilter"
+          class="h-8 ps-3 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] text-stone-700 appearance-none cursor-pointer capitalize focus:ring-2 focus:outline-none"
+          style="--tw-ring-color: var(--accent-400)"
+          @change="load(activeStage, activeTrack)"
+        >
+          <option value="">All cities</option>
+          <option v-for="c in cities" :key="c.city" :value="c.city">{{ c.city }} ({{ c.count }})</option>
+        </select>
+        <Icon name="chevron-down" :size="13" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-end:.6rem" />
+      </div>
+      <button v-if="cityFilter" class="text-[11.5px] font-medium text-stone-400 hover:text-stone-600"
+              @click="cityFilter=''; load(activeStage, activeTrack)">
+        clear
+      </button>
+    </div>
+
     <!-- Shipped sub-segmentation -->
     <div v-if="activeStage === 'shipped'" class="flex items-center gap-2 flex-wrap">
       <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">Carrier status</span>
@@ -153,9 +174,12 @@
               </th>
               <th class="text-start px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Order</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Customer</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Status</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Documents</th>
               <th v-if="activeStage === 'attention'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Fault</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">City</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Picker</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Placed</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">In stage</th>
               <th class="text-end px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Value</th>
               <th class="text-end px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400"></th>
@@ -180,7 +204,7 @@
                 </div>
                 <div class="text-[11px] text-stone-400 flex items-center gap-1 mt-0.5 capitalize">
                   <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="{ background: channelHex(channelOf(r)) }" />
-                  {{ channelOf(r) }}<span v-if="r.city"> · {{ r.city }}</span>
+                  {{ channelOf(r) }}
                 </div>
               </td>
               <td class="px-3 py-3">
@@ -203,6 +227,14 @@
                     </a>
                   </template>
                 </div>
+              </td>
+              <td class="px-3 py-3">
+                <span v-if="r.status" class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-semibold whitespace-nowrap"
+                      :style="{ color: statusHex(r.status), background: statusHex(r.status) + '14' }">
+                  <span class="w-1.5 h-1.5 rounded-full" :style="{ background: statusHex(r.status) }" />
+                  {{ r.status }}
+                </span>
+                <span v-else class="text-[11px] text-stone-300">—</span>
               </td>
               <td class="px-3 py-3">
                 <div class="flex items-center gap-1.5 flex-wrap">
@@ -235,6 +267,10 @@
                 </span>
               </td>
               <td class="px-3 py-3">
+                <span v-if="r.city" class="text-[12px] text-stone-600 capitalize whitespace-nowrap">{{ r.city }}</span>
+                <span v-else class="text-[11px] text-stone-300">—</span>
+              </td>
+              <td class="px-3 py-3">
                 <div v-if="r.picker" class="flex items-center gap-1.5">
                   <span class="w-6 h-6 rounded-full bg-stone-100 text-stone-600 text-[10px] font-bold flex items-center justify-center">
                     {{ initials(r.picker) }}
@@ -244,11 +280,14 @@
                 <span v-else class="text-[11px] text-stone-300">—</span>
               </td>
               <td class="px-3 py-3">
+                <span v-if="r.created" class="text-[12px] text-stone-600 tabular-nums whitespace-nowrap">{{ createdFmt(r.created) }}</span>
+                <span v-else class="text-[11px] text-stone-300">—</span>
+              </td>
+              <td class="px-3 py-3">
                 <span class="inline-flex items-center gap-1 text-[12px] font-semibold tabular-nums"
                       :style="{ color: ageHex(r.ageMins) }">
                   <Icon name="clock" :size="12" />{{ ageFmt(r.ageMins) }}
                 </span>
-                <div v-if="r.created" class="text-[10px] text-stone-400 tabular-nums mt-0.5">{{ createdFmt(r.created) }}</div>
               </td>
               <td class="px-3 py-3 text-end">
                 <span class="font-mono font-semibold text-stone-900 tabular-nums">{{ fmtMAD(r.total) }}</span>
@@ -406,15 +445,21 @@ const selected = ref(new Set());
 const creating = ref(false);
 const offset = ref(0);
 const loadingMore = ref(false);
+const cities = ref([]);
+const cityFilter = ref("");
 
 async function load(stage, track = "") {
+  if (stage !== activeStage.value) cityFilter.value = "";
   activeStage.value = stage;
   activeTrack.value = stage === "shipped" ? track : "";
   loading.value = true;
   offset.value = 0;
   selected.value = new Set();
   const live = await liveOr(null, () =>
-    api("orders.board", { stage, track: track || undefined, limit: 50, q: q.value.trim() || undefined })
+    api("orders.board", {
+      stage, track: track || undefined, limit: 50,
+      q: q.value.trim() || undefined, city: cityFilter.value || undefined,
+    })
   );
   if (live && live.counts) {
     counts.value = live.counts;
@@ -422,6 +467,7 @@ async function load(stage, track = "") {
     shippedTracks.value = live.shippedTracks || {};
     attention.value = live.attention || {};
     rows.value = live.rows || [];
+    cities.value = live.cities || [];
     updatedAt.value = Date.now();
   } else {
     rows.value = stage === "to_pick" ? DEMO_BOARD.rows : [];
@@ -440,6 +486,7 @@ async function loadMore() {
     api("orders.board", {
       stage: activeStage.value, track: activeTrack.value || undefined,
       limit: 50, offset: offset.value, q: q.value.trim() || undefined,
+      city: cityFilter.value || undefined,
     })
   );
   if (live && live.rows) rows.value = rows.value.concat(live.rows);
@@ -578,6 +625,13 @@ function waLink(phone) {
 }
 function trackHexOf(t) {
   return TRACK_ORDER.find((x) => x.key === t)?.hex || "#a8a29e";
+}
+function statusHex(s) {
+  return {
+    Pending: "#d97706", Picked: "#ea580c", "In transit": "#0891b2", Received: "#0891b2",
+    "Label Generated": "#7c3aed", "Label Printed": "#4f46e5",
+    Shipped: "#059669", Delivered: "#10b981", Returned: "#e11d48",
+  }[s] || "#78716c";
 }
 function faultHex(kind) {
   return { cancelled_midflow: "#e11d48", no_awb: "#ea580c", sync_lag: "#d97706" }[kind] || "#78716c";
