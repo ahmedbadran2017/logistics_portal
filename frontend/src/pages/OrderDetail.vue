@@ -5,7 +5,7 @@
       class="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-stone-500 hover:text-stone-900 mb-4 whitespace-nowrap"
       @click="goBack"
     >
-      <Icon name="chevron-left" :size="15" /> Orders
+      <Icon name="chevron-left" :size="15" class="flip-rtl" /> {{ t("ordersPg.title") }}
     </button>
 
     <!-- Header -->
@@ -37,7 +37,7 @@
           <div class="text-[13px] text-stone-600 mt-1 flex items-center gap-2 flex-wrap">
             <span>{{ order.customer }} · {{ shipToLine }}</span>
             <span class="font-mono text-[12px] font-semibold text-stone-900 tabular-nums bg-stone-100 rounded-md px-2 py-0.5">{{ fmtMAD(grand) }} MAD</span>
-            <span v-if="isLive && liveOrder.created" class="text-[11.5px] text-stone-400 tabular-nums">Placed {{ liveOrder.created.slice(5) }}</span>
+            <span v-if="isLive && liveOrder.created" class="text-[11.5px] text-stone-400 tabular-nums">{{ t("od.placed") }} {{ liveOrder.created.slice(5) }}</span>
           </div>
         </div>
         <div class="flex items-center gap-2">
@@ -46,13 +46,13 @@
             :href="liveOrder.label_url" target="_blank"
             class="inline-flex items-center gap-1.5 h-9 px-3 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 hover:ring-stone-300"
           >
-            <Icon name="file-text" :size="15" /> Print AWB label
+            <Icon name="file-text" :size="15" /> {{ t("od.printAwb") }}
           </a>
           <a
             :href="'/app/sales-order/' + encodeURIComponent(order.no)" target="_blank"
             class="inline-flex items-center gap-1.5 h-9 px-3 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 hover:ring-stone-300"
           >
-            Open in ERPNext <Icon name="arrow-right" :size="13" />
+            {{ t("od.openErp") }} <Icon name="arrow-right" :size="13" class="flip-rtl" />
           </a>
         </div>
       </div>
@@ -64,17 +64,17 @@
         <!-- Line items -->
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
           <div class="px-4 py-3 border-b border-stone-100">
-            <div class="text-[13px] font-semibold text-stone-900">Line items</div>
-            <div class="text-[11.5px] text-stone-400 mt-0.5">{{ items.length }} item{{ items.length === 1 ? "" : "s" }}</div>
+            <div class="text-[13px] font-semibold text-stone-900">{{ t("od.lineItems") }}</div>
+            <div class="text-[11.5px] text-stone-400 mt-0.5">{{ items.length }} {{ t(items.length === 1 ? "od.item" : "od.items", "items") }}</div>
           </div>
           <div class="overflow-x-auto"><table class="w-full min-w-[440px]">
             <thead>
               <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
-                <th class="text-start px-4 py-2.5">Product</th>
-                <th v-if="!isLive" class="text-start px-4 py-2.5 hidden sm:table-cell">Bin</th>
-                <th class="text-end px-4 py-2.5">Qty</th>
-                <th class="text-end px-4 py-2.5 hidden sm:table-cell">Unit</th>
-                <th class="text-end px-4 py-2.5">Total</th>
+                <th class="text-start px-4 py-2.5">{{ t("od.product") }}</th>
+                <th v-if="!isLive" class="text-start px-4 py-2.5 hidden sm:table-cell">{{ t("od.bin") }}</th>
+                <th class="text-end px-4 py-2.5">{{ t("od.qty") }}</th>
+                <th class="text-end px-4 py-2.5 hidden sm:table-cell">{{ t("od.unit") }}</th>
+                <th class="text-end px-4 py-2.5">{{ t("od.total") }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-stone-100">
@@ -101,23 +101,23 @@
             </tbody>
             <tfoot>
               <tr class="border-t border-stone-100">
-                <td class="px-4 pt-2.5 pb-0.5 text-[12px] text-stone-500" colspan="4">Subtotal</td>
+                <td class="px-4 pt-2.5 pb-0.5 text-[12px] text-stone-500" colspan="4">{{ t("od.subtotal") }}</td>
                 <td class="px-4 pt-2.5 pb-0.5 text-end text-[12px] text-stone-700 tabular-nums">{{ fmtMAD(subtotal) }}</td>
               </tr>
               <tr>
-                <td class="px-4 py-0.5 text-[12px] text-stone-500" colspan="4">Shipping</td>
+                <td class="px-4 py-0.5 text-[12px] text-stone-500" colspan="4">{{ t("od.shipping") }}</td>
                 <td class="px-4 py-0.5 text-end text-[12px] text-stone-700 tabular-nums">{{ shipping ? fmtMAD(shipping) : '—' }}</td>
               </tr>
               <tr v-if="discount > 0">
-                <td class="px-4 py-0.5 text-[12px] text-stone-500" colspan="4">Discount</td>
+                <td class="px-4 py-0.5 text-[12px] text-stone-500" colspan="4">{{ t("od.discount") }}</td>
                 <td class="px-4 py-0.5 text-end text-[12px] text-emerald-600 tabular-nums">−{{ fmtMAD(discount) }}</td>
               </tr>
               <tr>
-                <td class="px-4 py-0.5 text-[12px] text-stone-500" colspan="4">Tax</td>
+                <td class="px-4 py-0.5 text-[12px] text-stone-500" colspan="4">{{ t("od.tax") }}</td>
                 <td class="px-4 py-0.5 text-end text-[12px] text-stone-700 tabular-nums">{{ fmtMAD(tax) }}</td>
               </tr>
               <tr class="border-t border-stone-200 bg-stone-50/60">
-                <td class="px-4 py-2.5 text-[12.5px] font-semibold text-stone-700" colspan="4">Grand total</td>
+                <td class="px-4 py-2.5 text-[12.5px] font-semibold text-stone-700" colspan="4">{{ t("od.grandTotal") }}</td>
                 <td class="px-4 py-2.5 text-end text-[14px] font-bold text-stone-900 tabular-nums">
                   {{ fmtMAD(grand) }} <span class="text-[10px] font-normal text-stone-400">MAD</span>
                 </td>
@@ -129,10 +129,10 @@
         <!-- Ship to + Payment -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
-            <div class="text-[13px] font-semibold text-stone-900 mb-2">Ship to</div>
+            <div class="text-[13px] font-semibold text-stone-900 mb-2">{{ t("od.shipTo") }}</div>
             <div class="text-[13px] font-medium text-stone-900">{{ order.customer }}</div>
             <div class="space-y-1.5 mt-2 text-[12px]">
-              <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Phone</span>
+              <div class="flex items-center justify-between gap-2"><span class="text-stone-400">{{ t("od.phone") }}</span>
                 <span class="flex items-center gap-1.5">
                   <span class="font-mono font-medium text-stone-800">{{ phone }}</span>
                   <template v-if="isLive && phone !== '—'">
@@ -140,16 +140,16 @@
                     <a :href="'https://wa.me/212' + phone.replace(/\D/g,'').replace(/^0/,'')" target="_blank" class="w-5 h-5 rounded-md bg-stone-100 text-stone-500 hover:bg-emerald-100 hover:text-emerald-700 flex items-center justify-center"><Icon name="message-circle" :size="11" /></a>
                   </template>
                 </span></div>
-              <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Destination</span><span class="font-medium text-stone-800 text-end truncate">{{ shipToLine }}</span></div>
-              <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Governorate</span><span class="font-medium text-stone-800">{{ govern }}</span></div>
-              <div v-if="refNo && refNo !== order.no" class="flex items-center justify-between gap-2"><span class="text-stone-400">Reference</span><span class="font-mono font-medium text-stone-800">{{ refNo }}</span></div>
+              <div class="flex items-center justify-between gap-2"><span class="text-stone-400">{{ t("od.destination") }}</span><span class="font-medium text-stone-800 text-end truncate">{{ shipToLine }}</span></div>
+              <div class="flex items-center justify-between gap-2"><span class="text-stone-400">{{ t("od.governorate") }}</span><span class="font-medium text-stone-800">{{ govern }}</span></div>
+              <div v-if="refNo && refNo !== order.no" class="flex items-center justify-between gap-2"><span class="text-stone-400">{{ t("od.reference") }}</span><span class="font-mono font-medium text-stone-800">{{ refNo }}</span></div>
             </div>
           </div>
           <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
-            <div class="text-[13px] font-semibold text-stone-900 mb-2">Payment</div>
+            <div class="text-[13px] font-semibold text-stone-900 mb-2">{{ t("od.payment") }}</div>
             <div class="flex items-center gap-1.5">
               <Icon name="dollar-sign" :size="14" class="text-emerald-500" />
-              <span class="text-[12.5px] font-medium text-stone-800">Cash on delivery</span>
+              <span class="text-[12.5px] font-medium text-stone-800">{{ t("od.cod") }}</span>
             </div>
             <div class="text-[20px] font-bold text-stone-900 tabular-nums mt-1.5">
               {{ fmtMAD(grand) }} <span class="text-[11px] font-medium text-stone-400">MAD</span>
@@ -161,7 +161,7 @@
                 :class="codPending ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-emerald-50 text-emerald-700 ring-emerald-200'"
               >
                 <span class="w-1.5 h-1.5 rounded-full" :class="codPending ? 'bg-amber-500' : 'bg-emerald-500'" />
-                {{ codPending ? 'COD · pending collection' : 'Paid' }}
+                {{ codPending ? t('od.codPending') : t('od.paid') }}
               </span>
             </div>
           </div>
@@ -169,7 +169,7 @@
 
         <!-- Documents -->
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-3">
-          <div class="text-[13px] font-semibold text-stone-900 px-1 pt-1 pb-3">Documents</div>
+          <div class="text-[13px] font-semibold text-stone-900 px-1 pt-1 pb-3">{{ t("od.documents") }}</div>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <component
               v-for="(d, i) in documents"
@@ -191,9 +191,9 @@
         <!-- Fulfillment status timeline (fabricated · preview only) -->
         <div v-if="!isLive" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
           <div class="flex items-center justify-between mb-4">
-            <div class="text-[13px] font-semibold text-stone-900">Fulfillment status</div>
+            <div class="text-[13px] font-semibold text-stone-900">{{ t("od.fulfillStatus") }}</div>
             <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 bg-[var(--accent-50)] text-[var(--accent-700)] ring-[var(--accent-200,#c7d2fe)]">
-              <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-500)]" /> {{ order.picker ? byId(order.picker).short : 'Unassigned' }}
+              <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-500)]" /> {{ order.picker ? byId(order.picker).short : t('od.unassigned') }}
             </span>
           </div>
 
@@ -227,13 +227,13 @@
 
         <!-- Logistics activity (real audit trail) -->
         <div v-if="isLive && !activityEvents.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-6 text-center">
-          <div class="text-[13px] font-semibold text-stone-900 mb-1">Fulfillment activity</div>
-          <div class="text-[12px] text-stone-400">No logistics activity recorded yet for this order.</div>
+          <div class="text-[13px] font-semibold text-stone-900 mb-1">{{ t("od.activity") }}</div>
+          <div class="text-[12px] text-stone-400">{{ t("od.noActivity") }}</div>
         </div>
         <div v-if="activityEvents.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
           <div class="flex items-center justify-between mb-4">
-            <div class="text-[13px] font-semibold text-stone-900">Fulfillment activity</div>
-            <span class="text-[10.5px] text-stone-400">who · what · when</span>
+            <div class="text-[13px] font-semibold text-stone-900">{{ t("od.activity") }}</div>
+            <span class="text-[10.5px] text-stone-400">{{ t("od.whoWhatWhen") }}</span>
           </div>
           <ol class="relative">
             <li v-for="(e, i) in activityEvents" :key="i" class="relative flex gap-3 pb-3.5 last:pb-0">
@@ -268,25 +268,25 @@
             </span>
           </div>
           <div class="space-y-1.5 text-[12px]">
-            <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Tracking no.</span><span class="font-mono font-medium text-stone-800">{{ (isLive && liveOrder.tracking_number) || order.awb }}</span></div>
-            <div class="flex items-center justify-between gap-2"><span class="text-stone-400">AWB</span><span class="font-mono font-medium text-stone-800">{{ order.awb }}</span></div>
-            <div v-if="(isLive && liveOrder.dn) || order.dn" class="flex items-center justify-between gap-2"><span class="text-stone-400">Delivery Note</span><span class="font-mono font-medium text-stone-800">{{ (isLive && liveOrder.dn) || order.dn }}</span></div>
-            <div v-if="!isLive" class="flex items-center justify-between gap-2"><span class="text-stone-400">Zone</span><span class="font-mono font-medium text-stone-800">{{ order.zone }}</span></div>
+            <div class="flex items-center justify-between gap-2"><span class="text-stone-400">{{ t("od.trackingNo") }}</span><span class="font-mono font-medium text-stone-800">{{ (isLive && liveOrder.tracking_number) || order.awb }}</span></div>
+            <div class="flex items-center justify-between gap-2"><span class="text-stone-400">{{ t("od.awb") }}</span><span class="font-mono font-medium text-stone-800">{{ order.awb }}</span></div>
+            <div v-if="(isLive && liveOrder.dn) || order.dn" class="flex items-center justify-between gap-2"><span class="text-stone-400">{{ t("od.deliveryNote") }}</span><span class="font-mono font-medium text-stone-800">{{ (isLive && liveOrder.dn) || order.dn }}</span></div>
+            <div v-if="!isLive" class="flex items-center justify-between gap-2"><span class="text-stone-400">{{ t("od.zone") }}</span><span class="font-mono font-medium text-stone-800">{{ order.zone }}</span></div>
           </div>
           <component
             :is="isLive && liveOrder.tracking_url ? 'a' : 'button'"
             v-bind="isLive && liveOrder.tracking_url ? { href: liveOrder.tracking_url, target: '_blank' } : { disabled: isLive }"
             class="w-full mt-2 flex items-center justify-center gap-1.5 h-8 rounded-lg ring-1 ring-stone-200 hover:ring-stone-300 text-[12px] font-medium text-stone-700 disabled:opacity-40"
           >
-            <Icon name="truck" :size="13" /> Track live
+            <Icon name="truck" :size="13" /> {{ t("od.trackLive") }}
           </component>
         </div>
 
         <!-- Linked ERPNext documents -->
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-2">
           <div class="px-2 py-2">
-            <div class="text-[13px] font-semibold text-stone-900">Linked documents</div>
-            <div class="text-[11.5px] text-stone-400 mt-0.5">ERPNext document chain</div>
+            <div class="text-[13px] font-semibold text-stone-900">{{ t("od.linkedDocs") }}</div>
+            <div class="text-[11.5px] text-stone-400 mt-0.5">{{ t("od.docChain") }}</div>
           </div>
           <component
             v-for="(c, i) in docChain"
@@ -323,6 +323,9 @@ import {
   byId, fmtMAD, CARRIER, CITY, WAREHOUSE, MANIFEST,
 } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
+
+const { t } = useI18n();
 
 // ── Real logistics activity feed (Version log + comments + doc events) ──
 const activityEvents = ref([]);
@@ -444,7 +447,7 @@ const channelBadge = computed(() => {
 
 const stageBadge = computed(() => {
   const s = STAGE[order.value.stage] || STAGE.pending;
-  return { label: STAGE_LABEL[order.value.stage] || order.value.stage, cls: `${s.bg} ${s.txt} ${s.ring}`, dot: s.dot };
+  return { label: t("od.stageL." + order.value.stage, STAGE_LABEL[order.value.stage] || order.value.stage), cls: `${s.bg} ${s.txt} ${s.ring}`, dot: s.dot };
 });
 
 const slaBadge = computed(() => {
@@ -464,7 +467,7 @@ const slaBadge = computed(() => {
     }
   }
   const s = SLA[key] || SLA.ontrack;
-  return { label: SLA_LABEL[key] || key, cls: `${s.bg} ${s.txt} ${s.ring}`, dot: s.dot };
+  return { label: t("sla." + ({ ontrack: "onTrack", atrisk: "atRisk", breached: "breached", late: "late", returned: "returned" }[key] || key), SLA_LABEL[key] || key), cls: `${s.bg} ${s.txt} ${s.ring}`, dot: s.dot };
 });
 
 // ── Line items (deterministic, mirrors genLineItems) ──────────────────
@@ -529,7 +532,7 @@ const salesBadge = computed(() => {
     Cancelled: "bg-rose-50 text-rose-700 ring-rose-200",
     "On Hold": "bg-amber-50 text-amber-700 ring-amber-200",
   };
-  return { label: "Sales " + s.toLowerCase(), cls: map[s] || "bg-stone-100 text-stone-600 ring-stone-200" };
+  return { label: t("od.salesStatus." + s, "Sales " + s.toLowerCase()), cls: map[s] || "bg-stone-100 text-stone-600 ring-stone-200" };
 });
 
 // ── Order lifecycle timeline (ported from orderTimeline) ──────────────
@@ -582,9 +585,9 @@ const documents = computed(() => {
   const o = order.value;
   const lv = liveOrder.value || {};
   return [
-    { label: "AWB label", icon: "tag", on: !!o.awb, href: lv.label_url || "" },
-    { label: "Packing slip", icon: "file-text", on: !isLive.value },
-    { label: "Invoice", icon: "file-text", on: !isLive.value && o.stage !== "pending" },
+    { label: t("od.awbLabel"), icon: "tag", on: !!o.awb, href: lv.label_url || "" },
+    { label: t("od.packingSlip"), icon: "file-text", on: !isLive.value },
+    { label: t("od.invoice"), icon: "file-text", on: !isLive.value && o.stage !== "pending" },
   ];
 });
 

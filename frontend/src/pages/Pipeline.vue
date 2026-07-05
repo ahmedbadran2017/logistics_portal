@@ -3,10 +3,10 @@
     <!-- Title -->
     <div class="flex items-start justify-between gap-4 flex-wrap">
       <div>
-        <h1 class="text-[22px] font-semibold text-stone-900 tracking-[-0.01em]">Orders</h1>
+        <h1 class="text-[22px] font-semibold text-stone-900 tracking-[-0.01em]">{{ t("ordersPg.title") }}</h1>
         <p class="text-[13px] text-stone-500 mt-0.5 flex items-center gap-1.5">
           <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          Operations theater — the Confirmed flow · {{ WAREHOUSE }}
+          {{ t("ordersPg.subtitle") }} · {{ WAREHOUSE }}
         </p>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
@@ -14,7 +14,7 @@
           <Icon name="search" :size="14" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-start:.65rem" />
           <input
             v-model="q"
-            placeholder="Order · customer · AWB…"
+            :placeholder="t('ordersPg.searchPh')"
             class="h-9 w-[230px] ps-8 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[13px] text-stone-900 placeholder:text-stone-400 focus:ring-2 focus:outline-none transition"
             style="--tw-ring-color: var(--accent-400)"
             @input="onSearch"
@@ -30,11 +30,11 @@
             class="h-9 ps-3 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] text-stone-600 appearance-none cursor-pointer focus:outline-none"
             @change="load(activeStage, activeTrack)"
           >
-            <option value="">All dates</option>
-            <option value="today">Today</option>
-            <option value="yesterday">Yesterday</option>
-            <option value="7d">Last 7 days</option>
-            <option value="30d">Last 30 days</option>
+            <option value="">{{ t("ordersPg.allDates") }}</option>
+            <option value="today">{{ t("ordersPg.today") }}</option>
+            <option value="yesterday">{{ t("ordersPg.yesterday") }}</option>
+            <option value="7d">{{ t("ordersPg.last7") }}</option>
+            <option value="30d">{{ t("ordersPg.last30") }}</option>
           </select>
           <Icon name="chevron-down" :size="13" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-end:.6rem" />
         </div>
@@ -43,14 +43,14 @@
           :class="exporting ? 'opacity-60 pointer-events-none' : ''"
           @click="exportCsv"
         >
-          <Icon name="file-text" :size="14" /> {{ exporting ? "Exporting…" : "CSV" }}
+          <Icon name="file-text" :size="14" /> {{ exporting ? t("ordersPg.exporting") : t("ordersPg.csv") }}
         </button>
         <button
           class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
           :class="loading ? 'opacity-60 pointer-events-none' : ''"
           @click="load(activeStage, activeTrack)"
         >
-          <Icon name="refresh-cw" :size="14" :class="loading ? 'animate-spin' : ''" /> Refresh
+          <Icon name="refresh-cw" :size="14" :class="loading ? 'animate-spin' : ''" /> {{ t("common.refresh") }}
         </button>
       </div>
     </div>
@@ -64,8 +64,8 @@
         <Icon name="alert-triangle" :size="18" />
       </span>
       <div class="me-1">
-        <div class="text-[13.5px] font-semibold text-stone-900 leading-tight">Needs a human</div>
-        <div class="text-[11.5px] text-stone-500">faults, not stages</div>
+        <div class="text-[13.5px] font-semibold text-stone-900 leading-tight">{{ t("ordersPg.needsHuman") }}</div>
+        <div class="text-[11.5px] text-stone-500">{{ t("ordersPg.faultsNotStages") }}</div>
       </div>
       <button
         v-for="a in attentionChips" :key="a.key"
@@ -111,7 +111,7 @@
                 <Icon :name="s.icon" :size="15" />
               </span>
               <span class="text-[10.5px] font-semibold uppercase tracking-[0.04em]"
-                    :class="activeStage === s.key ? 'text-stone-900' : 'text-stone-500'">{{ s.label }}</span>
+                    :class="activeStage === s.key ? 'text-stone-900' : 'text-stone-500'">{{ t('ordersPg.stages.' + s.key + '.label') }}</span>
             </div>
             <div class="mt-2 flex items-baseline gap-1.5">
               <span class="text-[24px] leading-none font-semibold tabular-nums"
@@ -123,10 +123,10 @@
               </span>
               <span v-if="s.key === 'to_pick' && counts.to_pick_late > 0"
                     class="ms-auto text-[9.5px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md ring-1 ring-rose-200/60 tabular-nums whitespace-nowrap">
-                {{ counts.to_pick_late }} late
+                {{ counts.to_pick_late }} {{ t('ordersPg.late') }}
               </span>
             </div>
-            <div class="mt-1 text-[10.5px] text-stone-400 leading-tight">{{ s.hint }}</div>
+            <div class="mt-1 text-[10.5px] text-stone-400 leading-tight">{{ t('ordersPg.stages.' + s.key + '.hint') }}</div>
             <div class="mt-2 h-[3px] rounded-full bg-stone-100 overflow-hidden">
               <div class="h-full rounded-full transition-all duration-500"
                    :style="{ width: stageShare(s.key) + '%', background: s.hex, opacity: 0.7 }" />
@@ -141,7 +141,7 @@
 
     <!-- City filter -->
     <div v-if="cities.length" class="flex items-center gap-2 flex-wrap">
-      <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">City</span>
+      <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t("ordersPg.city") }}</span>
       <div class="relative">
         <select
           v-model="cityFilter"
@@ -149,20 +149,20 @@
           style="--tw-ring-color: var(--accent-400)"
           @change="load(activeStage, activeTrack)"
         >
-          <option value="">All cities</option>
+          <option value="">{{ t("ordersPg.allCities") }}</option>
           <option v-for="c in cities" :key="c.city" :value="c.city">{{ c.city }} ({{ c.count }})</option>
         </select>
         <Icon name="chevron-down" :size="13" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-end:.6rem" />
       </div>
       <button v-if="cityFilter" class="text-[11.5px] font-medium text-stone-400 hover:text-stone-600"
               @click="cityFilter=''; load(activeStage, activeTrack)">
-        clear
+        {{ t("ordersPg.clear") }}
       </button>
     </div>
 
     <!-- Shipped sub-segmentation -->
     <div v-if="activeStage === 'shipped'" class="flex items-center gap-2 flex-wrap">
-      <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">Carrier status</span>
+      <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t("ordersPg.carrierStatus") }}</span>
       <button
         v-for="tchip in trackChips" :key="tchip.key"
         class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium ring-1 transition-colors"
@@ -192,9 +192,9 @@
               :style="{ background: activeMeta.hex + '1c', color: activeMeta.hex }">
           <Icon :name="activeMeta.icon" :size="22" />
         </span>
-        <div class="text-[14.5px] font-semibold text-stone-900">{{ q ? "No matches" : activeMeta.emptyTitle }}</div>
+        <div class="text-[14.5px] font-semibold text-stone-900">{{ q ? t('ordersPg.noMatches') : t('ordersPg.stages.' + activeMeta.key + '.emptyTitle') }}</div>
         <div class="text-[12.5px] text-stone-500 mt-0.5">
-          {{ q ? `Nothing in ${activeMeta.label} matches “${q}”.` : activeMeta.emptyHint }}
+          {{ q ? t('ordersPg.noMatchesIn').replace('{stage}', t('ordersPg.stages.' + activeMeta.key + '.label')).replace('{q}', q) : t('ordersPg.stages.' + activeMeta.key + '.emptyHint') }}
         </div>
       </div>
 
@@ -205,17 +205,17 @@
               <th v-if="selectableStage" class="w-10 px-3 py-2.5 text-center">
                 <input type="checkbox" class="board-cb" :checked="allSelected" @change="toggleAll" />
               </th>
-              <th class="text-start px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Order</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Customer</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Channel</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Stage</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">SLA</th>
-              <th v-if="activeStage !== 'to_pick'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Documents</th>
-              <th v-if="activeStage === 'attention'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Fault</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">City</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">Picker</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 cursor-pointer select-none hover:text-stone-600" @click="toggleSort('placed')">Placed <span v-if="sortKey==='placed'">{{ sortDir==='asc' ? '↑' : '↓' }}</span></th>
-              <th class="text-end px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 cursor-pointer select-none hover:text-stone-600" @click="toggleSort('value')">Value <span v-if="sortKey==='value'">{{ sortDir==='asc' ? '↑' : '↓' }}</span></th>
+              <th class="text-start px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thOrder") }}</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thCustomer") }}</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thChannel") }}</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thStage") }}</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thSla") }}</th>
+              <th v-if="activeStage !== 'to_pick'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thDocs") }}</th>
+              <th v-if="activeStage === 'attention'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thFault") }}</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thCity") }}</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thPicker") }}</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 cursor-pointer select-none hover:text-stone-600" @click="toggleSort('placed')">{{ t('ordersPg.thPlaced') }} <span v-if="sortKey==='placed'">{{ sortDir==='asc' ? '↑' : '↓' }}</span></th>
+              <th class="text-end px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 cursor-pointer select-none hover:text-stone-600" @click="toggleSort('value')">{{ t('ordersPg.thValue') }} <span v-if="sortKey==='value'">{{ sortDir==='asc' ? '↑' : '↓' }}</span></th>
               <th class="text-end px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400"></th>
             </tr>
           </thead>
@@ -233,7 +233,7 @@
                   {{ r.no }}
                   <span v-if="activeStage === 'to_pick' && missedCutoff(r)"
                         class="text-[9.5px] font-sans font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded ring-1 ring-rose-200/70 whitespace-nowrap">
-                    missed cutoff
+                    {{ t("ordersPg.missedCutoff") }}
                   </span>
                 </div>
 
@@ -244,7 +244,7 @@
                   {{ r.itemsDesc }}
                 </div>
                 <div class="flex items-center gap-1.5 mt-0.5">
-                  <span class="text-[11px] text-stone-400 tabular-nums">{{ r.items }} item{{ r.items > 1 ? "s" : "" }}</span>
+                  <span class="text-[11px] text-stone-400 tabular-nums">{{ r.items }} {{ itemsWord(r.items) }}</span>
                   <template v-if="r.phone">
                     <a :href="'tel:' + r.phone" @click.stop
                        class="w-5 h-5 rounded-md bg-stone-100 text-stone-500 hover:bg-emerald-100 hover:text-emerald-700 flex items-center justify-center transition-colors"
@@ -269,7 +269,7 @@
                 <span v-if="r.status" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold ring-1 ring-inset whitespace-nowrap bg-white"
                       :style="{ color: statusHex(r.status), '--tw-ring-color': statusHex(r.status) + '55' }">
                   <span class="w-1.5 h-1.5 rounded-full" :style="{ background: statusHex(r.status) }" />
-                  {{ r.status === 'Pending' ? stageLabelOf() : r.status }}
+                  {{ statusLabel(r.status) }}
                 </span>
                 <span v-else class="text-[11px] text-stone-300">—</span>
               </td>
@@ -300,7 +300,7 @@
                   </a>
                   <span v-if="activeStage === 'shipped' && r.track" class="doc-chip"
                         :style="{ color: trackHexOf(r.track), background: trackHexOf(r.track) + '14', '--chip-ring': trackHexOf(r.track) + '40' }">
-                    {{ r.track }}
+                    {{ trackLabelOf(r.track) }}
                   </span>
                   <span v-if="!r.pl && !r.awb && !r.sh && !r.ret" class="text-[11px] text-stone-300">—</span>
                 </div>
@@ -348,7 +348,7 @@
         </table>
         <div class="flex items-center justify-between gap-3 px-4 py-2.5 border-t border-stone-100 bg-stone-50/50 flex-wrap">
           <span class="text-[11.5px] text-stone-500 tabular-nums whitespace-nowrap">
-            {{ rangeStart }}–{{ rangeEnd }} of {{ total }}
+            {{ rangeStart }}–{{ rangeEnd }} {{ t("ordersPg.of") }} {{ total }}
             <span class="text-stone-400 ms-2 font-mono">{{ fmtMAD(rowsTotal) }} MAD</span>
           </span>
           <div class="flex items-center gap-2">
@@ -357,10 +357,10 @@
               class="h-7 ps-2 pe-6 rounded-md bg-white ring-1 ring-stone-200 text-[11.5px] text-stone-600 appearance-none cursor-pointer focus:outline-none"
               @change="setPageSize"
             >
-              <option :value="20">20 / page</option>
-              <option :value="25">25 / page</option>
-              <option :value="50">50 / page</option>
-              <option :value="100">100 / page</option>
+              <option :value="20">20 {{ t("ordersPg.perPage") }}</option>
+              <option :value="25">25 {{ t("ordersPg.perPage") }}</option>
+              <option :value="50">50 {{ t("ordersPg.perPage") }}</option>
+              <option :value="100">100 {{ t("ordersPg.perPage") }}</option>
             </select>
             <div class="flex items-center gap-0.5">
               <button class="pager-btn" :disabled="page <= 1" @click="goPage(page - 1)">
@@ -383,7 +383,7 @@
     </div>
 
     <div class="text-[11px] text-stone-400 text-center">
-      Stage is derived from documents (Pick List → AWB → print → manifest → tracking) — updated {{ updatedAgo }}
+      {{ t("ordersPg.footnote") }} {{ updatedAgo }}
     </div>
 
     <!-- Quick-view drawer -->
@@ -405,7 +405,7 @@
               <div class="text-[12px] text-stone-500 truncate">{{ drawerRow.customer }}<span v-if="drawerRow.city" class="capitalize"> · {{ drawerRow.city }}</span></div>
             </div>
             <button class="text-[11.5px] font-semibold whitespace-nowrap" style="color: var(--accent-700)" @click="openOrder(drawerRow)">
-              Full page →
+              {{ t("ordersPg.qvFullPage") }} →
             </button>
             <button class="w-7 h-7 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 flex items-center justify-center" @click="drawerRow = null">
               <Icon name="x" :size="15" />
@@ -415,7 +415,7 @@
           <div class="flex-1 overflow-y-auto p-4 space-y-4">
             <!-- items -->
             <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-3">
-              <div class="text-[12px] font-semibold text-stone-900 mb-2">Items</div>
+              <div class="text-[12px] font-semibold text-stone-900 mb-2">{{ t("ordersPg.qvItems") }}</div>
               <div v-if="drawerLoading" class="space-y-2">
                 <div v-for="n in 2" :key="n" class="h-10 rounded-lg bg-stone-100 animate-pulse" />
               </div>
@@ -433,7 +433,7 @@
                   <span class="font-mono text-[12px] font-semibold text-stone-800 tabular-nums">{{ fmtMAD(it.line) }}</span>
                 </div>
                 <div class="flex items-center justify-between pt-2 border-t border-stone-100">
-                  <span class="text-[11.5px] text-stone-500">Grand total</span>
+                  <span class="text-[11.5px] text-stone-500">{{ t("ordersPg.qvGrand") }}</span>
                   <span class="font-mono text-[13px] font-bold text-stone-900 tabular-nums">{{ fmtMAD(drawerDetail.total ?? drawerRow.total) }} <span class="text-[9px] font-sans text-stone-400">MAD</span></span>
                 </div>
               </div>
@@ -443,7 +443,7 @@
             <!-- contact / docs -->
             <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-3 space-y-1.5 text-[12px]">
               <div class="flex items-center justify-between gap-2">
-                <span class="text-stone-400">Phone</span>
+                <span class="text-stone-400">{{ t("ordersPg.qvPhone") }}</span>
                 <span class="flex items-center gap-1.5">
                   <span class="font-mono font-medium text-stone-800">{{ (drawerDetail && drawerDetail.phone) || drawerRow.phone || "—" }}</span>
                   <a v-if="drawerRow.phone" :href="waLink(drawerRow.phone)" target="_blank"
@@ -453,7 +453,7 @@
                 </span>
               </div>
               <div class="flex items-center justify-between gap-2">
-                <span class="text-stone-400">Documents</span>
+                <span class="text-stone-400">{{ t("ordersPg.thDocs") }}</span>
                 <span class="flex items-center gap-1.5 flex-wrap justify-end">
                   <a v-if="drawerDetail && drawerDetail.pl" :href="desk('pick-list', drawerDetail.pl)" target="_blank" class="doc-chip text-violet-700 bg-violet-50" style="--chip-ring:#ddd6fe">{{ drawerDetail.pl }}</a>
                   <a v-if="(drawerDetail && drawerDetail.awb) || drawerRow.awb" :href="(drawerDetail && drawerDetail.label_url) || drawerRow.labelUrl || '#'" target="_blank" class="doc-chip text-stone-600 bg-stone-100" style="--chip-ring:#e7e5e4">{{ (drawerDetail && drawerDetail.awb) || drawerRow.awb }}</a>
@@ -463,14 +463,14 @@
                 </span>
               </div>
               <div v-if="drawerDetail && drawerDetail.tracking_url" class="flex items-center justify-between gap-2">
-                <span class="text-stone-400">Tracking</span>
-                <a :href="drawerDetail.tracking_url" target="_blank" class="text-[11.5px] font-semibold" style="color: var(--accent-700)">Track live →</a>
+                <span class="text-stone-400">{{ t("ordersPg.qvTracking") }}</span>
+                <a :href="drawerDetail.tracking_url" target="_blank" class="text-[11.5px] font-semibold" style="color: var(--accent-700)">{{ t("ordersPg.qvTrackLive") }} →</a>
               </div>
             </div>
 
             <!-- activity -->
             <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-3">
-              <div class="text-[12px] font-semibold text-stone-900 mb-2">Activity</div>
+              <div class="text-[12px] font-semibold text-stone-900 mb-2">{{ t("ordersPg.qvActivity") }}</div>
               <div v-if="drawerLoading" class="space-y-2">
                 <div v-for="n in 3" :key="n" class="h-8 rounded-lg bg-stone-100 animate-pulse" />
               </div>
@@ -490,7 +490,7 @@
                   </div>
                 </li>
               </ol>
-              <div v-else class="text-[11.5px] text-stone-400">No activity recorded yet.</div>
+              <div v-else class="text-[11.5px] text-stone-400">{{ t("ordersPg.qvNoActivity") }}</div>
             </div>
           </div>
         </div>
@@ -501,7 +501,7 @@
     <transition name="selbar">
       <div v-if="selected.size" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
         <div class="flex items-center gap-3 bg-stone-900 text-white rounded-2xl ps-4 pe-2 py-2 shadow-[0_16px_48px_-12px_rgba(0,0,0,0.45)]">
-          <span class="text-[13px] font-semibold tabular-nums whitespace-nowrap">{{ selected.size }} selected</span>
+          <span class="text-[13px] font-semibold tabular-nums whitespace-nowrap">{{ selected.size }} {{ t("ordersPg.selected") }}</span>
           <span class="text-[12px] font-mono text-stone-300 tabular-nums whitespace-nowrap">{{ fmtMAD(selectedTotal) }} MAD</span>
           <template v-if="activeStage === 'to_pick'">
             <button
@@ -511,13 +511,13 @@
               @click="createPL"
             >
               <Icon name="package" :size="14" :class="creating ? 'animate-pulse' : ''" />
-              {{ creating ? "Creating…" : "Create Pick List" }}
+              {{ creating ? t("ordersPg.creating") : t("ordersPg.createPL") }}
             </button>
             <button
               class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12.5px] font-semibold text-stone-200 ring-1 ring-white/20 hover:bg-white/10 transition-colors"
               @click="assignSelected"
             >
-              <Icon name="layout-grid" :size="13" /> Assign…
+              <Icon name="layout-grid" :size="13" /> {{ t("ordersPg.assign") }}
             </button>
           </template>
           <template v-else-if="activeStage === 'prepared'">
@@ -525,7 +525,7 @@
               class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[12.5px] font-semibold text-stone-200 ring-1 ring-white/20 hover:bg-white/10 transition-colors"
               @click="openLabels"
             >
-              <Icon name="tag" :size="13" /> Open labels
+              <Icon name="tag" :size="13" /> {{ t("ordersPg.openLabels") }}
             </button>
             <button
               class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12.5px] font-semibold text-white transition-all"
@@ -534,7 +534,7 @@
               @click="markPrinted"
             >
               <Icon name="printer" :size="14" :class="creating ? 'animate-pulse' : ''" />
-              {{ creating ? "Marking…" : "Mark printed" }}
+              {{ creating ? t("ordersPg.marking") : t("ordersPg.markPrinted") }}
             </button>
           </template>
           <button class="w-7 h-7 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 flex items-center justify-center"
@@ -554,9 +554,11 @@ import Icon from "@/components/ui/Icon.vue";
 import { WAREHOUSE, fmtMAD } from "@/lib/handoffData";
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
+import { useI18n } from "@/composables/useI18n";
 
 const router = useRouter();
 const { success, warn } = useToast();
+const { t, locale } = useI18n();
 
 // ── Stage model (production-verified signals) ────────────────────────
 const stages = [
@@ -572,13 +574,13 @@ const stages = [
 const ATTENTION_META = { key: "attention", label: "Attention", icon: "alert-triangle", hex: "#e11d48", emptyTitle: "All clear", emptyHint: "No operational faults right now." };
 
 const TRACK_ORDER = [
-  { key: "In Transit",         label: "In Transit",       hex: "#0891b2" },
-  { key: "Out For Delivery",   label: "Out for Delivery", hex: "#4f46e5" },
-  { key: "Delivery Exception", label: "Exception",        hex: "#e11d48" },
-  { key: "Failed Attempt",     label: "Failed",           hex: "#ea580c" },
-  { key: "Pending",            label: "Pending",          hex: "#a8a29e" },
-  { key: "Delivered",          label: "Awaiting sync",    hex: "#10b981" },
-  { key: "none",               label: "No tracking",      hex: "#78716c" },
+  { key: "In Transit",         lk: "intransit", hex: "#0891b2" },
+  { key: "Out For Delivery",   lk: "ofd",       hex: "#4f46e5" },
+  { key: "Delivery Exception", lk: "exception", hex: "#e11d48" },
+  { key: "Failed Attempt",     lk: "failed",    hex: "#ea580c" },
+  { key: "Pending",            lk: "pending",   hex: "#a8a29e" },
+  { key: "Delivered",          lk: "awaiting",  hex: "#10b981" },
+  { key: "none",               lk: "none",      hex: "#78716c" },
 ];
 
 // ── Demo fallback (preview without a backend) ────────────────────────
@@ -616,16 +618,16 @@ const attentionTotal = computed(() =>
   (attention.value.cancelled_midflow || 0) + (attention.value.no_awb || 0) + (attention.value.sync_lag || 0)
 );
 const attentionChips = computed(() => [
-  { key: "cancelled_midflow", label: "Cancelled mid-flow", count: attention.value.cancelled_midflow || 0, hex: "#e11d48" },
-  { key: "no_awb", label: "PL submitted · no AWB", count: attention.value.no_awb || 0, hex: "#ea580c" },
-  { key: "sync_lag", label: "Delivered · not synced", count: attention.value.sync_lag || 0, hex: "#d97706" },
+  { key: "cancelled_midflow", label: t("ordersPg.faults.cancelled_midflow"), count: attention.value.cancelled_midflow || 0, hex: "#e11d48" },
+  { key: "no_awb", label: t("ordersPg.faults.no_awb"), count: attention.value.no_awb || 0, hex: "#ea580c" },
+  { key: "sync_lag", label: t("ordersPg.faults.sync_lag"), count: attention.value.sync_lag || 0, hex: "#d97706" },
 ].filter((c) => c.count > 0));
 
 const trackChips = computed(() => {
-  const chips = [{ key: "", label: "All", count: counts.value.shipped || 0, hex: "#059669" }];
-  for (const t of TRACK_ORDER) {
-    const c = shippedTracks.value[t.key] || 0;
-    if (c > 0) chips.push({ ...t, count: c });
+  const chips = [{ key: "", label: t("ordersPg.all"), count: counts.value.shipped || 0, hex: "#059669" }];
+  for (const tr of TRACK_ORDER) {
+    const c = shippedTracks.value[tr.key] || 0;
+    if (c > 0) chips.push({ ...tr, label: t("ordersPg.tracks." + tr.lk), count: c });
   }
   return chips;
 });
@@ -862,7 +864,9 @@ function fmtK(v) {
 const updatedAgo = computed(() => {
   tick.value; // reactive tick
   const s = Math.max(0, Math.round((Date.now() - updatedAt.value) / 1000));
-  return s < 5 ? "just now" : s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`;
+  if (s < 5) return t("ordersPg.justNow");
+  if (s < 60) return t("ordersPg.agoS").replace("{n}", s);
+  return t("ordersPg.agoM").replace("{n}", Math.round(s / 60));
 });
 
 let refreshTimer = null;
@@ -886,11 +890,11 @@ function stageShare(key) {
 }
 // "2026-07-03 10:23" → "10:23" today, else "Jul 3 · 10:23".
 function createdFmt(created) {
-  const [d, t] = created.split(" ");
+  const [d, tm] = created.split(" ");
   const today = (serverNow.value || new Date().toISOString()).slice(0, 10);
-  if (d === today) return t;
+  if (d === today) return tm;
   const dt = new Date(d + "T00:00:00");
-  return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " · " + t;
+  return dt.toLocaleDateString(locale.value === "ar" ? "ar-MA" : locale.value === "fr" ? "fr-FR" : "en-US", { month: "short", day: "numeric" }) + " · " + tm;
 }
 
 // ── Row helpers ──────────────────────────────────────────────────────
@@ -955,21 +959,21 @@ function stageLabelOf() {
 // carrier has it; carrier exceptions after.
 function slaOf(r) {
   const st = activeStage.value;
-  if (st === "delivered") return { label: "Delivered", hex: "#10b981" };
-  if (st === "to_return" || st === "returned") return { label: "Returned", hex: "#78716c" };
+  if (st === "delivered") return { label: t("sla.delivered"), hex: "#10b981" };
+  if (st === "to_return" || st === "returned") return { label: t("sla.returned"), hex: "#78716c" };
   if (st === "shipped") {
-    if (r.track === "Delivery Exception" || r.track === "Failed Attempt") return { label: "Late", hex: "#ea580c" };
-    return { label: "On Track", hex: "#10b981" };
+    if (r.track === "Delivery Exception" || r.track === "Failed Attempt") return { label: t("sla.late"), hex: "#ea580c" };
+    return { label: t("sla.onTrack"), hex: "#10b981" };
   }
-  if (missedCutoff(r)) return { label: "Breached", hex: "#e11d48" };
+  if (missedCutoff(r)) return { label: t("sla.breached"), hex: "#e11d48" };
   if (r.created) {
     const created = new Date(r.created.replace(" ", "T"));
     const now = srvNow();
     const cut = new Date(now); cut.setHours(14, 0, 0, 0);
     const today = new Date(now); today.setHours(0, 0, 0, 0);
-    if (created >= today && now < cut && (cut - now) < 90 * 60000) return { label: "At Risk", hex: "#d97706" };
+    if (created >= today && now < cut && (cut - now) < 90 * 60000) return { label: t("sla.atRisk"), hex: "#d97706" };
   }
-  return { label: "On Track", hex: "#10b981" };
+  return { label: t("sla.onTrack"), hex: "#10b981" };
 }
 function statusHex(s) {
   return {
@@ -982,18 +986,30 @@ function faultHex(kind) {
   return { cancelled_midflow: "#e11d48", no_awb: "#ea580c", sync_lag: "#d97706" }[kind] || "#78716c";
 }
 function faultLabel(kind) {
-  return { cancelled_midflow: "Cancelled mid-flow — restock", no_awb: "AWB automation failed", sync_lag: "Delivered — status stuck" }[kind] || kind;
+  return t("ordersPg.faultsLong." + kind, kind);
+}
+function itemsWord(n) {
+  return t(n === 1 ? "ordersPg.item" : "ordersPg.items");
+}
+function statusLabel(s) {
+  const eff = s === "Pending" ? stageLabelOf() : s;
+  if (eff === "Picking") return t("ordersPg.stages.picking.label");
+  return t("stage." + eff, eff);
+}
+function trackLabelOf(track) {
+  const tr = TRACK_ORDER.find((x) => x.key === track);
+  return tr ? t("ordersPg.tracks." + tr.lk) : track;
 }
 function actionFor(r) {
   switch (activeStage.value) {
-    case "to_pick":   return { label: "Assign", go: () => router.push({ name: "Assign" }) };
-    case "picking":   return r.pl ? { label: "Open PL", href: desk("pick-list", r.pl) } : null;
-    case "prepared":  return r.labelUrl ? { label: "Print", href: r.labelUrl } : { label: "Open", href: desk("sales-order", r.no) };
-    case "ready":     return { label: "Manifest", go: () => router.push({ name: "Manifest" }) };
-    case "shipped":   return { label: "Track", href: desk("sales-order", r.no) };
-    case "to_return": return { label: "Track", href: desk("sales-order", r.no) };
-    case "returned":  return r.ret ? { label: "Open RET", href: desk("return-shipment", r.ret) } : null;
-    case "attention": return r.pl ? { label: "Fix", href: desk("pick-list", r.pl) } : { label: "Open", href: desk("sales-order", r.no) };
+    case "to_pick":   return { label: t("ordersPg.actions.assign"), go: () => router.push({ name: "Assign" }) };
+    case "picking":   return r.pl ? { label: t("ordersPg.actions.openPl"), href: desk("pick-list", r.pl) } : null;
+    case "prepared":  return r.labelUrl ? { label: t("ordersPg.actions.print"), href: r.labelUrl } : { label: t("ordersPg.actions.open"), href: desk("sales-order", r.no) };
+    case "ready":     return { label: t("ordersPg.actions.manifest"), go: () => router.push({ name: "Manifest" }) };
+    case "shipped":   return { label: t("ordersPg.actions.track"), href: desk("sales-order", r.no) };
+    case "to_return": return { label: t("ordersPg.actions.track"), href: desk("sales-order", r.no) };
+    case "returned":  return r.ret ? { label: t("ordersPg.actions.openRet"), href: desk("return-shipment", r.ret) } : null;
+    case "attention": return r.pl ? { label: t("ordersPg.actions.fix"), href: desk("pick-list", r.pl) } : { label: t("ordersPg.actions.open"), href: desk("sales-order", r.no) };
     default: return null;
   }
 }
