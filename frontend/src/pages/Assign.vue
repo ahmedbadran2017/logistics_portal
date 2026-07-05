@@ -177,6 +177,7 @@
 </template>
 
 <script setup>
+import { useRoute } from "vue-router";
 import { ref, reactive, computed, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { useToast } from "@/composables/useToast";
@@ -199,6 +200,7 @@ const pickers = ref(DEMO_PICKERS);
 // baseLoad so the kanban capacity bars reflect the backend.
 const liveLoad = ref(null);
 
+const route = typeof useRoute === "function" ? useRoute() : null;
 onMounted(async () => {
   const [liveOrders, livePickers] = await Promise.all([
     liveOr(null, () => api("orders.list", { scope: "queue", limit: 40 })),
@@ -214,7 +216,15 @@ onMounted(async () => {
         short: demo.short || p.name || p.id,
         top: demo.top || false,
       };
-    });
+    
+  // Preselect orders handed over from the Orders board (?orders=a,b,c)
+  const pre = (route && route.query.orders ? String(route.query.orders) : "").split(",").filter(Boolean);
+  if (pre.length && typeof selected !== "undefined") {
+    const s = new Set(selected.value || selected);
+    pre.forEach((no) => s.add(no));
+    if (selected.value !== undefined) selected.value = s;
+  }
+});
     liveLoad.value = Object.fromEntries(
       livePickers.map((p) => [p.id, typeof p.load === "number" ? p.load : 0])
     );

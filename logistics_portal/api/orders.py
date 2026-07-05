@@ -57,7 +57,7 @@ def _win(days):
 
 
 @frappe.whitelist()
-def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None):
+def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, sort=None, dates=None):
     """Counts + MAD value per stage, rows for the requested stage, and a city
     facet for filtering. `q` searches order no / customer / AWB."""
     import json as _json
@@ -88,8 +88,8 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None):
             cities = _city_facet(stage, track)
             cache.set_value(facet_key, _json.dumps(cities), expires_in_sec=120)
 
-        rows = _board_rows(stage, track, limit, q, offset, city)
-        total = len(rows) if stage == "attention" else _board_total(stage, track, q, city)
+        rows = _board_rows(stage, track, limit, q, offset, city, sort, dates)
+        total = len(rows) if stage == "attention" else _board_total(stage, track, q, city, dates)
         from frappe.utils import now_datetime
         return {"counts": counts, "values": values, "shippedTracks": shipped_tracks,
                 "attention": attention, "rows": rows, "cities": cities,
@@ -99,7 +99,7 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None):
         return {}
 
 
-def _board_total(stage, track, q=None, city=None):
+def _board_total(stage, track, q=None, city=None, dates=None):
     """Filtered row count for the stage — powers real pagination."""
     w, dw = _win(BOARD_WINDOW_DAYS), _win(DONE_WINDOW_DAYS)
     addr = """LEFT JOIN `tabAddress` addr
@@ -144,6 +144,7 @@ def _board_total(stage, track, q=None, city=None):
 
     where += _q_cond(q, args)
     where += _city_cond(city, args)
+    where += _date_cond(dates, args)
     try:
         return int(frappe.db.sql(
             f"SELECT COUNT(*) FROM `tabSales Order` so {joins} WHERE {where}",
@@ -324,6 +325,31 @@ def _q_cond(q, args):
     return " AND (so.name LIKE %s OR so.customer_name LIKE %s OR so.custom_awb LIKE %s)"
 
 
+_SORTS = {
+    "placed_desc": "so.creation DESC", "placed_asc": "so.creation ASC",
+    "value_desc": "so.grand_total DESC", "value_asc": "so.grand_total ASC",
+    "age_desc": "so.modified ASC", "age_asc": "so.modified DESC",
+}
+
+
+def _order_by(sort, default):
+    return _SORTS.get(sort or "", default)
+
+
+def _date_cond(dates, args):
+    """dates: today | yesterday | 7d | 30d — anchored to server date."""
+    from frappe.utils import nowdate, add_days
+    if not dates:
+        return ""
+    if dates == "today":
+        args.append(nowdate()); return " AND DATE(so.creation) = %s"
+    if dates == "yesterday":
+        args.append(add_days(nowdate(), -1)); return " AND DATE(so.creation) = %s"
+    if dates in ("7d", "30d"):
+        args.append(add_days(nowdate(), -int(dates[:-1]))); return " AND so.creation >= %s"
+    return ""
+
+
 def _city_cond(city, args):
     if not city:
         return ""
@@ -347,7 +373,7 @@ def _row(r, **extra):
     }, **extra)
 
 
-def _board_rows(stage, track, limit, q=None, offset=0, city=None):
+def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dates=None):
     w, dw = _win(BOARD_WINDOW_DAYS), _win(DONE_WINDOW_DAYS)
     addr = """LEFT JOIN `tabAddress` addr
         ON addr.name = COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address)"""
@@ -359,22 +385,22 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None):
 
     if stage == "to_pick":
         args = [w]
-        qc = _q_cond(q, args); cc = _city_cond(city, args)
+        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _date_cond(dates, args)
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS} FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Pending' AND pl.sales_order IS NULL
-              AND so.creation >= %s {qc} {cc} ORDER BY so.creation ASC LIMIT {limit} OFFSET {offset}""",
+              AND so.creation >= %s {qc} {cc} {dc} ORDER BY {_order_by(sort, 'so.creation ASC')} LIMIT {limit} OFFSET {offset}""",
             tuple(args), as_dict=True)
         return [_row(r) for r in rows]
 
     if stage == "picking":
         args = [w]
-        qc = _q_cond(q, args); cc = _city_cond(city, args)
+        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _date_cond(dates, args)
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, pl.pl, pl.picker, pl.pl_owner
             FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Pending' AND pl.pl_ds = 0
-              AND so.creation >= %s {qc} {cc} ORDER BY so.modified DESC LIMIT {limit} OFFSET {offset}""",
+              AND so.creation >= %s {qc} {cc} {dc} ORDER BY {_order_by(sort, 'so.modified DESC')} LIMIT {limit} OFFSET {offset}""",
             tuple(args), as_dict=True)
         return [_row(r, pl=r.pl, picker=r.picker or r.pl_owner) for r in rows]
 
@@ -383,12 +409,12 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None):
             if stage == "prepared" else ["Label Printed"]
         ph = ", ".join(["%s"] * len(statuses))
         args = statuses + [w]
-        qc = _q_cond(q, args); cc = _city_cond(city, args)
+        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _date_cond(dates, args)
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, pl.pl, pl.picker, pl.pl_owner
             FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
-              AND so.custom_logistics_status IN ({ph}) AND so.creation >= %s {qc} {cc}
-            ORDER BY so.modified ASC LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
+              AND so.custom_logistics_status IN ({ph}) AND so.creation >= %s {qc} {cc} {dc}
+            ORDER BY {_order_by(sort, 'so.modified ASC')} LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
         return [_row(r, pl=r.pl, picker=r.picker or r.pl_owner) for r in rows]
 
     if stage == "shipped":
@@ -398,20 +424,20 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None):
         elif track:
             cond = "AND so.custom_track_shipment_status = %s"
             args.append(track)
-        qc = _q_cond(q, args); cc = _city_cond(city, args)
+        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _date_cond(dates, args)
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, sh.sh FROM `tabSales Order` so {addr}
             LEFT JOIN (SELECT dni.against_sales_order so_name, MAX(sdn.parent) sh
                        FROM `tabDelivery Note Item` dni
                        JOIN `tabShipment Delivery Note` sdn ON sdn.delivery_note = dni.parent
                        GROUP BY dni.against_sales_order) sh ON sh.so_name = so.name
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
-              AND so.custom_logistics_status='Shipped' AND so.creation >= %s {cond} {qc} {cc}
-            ORDER BY so.modified ASC LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
+              AND so.custom_logistics_status='Shipped' AND so.creation >= %s {cond} {qc} {cc} {dc}
+            ORDER BY {_order_by(sort, 'so.modified ASC')} LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
         return [_row(r, sh=r.sh) for r in rows]
 
     if stage == "delivered":
         args = [dw]
-        qc = _q_cond(q, args); cc = _city_cond(city, args)
+        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _date_cond(dates, args)
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS} FROM `tabSales Order` so {addr}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Delivered' AND so.creation >= %s {qc} {cc}
@@ -422,15 +448,15 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None):
         cond = "AND (dn.ret IS NOT NULL AND dn.ret != '')" if stage == "returned" \
             else "AND (dn.ret IS NULL OR dn.ret = '')"
         args = [dw]
-        qc = _q_cond(q, args); cc = _city_cond(city, args)
+        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _date_cond(dates, args)
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, dn.ret, dn.dn FROM `tabSales Order` so {addr}
             LEFT JOIN (SELECT dni.against_sales_order so_name, MAX(d.custom_return_shipment) ret,
                               MAX(d.name) dn
                        FROM `tabDelivery Note Item` dni JOIN `tabDelivery Note` d ON d.name=dni.parent
                        WHERE d.docstatus=1 GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
-              AND so.custom_logistics_status='Returned' AND so.creation >= %s {cond} {qc} {cc}
-            ORDER BY so.modified ASC LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
+              AND so.custom_logistics_status='Returned' AND so.creation >= %s {cond} {qc} {cc} {dc}
+            ORDER BY {_order_by(sort, 'so.modified ASC')} LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
         return [_row(r, ret=r.ret, dn=r.dn) for r in rows]
 
     if stage == "attention":

@@ -233,3 +233,30 @@ def close_manifest(parcels=None):
     """Create + submit the daily Shipment from scanned parcels."""
     # TODO: build Shipment doc with child shipment_delivery_note rows.
     return {"ok": True, "shipment": "SH-DRAFT"}
+
+@frappe.whitelist()
+def mark_labels_printed(orders):
+    """Bulk: mark selected orders' labels as printed (Prepared → Ready).
+    Dispatcher/manager/packer only; orders must be in Label Generated."""
+    import json
+    from logistics_portal.api.auth import resolve_role
+
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager", "packer"):
+        frappe.throw("Not authorized to mark labels printed.", frappe.PermissionError)
+    if isinstance(orders, str):
+        orders = json.loads(orders)
+    orders = [o for o in (orders or []) if o]
+    if not orders or len(orders) > 100:
+        frappe.throw("Select between 1 and 100 orders.")
+
+    done = 0
+    for name in orders:
+        if not frappe.db.exists("Sales Order", name):
+            continue
+        st = frappe.db.get_value("Sales Order", name, "custom_logistics_status")
+        if st in ("Label Generated", "Picked", "In transit", "Received"):
+            frappe.get_doc("Sales Order", name).db_set(
+                "custom_logistics_status", "Label Printed")
+            done += 1
+    frappe.cache().delete_value("lp_board_summary")
+    return {"printed": done}
