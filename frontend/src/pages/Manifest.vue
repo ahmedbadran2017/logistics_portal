@@ -161,6 +161,7 @@ const RECENT_MANIFESTS = ref(DEMO_RECENT_MANIFESTS);
 const CUTOFF = ref(DEMO_CUTOFF);
 
 const scanner = ref(null);
+const isLive = ref(false);
 // preload the first two parcels as "just added" so the manifest isn't empty
 const parcels = ref(PARCELS.slice(0, 2).map((p) => ({ ...p })));
 const pool = ref(PARCELS.slice(2).map((p) => ({ ...p })));
@@ -188,6 +189,11 @@ const countdown = computed(() => {
 });
 
 function onScan(code) {
+  if (isLive.value) {
+    // Real manifests are scanned in ERPNext (Shipment doc) — never fabricate rows.
+    warn("Scanning is wired in ERPNext", "Open the Shipment doc to add parcels — this view mirrors it live.");
+    return;
+  }
   let parcel;
   if (pool.value.length) {
     parcel = pool.value.shift();
@@ -208,10 +214,16 @@ function onScan(code) {
 }
 
 function remove(i) {
+  if (isLive.value) return;
   parcels.value.splice(i, 1);
 }
 
 function closeManifest() {
+  if (isLive.value) {
+    // The Shipment doc is the source of truth — submit it there.
+    window.open("/app/shipment/" + encodeURIComponent(MANIFEST.value.no), "_blank");
+    return;
+  }
   if (!parcels.value.length) return;
   if (notLabeled.value > 0) {
     warn(`${notLabeled.value} picked orders not yet labeled`, "Label them before closing the manifest.");
@@ -225,6 +237,7 @@ onMounted(async () => {
   // Live-or-demo: today's manifest from `shipping.today_manifest`.
   const live = await liveOr(null, () => api("shipping.today_manifest"));
   if (live && live.no) {
+    isLive.value = true;
     MANIFEST.value = { ...DEMO_MANIFEST, ...live };
     if (live.cutoff) CUTOFF.value = live.cutoff;
     if (Array.isArray(live.parcelRows) && live.parcelRows.length) {

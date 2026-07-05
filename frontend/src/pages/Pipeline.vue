@@ -549,7 +549,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { WAREHOUSE, fmtMAD } from "@/lib/handoffData";
 import { api, apiPost, liveOr } from "@/lib/resource";
@@ -557,6 +557,7 @@ import { useToast } from "@/composables/useToast";
 import { useI18n } from "@/composables/useI18n";
 
 const router = useRouter();
+const route = useRoute();
 const { success, warn } = useToast();
 const { t, locale } = useI18n();
 
@@ -871,7 +872,9 @@ const updatedAgo = computed(() => {
 
 let refreshTimer = null;
 onMounted(() => {
-  load("to_pick");
+  const qStage = String(route.query.stage || "");
+  const valid = qStage === "attention" || stages.some((s) => s.key === qStage);
+  load(valid ? qStage : "to_pick");
   timer = setInterval(() => { tick.value++; }, 5000);
   // Silent refresh — skipped while the dispatcher has a selection in hand.
   refreshTimer = setInterval(() => {

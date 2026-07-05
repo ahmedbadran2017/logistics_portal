@@ -142,34 +142,35 @@
             <div class="min-w-0">
               <h3 class="text-[13.5px] font-semibold text-stone-900 truncate">Pipeline</h3>
               <p class="text-[11.5px] text-stone-500 mt-0.5 truncate">
-                {{ pipelineTotal }} orders · 9 stages
+                {{ pipelineTotal }} orders · {{ pipeline.length }} stages
               </p>
             </div>
           </header>
           <div class="p-4">
             <div class="space-y-1.5">
-              <div
+              <component
+                :is="isBoardKey(p.key) ? 'button' : 'div'"
                 v-for="p in pipeline"
                 :key="p.key"
-                class="w-full flex items-center gap-3 group"
+                class="w-full flex items-center gap-3 group text-start"
+                @click="goStage(p.key)"
               >
                 <div class="w-[110px] flex items-center gap-2 flex-shrink-0">
-                  <span class="w-2 h-2 rounded-full" :class="STAGE[p.key].dot" />
-                  <span class="text-[12px] font-medium text-stone-700 truncate">{{ STAGE_LABEL[p.key] }}</span>
+                  <span class="w-2 h-2 rounded-full" :style="{ background: stageHex(p.key) }" />
+                  <span class="text-[12px] font-medium text-stone-700 truncate group-hover:text-stone-900">{{ stageLabelOf(p.key) }}</span>
                 </div>
                 <div class="flex-1 h-7 rounded-lg bg-stone-50 overflow-hidden relative">
                   <div
-                    class="h-full ring-1 ring-inset rounded-lg flex items-center px-2.5 transition-all group-hover:brightness-95"
-                    :class="[STAGE[p.key].bg, STAGE[p.key].ring]"
-                    :style="{ width: barWidth(p.count) + '%' }"
+                    class="h-full rounded-lg flex items-center px-2.5 transition-all group-hover:brightness-95 ring-1 ring-inset"
+                    :style="{ width: barWidth(p.count) + '%', background: stageHex(p.key) + '1c', '--tw-ring-color': stageHex(p.key) + '3a' }"
                   >
-                    <span class="text-[11.5px] font-semibold tabular-nums" :class="STAGE[p.key].txt">{{ p.count }}</span>
+                    <span class="text-[11.5px] font-semibold tabular-nums" :style="{ color: stageHex(p.key) }">{{ p.count }}</span>
                   </div>
                 </div>
                 <div class="w-[92px] text-end text-[11.5px] text-stone-500 tabular-nums flex-shrink-0">
                   {{ fmtMAD(p.value) }} <span class="text-[10px] text-stone-400">MAD</span>
                 </div>
-              </div>
+              </component>
             </div>
           </div>
         </section>
@@ -224,6 +225,8 @@ import {
   byId, fmtMAD, getInitial, WAREHOUSE, CITY,
 } from "@/lib/handoffData.js";
 import { api, liveOr } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
+import { useRouter } from "vue-router";
 import { useToast } from "@/composables/useToast";
 
 const { success } = useToast();
@@ -231,6 +234,7 @@ const { success } = useToast();
 // Live-or-demo data. `performance.cockpit` fills these once the app is installed;
 // missing fields (e.g. sparkline trends) keep their demo values so nothing breaks.
 const cockpit = ref(DEMO_COCKPIT);
+const { t } = useI18n();
 const pipeline = ref(DEMO_PIPELINE);
 const leaderboard = ref(DEMO_LEADERBOARD);
 
@@ -269,6 +273,27 @@ onMounted(async () => {
 });
 
 const needsAttention = computed(() => cockpit.value.breaches > 0);
+// Board stage keys (live funnel) — hex-toned + i18n'd + clickable → the board.
+const BOARD_HEX = {
+  to_pick: "#d97706", picking: "#0891b2", prepared: "#7c3aed", ready: "#4f46e5",
+  shipped: "#059669", delivered: "#10b981", to_return: "#ea580c", returned: "#78716c",
+};
+// Demo design keys keep their original tones.
+const DEMO_HEX = {
+  pending: "#d97706", picked: "#ea580c", labelgen: "#7c3aed", label: "#4f46e5",
+  transit: "#0891b2", shipped: "#059669", delivered: "#10b981", returned: "#78716c", picking: "#0891b2",
+};
+const isBoardKey = (k) => k in BOARD_HEX && pipeline.value.some((p) => p.key === "to_pick");
+function stageHex(k) { return BOARD_HEX[k] && isBoardKey(k) ? BOARD_HEX[k] : (DEMO_HEX[k] || "#a8a29e"); }
+const _router = useRouter();
+function goStage(k) {
+  if (isBoardKey(k)) _router.push({ name: "Pipeline", query: { stage: k } });
+}
+function stageLabelOf(k) {
+  if (isBoardKey(k)) return t("ordersPg.stages." + k + ".label");
+  return STAGE_LABEL[k] || k;
+}
+
 const pipelineTotal = computed(() => pipeline.value.reduce((a, p) => a + p.count, 0));
 const pipelineMax = computed(() => Math.max(...pipeline.value.map((p) => p.count), 1));
 

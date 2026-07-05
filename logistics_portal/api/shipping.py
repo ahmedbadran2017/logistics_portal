@@ -291,9 +291,11 @@ def today_manifest():
             "customer": r.customer or "", "value": r.value or 0,
         } for r in rows]
         total_parcels = frappe.db.count("Shipment Delivery Note", {"parent": sh.name})
+        from frappe.utils import add_days
         not_on = frappe.db.count(
             "Sales Order",
-            {"docstatus": 1, "custom_logistics_status": ["in", ["Label Generated", "Label Printed"]]},
+            {"docstatus": 1, "custom_logistics_status": ["in", ["Label Generated", "Label Printed"]],
+             "creation": [">=", add_days(nowdate(), -7)]},
         )
         return {
             "no": sh.name,

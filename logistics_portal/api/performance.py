@@ -22,6 +22,27 @@ STAGE_MAP = {
 }
 # Fixed display order of the funnel (design keys).
 PIPELINE_KEYS = ["pending", "picking", "picked", "labelgen", "label", "shipped", "transit", "delivered", "returned"]
+# The board's document-derived stages — the cockpit funnel mirrors these so the
+# manager sees the SAME numbers on the cockpit and the Orders board.
+BOARD_STAGES = ["to_pick", "picking", "prepared", "ready", "shipped", "delivered", "to_return", "returned"]
+
+
+def _board_summary():
+    """Counts/values from the Orders board model (shared 60s cache — one source
+    of truth, so cockpit and board never disagree)."""
+    import json as _json
+    from logistics_portal.api import orders as _orders
+
+    cache = frappe.cache()
+    cached = cache.get_value("lp_board_summary")
+    if cached:
+        s = _json.loads(cached)
+        return s["counts"], s["values"], s["tracks"], s["attention"]
+    counts, values, tracks, attention = _orders._board_counts()
+    cache.set_value("lp_board_summary", _json.dumps({
+        "counts": counts, "values": values, "tracks": tracks, "attention": attention,
+    }), expires_in_sec=60)
+    return counts, values, tracks, attention
 
 # Known team emails -> handoffData TEAM id (so the leaderboard matches byId()).
 EMAIL_TO_ID = {
@@ -44,44 +65,16 @@ def cockpit():
     """Live floor snapshot in the SPA's cockpit shape: {summary, pipeline,
     leaderboard, atRisk}. Date-scoped to the recent floor window."""
     try:
-        # The funnel = work in progress (in-flight stages), touched recently — NOT
-        # the historical Delivered/Returned archive (which would dwarf the bars).
-        # Delivered/Returned are shown as *today's* completions instead.
-        wip_since = add_days(nowdate(), -FLOOR_DAYS)
-        rows = frappe.db.sql(
-            """
-            SELECT custom_logistics_status AS status,
-                   COUNT(*) AS cnt, ROUND(SUM(grand_total)) AS value
-            FROM `tabSales Order`
-            WHERE docstatus = 1 AND modified >= %s
-              AND custom_logistics_status IN
-                  ('Pending','Picked','In transit','Received','Label Generated','Label Printed','Shipped')
-            GROUP BY custom_logistics_status
-            """,
-            (wip_since,),
-            as_dict=True,
-        )
-        agg = {k: {"count": 0, "value": 0} for k in PIPELINE_KEYS}
-        for r in rows:
-            key = STAGE_MAP.get(r.status)
-            if key:
-                agg[key]["count"] += int(r.cnt or 0)
-                agg[key]["value"] += float(r.value or 0)
-        # today's completions for the two end-states
-        today = add_days(nowdate(), -1)
-        agg["delivered"]["count"] = frappe.db.count(
-            "Sales Order", {"docstatus": 1, "custom_logistics_status": "Delivered", "modified": [">=", today]}
-        )
-        agg["returned"]["count"] = frappe.db.count(
-            "Sales Order", {"docstatus": 1, "custom_logistics_status": "Returned", "modified": [">=", today]}
-        )
-        pipeline = [{"key": k, "count": agg[k]["count"], "value": agg[k]["value"]} for k in PIPELINE_KEYS]
+        # Funnel = the Orders-board stage model (document-derived, cached 60s).
+        counts, values, _tracks, attention = _board_summary()
+        pipeline = [{"key": k, "count": int(counts.get(k, 0) or 0),
+                     "value": round(float(values.get(k, 0) or 0))} for k in BOARD_STAGES]
+        by = {p["key"]: p["count"] for p in pipeline}
 
         total = sum(p["count"] for p in pipeline)
         orders_in = frappe.db.count(
             "Sales Order", {"docstatus": 1, "transaction_date": [">=", add_days(nowdate(), -1)]}
         )
-        by = {p["key"]: p["count"] for p in pipeline}
 
         # SLA-derived numbers: scoped to the recent window so historical archive
         # never reads as "breached now".
@@ -97,7 +90,7 @@ def cockpit():
             "Delivery Note",
             {"custom_track_shipment_status": ["in", ["In Transit", "Out For Delivery"]],
              "posting_date": [">=", sla_since]},
-        ) or by.get("transit", 0)
+        ) or by.get("shipped", 0)
         # Orders created today before the 14:00 cutoff (same-day ship window).
         before_cutoff = frappe.db.sql(
             "SELECT COUNT(*) FROM `tabSales Order` WHERE docstatus=1 AND DATE(creation)=%s AND TIME(creation) < '14:00:00'",
@@ -107,12 +100,13 @@ def cockpit():
         summary = {
             "ordersIn": orders_in,
             "shipped": by.get("shipped", 0),
-            "printed": by.get("label", 0),
-            "toShip": by.get("pending", 0) + by.get("picked", 0) + by.get("labelgen", 0) + by.get("label", 0),
+            "printed": by.get("ready", 0),
+            "toShip": by.get("to_pick", 0) + by.get("picking", 0) + by.get("prepared", 0) + by.get("ready", 0),
             "inTransit": in_transit,
             "breaches": breaches,
             "atRisk": at_risk,
-            "returns": by.get("returned", 0),
+            "returns": by.get("to_return", 0) + by.get("returned", 0),
+            "attention": sum(int(v or 0) for v in (attention or {}).values()),
             "totalOrders": total,
             "sameDayPct": _sla_hit_rate(sla_since),
             "cutoff": "14:00",
