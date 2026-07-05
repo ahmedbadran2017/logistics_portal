@@ -476,6 +476,7 @@ const trackChips = computed(() => {
 const selected = ref(new Set());
 const creating = ref(false);
 const cities = ref([]);
+const serverNow = ref(null); // server clock anchor — no browser-timezone drift
 const cityFilter = ref("");
 const page = ref(1);
 const pageSize = ref(20);
@@ -504,6 +505,7 @@ async function load(stage, track = "", keepPage = false) {
     rows.value = live.rows || [];
     cities.value = live.cities || [];
     total.value = live.total ?? (live.rows || []).length;
+    if (live.serverNow) serverNow.value = live.serverNow;
     updatedAt.value = Date.now();
   } else if (mode.value !== "live") {
     // Backend truly unreachable (local preview) — demo, clearly a fallback.
@@ -577,13 +579,16 @@ async function createPL() {
 }
 
 // Same-day cutoff (14:00): flag To Pick orders that already missed it.
+function srvNow() {
+  return serverNow.value ? new Date(serverNow.value.replace(" ", "T")) : new Date();
+}
 function missedCutoff(r) {
   if (!r.created) return false;
   const created = new Date(r.created.replace(" ", "T"));
-  const cut = new Date(); cut.setHours(14, 0, 0, 0);
-  const now = new Date();
-  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
-  if (created < startOfToday) return true;           // from a previous day
+  const now = srvNow();
+  const cut = new Date(now); cut.setHours(14, 0, 0, 0);
+  const day0 = new Date(now); day0.setHours(0, 0, 0, 0);
+  if (created < day0) return true;                   // from a previous day
   return created < cut && now > cut;                 // placed before today's cutoff, cutoff passed
 }
 function onSearch() {
@@ -623,7 +628,7 @@ function stageShare(key) {
 // "2026-07-03 10:23" → "10:23" today, else "Jul 3 · 10:23".
 function createdFmt(created) {
   const [d, t] = created.split(" ");
-  const today = new Date().toISOString().slice(0, 10);
+  const today = (serverNow.value || new Date().toISOString()).slice(0, 10);
   if (d === today) return t;
   const dt = new Date(d + "T00:00:00");
   return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " · " + t;
@@ -700,9 +705,9 @@ function slaOf(r) {
   if (missedCutoff(r)) return { label: "Breached", hex: "#e11d48" };
   if (r.created) {
     const created = new Date(r.created.replace(" ", "T"));
-    const cut = new Date(); cut.setHours(14, 0, 0, 0);
-    const now = new Date();
-    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const now = srvNow();
+    const cut = new Date(now); cut.setHours(14, 0, 0, 0);
+    const today = new Date(now); today.setHours(0, 0, 0, 0);
     if (created >= today && now < cut && (cut - now) < 90 * 60000) return { label: "At Risk", hex: "#d97706" };
   }
   return { label: "On Track", hex: "#10b981" };

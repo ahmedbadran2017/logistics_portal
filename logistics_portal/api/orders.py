@@ -89,10 +89,11 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None):
             cache.set_value(facet_key, _json.dumps(cities), expires_in_sec=120)
 
         rows = _board_rows(stage, track, limit, q, offset, city)
-        total = _board_total(stage, track, q, city)
+        total = len(rows) if stage == "attention" else _board_total(stage, track, q, city)
+        from frappe.utils import now_datetime
         return {"counts": counts, "values": values, "shippedTracks": shipped_tracks,
                 "attention": attention, "rows": rows, "cities": cities,
-                "total": total, "stage": stage}
+                "total": total, "stage": stage, "serverNow": str(now_datetime())[:16]}
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.orders.board")
         return {}
@@ -110,6 +111,7 @@ def _board_total(stage, track, q=None, city=None):
         pl_cond = "pl.sales_order IS NULL" if stage == "to_pick" else "pl.docstatus = 0"
         joins = addr + """ LEFT JOIN (SELECT pli.sales_order, MAX(p.docstatus) docstatus
             FROM `tabPick List Item` pli JOIN `tabPick List` p ON p.name=pli.parent
+            WHERE p.docstatus < 2
             GROUP BY pli.sales_order) pl ON pl.sales_order = so.name"""
         where = f"{base} AND so.custom_logistics_status='Pending' AND {pl_cond} AND so.creation >= %s"
         args = [w]
@@ -123,13 +125,16 @@ def _board_total(stage, track, q=None, city=None):
         where = f"{base} AND so.custom_logistics_status='Returned' AND so.creation >= %s {cond}"
         args = [dw]
     else:
-        status = {"prepared": "Label Generated", "ready": "Label Printed",
-                  "shipped": "Shipped", "delivered": "Delivered"}.get(stage)
-        if not status:
+        status_map = {"prepared": ["Label Generated", "Picked", "In transit", "Received"],
+                      "ready": ["Label Printed"], "shipped": ["Shipped"],
+                      "delivered": ["Delivered"]}
+        statuses = status_map.get(stage)
+        if not statuses:
             return 0
         joins = addr
-        where = f"{base} AND so.custom_logistics_status=%s AND so.creation >= %s"
-        args = [status, dw if stage == "delivered" else w]
+        ph = ", ".join(["%s"] * len(statuses))
+        where = f"{base} AND so.custom_logistics_status IN ({ph}) AND so.creation >= %s"
+        args = statuses + [dw if stage == "delivered" else w]
         if stage == "shipped":
             if track == "none":
                 where += " AND (so.custom_track_shipment_status IS NULL OR so.custom_track_shipment_status='')"
@@ -159,6 +164,7 @@ def _city_facet(stage, track, top=14):
         pl_cond = "pl.sales_order IS NULL" if stage == "to_pick" else "pl.docstatus = 0"
         joins = addr + """ LEFT JOIN (SELECT pli.sales_order, MAX(p.docstatus) docstatus
             FROM `tabPick List Item` pli JOIN `tabPick List` p ON p.name=pli.parent
+            WHERE p.docstatus < 2
             GROUP BY pli.sales_order) pl ON pl.sales_order = so.name"""
         where = f"{base} AND so.custom_logistics_status='Pending' AND {pl_cond} AND so.creation >= %s"
         args = [w]
@@ -209,11 +215,11 @@ def _board_counts():
            FROM `tabSales Order` so
            LEFT JOIN (SELECT pli.sales_order, MAX(p.docstatus) docstatus
                       FROM `tabPick List Item` pli JOIN `tabPick List` p ON p.name=pli.parent
-                      WHERE p.creation >= %s GROUP BY pli.sales_order) pl
+                      WHERE p.docstatus < 2 GROUP BY pli.sales_order) pl
              ON pl.sales_order = so.name
            WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
              AND so.custom_logistics_status='Pending' AND so.creation >= %s""",
-        (w, w), as_dict=True)[0]
+        (w,), as_dict=True)[0]
 
     # Shipped sub-segmentation by carrier tracking.
     tracks = {r.t or "none": int(r.c) for r in frappe.db.sql(
@@ -254,7 +260,8 @@ def _board_counts():
         "to_pick": int(pend.no_pl or 0),
         "to_pick_late": int(late or 0),
         "picking": int(pend.pl_draft or 0),
-        "prepared": st.get("Label Generated", 0),
+        "prepared": st.get("Label Generated", 0) + st.get("Picked", 0)
+                    + st.get("In transit", 0) + st.get("Received", 0),
         "ready": st.get("Label Printed", 0),
         "shipped": st.get("Shipped", 0),
         "delivered": frappe.db.count("Sales Order", {
@@ -347,6 +354,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None):
     pl_join = """LEFT JOIN (SELECT pli.sales_order, MAX(p.name) pl, MAX(p.docstatus) pl_ds,
                         MAX(p.custom_assigned_picker) picker, MAX(p.owner) pl_owner
                  FROM `tabPick List Item` pli JOIN `tabPick List` p ON p.name=pli.parent
+                 WHERE p.docstatus < 2
                  GROUP BY pli.sales_order) pl ON pl.sales_order = so.name"""
 
     if stage == "to_pick":
@@ -371,13 +379,15 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None):
         return [_row(r, pl=r.pl, picker=r.picker or r.pl_owner) for r in rows]
 
     if stage in ("prepared", "ready"):
-        status = "Label Generated" if stage == "prepared" else "Label Printed"
-        args = [status, w]
+        statuses = ["Label Generated", "Picked", "In transit", "Received"] \
+            if stage == "prepared" else ["Label Printed"]
+        ph = ", ".join(["%s"] * len(statuses))
+        args = statuses + [w]
         qc = _q_cond(q, args); cc = _city_cond(city, args)
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, pl.pl, pl.picker, pl.pl_owner
             FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
-              AND so.custom_logistics_status=%s AND so.creation >= %s {qc} {cc}
+              AND so.custom_logistics_status IN ({ph}) AND so.creation >= %s {qc} {cc}
             ORDER BY so.modified ASC LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
         return [_row(r, pl=r.pl, picker=r.picker or r.pl_owner) for r in rows]
 

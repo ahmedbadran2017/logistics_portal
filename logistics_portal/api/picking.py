@@ -219,6 +219,8 @@ def create_pick_list_from_orders(orders, picker=None):
     except Exception:
         pass
     pl.insert()
+    # The board caches its summary for 60s — bust it so the action shows at once.
+    frappe.cache().delete_value("lp_board_summary")
     return {"pl": pl.name, "orders": len(sos), "items": len(pl.locations)}
 
 
