@@ -2,7 +2,7 @@
   <div class="p-5 sm:p-6 space-y-5 max-w-[1400px] mx-auto animate-fade-in">
     <div>
       <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">Exception center</h1>
-      <p class="text-[12.5px] text-stone-500 mt-0.5">One queue for every blocker across the cycle</p>
+      <p class="text-[12.5px] text-stone-500 mt-0.5">{{ isLive ? `Carrier blockers · parcels shipped in the last ${days} days` : "One queue for every blocker across the cycle" }}</p>
     </div>
 
     <!-- KPIs -->
@@ -64,17 +64,34 @@
           <div class="text-[12px] text-stone-600 mt-0.5 truncate">{{ e.detail }}</div>
         </div>
         <div class="flex items-center gap-1.5 text-[11px] text-stone-400">
-          <span class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-[9px] font-semibold">{{ initials(byId(e.owner).name) }}</span>
-          <span class="tabular-nums" :class="e.age > e.sla ? 'text-rose-600 font-medium' : ''">{{ e.age }}m old</span>
+          <span v-if="e.owner" class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-[9px] font-semibold">{{ initials(byId(e.owner).name) }}</span>
+          <span class="tabular-nums" :class="e.age > e.sla ? 'text-rose-600 font-medium' : ''">{{ e.ageLabel || e.age + 'm old' }}</span>
         </div>
         <div class="flex items-center gap-1.5">
+          <template v-if="e.phone">
+            <a :href="'tel:' + e.phone" :title="e.phone"
+               class="w-8 h-8 rounded-lg ring-1 ring-stone-200 bg-white text-stone-500 hover:ring-emerald-300 hover:text-emerald-700 flex items-center justify-center">
+              <Icon name="phone" :size="13" />
+            </a>
+            <a :href="waLink(e.phone)" target="_blank" title="WhatsApp"
+               class="w-8 h-8 rounded-lg ring-1 ring-stone-200 bg-white text-stone-500 hover:ring-emerald-300 hover:text-emerald-700 flex items-center justify-center">
+              <Icon name="message-circle" :size="13" />
+            </a>
+          </template>
+          <a v-if="e.dn" :href="'/app/delivery-note/' + encodeURIComponent(e.dn)" target="_blank"
+             class="inline-flex items-center gap-1.5 px-2.5 h-8 text-[12px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300">
+            <Icon name="file-text" :size="13" />DN
+          </a>
           <button
-            class="inline-flex items-center gap-1.5 px-2.5 h-8 text-[12px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300"
-            @click="openOrder(e.id)"
+            v-if="e.order || String(e.id).startsWith('#')"
+            class="inline-flex items-center gap-1.5 px-2.5 h-8 text-[12px] font-medium rounded-lg ring-1 whitespace-nowrap text-white"
+            :style="{ background: 'var(--accent-600)', borderColor: 'var(--accent-600)' }"
+            @click="openOrder(e.order || e.id)"
           >
-            <Icon name="arrow-right" :size="13" />Open
+            <Icon name="arrow-right" :size="13" class="flip-rtl" />Order
           </button>
           <button
+            v-else-if="!isLive"
             class="inline-flex items-center gap-1.5 px-2.5 h-8 text-[12px] font-medium rounded-lg ring-1 whitespace-nowrap text-white"
             :style="{ background: 'var(--accent-600)', borderColor: 'var(--accent-600)' }"
             @click="resolveExc(e.id)"
@@ -85,6 +102,20 @@
       </div>
       <div v-if="shown.length === 0" class="text-center text-[12.5px] text-emerald-600 py-12 flex items-center justify-center gap-1.5">
         <Icon name="check-circle" :size="16" />All clear — no open exceptions
+      </div>
+      <div v-if="isLive && total > pageSize" class="flex items-center justify-between px-1 pt-1">
+        <span class="text-[11.5px] text-stone-500 tabular-nums">
+          {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, total) }} of {{ total }}
+        </span>
+        <div class="flex items-center gap-1">
+          <button class="pager-btn" :disabled="page <= 1" @click="page--; loadLive()">
+            <Icon name="chevron-left" :size="13" class="flip-rtl" />
+          </button>
+          <span class="text-[11.5px] text-stone-600 tabular-nums px-1.5">{{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span>
+          <button class="pager-btn" :disabled="page * pageSize >= total" @click="page++; loadLive()">
+            <Icon name="chevron-right" :size="13" class="flip-rtl" />
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -120,39 +151,61 @@ const EXC_KIND = {
 
 const rows = ref(EXCEPTIONS.map((e) => ({ ...e })));
 const filter = ref("all");
-const kinds = ["all", "oos", "carrier", "shortpick", "return", "cod"];
+const kinds = computed(() => isLive.value ? ["all", "exception", "failed"] : ["all", "oos", "carrier", "shortpick", "return", "cod"]);
 
-// Live-or-demo data. `shipping.exceptions` returns rows shaped
-// { id, awb, customer, kind:'exception'|'failed', detail, value }; map them into
-// the screen's row shape. In local preview api() fails and EXCEPTIONS remain.
-onMounted(async () => {
-  const live = await liveOr(null, () => api("shipping.exceptions"));
-  if (live && live.length) {
-    rows.value = live.map((r) => ({
-      id: r.id ?? r.awb ?? "—",
-      awb: r.awb ?? "—",
-      customer: r.customer ?? "—",
-      // live kind is exception|failed → screen's "carrier" bucket (has both icon + tone)
-      kind: EXC_KIND[r.kind] ? r.kind : "carrier",
+// Live data from the windowed `shipping.exceptions` ({rows,total,failed,days});
+// the demo seed only survives when the backend is truly unreachable.
+const isLive = ref(false);
+const total = ref(0);
+const failedN = ref(0);
+const days = ref(14);
+const page = ref(1);
+const pageSize = 50;
+
+async function loadLive() {
+  const live = await liveOr(null, () => api("shipping.exceptions", {
+    days: days.value, limit: pageSize, offset: (page.value - 1) * pageSize,
+  }));
+  if (live && Array.isArray(live.rows)) {
+    isLive.value = true;
+    total.value = live.total || 0;
+    failedN.value = live.failed || 0;
+    days.value = live.days || 14;
+    rows.value = live.rows.map((r) => ({
+      id: r.id, dn: r.id, awb: r.awb, customer: r.customer, order: r.order || "",
+      kind: "carrier", rawKind: r.kind,
       label: r.kind === "failed" ? "Failed delivery" : "Carrier exception",
-      detail: r.detail ?? r.reason ?? ([r.customer, r.awb].filter(Boolean).join(" · ") || "—"),
-      value: r.value ?? null,
-      owner: r.owner ?? "nadia",
-      age: r.age ?? 0,
-      sev: r.sev ?? (r.kind === "failed" ? "red" : "orange"),
-      sla: r.sla ?? 60,
+      detail: [r.customer, r.city, r.awb].filter(Boolean).join(" · "),
+      value: r.value ?? null, phone: r.phone || "",
+      owner: null, age: r.age ?? 0, ageLabel: (r.age ?? 0) + "d old",
+      sev: r.kind === "failed" ? "red" : "orange", sla: 3,
     }));
   }
-});
+}
+onMounted(loadLive);
 
-const shown = computed(() => rows.value.filter((e) => filter.value === "all" || e.kind === filter.value));
+// Moroccan mobile → wa.me international format (0612… → 212612…).
+function waLink(phone) {
+  let d = (phone || "").replace(/\D/g, "");
+  if (d.startsWith("00")) d = d.slice(2);
+  if (d.startsWith("0")) d = "212" + d.slice(1);
+  else if (!d.startsWith("212")) d = "212" + d;
+  return `https://wa.me/${d}`;
+}
+
+const shown = computed(() => rows.value.filter((e) => filter.value === "all" || e.kind === filter.value || e.rawKind === filter.value));
 const critical = computed(() => rows.value.filter((e) => e.sev === "red").length);
 const overdue = computed(() => rows.value.filter((e) => e.age > e.sla).length);
 const avgAge = computed(() =>
   Math.round(rows.value.reduce((a, e) => a + e.age, 0) / (rows.value.length || 1))
 );
 
-const kpis = computed(() => [
+const kpis = computed(() => isLive.value ? [
+  { label: `Open (${days.value}d)`, value: total.value, icon: "alert-circle", bg: "bg-stone-100", fg: "text-stone-600" },
+  { label: "Failed attempts", value: failedN.value, icon: "alert-circle", bg: "bg-rose-50", fg: "text-rose-600" },
+  { label: "Exceptions", value: total.value - failedN.value, icon: "clock", bg: "bg-amber-50", fg: "text-amber-600" },
+  { label: "Avg age", value: avgAge.value, unit: "d", icon: "activity", bg: "bg-violet-50", fg: "text-violet-600" },
+] : [
   { label: "Open", value: rows.value.length, icon: "alert-circle", bg: "bg-stone-100", fg: "text-stone-600" },
   { label: "Critical", value: critical.value, icon: "alert-circle", bg: "bg-rose-50", fg: "text-rose-600" },
   { label: "Overdue", value: overdue.value, icon: "clock", bg: "bg-amber-50", fg: "text-amber-600" },
@@ -163,12 +216,14 @@ function kindLabel(k) {
   return k === "all" ? "All kinds"
     : k === "oos" ? "Out of stock"
     : k === "carrier" ? "Carrier"
+    : k === "exception" ? "Exceptions"
+    : k === "failed" ? "Failed attempts"
     : k === "shortpick" ? "Short-pick"
     : k === "return" ? "Returns"
     : "COD";
 }
 function kindIcon(k) {
-  return (EXC_KIND[k] || EXC_KIND.oos).icon;
+  return (EXC_KIND[k] || EXC_KIND.carrier).icon;
 }
 function badgeTone(k) {
   const t = EXC_KIND[k].tone;
@@ -192,8 +247,7 @@ function resolveExc(id) {
   success(`${id} resolved`);
 }
 function openOrder(id) {
-  if (String(id).startsWith("#")) {
-    router.push({ name: "OrderDetail", params: { name: String(id).replace("#", "") } });
-  }
+  if (!id) return;
+  router.push({ name: "OrderDetail", params: { name: String(id).replace("#", "") } });
 }
 </script>

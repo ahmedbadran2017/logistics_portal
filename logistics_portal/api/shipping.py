@@ -49,30 +49,35 @@ def label_queue(limit=50):
 
 @frappe.whitelist()
 def shipments(limit=30):
-    """Daily carrier manifests in the SPA's SHIPMENTS shape."""
+    """Daily carrier manifests with real per-manifest outcomes (delivered /
+    exceptions from the linked Delivery Notes) in one grouped query."""
     try:
-        rows = frappe.get_all(
-            "Shipment",
-            fields=["name", "pickup_date", "value_of_goods", "status", "delivery_to"],
-            order_by="pickup_date desc",
-            limit=int(limit),
-        )
-        out = []
-        for r in rows:
-            parcels = frappe.db.count("Shipment Delivery Note", {"parent": r.name})
-            out.append({
-                "no": r.name,
-                "date": str(r.pickup_date) if r.pickup_date else "",
-                "value": r.value_of_goods or 0,
-                "status": r.status or "Submitted",
-                "carrier": (r.delivery_to or "Cathedis").title(),
-                "parcels": parcels,
-                "delivered": 0,
-                "exceptions": 0,
-                "window": "09:00 – 17:00",
-                "awb": "",
-            })
-        return out
+        rows = frappe.db.sql(
+            """SELECT sh.name, sh.pickup_date, sh.value_of_goods, sh.status,
+                      sh.delivery_to, sh.awb_number,
+                      COUNT(sdn.name) AS parcels,
+                      SUM(CASE WHEN dn.custom_track_shipment_status = 'Delivered' THEN 1 ELSE 0 END) AS delivered,
+                      SUM(CASE WHEN dn.custom_track_shipment_status IN ('Delivery Exception','Failed Attempt') THEN 1 ELSE 0 END) AS exceptions
+               FROM `tabShipment` sh
+               LEFT JOIN `tabShipment Delivery Note` sdn ON sdn.parent = sh.name
+               LEFT JOIN `tabDelivery Note` dn ON dn.name = sdn.delivery_note
+               WHERE sh.docstatus < 2
+               GROUP BY sh.name
+               ORDER BY sh.pickup_date DESC, sh.modified DESC
+               LIMIT %(limit)s""",
+            {"limit": min(max(int(limit or 30), 1), 100)}, as_dict=True)
+        return [{
+            "no": r.name,
+            "date": str(r.pickup_date) if r.pickup_date else "",
+            "value": r.value_of_goods or 0,
+            "status": r.status or "Submitted",
+            "carrier": (r.delivery_to or "Cathedis").title(),
+            "awb": r.awb_number or "",
+            "parcels": int(r.parcels or 0),
+            "delivered": int(r.delivered or 0),
+            "exceptions": int(r.exceptions or 0),
+            "window": "09:00 – 17:00",
+        } for r in rows]
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.shipments")
         return []
@@ -95,54 +100,133 @@ _TRACK_MAP = {
 
 
 @frappe.whitelist()
-def tracking(limit=60):
-    """Parcels + carrier track-status distribution (PARCELS + TRACK_COUNTS shapes)."""
+def tracking(days=14, state="", q="", limit=30, offset=0):
+    """Windowed parcel board. Production has ~24k stale DN track statuses that
+    never re-sync (avg age 90d), so everything is scoped to a recent
+    posting-date window — stale rows are history, not work.
+
+    Returns {parcels, counts, total, days, serverNow}; `state` filters by the
+    SPA track key, `q` searches DN/AWB/tracking-no/customer/order."""
     try:
+        days = min(max(int(days or 14), 1), 90)
+        limit = min(max(int(limit or 30), 1), 100)
+        offset = max(int(offset or 0), 0)
+
+        window = "dn.docstatus = 1 AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"
+        vals = {"days": days}
+
         counts = {v: 0 for v in ["pending", "pickedup", "intransit", "outfordelivery", "delivered", "exception", "failed", "return"]}
         for r in frappe.db.sql(
-            """SELECT custom_track_shipment_status AS s, COUNT(*) AS c FROM `tabDelivery Note`
-               WHERE docstatus=1 AND custom_track_shipment_status IS NOT NULL AND custom_track_shipment_status!=''
-               GROUP BY custom_track_shipment_status""", as_dict=True):
+            f"""SELECT dn.custom_track_shipment_status AS s, COUNT(*) AS c FROM `tabDelivery Note` dn
+                WHERE {window} AND dn.custom_track_shipment_status IS NOT NULL AND dn.custom_track_shipment_status != ''
+                GROUP BY dn.custom_track_shipment_status""", vals, as_dict=True):
             k = _TRACK_MAP.get(r.s)
             if k:
                 counts[k] += int(r.c or 0)
 
-        rows = frappe.get_all(
-            "Delivery Note",
-            filters={"docstatus": 1, "custom_track_shipment_status": ["in", ["Out For Delivery", "In Transit", "Delivery Exception", "Failed Attempt"]]},
-            fields=["name", "custom_awb", "custom_tracking_number", "customer_name", "custom_track_shipment_status", "grand_total"],
-            order_by="modified desc", limit=int(limit),
-        )
+        raw_by_key = {}
+        for raw, key in _TRACK_MAP.items():
+            raw_by_key.setdefault(key, []).append(raw)
+        active = ["Pending", "Picked up", "In Transit", "Out For Delivery", "Delivery Exception", "Failed Attempt"]
+        states = raw_by_key.get(state) if state else active
+        if not states:
+            states = active
+        vals["states"] = tuple(states)
+
+        qcond = ""
+        if q and str(q).strip():
+            vals["q"] = f"%{str(q).strip()}%"
+            qcond = """ AND (dn.name LIKE %(q)s OR dn.custom_awb LIKE %(q)s
+                        OR dn.custom_tracking_number LIKE %(q)s OR dn.customer_name LIKE %(q)s
+                        OR dni.so LIKE %(q)s)"""
+
+        so_join = """LEFT JOIN (SELECT parent, MAX(against_sales_order) AS so
+                                FROM `tabDelivery Note Item` GROUP BY parent) dni ON dni.parent = dn.name
+                     LEFT JOIN `tabSales Order` so ON so.name = dni.so
+                     LEFT JOIN `tabAddress` addr
+                        ON addr.name = COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address)"""
+
+        total = frappe.db.sql(
+            f"""SELECT COUNT(*) FROM `tabDelivery Note` dn {so_join}
+                WHERE {window} AND dn.custom_track_shipment_status IN %(states)s{qcond}""",
+            vals)[0][0]
+
+        vals.update({"limit": limit, "offset": offset})
+        rows = frappe.db.sql(
+            f"""SELECT dn.name, dn.custom_awb AS awb, dn.custom_tracking_number AS track_no,
+                       dn.customer_name AS customer, dn.custom_track_shipment_status AS raw,
+                       dn.grand_total AS value, dn.posting_date AS posted, dn.modified AS updated,
+                       DATEDIFF(CURDATE(), dn.posting_date) AS age,
+                       dni.so AS so,
+                       COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone) AS phone,
+                       COALESCE(NULLIF(so.custom_shipping_city,''), addr.city) AS city
+                FROM `tabDelivery Note` dn {so_join}
+                WHERE {window} AND dn.custom_track_shipment_status IN %(states)s{qcond}
+                ORDER BY dn.modified DESC
+                LIMIT %(limit)s OFFSET %(offset)s""",
+            vals, as_dict=True)
+
         parcels = [{
-            "dn": r.name, "awb": r.custom_awb or "", "trackNo": r.custom_tracking_number or "",
-            "order": "", "customer": r.customer_name, "carrier": "Cathedis",
-            "track": _TRACK_MAP.get(r.custom_track_shipment_status, "pending"),
-            "sla": "ontrack", "value": r.grand_total or 0, "days": 0,
-            "msg": r.custom_track_shipment_status or "",
+            "dn": r.name, "awb": r.awb or "", "trackNo": r.track_no or "",
+            "order": r.so or "", "customer": r.customer or "", "carrier": "Cathedis",
+            "track": _TRACK_MAP.get(r.raw, "pending"), "msg": r.raw or "",
+            "sla": "breached" if r.raw in ("Delivery Exception", "Failed Attempt") else "ontrack",
+            "value": r.value or 0, "days": int(r.age or 0),
+            "phone": r.phone or "", "city": (r.city or "").strip().title(),
+            "posted": str(r.posted or ""), "updated": str(r.updated or "")[:16],
         } for r in rows]
-        return {"parcels": parcels, "counts": counts}
+        return {"parcels": parcels, "counts": counts, "total": int(total or 0),
+                "days": days, "serverNow": str(frappe.utils.now_datetime())[:19]}
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.tracking")
         return {}
 
 
 @frappe.whitelist()
-def exceptions(limit=60):
-    """Delivery exceptions / failed attempts for the exception center."""
+def exceptions(days=14, limit=50, offset=0):
+    """Delivery exceptions / failed attempts inside the recent window, enriched
+    with the order, phone and city so the team can act without leaving the page."""
     try:
-        rows = frappe.get_all(
-            "Delivery Note",
-            filters={"docstatus": 1, "custom_track_shipment_status": ["in", ["Delivery Exception", "Failed Attempt"]]},
-            fields=["name", "custom_awb", "customer_name", "custom_track_shipment_status", "grand_total", "modified"],
-            order_by="modified desc", limit=int(limit),
-        )
-        return [{
-            "id": r.name, "awb": r.custom_awb or "", "customer": r.customer_name,
-            "kind": "failed" if r.custom_track_shipment_status == "Failed Attempt" else "exception",
-            "detail": r.custom_track_shipment_status or "", "value": r.grand_total or 0,
-        } for r in rows]
+        days = min(max(int(days or 14), 1), 90)
+        limit = min(max(int(limit or 50), 1), 100)
+        offset = max(int(offset or 0), 0)
+        vals = {"days": days, "limit": limit, "offset": offset}
+        base = """FROM `tabDelivery Note` dn
+                  LEFT JOIN (SELECT parent, MAX(against_sales_order) AS so
+                             FROM `tabDelivery Note Item` GROUP BY parent) dni ON dni.parent = dn.name
+                  LEFT JOIN `tabSales Order` so ON so.name = dni.so
+                  LEFT JOIN `tabAddress` addr
+                     ON addr.name = COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address)
+                  WHERE dn.docstatus = 1
+                    AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)
+                    AND dn.custom_track_shipment_status IN ('Delivery Exception', 'Failed Attempt')"""
+        total = frappe.db.sql(f"SELECT COUNT(*) {base}", vals)[0][0]
+        failed = frappe.db.sql(
+            f"SELECT COUNT(*) {base} AND dn.custom_track_shipment_status = 'Failed Attempt'", vals)[0][0]
+        rows = frappe.db.sql(
+            f"""SELECT dn.name, dn.custom_awb AS awb, dn.customer_name AS customer,
+                       dn.custom_track_shipment_status AS raw, dn.grand_total AS value,
+                       DATEDIFF(CURDATE(), dn.posting_date) AS age,
+                       dni.so AS so,
+                       COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone) AS phone,
+                       COALESCE(NULLIF(so.custom_shipping_city,''), addr.city) AS city
+                {base}
+                ORDER BY dn.modified DESC LIMIT %(limit)s OFFSET %(offset)s""",
+            vals, as_dict=True)
+        return {
+            "rows": [{
+                "id": r.name, "awb": r.awb or "", "customer": r.customer or "",
+                "order": r.so or "",
+                "kind": "failed" if r.raw == "Failed Attempt" else "exception",
+                "detail": r.raw or "", "value": r.value or 0, "age": int(r.age or 0),
+                "phone": r.phone or "", "city": (r.city or "").strip().title(),
+            } for r in rows],
+            "total": int(total or 0), "failed": int(failed or 0),
+            "exceptions": int(total or 0) - int(failed or 0), "days": days,
+        }
     except Exception:
-        return []
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.exceptions")
+        return {}
 
 
 @frappe.whitelist()

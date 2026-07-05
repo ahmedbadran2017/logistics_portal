@@ -31,6 +31,10 @@
               </div>
             </div>
           </div>
+          <a :href="'/app/shipment/' + encodeURIComponent(openSh.no)" target="_blank"
+             class="inline-flex items-center gap-1.5 px-3 h-9 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300">
+            Open in ERPNext <Icon name="arrow-right" :size="13" class="flip-rtl" />
+          </a>
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
@@ -105,11 +109,12 @@
           <p class="text-[12.5px] text-stone-500 mt-0.5">{{ CARRIER }} · {{ WAREHOUSE }}</p>
         </div>
         <div class="flex items-center gap-2">
-          <button class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium text-stone-700 bg-white rounded-lg ring-1 ring-stone-200 hover:ring-stone-300 transition-colors whitespace-nowrap">
-            <Icon name="globe" :size="15" /> Track all
-          </button>
-          <button class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium text-white bg-stone-900 rounded-lg hover:bg-stone-800 transition-colors whitespace-nowrap">
-            <Icon name="plus" :size="15" /> Create shipment
+          <a href="/app/shipment" target="_blank" class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium text-stone-700 bg-white rounded-lg ring-1 ring-stone-200 hover:ring-stone-300 transition-colors whitespace-nowrap">
+            <Icon name="globe" :size="15" /> Open in ERP
+          </a>
+          <button class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium text-white bg-stone-900 rounded-lg hover:bg-stone-800 transition-colors whitespace-nowrap"
+                  @click="$router.push({ name: 'Manifest' })">
+            <Icon name="plus" :size="15" /> Today's manifest
           </button>
         </div>
       </div>
@@ -179,9 +184,10 @@
                 <td class="px-4 py-2.5 font-mono text-[11.5px] text-stone-500 hidden lg:table-cell">{{ s.awb }}</td>
                 <td class="px-4 py-2.5 text-end text-[12.5px] font-semibold text-stone-900 tabular-nums">{{ s.parcels }}</td>
                 <td class="px-4 py-2.5 text-end text-[12px] text-stone-600 tabular-nums hidden sm:table-cell">{{ fmtMAD(s.value) }}</td>
-                <td class="px-4 py-2.5 text-end text-[12px] tabular-nums hidden md:table-cell">
+                <td class="px-4 py-2.5 text-end text-[12px] tabular-nums hidden md:table-cell whitespace-nowrap">
                   <span v-if="s.delivered" class="text-emerald-600">{{ s.delivered }}/{{ s.parcels }}</span>
                   <span v-else class="text-stone-300">—</span>
+                  <span v-if="s.exceptions" class="text-rose-600 ms-1.5">· {{ s.exceptions }} exc</span>
                 </td>
                 <td class="px-4 py-2.5">
                   <span
@@ -282,6 +288,15 @@ const openSh = computed(() => shipments.value.find((s) => s.no === open.value) |
 const detailStats = computed(() => {
   const s = openSh.value;
   if (!s) return [];
+  if (s.weight == null && s.pallets == null) {
+    return [
+      { label: "Parcels", value: s.parcels },
+      { label: "Delivered", value: s.delivered ?? 0 },
+      { label: "Exceptions", value: s.exceptions ?? 0 },
+      { label: "Value", value: fmtMAD(s.value), unit: "MAD" },
+      { label: "Status", value: s.status },
+    ];
+  }
   return [
     { label: "Parcels", value: s.parcels },
     { label: "Value", value: fmtMAD(s.value), unit: "MAD" },
