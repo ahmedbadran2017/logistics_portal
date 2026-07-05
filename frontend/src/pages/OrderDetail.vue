@@ -18,8 +18,8 @@
               class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1"
               :class="channelBadge.cls"
             >{{ channelBadge.label }}</span>
-            <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 bg-emerald-50 text-emerald-700 ring-emerald-200 whitespace-nowrap">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Sales confirmed
+            <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 whitespace-nowrap" :class="salesBadge.cls">
+              <span class="w-1.5 h-1.5 rounded-full bg-current opacity-60" /> {{ salesBadge.label }}
             </span>
             <span
               class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 whitespace-nowrap"
@@ -35,19 +35,23 @@
             </span>
           </div>
           <div class="text-[13px] text-stone-600 mt-1">
-            {{ order.customer }}<template v-if="order.city"> · {{ order.city }}</template> · {{ order.zone }}
+            {{ order.customer }} · {{ shipToLine }}
           </div>
         </div>
         <div class="flex items-center gap-2">
-          <button
-            v-if="order.awb"
+          <a
+            v-if="order.awb && isLive && liveOrder.label_url"
+            :href="liveOrder.label_url" target="_blank"
             class="inline-flex items-center gap-1.5 h-9 px-3 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 hover:ring-stone-300"
           >
             <Icon name="file-text" :size="15" /> Print AWB label
-          </button>
-          <button class="inline-flex items-center gap-1.5 h-9 px-3 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 hover:ring-stone-300">
+          </a>
+          <a
+            :href="'/app/sales-order/' + encodeURIComponent(order.no)" target="_blank"
+            class="inline-flex items-center gap-1.5 h-9 px-3 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 hover:ring-stone-300"
+          >
             Open in ERPNext <Icon name="arrow-right" :size="13" />
-          </button>
+          </a>
         </div>
       </div>
     </div>
@@ -127,7 +131,7 @@
             <div class="text-[13px] font-medium text-stone-900">{{ order.customer }}</div>
             <div class="space-y-1.5 mt-2 text-[12px]">
               <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Phone</span><span class="font-mono font-medium text-stone-800">{{ phone }}</span></div>
-              <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Zone</span><span class="font-medium text-stone-800 text-end truncate">{{ (order.city || CITY) + ' · ' + order.zone.replace(' - JM', '') }}</span></div>
+              <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Destination</span><span class="font-medium text-stone-800 text-end truncate">{{ shipToLine }}</span></div>
               <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Governorate</span><span class="font-medium text-stone-800">{{ govern }}</span></div>
               <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Reference</span><span class="font-mono font-medium text-stone-800">{{ refNo }}</span></div>
             </div>
@@ -158,16 +162,17 @@
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-3">
           <div class="text-[13px] font-semibold text-stone-900 px-1 pt-1 pb-3">Documents</div>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <button
+            <component
               v-for="(d, i) in documents"
               :key="i"
-              :disabled="!d.on"
+              :is="d.on && d.href ? 'a' : 'button'"
+              v-bind="d.on && d.href ? { href: d.href, target: '_blank' } : { disabled: !d.on }"
               class="flex items-center gap-2 px-3 py-2.5 rounded-lg ring-1 transition-all"
               :class="d.on ? 'ring-stone-200 hover:ring-stone-300 text-stone-700' : 'ring-stone-100 text-stone-300 cursor-not-allowed'"
             >
               <Icon :name="d.icon" :size="15" :class="d.on ? 'text-stone-400' : ''" />
               <span class="text-[12px] font-medium flex-1 text-start">{{ d.label }}</span>
-            </button>
+            </component>
           </div>
         </div>
       </div>
@@ -254,14 +259,18 @@
             </span>
           </div>
           <div class="space-y-1.5 text-[12px]">
-            <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Tracking no.</span><span class="font-mono font-medium text-stone-800">{{ order.awb }}</span></div>
+            <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Tracking no.</span><span class="font-mono font-medium text-stone-800">{{ (isLive && liveOrder.tracking_number) || order.awb }}</span></div>
             <div class="flex items-center justify-between gap-2"><span class="text-stone-400">AWB</span><span class="font-mono font-medium text-stone-800">{{ order.awb }}</span></div>
-            <div v-if="order.dn" class="flex items-center justify-between gap-2"><span class="text-stone-400">Delivery Note</span><span class="font-mono font-medium text-stone-800">{{ order.dn }}</span></div>
-            <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Zone</span><span class="font-mono font-medium text-stone-800">{{ order.zone }}</span></div>
+            <div v-if="(isLive && liveOrder.dn) || order.dn" class="flex items-center justify-between gap-2"><span class="text-stone-400">Delivery Note</span><span class="font-mono font-medium text-stone-800">{{ (isLive && liveOrder.dn) || order.dn }}</span></div>
+            <div v-if="!isLive" class="flex items-center justify-between gap-2"><span class="text-stone-400">Zone</span><span class="font-mono font-medium text-stone-800">{{ order.zone }}</span></div>
           </div>
-          <button class="w-full mt-2 flex items-center justify-center gap-1.5 h-8 rounded-lg ring-1 ring-stone-200 hover:ring-stone-300 text-[12px] font-medium text-stone-700">
+          <component
+            :is="isLive && liveOrder.tracking_url ? 'a' : 'button'"
+            v-bind="isLive && liveOrder.tracking_url ? { href: liveOrder.tracking_url, target: '_blank' } : { disabled: isLive }"
+            class="w-full mt-2 flex items-center justify-center gap-1.5 h-8 rounded-lg ring-1 ring-stone-200 hover:ring-stone-300 text-[12px] font-medium text-stone-700 disabled:opacity-40"
+          >
             <Icon name="truck" :size="13" /> Track live
-          </button>
+          </component>
         </div>
 
         <!-- Linked ERPNext documents -->
@@ -270,10 +279,11 @@
             <div class="text-[13px] font-semibold text-stone-900">Linked documents</div>
             <div class="text-[11.5px] text-stone-400 mt-0.5">ERPNext document chain</div>
           </div>
-          <button
+          <component
             v-for="(c, i) in docChain"
             :key="i"
-            :disabled="!c.on"
+            :is="c.on && c.href ? 'a' : 'button'"
+            v-bind="c.on && c.href ? { href: c.href, target: '_blank' } : { disabled: !c.on }"
             class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-start"
             :class="c.on ? 'hover:bg-stone-50' : 'opacity-40 cursor-not-allowed'"
           >
@@ -288,7 +298,7 @@
               <div class="font-mono text-[12px] font-medium text-stone-800 truncate">{{ c.id }}</div>
             </div>
             <Icon v-if="c.on" name="arrow-right" :size="12" class="text-stone-300 flex-shrink-0" />
-          </button>
+          </component>
         </div>
       </div>
     </div>
@@ -425,8 +435,23 @@ const stageBadge = computed(() => {
 });
 
 const slaBadge = computed(() => {
-  const s = SLA[order.value.sla] || SLA.ontrack;
-  return { label: SLA_LABEL[order.value.sla] || order.value.sla, cls: `${s.bg} ${s.txt} ${s.ring}`, dot: s.dot };
+  let key = order.value.sla;
+  if (isLive.value) {
+    const lv = liveOrder.value, st = order.value.stage;
+    if (st === "delivered") key = "ontrack";
+    else if (st === "returned") key = "returned";
+    else if (["Delivery Exception", "Failed Attempt"].includes(lv.tracking_status)) key = "late";
+    else if (["shipped", "transit"].includes(st)) key = "ontrack";
+    else {
+      // pre-carrier: same-day cutoff logic on the real creation time
+      const created = new Date(String(lv.created || "").replace(" ", "T"));
+      const cut = new Date(); cut.setHours(14, 0, 0, 0);
+      const day0 = new Date(); day0.setHours(0, 0, 0, 0);
+      key = (created < day0 || (created < cut && new Date() > cut)) ? "breached" : "ontrack";
+    }
+  }
+  const s = SLA[key] || SLA.ontrack;
+  return { label: SLA_LABEL[key] || key, cls: `${s.bg} ${s.txt} ${s.ring}`, dot: s.dot };
 });
 
 // ── Line items (deterministic, mirrors genLineItems) ──────────────────
@@ -452,18 +477,47 @@ const items = computed(() => {
 });
 
 const nseed = computed(() => parseInt((order.value.no.match(/\d+/) || [12])[0]));
-const subtotal = computed(() => items.value.reduce((a, it) => a + it.line, 0));
-const shipping = computed(() => [0, 0, 25, 30][nseed.value % 4]);
-const discount = computed(() => (nseed.value % 5 === 0 ? 20 : 0));
-const tax = computed(() => Math.round((subtotal.value + shipping.value - discount.value) * 0.05));
-const grand = computed(() => subtotal.value + shipping.value - discount.value + tax.value);
-const phone = computed(() => `+212 6${String(nseed.value % 10)}${String((nseed.value * 7) % 90 + 10)} ${String((nseed.value * 13) % 900 + 100)}`);
-const govern = computed(() => ["Casablanca-Settat", "Rabat-Salé-Kénitra", "Tanger-Tétouan", "Marrakech-Safi"][nseed.value % 4]);
-const refNo = computed(() => {
-  const o = order.value;
-  return `${o.channel === "shopify" ? "#" : o.channel === "youcan" ? "YC" : "REF"}${4400 + nseed.value % 600}`;
+// Money: authoritative ERPNext numbers when live; derived only in preview.
+const subtotal = computed(() =>
+  isLive.value ? (liveOrder.value.subtotal ?? 0) : items.value.reduce((a, it) => a + it.line, 0));
+const shipping = computed(() => (isLive.value ? 0 : [0, 0, 25, 30][nseed.value % 4]));
+const discount = computed(() =>
+  isLive.value ? (liveOrder.value.discount || 0) : (nseed.value % 5 === 0 ? 20 : 0));
+const tax = computed(() =>
+  isLive.value ? (liveOrder.value.taxes || 0)
+    : Math.round((subtotal.value + shipping.value - discount.value) * 0.05));
+const grand = computed(() =>
+  isLive.value ? (liveOrder.value.total ?? 0)
+    : subtotal.value + shipping.value - discount.value + tax.value);
+const phone = computed(() =>
+  isLive.value ? (liveOrder.value.phone || "—")
+    : `+212 6${String(nseed.value % 10)}${String((nseed.value * 7) % 90 + 10)} ${String((nseed.value * 13) % 900 + 100)}`);
+const govern = computed(() =>
+  isLive.value ? (liveOrder.value.governorate || "—")
+    : ["Casablanca-Settat", "Rabat-Salé-Kénitra", "Tanger-Tétouan", "Marrakech-Safi"][nseed.value % 4]);
+const refNo = computed(() =>
+  isLive.value ? (liveOrder.value.ref || liveOrder.value.name)
+    : `${order.value.channel === "shopify" ? "#" : order.value.channel === "youcan" ? "YC" : "REF"}${4400 + nseed.value % 600}`);
+const codPending = computed(() =>
+  isLive.value ? (liveOrder.value.payment_collection !== "Fully Received"
+                  && order.value.stage !== "delivered")
+    : order.value.stage !== "delivered");
+// Ship-to destination line — real city/address when live (never the demo zone).
+const shipToLine = computed(() => {
+  if (!isLive.value) return (order.value.city || "Casablanca") + " · " + order.value.zone.replace(" - JM", "");
+  const lv = liveOrder.value;
+  return [lv.city || "—", lv.address_line].filter(Boolean).join(" · ");
 });
-const codPending = computed(() => order.value.stage !== "delivered");
+// Header sales-status badge — real custom_sales_status.
+const salesBadge = computed(() => {
+  const s = isLive.value ? (liveOrder.value.sales_status || "—") : "Confirmed";
+  const map = {
+    Confirmed: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    Cancelled: "bg-rose-50 text-rose-700 ring-rose-200",
+    "On Hold": "bg-amber-50 text-amber-700 ring-amber-200",
+  };
+  return { label: "Sales " + s.toLowerCase(), cls: map[s] || "bg-stone-100 text-stone-600 ring-stone-200" };
+});
 
 // ── Order lifecycle timeline (ported from orderTimeline) ──────────────
 const timeline = computed(() => {
@@ -513,25 +567,38 @@ const timeline = computed(() => {
 // ── Documents ─────────────────────────────────────────────────────────
 const documents = computed(() => {
   const o = order.value;
+  const lv = liveOrder.value || {};
   return [
-    { label: "AWB label", icon: "tag", on: !!o.awb },
-    { label: "Packing slip", icon: "file-text", on: true },
-    { label: "Invoice", icon: "file-text", on: o.stage !== "pending" },
+    { label: "AWB label", icon: "tag", on: !!o.awb, href: lv.label_url || "" },
+    { label: "Packing slip", icon: "file-text", on: !isLive.value },
+    { label: "Invoice", icon: "file-text", on: !isLive.value && o.stage !== "pending" },
   ];
 });
 
 // ── Linked ERPNext doc chain ──────────────────────────────────────────
+function deskUrl(dt, id) {
+  return `/app/${dt.toLowerCase().replace(/ /g, "-")}/${encodeURIComponent(id)}`;
+}
 const docChain = computed(() => {
   const o = order.value;
+  if (isLive.value) {
+    const lv = liveOrder.value;
+    const row = (dt, id, icon) => ({ dt, id: id || "—", on: !!id, icon,
+      href: id ? deskUrl(dt, id) : "" });
+    return [
+      row("Sales Order", lv.name, "shopping-bag"),
+      row("Pick List", lv.pl, "package"),
+      row("Delivery Note", lv.dn, "file-text"),
+      row("Shipment", lv.sh, "send"),
+      row("Return Shipment", lv.ret, "rotate-ccw"),
+    ];
+  }
   const idx = STAGE_SEQ.indexOf(o.stage);
-  const digits = o.no.replace(/\D/g, "").slice(-4);
   return [
     { dt: "Sales Order",   id: o.no, on: true, icon: "shopping-bag" },
     { dt: "Pick List",     id: "PL-51433", on: idx >= 1, icon: "package" },
     { dt: "Delivery Note", id: o.dn || "—", on: !!o.dn, icon: "file-text" },
-    { dt: "Sales Invoice", id: o.dn ? "ACC-SINV-" + digits : "—", on: idx >= 5, icon: "dollar-sign" },
     { dt: "Shipment",      id: idx >= 5 ? MANIFEST.no : "—", on: idx >= 5, icon: "send" },
-    { dt: "Payment Entry", id: o.stage === "delivered" ? "ACC-PAY-" + digits : "—", on: o.stage === "delivered", icon: "wallet" },
   ];
 });
 </script>

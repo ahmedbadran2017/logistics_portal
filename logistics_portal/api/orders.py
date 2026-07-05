@@ -667,16 +667,61 @@ def detail(name):
            WHERE soi.parent = %s ORDER BY soi.idx""",
         (name,), as_dict=True)
 
+    # Real shipping address (city lives on the linked Address, not the SO).
+    addr = {}
+    addr_name = so.get("shipping_address_name") or so.get("customer_address")
+    if addr_name:
+        addr = frappe.db.get_value(
+            "Address", addr_name,
+            ["city", "state", "address_line1"], as_dict=True) or {}
+
+    # Linked logistics documents (the real chain).
+    pl = frappe.db.sql(
+        """SELECT p.name, p.docstatus, p.custom_assigned_picker picker
+           FROM `tabPick List Item` pli JOIN `tabPick List` p ON p.name = pli.parent
+           WHERE pli.sales_order = %s AND p.docstatus < 2
+           ORDER BY p.creation DESC LIMIT 1""", (name,), as_dict=True)
+    pl = pl[0] if pl else None
+    dn = frappe.db.get_value(
+        "Delivery Note Item", {"against_sales_order": name, "docstatus": 1}, "parent")
+    sh = frappe.db.get_value("Shipment Delivery Note", {"delivery_note": dn}, "parent") if dn else None
+    ret = frappe.db.get_value("Delivery Note", dn, "custom_return_shipment") if dn else None
+
     return {
         "items": [dict(r) for r in items],
-        "name": "#" + so.name,
+        "name": so.name,
         "customer": so.customer_name,
         "channel": so.get("custom_channel"),
+        "created": str(so.creation)[:16],
+        # money — the real ERPNext numbers, not derived
+        "subtotal": so.total,
+        "discount": so.discount_amount or 0,
+        "taxes": so.total_taxes_and_charges or 0,
         "total": so.grand_total,
+        "sales_status": so.get("custom_sales_status") or "",
+        "payment_collection": so.get("custom_payment_collection") or "",
         "stage": so.get("custom_logistics_status") or "Pending",
+        # contact & destination
+        "phone": so.get("custom_customer_phone") or so.get("custom_shipping_phone") or "",
+        "city": so.get("custom_shipping_city") or addr.get("city") or "",
+        "governorate": so.get("custom_shipping_governorate") or addr.get("state") or "",
+        "address_line": addr.get("address_line1") or "",
+        "ref": so.get("custom_reference_number") or so.get("custom_youcan_order_id") or "",
+        # carrier
         "awb": so.get("custom_awb"),
+        "label_url": so.get("custom_label_url") or "",
+        "tracking_number": so.get("custom_tracking_number") or "",
+        "tracking_url": so.get("custom_tracking_url") or "",
         "tracking_status": so.get("custom_track_shipment_status"),
         "tracking_company": so.get("custom_tracking_company") or "Cathedis",
+        # linked docs
+        "pl": pl["name"] if pl else "",
+        "pl_submitted": bool(pl and pl["docstatus"] == 1),
+        "picker": (pl or {}).get("picker") or "",
+        "dn": dn or "",
+        "sh": sh or "",
+        "ret": ret or "",
+        # stage timestamps (fill as the portal stamps them)
         "picked_at": so.get("custom_picked_at"),
         "labeled_at": so.get("custom_labeled_at"),
         "shipped_at": so.get("custom_shipped_at"),
