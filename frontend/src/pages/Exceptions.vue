@@ -1,8 +1,8 @@
 <template>
   <div class="p-5 sm:p-6 space-y-5 max-w-[1400px] mx-auto animate-fade-in">
     <div>
-      <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">Exception center</h1>
-      <p class="text-[12.5px] text-stone-500 mt-0.5">{{ isLive ? `Carrier blockers · parcels shipped in the last ${days} days` : "One queue for every blocker across the cycle" }}</p>
+      <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">{{ t("exc.title") }}</h1>
+      <p class="text-[12.5px] text-stone-500 mt-0.5">{{ isLive ? t("exc.subtitleLive").replace("{n}", days) : t("exc.subtitleDemo") }}</p>
     </div>
 
     <!-- KPIs -->
@@ -54,18 +54,18 @@
               class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold ring-1 whitespace-nowrap"
               :class="[toneFg(badgeTone(e.kind)), toneBg(badgeTone(e.kind)), toneRing(badgeTone(e.kind))]"
             >
-              <span class="w-1.5 h-1.5 rounded-full" :class="toneDot(badgeTone(e.kind))" />{{ e.label }}
+              <span class="w-1.5 h-1.5 rounded-full" :class="toneDot(badgeTone(e.kind))" />{{ e.labelKey ? t(e.labelKey) : e.label }}
             </span>
             <span
               v-if="e.age > e.sla"
               class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold ring-1 whitespace-nowrap text-rose-700 bg-rose-50 ring-rose-200"
-            >Overdue</span>
+            >{{ t("exc.overdue") }}</span>
           </div>
           <div class="text-[12px] text-stone-600 mt-0.5 truncate">{{ e.detail }}</div>
         </div>
         <div class="flex items-center gap-1.5 text-[11px] text-stone-400">
           <span v-if="e.owner" class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-[9px] font-semibold">{{ initials(byId(e.owner).name) }}</span>
-          <span class="tabular-nums" :class="e.age > e.sla ? 'text-rose-600 font-medium' : ''">{{ e.ageLabel || e.age + 'm old' }}</span>
+          <span class="tabular-nums" :class="e.age > e.sla ? 'text-rose-600 font-medium' : ''">{{ e.labelKey ? t('exc.dOld').replace('{n}', e.age) : e.age + 'm' }}</span>
         </div>
         <div class="flex items-center gap-1.5">
           <template v-if="e.phone">
@@ -80,7 +80,7 @@
           </template>
           <a v-if="e.dn" :href="'/app/delivery-note/' + encodeURIComponent(e.dn)" target="_blank"
              class="inline-flex items-center gap-1.5 px-2.5 h-8 text-[12px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300">
-            <Icon name="file-text" :size="13" />DN
+            <Icon name="file-text" :size="13" />{{ t("exc.dn") }}
           </a>
           <button
             v-if="e.order || String(e.id).startsWith('#')"
@@ -88,7 +88,7 @@
             :style="{ background: 'var(--accent-600)', borderColor: 'var(--accent-600)' }"
             @click="openOrder(e.order || e.id)"
           >
-            <Icon name="arrow-right" :size="13" class="flip-rtl" />Order
+            <Icon name="arrow-right" :size="13" class="flip-rtl" />{{ t("exc.order") }}
           </button>
           <button
             v-else-if="!isLive"
@@ -96,16 +96,16 @@
             :style="{ background: 'var(--accent-600)', borderColor: 'var(--accent-600)' }"
             @click="resolveExc(e.id)"
           >
-            <Icon name="check" :size="13" />Resolve
+            <Icon name="check" :size="13" />{{ t("exc.resolve") }}
           </button>
         </div>
       </div>
       <div v-if="shown.length === 0" class="text-center text-[12.5px] text-emerald-600 py-12 flex items-center justify-center gap-1.5">
-        <Icon name="check-circle" :size="16" />All clear — no open exceptions
+        <Icon name="check-circle" :size="16" />{{ t("exc.allClear") }}
       </div>
       <div v-if="isLive && total > pageSize" class="flex items-center justify-between px-1 pt-1">
         <span class="text-[11.5px] text-stone-500 tabular-nums">
-          {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, total) }} of {{ total }}
+          {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, total) }} {{ t("exc.of") }} {{ total }}
         </span>
         <div class="flex items-center gap-1">
           <button class="pager-btn" :disabled="page <= 1" @click="page--; loadLive()">
@@ -128,9 +128,11 @@ import Icon from "@/components/ui/Icon.vue";
 import { useToast } from "@/composables/useToast";
 import { byId } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
 
 const router = useRouter();
 const { success } = useToast();
+const { t } = useI18n();
 
 // ── local data (not exported from handoffData) ─────────────────────
 const EXCEPTIONS = [
@@ -174,10 +176,10 @@ async function loadLive() {
     rows.value = live.rows.map((r) => ({
       id: r.id, dn: r.id, awb: r.awb, customer: r.customer, order: r.order || "",
       kind: "carrier", rawKind: r.kind,
-      label: r.kind === "failed" ? "Failed delivery" : "Carrier exception",
+      labelKey: r.kind === "failed" ? "exc.failedDelivery" : "exc.carrierException",
       detail: [r.customer, r.city, r.awb].filter(Boolean).join(" · "),
       value: r.value ?? null, phone: r.phone || "",
-      owner: null, age: r.age ?? 0, ageLabel: (r.age ?? 0) + "d old",
+      owner: null, age: r.age ?? 0,
       sev: r.kind === "failed" ? "red" : "orange", sla: 3,
     }));
   }
@@ -201,23 +203,23 @@ const avgAge = computed(() =>
 );
 
 const kpis = computed(() => isLive.value ? [
-  { label: `Open (${days.value}d)`, value: total.value, icon: "alert-circle", bg: "bg-stone-100", fg: "text-stone-600" },
-  { label: "Failed attempts", value: failedN.value, icon: "alert-circle", bg: "bg-rose-50", fg: "text-rose-600" },
-  { label: "Exceptions", value: total.value - failedN.value, icon: "clock", bg: "bg-amber-50", fg: "text-amber-600" },
-  { label: "Avg age", value: avgAge.value, unit: "d", icon: "activity", bg: "bg-violet-50", fg: "text-violet-600" },
+  { label: t("exc.open").replace("{n}", days.value), value: total.value, icon: "alert-circle", bg: "bg-stone-100", fg: "text-stone-600" },
+  { label: t("exc.failed"), value: failedN.value, icon: "alert-circle", bg: "bg-rose-50", fg: "text-rose-600" },
+  { label: t("exc.exceptions"), value: total.value - failedN.value, icon: "clock", bg: "bg-amber-50", fg: "text-amber-600" },
+  { label: t("exc.avgAge"), value: avgAge.value, unit: "d", icon: "activity", bg: "bg-violet-50", fg: "text-violet-600" },
 ] : [
-  { label: "Open", value: rows.value.length, icon: "alert-circle", bg: "bg-stone-100", fg: "text-stone-600" },
-  { label: "Critical", value: critical.value, icon: "alert-circle", bg: "bg-rose-50", fg: "text-rose-600" },
-  { label: "Overdue", value: overdue.value, icon: "clock", bg: "bg-amber-50", fg: "text-amber-600" },
-  { label: "Avg age", value: avgAge.value, unit: "m", icon: "activity", bg: "bg-violet-50", fg: "text-violet-600" },
+  { label: t("exc.openPlain"), value: rows.value.length, icon: "alert-circle", bg: "bg-stone-100", fg: "text-stone-600" },
+  { label: t("exc.critical"), value: critical.value, icon: "alert-circle", bg: "bg-rose-50", fg: "text-rose-600" },
+  { label: t("exc.overdue"), value: overdue.value, icon: "clock", bg: "bg-amber-50", fg: "text-amber-600" },
+  { label: t("exc.avgAge"), value: avgAge.value, unit: "m", icon: "activity", bg: "bg-violet-50", fg: "text-violet-600" },
 ]);
 
 function kindLabel(k) {
-  return k === "all" ? "All kinds"
+  return k === "all" ? t("exc.allKinds")
+    : k === "exception" ? t("exc.exceptions")
+    : k === "failed" ? t("exc.failed")
     : k === "oos" ? "Out of stock"
     : k === "carrier" ? "Carrier"
-    : k === "exception" ? "Exceptions"
-    : k === "failed" ? "Failed attempts"
     : k === "shortpick" ? "Short-pick"
     : k === "return" ? "Returns"
     : "COD";

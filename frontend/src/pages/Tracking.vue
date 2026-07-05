@@ -5,7 +5,7 @@
       class="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-stone-500 hover:text-stone-900 mb-4 whitespace-nowrap"
       @click="tlParcel = null"
     >
-      <Icon name="chevron-left" :size="15" class="flip-rtl" />Tracking
+      <Icon name="chevron-left" :size="15" class="flip-rtl" />{{ t("trk.title") }}
     </button>
 
     <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-5 mb-4">
@@ -37,7 +37,7 @@
             :href="'/app/delivery-note/' + encodeURIComponent(tlParcel.dn)" target="_blank"
             class="inline-flex items-center gap-1.5 px-3 h-9 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300"
           >
-            Open in ERP <Icon name="chevron-right" :size="15" class="flip-rtl" />
+            {{ t("trk.openErp") }} <Icon name="chevron-right" :size="15" class="flip-rtl" />
           </a>
         </div>
       </div>
@@ -52,7 +52,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4">
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70">
         <div class="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
-          <div><div class="text-[13px] font-semibold text-stone-900">Timeline</div><div class="text-[11px] text-stone-400">{{ tlParcel.carrier }} · last update {{ tlParcel.updated || "—" }}</div></div>
+          <div><div class="text-[13px] font-semibold text-stone-900">{{ t("trk.timeline") }}</div><div class="text-[11px] text-stone-400">{{ tlParcel.carrier }} · {{ t("trk.lastUpdate") }} {{ tlParcel.updated || "—" }}</div></div>
         </div>
         <div class="p-4">
           <ol class="relative">
@@ -81,7 +81,7 @@
       </div>
 
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70">
-        <div class="px-4 py-3 border-b border-stone-100"><div class="text-[13px] font-semibold text-stone-900">Carrier status</div></div>
+        <div class="px-4 py-3 border-b border-stone-100"><div class="text-[13px] font-semibold text-stone-900">{{ t("trk.carrierStatus") }}</div></div>
         <div class="p-4">
           <div
             class="rounded-xl p-3 ring-1"
@@ -92,7 +92,7 @@
               <span class="text-[11px] font-semibold uppercase tracking-wide text-stone-500">{{ tlParcel.carrier }}</span>
             </div>
             <p class="text-[12.5px] text-stone-800 text-pretty">
-              {{ tlParcel.msg }} — {{ tlParcel.days }}d since shipped.
+              {{ trackLabel(tlParcel.track) }} — {{ t("trk.sinceShipped").replace("{n}", tlParcel.days) }}
             </p>
           </div>
           <div class="grid grid-cols-1 gap-2 mt-3">
@@ -100,17 +100,17 @@
               v-if="tlParcel.awb"
               :href="'https://cathedis.ma/shipment/?track_number=' + tlParcel.awb" target="_blank"
               class="inline-flex items-center justify-center gap-1.5 px-3 h-10 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300"
-            ><Icon name="globe" :size="15" />Track on Cathedis</a>
+            ><Icon name="globe" :size="15" />{{ t("trk.trackOn") }}</a>
             <a
               v-if="tlParcel.phone"
               :href="'tel:' + tlParcel.phone"
               class="inline-flex items-center justify-center gap-1.5 px-3 h-10 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300"
-            ><Icon name="phone" :size="15" />Call {{ tlParcel.customer.split(" ")[0] }} · {{ tlParcel.phone }}</a>
+            ><Icon name="phone" :size="15" />{{ t("trk.call") }} {{ tlParcel.customer.split(" ")[0] }} · {{ tlParcel.phone }}</a>
             <a
               v-if="tlParcel.phone"
               :href="waLink(tlParcel.phone)" target="_blank"
               class="inline-flex items-center justify-center gap-1.5 px-3 h-10 text-[12.5px] font-medium rounded-lg ring-1 ring-emerald-200 text-emerald-700 bg-white hover:ring-emerald-300"
-            ><Icon name="message-circle" :size="15" />WhatsApp</a>
+            ><Icon name="message-circle" :size="15" />{{ t("trk.whatsapp") }}</a>
           </div>
         </div>
       </div>
@@ -121,8 +121,8 @@
   <div v-else class="p-5 sm:p-6 max-w-[1400px] mx-auto animate-fade-in">
     <div class="flex items-start justify-between gap-3 mb-5 flex-wrap">
       <div>
-        <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">Tracking</h1>
-        <p class="text-[12.5px] text-stone-500 mt-0.5">{{ CARRIER }} · parcels shipped in the last {{ daysF }} days</p>
+        <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">{{ t("trk.title") }}</h1>
+        <p class="text-[12.5px] text-stone-500 mt-0.5">{{ CARRIER }} · {{ t("trk.subtitle").replace("{n}", daysF) }}</p>
       </div>
       <div class="flex items-center gap-2">
         <div class="flex items-center rounded-lg ring-1 ring-stone-200 bg-white p-0.5">
@@ -139,7 +139,7 @@
           :class="loading ? 'opacity-60 pointer-events-none' : ''"
           @click="load()"
         >
-          <Icon name="refresh-cw" :size="15" :class="loading ? 'animate-spin' : ''" />Refresh
+          <Icon name="refresh-cw" :size="15" :class="loading ? 'animate-spin' : ''" />{{ t("common.refresh") }}
         </button>
       </div>
     </div>
@@ -161,7 +161,7 @@
       >
         <div class="text-[20px] font-semibold tabular-nums leading-none"
              :class="(counts[s] ?? 0) > 0 ? 'text-stone-900' : 'text-stone-300'">{{ counts[s] ?? 0 }}</div>
-        <div class="text-[10px] text-stone-500 mt-1.5 leading-tight">{{ TRACK_LABEL[s] }}</div>
+        <div class="text-[10px] text-stone-500 mt-1.5 leading-tight">{{ trackLabel(s) }}</div>
       </button>
     </div>
 
@@ -171,7 +171,7 @@
         <Icon name="search" :size="14" class="absolute start-3 top-1/2 -translate-y-1/2 text-stone-400" />
         <input
           v-model="q"
-          placeholder="Search DN, AWB, tracking no, order, customer…"
+          :placeholder="t('trk.searchPh')"
           class="w-full h-9 ps-9 pe-3 text-[13px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none"
           @input="onSearch"
         />
@@ -187,9 +187,9 @@
 
     <div class="bg-white rounded-xl ring-1 ring-stone-200/70">
       <div class="px-4 py-3 border-b border-stone-100">
-        <div class="text-[13px] font-semibold text-stone-900">Parcels</div>
+        <div class="text-[13px] font-semibold text-stone-900">{{ t("trk.parcels") }}</div>
         <div class="text-[11px] text-stone-400 tabular-nums">
-          {{ total }} {{ stateF ? TRACK_LABEL[stateF] : "active" }} · last {{ daysF }} days
+          {{ total }} {{ stateF ? trackLabel(stateF) : t("trk.active") }} · {{ t("trk.lastDays").replace("{n}", daysF) }}
         </div>
       </div>
       <div v-if="loading" class="divide-y divide-stone-100">
@@ -240,10 +240,10 @@
           >{{ p.days }}d</span>
           <TrackBadge :state="p.track" />
         </div>
-        <div v-if="parcels.length === 0" class="text-center text-[12.5px] text-stone-400 py-12">No parcels match.</div>
+        <div v-if="parcels.length === 0" class="text-center text-[12.5px] text-stone-400 py-12">{{ t("trk.noMatch") }}</div>
         <div v-if="total > pageSize" class="flex items-center justify-between px-4 py-2.5 bg-stone-50/50">
           <span class="text-[11.5px] text-stone-500 tabular-nums">
-            {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, total) }} of {{ total }}
+            {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, total) }} {{ t("trk.of") }} {{ total }}
           </span>
           <div class="flex items-center gap-1">
             <button class="pager-btn" :disabled="page <= 1" @click="page--; load(true)">
@@ -259,7 +259,7 @@
     </div>
 
     <div class="text-[11px] text-stone-400 text-center mt-4">
-      Track status is synced from {{ CARRIER }} onto the Delivery Note — window keeps stale history out.
+      {{ t("trk.footnote") }}
     </div>
   </div>
 </template>
@@ -272,8 +272,12 @@ import {
   PARCELS, TRACK_STATES, TRACK_LABEL, TRACK_COUNTS, SLA, SLA_LABEL, CARRIER, fmtMAD,
 } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
 
 const router = useRouter();
+const { t } = useI18n();
+const t2 = t;
+function trackLabel(k) { return t("track." + k, TRACK_LABEL[k] || k); }
 
 // ── inline badge primitives ────────────────────────────────────────
 const TRACK_TONE = {
@@ -287,7 +291,7 @@ const TrackBadge = (props) => {
     class: ["inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold ring-1 whitespace-nowrap", t.txt, t.bg, t.ring],
   }, [
     h("span", { class: ["w-1.5 h-1.5 rounded-full", t.dot] }),
-    TRACK_LABEL[props.state] || props.state,
+    trackLabel(props.state),
   ]);
 };
 const SlaBadge = (props) => {
@@ -296,7 +300,7 @@ const SlaBadge = (props) => {
     class: ["inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold ring-1 whitespace-nowrap", t.txt, t.bg, t.ring],
   }, [
     h("span", { class: ["w-1.5 h-1.5 rounded-full", t.dot] }),
-    SLA_LABEL[props.sla] || props.sla,
+    t2("sla." + ({ ontrack: "onTrack", atrisk: "atRisk" }[props.sla] || props.sla), SLA_LABEL[props.sla] || props.sla),
   ]);
 };
 
@@ -349,7 +353,9 @@ function onSearch() {
 }
 const updatedAgo = computed(() => {
   const s = Math.round((Date.now() - updatedAt.value) / 1000);
-  return s < 5 ? "just now" : s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`;
+  if (s < 5) return t("ordersPg.justNow");
+  if (s < 60) return t("ordersPg.agoS").replace("{n}", s);
+  return t("ordersPg.agoM").replace("{n}", Math.round(s / 60));
 });
 
 const isBad = (track) => track === "exception" || track === "failed";
@@ -371,10 +377,10 @@ const timelineStats = computed(() => {
   const p = tlParcel.value;
   if (!p) return [];
   return [
-    ["AWB", p.awb || "—"],
-    ["Tracking no", p.trackNo || "—"],
-    ["Value", fmtMAD(p.value) + " MAD"],
-    ["Age", p.days + "d since shipped"],
+    [t("trk.awb"), p.awb || "—"],
+    [t("trk.trackingNo"), p.trackNo || "—"],
+    [t("trk.value"), fmtMAD(p.value) + " MAD"],
+    [t("trk.age"), t("trk.sinceShipped").replace("{n}", p.days)],
   ];
 });
 const timelineSteps = computed(() => {
@@ -382,14 +388,14 @@ const timelineSteps = computed(() => {
   if (!p) return [];
   const reached = { pending: 0, pickedup: 1, intransit: 1, outfordelivery: 2, delivered: 3, exception: 3, failed: 3, return: 3 }[p.track] ?? 0;
   const final = p.track === "delivered"
-    ? { label: TRACK_LABEL.delivered }
+    ? { label: trackLabel("delivered") }
     : isBad(p.track)
-      ? { label: TRACK_LABEL[p.track], bad: true }
-      : { label: TRACK_LABEL.delivered };
+      ? { label: trackLabel(p.track), bad: true }
+      : { label: trackLabel("delivered") };
   return [
-    { label: "Shipped — handed to " + p.carrier, at: p.posted, done: true },
-    { label: TRACK_LABEL.intransit, at: reached === 1 ? p.updated : "", done: reached >= 1 },
-    { label: TRACK_LABEL.outfordelivery, at: reached === 2 ? p.updated : "", done: reached >= 2 },
+    { label: t("trk.shippedHanded").replace("{carrier}", p.carrier), at: p.posted, done: true },
+    { label: trackLabel("intransit"), at: reached === 1 ? p.updated : "", done: reached >= 1 },
+    { label: trackLabel("outfordelivery"), at: reached === 2 ? p.updated : "", done: reached >= 2 },
     { ...final, at: reached >= 3 ? p.updated : "", done: reached >= 3 },
   ];
 });

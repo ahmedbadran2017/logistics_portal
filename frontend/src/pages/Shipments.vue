@@ -6,7 +6,7 @@
         class="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-stone-500 hover:text-stone-900 mb-4 whitespace-nowrap"
         @click="open = null"
       >
-        <Icon name="chevron-left" :size="15" /> Shipments
+        <Icon name="chevron-left" :size="15" class="flip-rtl" /> {{ t("shp.back") }}
       </button>
 
       <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-5 mb-4">
@@ -33,7 +33,7 @@
           </div>
           <a :href="'/app/shipment/' + encodeURIComponent(openSh.no)" target="_blank"
              class="inline-flex items-center gap-1.5 px-3 h-9 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300">
-            Open in ERPNext <Icon name="arrow-right" :size="13" class="flip-rtl" />
+            {{ t("shp.openErpNext") }} <Icon name="arrow-right" :size="13" class="flip-rtl" />
           </a>
         </div>
 
@@ -48,7 +48,7 @@
 
         <div v-if="openSh.delivered > 0" class="mt-4">
           <div class="flex items-center justify-between text-[11px] mb-1">
-            <span class="text-stone-500 tabular-nums">{{ openSh.delivered }}/{{ openSh.parcels }} delivered</span>
+            <span class="text-stone-500 tabular-nums">{{ openSh.delivered }}/{{ openSh.parcels }} {{ t("shp.delivered") }}</span>
             <span class="text-emerald-600 font-semibold tabular-nums">{{ Math.round((openSh.delivered / openSh.parcels) * 100) }}%</span>
           </div>
           <div class="h-2 rounded-full bg-stone-100 overflow-hidden">
@@ -61,7 +61,7 @@
         <!-- pickup → delivery -->
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden h-fit">
           <div class="px-4 py-3 border-b border-stone-100">
-            <div class="text-[13px] font-semibold text-stone-900">Pickup → Delivery to</div>
+            <div class="text-[13px] font-semibold text-stone-900">{{ t("shp.pickupTo") }}</div>
           </div>
           <div class="p-4 space-y-3">
             <div class="flex items-start gap-2.5">
@@ -89,7 +89,7 @@
         <!-- tracking / meta -->
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden h-fit">
           <div class="px-4 py-3 border-b border-stone-100">
-            <div class="text-[13px] font-semibold text-stone-900">Tracking</div>
+            <div class="text-[13px] font-semibold text-stone-900">{{ t("shp.tracking") }}</div>
           </div>
           <div class="p-4 space-y-1.5 text-[12px]">
             <div v-for="r in trackingRows" :key="r.k" class="flex items-center justify-between gap-2">
@@ -105,16 +105,16 @@
     <template v-else>
       <div class="flex items-start justify-between gap-4 mb-5 flex-wrap">
         <div>
-          <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">Shipments</h1>
+          <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">{{ t("shp.title") }}</h1>
           <p class="text-[12.5px] text-stone-500 mt-0.5">{{ CARRIER }} · {{ WAREHOUSE }}</p>
         </div>
         <div class="flex items-center gap-2">
           <a href="/app/shipment" target="_blank" class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium text-stone-700 bg-white rounded-lg ring-1 ring-stone-200 hover:ring-stone-300 transition-colors whitespace-nowrap">
-            <Icon name="globe" :size="15" /> Open in ERP
+            <Icon name="globe" :size="15" /> {{ t("shp.openErp") }}
           </a>
           <button class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium text-white bg-stone-900 rounded-lg hover:bg-stone-800 transition-colors whitespace-nowrap"
                   @click="$router.push({ name: 'Manifest' })">
-            <Icon name="plus" :size="15" /> Today's manifest
+            <Icon name="plus" :size="15" /> {{ t("shp.todaysManifest") }}
           </button>
         </div>
       </div>
@@ -140,7 +140,7 @@
           <Icon name="search" :size="14" class="absolute start-3 top-1/2 -translate-y-1/2 text-stone-400" />
           <input
             v-model="q"
-            placeholder="Search shipment…"
+            :placeholder="t('shp.searchPh')"
             class="w-full h-9 ps-9 pe-3 text-[13px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none"
           />
         </div>
@@ -163,13 +163,13 @@
           <table class="w-full min-w-[720px]">
             <thead>
               <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
-                <th class="text-start px-4 py-2.5">Shipment</th>
-                <th class="text-start px-4 py-2.5">Date</th>
-                <th class="text-start px-4 py-2.5 hidden lg:table-cell">Master AWB</th>
-                <th class="text-end px-4 py-2.5">Parcels</th>
-                <th class="text-end px-4 py-2.5 hidden sm:table-cell">Value</th>
-                <th class="text-end px-4 py-2.5 hidden md:table-cell">Delivered</th>
-                <th class="text-start px-4 py-2.5">Status</th>
+                <th class="text-start px-4 py-2.5">{{ t("shp.thShipment") }}</th>
+                <th class="text-start px-4 py-2.5">{{ t("shp.thDate") }}</th>
+                <th class="text-start px-4 py-2.5 hidden lg:table-cell">{{ t("shp.thAwb") }}</th>
+                <th class="text-end px-4 py-2.5">{{ t("shp.thParcels") }}</th>
+                <th class="text-end px-4 py-2.5 hidden sm:table-cell">{{ t("shp.thValue") }}</th>
+                <th class="text-end px-4 py-2.5 hidden md:table-cell">{{ t("shp.thDelivered") }}</th>
+                <th class="text-start px-4 py-2.5">{{ t("shp.thStatus") }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-stone-100">
@@ -187,7 +187,7 @@
                 <td class="px-4 py-2.5 text-end text-[12px] tabular-nums hidden md:table-cell whitespace-nowrap">
                   <span v-if="s.delivered" class="text-emerald-600">{{ s.delivered }}/{{ s.parcels }}</span>
                   <span v-else class="text-stone-300">—</span>
-                  <span v-if="s.exceptions" class="text-rose-600 ms-1.5">· {{ s.exceptions }} exc</span>
+                  <span v-if="s.exceptions" class="text-rose-600 ms-1.5">· {{ s.exceptions }} {{ t("shp.excShort") }}</span>
                 </td>
                 <td class="px-4 py-2.5">
                   <span
@@ -203,7 +203,7 @@
           </table>
         </div>
         <div v-if="shown.length === 0" class="text-center text-[12.5px] text-stone-400 py-12">
-          No shipments match these filters.
+          {{ t("shp.noMatch") }}
         </div>
       </div>
     </template>
@@ -215,6 +215,9 @@ import { ref, computed, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { SHIPMENTS as DEMO_SHIPMENTS, CARRIER, WAREHOUSE, fmtMAD } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
+
+const { t } = useI18n();
 
 const q = ref("");
 const filter = ref("all");
@@ -229,13 +232,13 @@ onMounted(async () => {
   if (live && live.length) shipments.value = live;
 });
 
-const statusFilters = [
-  { key: "all", label: "All" },
-  { key: "Draft", label: "Draft" },
-  { key: "Submitted", label: "Submitted" },
-  { key: "Booked", label: "Booked" },
-  { key: "Completed", label: "Completed" },
-];
+const statusFilters = computed(() => [
+  { key: "all", label: t("shp.fAll") },
+  { key: "Draft", label: t("shp.fDraft") },
+  { key: "Submitted", label: t("shp.fSubmitted") },
+  { key: "Booked", label: t("shp.fBooked") },
+  { key: "Completed", label: t("shp.fCompleted") },
+]);
 
 // status → pill color by status
 const STATUS_PILL = {
@@ -276,10 +279,10 @@ const avgValue = computed(() => {
 });
 
 const kpis = computed(() => [
-  { label: "Shipments this week", icon: "truck", tone: "bg-stone-100 text-stone-500", value: weekCount.value },
-  { label: "Parcels today", icon: "package", tone: "bg-cyan-50 text-cyan-600", value: parcelsToday.value },
-  { label: "Avg value", icon: "trending-up", tone: "bg-emerald-50 text-emerald-600", value: fmtMAD(avgValue.value), unit: "MAD" },
-  { label: "Carrier", icon: "send", tone: "bg-amber-50 text-amber-600", value: CARRIER },
+  { label: t("shp.weekCount"), icon: "truck", tone: "bg-stone-100 text-stone-500", value: weekCount.value },
+  { label: t("shp.parcelsToday"), icon: "package", tone: "bg-cyan-50 text-cyan-600", value: parcelsToday.value },
+  { label: t("shp.avgValue"), icon: "trending-up", tone: "bg-emerald-50 text-emerald-600", value: fmtMAD(avgValue.value), unit: "MAD" },
+  { label: t("shp.carrier"), icon: "send", tone: "bg-amber-50 text-amber-600", value: CARRIER },
 ]);
 
 // selected shipment
@@ -290,11 +293,11 @@ const detailStats = computed(() => {
   if (!s) return [];
   if (s.weight == null && s.pallets == null) {
     return [
-      { label: "Parcels", value: s.parcels },
-      { label: "Delivered", value: s.delivered ?? 0 },
-      { label: "Exceptions", value: s.exceptions ?? 0 },
-      { label: "Value", value: fmtMAD(s.value), unit: "MAD" },
-      { label: "Status", value: s.status },
+      { label: t("shp.stParcels"), value: s.parcels },
+      { label: t("shp.stDelivered"), value: s.delivered ?? 0 },
+      { label: t("shp.stExceptions"), value: s.exceptions ?? 0 },
+      { label: t("shp.stValue"), value: fmtMAD(s.value), unit: "MAD" },
+      { label: t("shp.stStatus"), value: s.status },
     ];
   }
   return [
@@ -310,11 +313,11 @@ const trackingRows = computed(() => {
   const s = openSh.value;
   if (!s) return [];
   return [
-    { k: "Master AWB", v: s.awb ?? "—" },
-    { k: "Service", v: s.service ?? "—" },
-    { k: "Window", v: s.window ?? "—" },
-    { k: "Pickup", v: s.pickup ?? "—" },
-    { k: "Delivery to", v: s.deliveryTo ?? "—" },
+    { k: t("shp.thAwb"), v: s.awb ?? "—" },
+    { k: t("shp.rService"), v: s.service ?? "—" },
+    { k: t("shp.rWindow"), v: s.window ?? "—" },
+    { k: t("shp.rPickup"), v: s.pickup ?? "—" },
+    { k: t("shp.rDeliveryTo"), v: s.deliveryTo ?? "—" },
   ];
 });
 </script>
