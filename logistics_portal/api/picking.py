@@ -120,41 +120,141 @@ _PICKER_ID = {
 
 
 @frappe.whitelist()
-def pick_lists(limit=40):
-    """Recent pick lists in the SPA's PICKLISTS shape (real PL docs)."""
+def pick_lists(status="", q="", days=7, limit=30, offset=0):
+    """Windowed, paginated pick-list board (39k PLs in production — the window
+    keeps it to the ~330/week the team actually works).
+
+    Real semantics on production: pickers create their own PLs (owner is the
+    picker; custom_assigned_picker is mostly empty), docstatus 1 lands
+    immediately, and the work state lives in custom_logistics_status
+    (Pending = picked, awaiting shipment · Shipped = handed to carrier)."""
     try:
-        rows = frappe.get_all(
-            "Pick List",
-            filters={"custom_assigned_picker": ["is", "set"]},
-            fields=[
-                "name", "customer", "custom_assigned_picker",
-                "custom_items_count", "custom_total_quantity", "custom_shipped_percentage",
-            ],
-            order_by="modified desc",
-            limit=int(limit),
-        )
+        days = min(max(int(days or 7), 1), 90)
+        limit = min(max(int(limit or 30), 1), 100)
+        offset = max(int(offset or 0), 0)
+        vals = {"days": days, "limit": limit, "offset": offset}
+
+        derived = """CASE
+            WHEN pl.docstatus = 2 THEN 'cancelled'
+            WHEN pl.docstatus = 0 THEN 'draft'
+            WHEN pl.custom_logistics_status = 'Shipped' THEN 'shipped'
+            WHEN pl.custom_logistics_status = 'Partially Shipped' THEN 'partial'
+            ELSE 'open'
+        END"""
+        window = "pl.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)"
+
+        counts = {"draft": 0, "open": 0, "shipped": 0, "partial": 0, "cancelled": 0}
+        for r in frappe.db.sql(
+            f"SELECT {derived} AS st, COUNT(*) AS c FROM `tabPick List` pl WHERE {window} GROUP BY st",
+            vals, as_dict=True):
+            counts[r.st] = int(r.c or 0)
+
+        conds = [window]
+        if status in counts:
+            vals["status"] = status
+            conds.append(f"{derived} = %(status)s")
+        if q and str(q).strip():
+            vals["q"] = f"%{str(q).strip()}%"
+            conds.append("""(pl.name LIKE %(q)s OR pl.custom_assigned_picker LIKE %(q)s
+                            OR pl.owner LIKE %(q)s OR EXISTS (
+                                SELECT 1 FROM `tabPick List Item` pli
+                                WHERE pli.parent = pl.name AND pli.sales_order LIKE %(q)s))""")
+        where = " AND ".join(conds)
+
+        total = frappe.db.sql(f"SELECT COUNT(*) FROM `tabPick List` pl WHERE {where}", vals)[0][0]
+
+        rows = frappe.db.sql(
+            f"""SELECT pl.name, pl.docstatus, pl.custom_logistics_status AS lstatus,
+                       COALESCE(NULLIF(pl.custom_assigned_picker,''), pl.owner) AS picker,
+                       pl.custom_items_count AS items, pl.custom_total_quantity AS qty,
+                       pl.custom_shipped_percentage AS pct, pl.creation,
+                       {derived} AS status,
+                       agg.orders, agg.so_one
+                FROM `tabPick List` pl
+                LEFT JOIN (SELECT parent, COUNT(DISTINCT sales_order) AS orders,
+                                  MAX(sales_order) AS so_one
+                           FROM `tabPick List Item` GROUP BY parent) agg ON agg.parent = pl.name
+                WHERE {where}
+                ORDER BY pl.creation DESC
+                LIMIT %(limit)s OFFSET %(offset)s""",
+            vals, as_dict=True)
+
         out = []
         for r in rows:
-            items = r.custom_items_count or 0
-            pct = int(r.custom_shipped_percentage or 0)
-            combined = not r.customer
+            orders = int(r.orders or 0)
             out.append({
                 "no": r.name,
-                "customer": r.customer or (f"Combined · {items} items" if combined else "—"),
-                "sku": "—",
-                "item": "Combined pick" if combined else "—",
-                "bin": "Multiple" if combined else "—",
-                "qty": int(r.custom_total_quantity or 0),
-                "items": items,
-                "status": "completed" if pct >= 100 else "open",
-                "pct": pct,
-                "picker": _PICKER_ID.get(r.custom_assigned_picker),
-                "order": "combined" if combined else "—",
+                "picker": r.picker or "",
+                "items": int(r.items or 0),
+                "qty": int(r.qty or 0),
+                "orders": orders,
+                "order": "combined" if orders > 1 else (r.so_one or "—"),
+                "customer": "",
+                "status": r.status,
+                "pct": int(r.pct or 0),
+                "created": str(r.creation)[:16],
             })
-        return out
+        return {"rows": out, "counts": counts, "total": int(total or 0), "days": days,
+                "serverNow": str(frappe.utils.now_datetime())[:19]}
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.pick_lists")
-        return []
+        return {}
+
+
+@frappe.whitelist()
+def pick_list_detail(name):
+    """One pick list, fully real: lines (with item image + per-line pick state),
+    the distinct orders on it (with customer/AWB), and honest lifecycle facts."""
+    try:
+        if not frappe.db.exists("Pick List", name):
+            return {}
+        pl = frappe.db.get_value(
+            "Pick List", name,
+            ["name", "docstatus", "custom_logistics_status", "custom_assigned_picker",
+             "owner", "creation", "modified", "custom_items_count",
+             "custom_total_quantity", "custom_shipped_percentage", "purpose", "company"],
+            as_dict=True)
+
+        lines = frappe.db.sql(
+            """SELECT pli.item_code AS sku, COALESCE(NULLIF(pli.item_name,''), pli.item_code) AS name,
+                      pli.warehouse AS bin, pli.qty, pli.picked_qty, pli.uom,
+                      pli.sales_order AS so, so.customer_name AS customer,
+                      so.custom_awb AS awb, it.item_group AS grp, it.image
+               FROM `tabPick List Item` pli
+               LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
+               LEFT JOIN `tabItem` it ON it.name = pli.item_code
+               WHERE pli.parent = %(pl)s
+               ORDER BY pli.warehouse, pli.idx""",
+            {"pl": name}, as_dict=True)
+
+        orders, seen = [], set()
+        for l in lines:
+            if l.so and l.so not in seen:
+                seen.add(l.so)
+                orders.append({"so": l.so, "customer": l.customer or "", "awb": l.awb or ""})
+
+        status = ("cancelled" if pl.docstatus == 2 else "draft" if pl.docstatus == 0
+                  else "shipped" if pl.custom_logistics_status == "Shipped"
+                  else "partial" if pl.custom_logistics_status == "Partially Shipped" else "open")
+        return {
+            "no": pl.name, "status": status,
+            "picker": pl.custom_assigned_picker or pl.owner or "",
+            "created": str(pl.creation)[:16], "updated": str(pl.modified)[:16],
+            "items": int(pl.custom_items_count or len(lines)),
+            "qty": int(pl.custom_total_quantity or sum(l.qty or 0 for l in lines)),
+            "pct": int(pl.custom_shipped_percentage or 0),
+            "purpose": pl.purpose or "Delivery",
+            "orders": orders,
+            "lines": [{
+                "sku": l.sku, "name": l.name, "bin": l.bin or "—", "uom": l.uom or "",
+                "qty": int(l.qty or 0), "pickedQty": int(l.picked_qty or 0),
+                "so": l.so or "", "customer": l.customer or "", "grp": l.grp or "",
+                "image": l.image or "",
+            } for l in lines],
+        }
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.pick_list_detail")
+        return {}
 
 
 @frappe.whitelist()

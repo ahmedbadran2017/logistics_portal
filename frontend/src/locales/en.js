@@ -170,4 +170,18 @@ export default {
     stParcels: "Parcels", stDelivered: "Delivered", stExceptions: "Exceptions", stValue: "Value", stStatus: "Status",
     rService: "Service", rWindow: "Window", rPickup: "Pickup", rDeliveryTo: "Delivery to",
   },
+  pl: {
+    title: "Pick lists", subtitle: "{n} pick lists · last {d} days",
+    searchPh: "Search PL, order, picker…", fromBoard: "Create from Orders board",
+    fAll: "All", fDraft: "Draft", fOpen: "Picked · to ship", fShipped: "Shipped", fPartial: "Partial", fCancelled: "Cancelled",
+    kDraft: "Draft", kOpen: "Picked · awaiting shipment", kShipped: "Shipped", kCancelled: "Cancelled",
+    thPl: "Pick List", thPicker: "Picker", thOrders: "Orders", thItems: "Items", thQty: "Qty",
+    thCreated: "Created", thProgress: "Progress", thStatus: "Status", thType: "Type", thOrigin: "Origin",
+    combined: "Combined Pick", of: "of", noRows: "No pick lists in this window.",
+    back: "Pick lists", openErp: "Open in ERPNext", print: "Print",
+    dOrders: "orders", dLines: "lines", dUnits: "units", dShipped: "shipped",
+    lifecycle: "Pick list lifecycle", lcCreated: "Created", lcPicked: "Picked & submitted", lcShipped: "Shipped",
+    walk: "Walk path", bySku: "By SKU", byOrder: "By order", optimized: "Optimized by bin",
+    ordersOn: "Orders on this pick list", scanned: "scanned",
+  },
 };

@@ -170,4 +170,18 @@ export default {
     stParcels: "الطرود", stDelivered: "المسلَّم", stExceptions: "الاستثناءات", stValue: "القيمة", stStatus: "الحالة",
     rService: "الخدمة", rWindow: "النافذة", rPickup: "الالتقاط", rDeliveryTo: "التسليم إلى",
   },
+  pl: {
+    title: "قوائم التجهيز", subtitle: "{n} قائمة · آخر {d} أيام",
+    searchPh: "بحث: قائمة · طلب · مجهِّز…", fromBoard: "إنشاء من لوحة الطلبات",
+    fAll: "الكل", fDraft: "مسودة", fOpen: "جُهّزت · للشحن", fShipped: "شُحنت", fPartial: "جزئية", fCancelled: "ملغاة",
+    kDraft: "مسودة", kOpen: "جُهّزت · بانتظار الشحن", kShipped: "شُحنت", kCancelled: "ملغاة",
+    thPl: "القائمة", thPicker: "المجهِّز", thOrders: "الطلبات", thItems: "الأصناف", thQty: "الكمية",
+    thCreated: "أُنشئت", thProgress: "التقدم", thStatus: "الحالة", thType: "النوع", thOrigin: "المصدر",
+    combined: "قائمة مجمّعة", of: "من", noRows: "لا قوائم في هذه الفترة.",
+    back: "قوائم التجهيز", openErp: "فتح في ERPNext", print: "طباعة",
+    dOrders: "طلبات", dLines: "سطور", dUnits: "وحدات", dShipped: "شُحن",
+    lifecycle: "دورة قائمة التجهيز", lcCreated: "أُنشئت", lcPicked: "جُهّزت واعتُمدت", lcShipped: "شُحنت",
+    walk: "مسار المشي", bySku: "حسب الصنف", byOrder: "حسب الطلب", optimized: "مرتّب حسب الموقع",
+    ordersOn: "طلبات هذه القائمة", scanned: "ممسوح",
+  },
 };

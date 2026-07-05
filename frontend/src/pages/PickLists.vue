@@ -130,7 +130,7 @@
   <!-- ══════════════ PICK LIST DETAIL ══════════════ -->
   <div v-else-if="detail" class="max-w-[1240px] mx-auto px-6 py-6 animate-fade-in">
     <button class="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-stone-500 hover:text-stone-900 mb-4 whitespace-nowrap" @click="detail = null">
-      <Icon name="chevron-left" :size="15" />Pick lists
+      <Icon name="chevron-left" :size="15" class="flip-rtl" />{{ t("pl.back") }}
     </button>
 
     <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-5 mb-4">
@@ -140,14 +140,14 @@
           <div>
             <div class="flex items-center gap-2 flex-wrap">
               <h1 class="font-mono text-[19px] font-bold text-stone-900">{{ detail.no }}</h1>
-              <span v-if="detail.order === 'combined'" class="inline-flex items-center px-1.5 h-[18px] rounded text-[10.5px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200 whitespace-nowrap">Combined Pick</span>
-              <span v-else class="inline-flex items-center px-1.5 h-[18px] rounded text-[10.5px] font-medium text-stone-600 bg-stone-100 ring-1 ring-stone-200">{{ detail.customer }}</span>
+              <span v-if="detail.order === 'combined'" class="inline-flex items-center px-1.5 h-[18px] rounded text-[10.5px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200 whitespace-nowrap">{{ t("pl.combined") }}</span>
+              <span v-else class="inline-flex items-center px-1.5 h-[18px] rounded text-[10.5px] font-medium text-stone-600 bg-stone-100 ring-1 ring-stone-200 font-mono">{{ detail.customer || detail.order }}</span>
               <span v-if="detail.errors" class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10.5px] font-medium text-rose-700 bg-rose-50 ring-1 ring-rose-200 whitespace-nowrap"><span class="w-1.5 h-1.5 rounded-full bg-rose-500" />Short-pick</span>
               <span v-else class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10.5px] font-medium ring-1" :class="statusPill(detail)"><span class="w-1.5 h-1.5 rounded-full" :class="statusPillDot(detail)" />{{ statusPillLabel(detail) }}</span>
             </div>
             <div class="text-[12.5px] text-stone-600 mt-1 flex items-center gap-2">
-              <span class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-[9px] font-bold">{{ initials(byId(detail.picker).name) }}</span>
-              {{ byId(detail.picker).name }} · Optimized by bin
+              <span class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-[9px] font-bold">{{ pickerInitials(detail.picker) }}</span>
+              {{ pickerName(detail.picker) }} · {{ t("pl.optimized") }}<span v-if="liveDetail" class="text-stone-400"> · {{ liveDetail.created }}</span>
             </div>
             <div class="flex items-center gap-1.5 mt-2 flex-wrap">
               <span class="inline-flex items-center px-1.5 h-[18px] rounded text-[10.5px] font-medium text-stone-600 bg-stone-100 ring-1 ring-stone-200 whitespace-nowrap">Delivery</span>
@@ -158,30 +158,36 @@
           </div>
         </div>
         <div class="flex items-center gap-2">
-          <button v-if="detail.pct < 100" class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]"><span v-html="boxIcon(15)" />{{ detail.pct > 0 ? "Continue pick" : "Start pick" }}</button>
-          <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50"><span v-html="usersIcon(15)" />Reassign</button>
-          <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50"><Icon name="printer" :size="15" />Print</button>
+          <template v-if="isLiveData">
+            <a :href="'/app/pick-list/' + encodeURIComponent(detail.no)" target="_blank" class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50">{{ t("pl.openErp") }} <Icon name="arrow-right" :size="13" class="flip-rtl" /></a>
+            <a :href="'/printview?doctype=Pick%20List&name=' + encodeURIComponent(detail.no)" target="_blank" class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50"><Icon name="printer" :size="15" />{{ t("pl.print") }}</a>
+          </template>
+          <template v-else>
+            <button v-if="detail.pct < 100" class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]"><span v-html="boxIcon(15)" />{{ detail.pct > 0 ? "Continue pick" : "Start pick" }}</button>
+            <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50"><span v-html="usersIcon(15)" />Reassign</button>
+            <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50"><Icon name="printer" :size="15" />Print</button>
+          </template>
         </div>
       </div>
 
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-        <div class="bg-stone-50 rounded-xl px-3 py-2.5"><div class="text-[22px] font-semibold tabular-nums leading-none text-stone-900">{{ detailOrders }}</div><div class="text-[11px] text-stone-500 mt-1.5">orders</div></div>
-        <div class="bg-stone-50 rounded-xl px-3 py-2.5"><div class="text-[22px] font-semibold tabular-nums leading-none text-stone-900">{{ lines.length }}</div><div class="text-[11px] text-stone-500 mt-1.5">lines</div></div>
-        <div class="bg-stone-50 rounded-xl px-3 py-2.5"><div class="text-[22px] font-semibold tabular-nums leading-none text-stone-900">{{ detailUnits }}</div><div class="text-[11px] text-stone-500 mt-1.5">units</div></div>
+        <div class="bg-stone-50 rounded-xl px-3 py-2.5"><div class="text-[22px] font-semibold tabular-nums leading-none text-stone-900">{{ detailOrders }}</div><div class="text-[11px] text-stone-500 mt-1.5">{{ t("pl.dOrders") }}</div></div>
+        <div class="bg-stone-50 rounded-xl px-3 py-2.5"><div class="text-[22px] font-semibold tabular-nums leading-none text-stone-900">{{ lines.length }}</div><div class="text-[11px] text-stone-500 mt-1.5">{{ t("pl.dLines") }}</div></div>
+        <div class="bg-stone-50 rounded-xl px-3 py-2.5"><div class="text-[22px] font-semibold tabular-nums leading-none text-stone-900">{{ detailUnits }}</div><div class="text-[11px] text-stone-500 mt-1.5">{{ t("pl.dUnits") }}</div></div>
         <div class="bg-stone-50 rounded-xl px-3 py-2.5"><div class="text-[22px] font-semibold tabular-nums leading-none text-[var(--accent-700)]">{{ estTime }}m</div><div class="text-[11px] text-stone-500 mt-1.5">Est. time</div></div>
       </div>
       <div class="mt-4">
-        <div class="flex items-center justify-between text-[11px] mb-1"><span class="text-stone-500 tabular-nums">{{ doneCount }} / {{ lines.length }} scanned</span><span class="font-semibold tabular-nums text-emerald-600">{{ Math.round(doneCount / lines.length * 100) }}%</span></div>
+        <div class="flex items-center justify-between text-[11px] mb-1"><span class="text-stone-500 tabular-nums">{{ doneCount }} / {{ lines.length }} {{ t("pl.scanned") }}</span><span class="font-semibold tabular-nums text-emerald-600">{{ Math.round(doneCount / lines.length * 100) }}%</span></div>
         <div class="h-2 rounded-full bg-stone-100 overflow-hidden"><div class="h-full rounded-full" :class="detail.errors ? 'bg-rose-500' : 'bg-emerald-500'" :style="{ width: (doneCount / lines.length * 100) + '%' }" /></div>
       </div>
     </div>
 
     <!-- lifecycle stepper -->
     <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden mb-4">
-      <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">Pick list lifecycle</div>
+      <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t("pl.lifecycle") }}</div>
       <div class="p-4">
         <div class="flex items-center">
-          <template v-for="(st, i) in lifecycleSteps" :key="st.label">
+          <template v-for="(st, i) in lifecycleShown" :key="st.label">
             <div class="flex flex-col items-center gap-1.5 flex-shrink-0" style="width:92px">
               <span class="w-9 h-9 rounded-xl flex items-center justify-center" :class="i <= lifecycleCur ? 'bg-emerald-500 text-white' : 'bg-stone-100 text-stone-400'">
                 <Icon v-if="i <= lifecycleCur" name="check-circle" :size="16" />
@@ -190,7 +196,7 @@
               <span class="text-[11px] font-medium text-center leading-tight" :class="i <= lifecycleCur ? 'text-stone-900' : 'text-stone-400'">{{ st.label }}</span>
               <span class="text-[10px] text-stone-400 tabular-nums">{{ i <= lifecycleCur ? lifecycleTimes[i] : "" }}</span>
             </div>
-            <div v-if="i < lifecycleSteps.length - 1" class="flex-1 h-0.5 -mt-6" :class="i < lifecycleCur ? 'bg-emerald-300' : 'bg-stone-200'" />
+            <div v-if="i < lifecycleShown.length - 1" class="flex-1 h-0.5 -mt-6" :class="i < lifecycleCur ? 'bg-emerald-300' : 'bg-stone-200'" />
           </template>
         </div>
       </div>
@@ -200,11 +206,11 @@
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center justify-between">
           <div>
-            <span class="text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ view === "walk" ? "Walk path" : view === "sku" ? "By SKU" : "By order" }}</span>
-            <span v-if="view === 'walk'" class="text-[11px] text-stone-400"> · Optimized by bin</span>
+            <span class="text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ view === "walk" ? t("pl.walk") : view === "sku" ? t("pl.bySku") : t("pl.byOrder") }}</span>
+            <span v-if="view === 'walk'" class="text-[11px] text-stone-400"> · {{ t("pl.optimized") }}</span>
           </div>
           <div class="inline-flex bg-stone-100/80 rounded-lg p-0.5">
-            <button v-for="v in [['walk','Walk path'],['sku','By SKU'],['order','By order']]" :key="v[0]" class="px-2.5 h-7 text-[11.5px] font-medium rounded-md transition-all" :class="view === v[0] ? 'bg-white text-stone-900 shadow-[0_1px_2px_rgba(0,0,0,0.06)]' : 'text-stone-500 hover:text-stone-800'" @click="view = v[0]">{{ v[1] }}</button>
+            <button v-for="v in [['walk', t('pl.walk')],['sku', t('pl.bySku')],['order', t('pl.byOrder')]]" :key="v[0]" class="px-2.5 h-7 text-[11.5px] font-medium rounded-md transition-all" :class="view === v[0] ? 'bg-white text-stone-900 shadow-[0_1px_2px_rgba(0,0,0,0.06)]' : 'text-stone-500 hover:text-stone-800'" @click="view = v[0]">{{ v[1] }}</button>
           </div>
         </div>
         <div class="p-4">
@@ -269,8 +275,19 @@
         </div>
       </div>
 
-      <!-- activity -->
-      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+      <!-- orders on this PL (live) / activity (demo) -->
+      <div v-if="liveDetail" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden h-fit">
+        <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t("pl.ordersOn") }}</div>
+        <div class="divide-y divide-stone-100">
+          <div v-for="o in liveDetail.orders" :key="o.so" class="flex items-center gap-2.5 px-4 py-2.5">
+            <button class="font-mono text-[12px] font-semibold text-stone-900 hover:text-[var(--accent-700)]" @click="$router.push({ name: 'OrderDetail', params: { name: o.so.replace('#','') } })">{{ o.so }}</button>
+            <span class="text-[12px] text-stone-600 flex-1 truncate">{{ o.customer }}</span>
+            <span v-if="o.awb" class="font-mono text-[10.5px] text-stone-500 bg-stone-100 ring-1 ring-stone-200/70 rounded px-1.5 py-0.5">{{ o.awb }}</span>
+          </div>
+          <div v-if="!liveDetail.orders.length" class="text-center text-[12px] text-stone-400 py-8">—</div>
+        </div>
+      </div>
+      <div v-else class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">Activity</div>
         <div class="p-4 space-y-3">
           <div v-for="(ev, i) in detailActivity" :key="i" class="flex items-start gap-2.5" :class="!ev.on && 'opacity-40'">
@@ -291,16 +308,27 @@
   <div v-else class="max-w-[1240px] mx-auto px-6 py-6 animate-fade-in">
     <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
       <div>
-        <h1 class="text-[19px] font-semibold text-stone-900 tracking-[-0.01em]">Pick lists</h1>
-        <p class="text-[12.5px] text-stone-500 mt-0.5">{{ rows.length }} pick lists today · {{ WAREHOUSE }}</p>
+        <h1 class="text-[19px] font-semibold text-stone-900 tracking-[-0.01em]">{{ t("pl.title") }}</h1>
+        <p class="text-[12.5px] text-stone-500 mt-0.5">{{ isLiveData ? t("pl.subtitle").replace("{n}", total).replace("{d}", daysF) : rows.length + " pick lists today" }} · {{ WAREHOUSE }}</p>
       </div>
-      <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] transition-colors" @click="create = true">
-        <span v-html="zapIcon(15)" />Smart auto pick list
-      </button>
+      <div class="flex items-center gap-2">
+        <div v-if="isLiveData" class="flex items-center rounded-lg ring-1 ring-stone-200 bg-white p-0.5">
+          <button v-for="d in [7, 14, 30]" :key="d"
+                  class="px-2.5 h-7 text-[12px] font-medium rounded-md transition-colors"
+                  :class="daysF === d ? 'bg-stone-900 text-white' : 'text-stone-500 hover:text-stone-800'"
+                  @click="daysF = d; load()">{{ d }}d</button>
+        </div>
+        <button v-if="isLiveData" class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] transition-colors" @click="$router.push({ name: 'Pipeline' })">
+          <span v-html="boxIcon(15)" />{{ t("pl.fromBoard") }}
+        </button>
+        <button v-else class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] transition-colors" @click="create = true">
+          <span v-html="zapIcon(15)" />Smart auto pick list
+        </button>
+      </div>
     </div>
 
-    <!-- autopilot card -->
-    <div class="rounded-2xl ring-1 mb-4 overflow-hidden" :class="apOn ? 'ring-[var(--accent-300)]/60 bg-gradient-to-br from-[var(--accent-50)]/60 to-white' : 'ring-stone-200 bg-white'">
+    <!-- autopilot card (concept preview — demo mode only) -->
+    <div v-if="!isLiveData" class="rounded-2xl ring-1 mb-4 overflow-hidden" :class="apOn ? 'ring-[var(--accent-300)]/60 bg-gradient-to-br from-[var(--accent-50)]/60 to-white' : 'ring-stone-200 bg-white'">
       <div class="p-4">
         <div class="flex items-start justify-between gap-3 flex-wrap">
           <div class="flex items-center gap-3">
@@ -369,7 +397,12 @@
 
     <!-- filters -->
     <div class="flex items-center gap-1.5 mb-3 overflow-x-auto pb-1">
-      <button v-for="f in filters" :key="f[0]" class="px-2.5 h-7 text-[12px] font-medium rounded-lg ring-1 transition-colors whitespace-nowrap" :class="filter === f[0] ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200 hover:ring-stone-300'" @click="filter = f[0]">{{ f[1] }}</button>
+      <div v-if="isLiveData" class="relative flex-shrink-0">
+        <Icon name="search" :size="13" class="absolute start-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
+        <input v-model="q" :placeholder="t('pl.searchPh')" @input="onSearch"
+               class="h-8 w-[200px] ps-8 pe-3 text-[12.5px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none" />
+      </div>
+      <button v-for="f in filters" :key="f[0]" class="px-2.5 h-7 text-[12px] font-medium rounded-lg ring-1 transition-colors whitespace-nowrap" :class="filter === f[0] ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200 hover:ring-stone-300'" @click="setFilter(f[0])">{{ f[1] }}</button>
     </div>
 
     <!-- table -->
@@ -378,29 +411,42 @@
         <table class="w-full min-w-[760px]">
           <thead>
             <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
-              <th class="text-start px-4 py-2.5">Pick List</th>
-              <th class="text-start px-4 py-2.5">Picker</th>
-              <th class="text-start px-4 py-2.5">Origin</th>
-              <th class="text-start px-4 py-2.5">Type</th>
-              <th class="text-end px-4 py-2.5 hidden sm:table-cell">Items</th>
-              <th class="text-end px-4 py-2.5">Qty</th>
-              <th class="text-start px-4 py-2.5 w-[150px]">Progress</th>
-              <th class="text-start px-4 py-2.5">Status</th>
+              <th class="text-start px-4 py-2.5">{{ t("pl.thPl") }}</th>
+              <th class="text-start px-4 py-2.5">{{ t("pl.thPicker") }}</th>
+              <th v-if="!isLiveData" class="text-start px-4 py-2.5">{{ t("pl.thOrigin") }}</th>
+              <th class="text-start px-4 py-2.5">{{ t("pl.thOrders") }}</th>
+              <th class="text-end px-4 py-2.5 hidden sm:table-cell">{{ t("pl.thItems") }}</th>
+              <th class="text-end px-4 py-2.5">{{ t("pl.thQty") }}</th>
+              <th v-if="isLiveData" class="text-start px-4 py-2.5 hidden md:table-cell">{{ t("pl.thCreated") }}</th>
+              <th class="text-start px-4 py-2.5 w-[150px]">{{ t("pl.thProgress") }}</th>
+              <th class="text-start px-4 py-2.5">{{ t("pl.thStatus") }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-stone-100">
-            <tr v-for="p in shown" :key="p.no" class="transition-colors cursor-pointer hover:bg-stone-50" @click="detail = p">
+            <tr v-for="p in shown" :key="p.no" class="transition-colors cursor-pointer hover:bg-stone-50" @click="openDetail(p)">
               <td class="px-4 py-2.5 font-mono text-[12px] font-semibold text-stone-900 whitespace-nowrap">{{ p.no }}<svg v-if="p.errors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" class="text-rose-500 inline ms-1.5 -mt-0.5"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg></td>
-              <td class="px-4 py-2.5"><div class="flex items-center gap-1.5"><span class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-[9px] font-bold">{{ initials(byId(p.picker).name) }}</span><span class="text-[12px] text-stone-700">{{ byId(p.picker).short }}</span></div></td>
-              <td class="px-4 py-2.5"><span v-if="plOrigin(p) === 'manual'" class="inline-flex items-center gap-1 text-[10.5px] font-medium text-stone-500 bg-stone-100 rounded px-1.5 py-0.5 whitespace-nowrap"><span v-html="usersIcon(9)" />Manual</span><span v-else class="inline-flex items-center gap-1 text-[10.5px] font-medium text-[var(--accent-700)] bg-[var(--accent-50)] rounded px-1.5 py-0.5 whitespace-nowrap"><span v-html="zapIcon(9)" />Autopilot</span></td>
-              <td class="px-4 py-2.5 text-[12px] text-stone-600"><span v-if="p.order === 'combined'" class="inline-flex items-center px-1.5 h-[18px] rounded text-[10.5px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200 whitespace-nowrap">Combined Pick</span><span v-else class="truncate">{{ p.customer }}</span></td>
+              <td class="px-4 py-2.5"><div class="flex items-center gap-1.5"><span class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-[9px] font-bold">{{ pickerInitials(p.picker) }}</span><span class="text-[12px] text-stone-700">{{ pickerName(p.picker) }}</span></div></td>
+              <td v-if="!isLiveData" class="px-4 py-2.5"><span v-if="plOrigin(p) === 'manual'" class="inline-flex items-center gap-1 text-[10.5px] font-medium text-stone-500 bg-stone-100 rounded px-1.5 py-0.5 whitespace-nowrap"><span v-html="usersIcon(9)" />Manual</span><span v-else class="inline-flex items-center gap-1 text-[10.5px] font-medium text-[var(--accent-700)] bg-[var(--accent-50)] rounded px-1.5 py-0.5 whitespace-nowrap"><span v-html="zapIcon(9)" />Autopilot</span></td>
+              <td class="px-4 py-2.5 text-[12px] text-stone-600"><span v-if="p.order === 'combined'" class="inline-flex items-center px-1.5 h-[18px] rounded text-[10.5px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200 whitespace-nowrap">{{ t("pl.combined") }}<template v-if="p.orders"> · {{ p.orders }}</template></span><span v-else class="font-mono text-[11.5px] truncate">{{ p.customer || p.order }}</span></td>
               <td class="px-4 py-2.5 text-end text-[12px] text-stone-500 tabular-nums hidden sm:table-cell">{{ p.items ?? "—" }}</td>
               <td class="px-4 py-2.5 text-end text-[12.5px] font-semibold text-stone-900 tabular-nums">{{ p.qty }}</td>
+              <td v-if="isLiveData" class="px-4 py-2.5 text-[11.5px] text-stone-500 tabular-nums whitespace-nowrap hidden md:table-cell">{{ (p.created || "").slice(5) }}</td>
               <td class="px-4 py-2.5"><div class="flex items-center gap-2"><div class="flex-1 h-1.5 rounded-full bg-stone-100 overflow-hidden"><div class="h-full rounded-full" :class="p.errors ? 'bg-rose-500' : 'bg-emerald-500'" :style="{ width: p.pct + '%' }" /></div><span class="text-[10.5px] text-stone-400 tabular-nums w-[28px]">{{ p.pct }}%</span></div></td>
-              <td class="px-4 py-2.5"><span v-if="p.errors" class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10.5px] font-medium text-rose-700 bg-rose-50 ring-1 ring-rose-200 whitespace-nowrap"><span class="w-1.5 h-1.5 rounded-full bg-rose-500" />Short-pick</span><span v-else class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10.5px] font-medium ring-1" :class="plStatusChip(p.status)"><span class="w-1.5 h-1.5 rounded-full" :class="plStatusDot(p.status)" />{{ cap(p.status) }}</span></td>
+              <td class="px-4 py-2.5"><span v-if="p.errors" class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10.5px] font-medium text-rose-700 bg-rose-50 ring-1 ring-rose-200 whitespace-nowrap"><span class="w-1.5 h-1.5 rounded-full bg-rose-500" />Short-pick</span><span v-else class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10.5px] font-medium ring-1" :class="plStatusChip(p.status)"><span class="w-1.5 h-1.5 rounded-full" :class="plStatusDot(p.status)" />{{ plStatusLabel(p.status) }}</span></td>
             </tr>
           </tbody>
         </table>
+        <div v-if="!shown.length && !loading" class="text-center text-[12.5px] text-stone-400 py-12">{{ t("pl.noRows") }}</div>
+      </div>
+      <div v-if="isLiveData && total > pageSize" class="flex items-center justify-between px-4 py-2.5 border-t border-stone-100 bg-stone-50/50">
+        <span class="text-[11.5px] text-stone-500 tabular-nums">
+          {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, total) }} {{ t("pl.of") }} {{ total }}
+        </span>
+        <div class="flex items-center gap-1">
+          <button class="pager-btn" :disabled="page <= 1" @click="page--; load(true)"><Icon name="chevron-left" :size="13" class="flip-rtl" /></button>
+          <span class="text-[11.5px] text-stone-600 tabular-nums px-1.5">{{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span>
+          <button class="pager-btn" :disabled="page * pageSize >= total" @click="page++; load(true)"><Icon name="chevron-right" :size="13" class="flip-rtl" /></button>
+        </div>
       </div>
     </div>
 
@@ -493,8 +539,10 @@ import Icon from "@/components/ui/Icon.vue";
 import { PICKLISTS as DEMO_PICKLISTS, TEAM, WAREHOUSE, byId } from "@/lib/handoffData.js";
 import { api, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
+import { useI18n } from "@/composables/useI18n";
 
 const { success } = useToast();
+const { t } = useI18n();
 
 // ── local data (from data.jsx) ─────────────────────────────────────────
 const BIN_ZONE = { J: "FAST ZONE - JM", F: "SLOW ZONE - JM", I: "Cosmetic zone - JM", H: "MU Zone - JM", E: "Accessory Zone - JM", G: "Textile Zone - JM" };
@@ -545,7 +593,7 @@ function initials(name) {
   return ((p[0]?.[0] || "") + (p.length > 1 ? p[p.length - 1][0] : "")).toUpperCase();
 }
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
-const binZone = (bin) => BIN_ZONE[(bin || "?")[0]] || "Other";
+const binZone = (bin) => ((bin || "").includes(" - ") && (bin || "").length > 8) ? bin : (BIN_ZONE[(bin || "?")[0]] || "Other");
 const aisle = (bin) => (bin || "?").match(/^[A-Z]\d*/)?.[0] || "?";
 
 const feedStyle = (kind) => {
@@ -598,13 +646,64 @@ function autoPickGroups(strategy, cap2 = 12) {
   return { groups, stats: { lines: totalLines, units: pool.reduce((a, l) => a + l.qty, 0), orders: new Set(pool.map((l) => l.so)).size, batches: groups.length, saved } };
 }
 
-// ── list state ──────────────────────────────────────────────────────────
+// ── list state (server-driven when live · demo seed as fallback) ────────
 const rows = ref(DEMO_PICKLISTS.map((p) => ({ ...p })));
+const dataMode = ref("loading");
+const counts = ref({});
+const total = ref(0);
+const page = ref(1);
+const pageSize = 30;
+const daysF = ref(7);
+const statusF = ref("");
+const q = ref("");
+const loading = ref(false);
+let searchTimer = null;
+const isLiveData = computed(() => dataMode.value === "live");
 
-onMounted(async () => {
-  const live = await liveOr(null, () => api("picking.pick_lists", { limit: 40 }));
-  if (live && live.length) rows.value = live.map((p) => ({ ...p }));
-});
+async function load(keepPage = false) {
+  if (!keepPage) page.value = 1;
+  loading.value = true;
+  const live = await liveOr(null, () => api("picking.pick_lists", {
+    days: daysF.value, status: statusF.value || undefined,
+    q: q.value.trim() || undefined,
+    limit: pageSize, offset: (page.value - 1) * pageSize,
+  }));
+  if (live && Array.isArray(live.rows)) {
+    dataMode.value = "live";
+    rows.value = live.rows.map((p) => ({ ...p }));
+    counts.value = live.counts || {};
+    total.value = live.total || 0;
+  } else if (dataMode.value !== "live") {
+    dataMode.value = "demo";
+  }
+  loading.value = false;
+}
+onMounted(load);
+function onSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(() => load(), 350); }
+function setFilter(k) {
+  filter.value = k;
+  if (isLiveData.value) { statusF.value = k === "all" ? "" : k; load(); }
+}
+
+// Live rows carry picker EMAILS (assigned picker, falling back to the PL
+// owner — on production pickers create their own PLs); demo rows carry ids.
+const PICKER_SHORT = {
+  marouaneelmessaoudi07: "Marouane", mouakkalanass: "Anass", anaskarrassi: "Anas K.",
+  asmaazirary7: "Asmaa", lamdanisaad12: "Saad", ossamanahila: "Oussama",
+  saidnakri65: "Said", redazaari47: "Reda", elabdouny99: "Abdouny",
+};
+function pickerName(p) {
+  if (!p) return "—";
+  if (String(p).includes("@")) {
+    const k = String(p).split("@")[0];
+    return PICKER_SHORT[k] || k;
+  }
+  return byId(p)?.short || byId(p)?.name || p;
+}
+function pickerInitials(p) {
+  const s = pickerName(p);
+  return ((s[0] || "?") + (s[1] || "")).toUpperCase();
+}
 const create = ref(false);
 const detail = ref(null);
 const autopilot = ref(false);
@@ -626,25 +725,40 @@ const toggles = reactive([
 ]);
 
 const withErrors = computed(() => rows.value.filter((p) => p.errors).length);
-const kpis = computed(() => [
+const kpis = computed(() => isLiveData.value ? [
+  { label: t("pl.kOpen"), value: counts.value.open || 0, icon: boxIcon(13) },
+  { label: t("pl.kShipped"), value: counts.value.shipped || 0, icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>` },
+  { label: t("pl.kDraft"), value: counts.value.draft || 0, icon: layersIcon(13) },
+  { label: t("pl.kCancelled"), value: counts.value.cancelled || 0, icon: alertIcon(13) },
+] : [
   { label: "Open / draft", value: rows.value.filter((p) => p.status === "open" || p.status === "draft").length, icon: boxIcon(13) },
   { label: "Completed", value: rows.value.filter((p) => p.status === "completed").length, icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>` },
   { label: "Combined picks", value: rows.value.filter((p) => p.order === "combined").length, icon: layersIcon(13) },
   { label: "Pick errors", value: withErrors.value, icon: alertIcon(13) },
 ]);
 
-const filters = computed(() => [
+const filters = computed(() => isLiveData.value ? [
+  ["all", `${t("pl.fAll")} · ${(counts.value.draft || 0) + (counts.value.open || 0) + (counts.value.shipped || 0) + (counts.value.partial || 0) + (counts.value.cancelled || 0)}`],
+  ["draft", `${t("pl.fDraft")} · ${counts.value.draft || 0}`],
+  ["open", `${t("pl.fOpen")} · ${counts.value.open || 0}`],
+  ["shipped", `${t("pl.fShipped")} · ${counts.value.shipped || 0}`],
+  ["cancelled", `${t("pl.fCancelled")} · ${counts.value.cancelled || 0}`],
+] : [
   ["all", "All"], ["draft", "Draft"], ["open", "Open"], ["completed", "Completed"], ["cancelled", "Cancelled"], ["errors", `Errors·${withErrors.value}`],
 ]);
 
-const shown = computed(() =>
-  rows.value.filter((p) => filter.value === "all" || p.status === filter.value || (filter.value === "errors" && p.errors)).slice()
+const shown = computed(() => isLiveData.value
+  ? rows.value
+  : rows.value.filter((p) => filter.value === "all" || p.status === filter.value || (filter.value === "errors" && p.errors)).slice()
 );
 
 const plOrigin = (p) => p.origin || (["Zone cluster", "Balanced", "Batch SKU", "Single-item blitz", "Multi-line"].includes(p.item) ? "auto" : p.item === "Manual" ? "manual" : "auto");
 
-const plStatusChip = (s) => ({ draft: "text-stone-600 bg-stone-100 ring-stone-200", open: "text-amber-700 bg-amber-50 ring-amber-200", completed: "text-emerald-700 bg-emerald-50 ring-emerald-200", cancelled: "text-rose-700 bg-rose-50 ring-rose-200" }[s] || "text-stone-600 bg-stone-100 ring-stone-200");
-const plStatusDot = (s) => ({ draft: "bg-stone-400", open: "bg-amber-500", completed: "bg-emerald-500", cancelled: "bg-rose-500" }[s] || "bg-stone-400");
+const plStatusChip = (s) => ({ draft: "text-stone-600 bg-stone-100 ring-stone-200", open: "text-amber-700 bg-amber-50 ring-amber-200", completed: "text-emerald-700 bg-emerald-50 ring-emerald-200", shipped: "text-emerald-700 bg-emerald-50 ring-emerald-200", partial: "text-orange-700 bg-orange-50 ring-orange-200", cancelled: "text-rose-700 bg-rose-50 ring-rose-200" }[s] || "text-stone-600 bg-stone-100 ring-stone-200");
+const plStatusDot = (s) => ({ draft: "bg-stone-400", open: "bg-amber-500", completed: "bg-emerald-500", shipped: "bg-emerald-500", partial: "bg-orange-500", cancelled: "bg-rose-500" }[s] || "bg-stone-400");
+const plStatusLabel = (s) => isLiveData.value
+  ? ({ draft: t("pl.fDraft"), open: t("pl.fOpen"), shipped: t("pl.fShipped"), partial: t("pl.fPartial"), cancelled: t("pl.fCancelled") }[s] || s)
+  : cap(s);
 
 // ── autopilot card ──────────────────────────────────────────────────────
 const apStats = computed(() => [
@@ -742,9 +856,27 @@ function createManual() {
 
 // ── detail view ─────────────────────────────────────────────────────────
 const view = ref("walk");
+const liveDetail = ref(null);
+async function openDetail(p) {
+  detail.value = p;
+  liveDetail.value = null;
+  if (isLiveData.value) {
+    const d = await liveOr(null, () => api("picking.pick_list_detail", { name: p.no }));
+    if (d && d.no) liveDetail.value = d;
+  }
+}
 const lines = computed(() => {
   const pl = detail.value;
   if (!pl) return [];
+  if (liveDetail.value) {
+    const done = liveDetail.value.status !== "draft";
+    return liveDetail.value.lines.map((l) => ({
+      ...l, code: "", serial: false, batch: false,
+      picked: done && l.pickedQty >= l.qty,
+      partial: l.pickedQty > 0 && l.pickedQty < l.qty,
+      pickedQty: l.pickedQty,
+    }));
+  }
   let ls = PICK_POOL.slice(0, Math.max(1, pl.items || 1)).map((l) => ({ ...l }));
   ls = ls.sort((a, b) => (a.bin > b.bin ? 1 : -1));
   return ls.map((l, i) => {
@@ -779,12 +911,21 @@ const lifecycleSteps = [
   { label: "Completed", icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>` },
   { label: "To packing", icon: tagIcon(15) },
 ];
-const lifecycleTimes = ["08:58", "09:01", "09:08", "09:25", "—"];
+const lifecycleTimes = computed(() => {
+  const lv = liveDetail.value;
+  if (lv) return [lv.created.slice(5), lv.created.slice(5), lv.status === "shipped" || lv.status === "partial" ? lv.updated.slice(5) : "—"];
+  return ["08:58", "09:01", "09:08", "09:25", "—"];
+});
 const lifecycleCur = computed(() => {
+  const lv = liveDetail.value;
+  if (lv) return lv.status === "shipped" || lv.status === "partial" ? 2 : lv.status === "draft" ? 0 : 1;
   const pl = detail.value;
   if (!pl) return 0;
   return pl.pct >= 100 ? 3 : pl.pct > 0 ? 2 : (pl.status === "open" ? 1 : 0);
 });
+const lifecycleShown = computed(() => liveDetail.value
+  ? [{ label: t("pl.lcCreated"), icon: usersIcon(15) }, { label: t("pl.lcPicked"), icon: boxIcon(15) }, { label: t("pl.lcShipped"), icon: tagIcon(15) }]
+  : lifecycleSteps);
 
 function tagIcon(s) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>`;
@@ -792,7 +933,7 @@ function tagIcon(s) {
 
 const statusPill = (pl) => (pl.pct >= 100 ? "text-emerald-700 bg-emerald-50 ring-emerald-200" : pl.pct > 0 ? "text-blue-700 bg-blue-50 ring-blue-200" : "text-amber-700 bg-amber-50 ring-amber-200");
 const statusPillDot = (pl) => (pl.pct >= 100 ? "bg-emerald-500" : pl.pct > 0 ? "bg-blue-500" : "bg-amber-500");
-const statusPillLabel = (pl) => (pl.pct >= 100 ? "Closed" : pl.pct > 0 ? "Picking" : "Pending");
+const statusPillLabel = (pl) => liveDetail.value ? plStatusLabel(liveDetail.value.status) : (pl.pct >= 100 ? "Closed" : pl.pct > 0 ? "Picking" : "Pending");
 
 const detailActivity = computed(() => {
   const pl = detail.value;

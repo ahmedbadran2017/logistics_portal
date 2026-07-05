@@ -170,4 +170,18 @@ export default {
     stParcels: "Colis", stDelivered: "Livrés", stExceptions: "Exceptions", stValue: "Valeur", stStatus: "Statut",
     rService: "Service", rWindow: "Créneau", rPickup: "Enlèvement", rDeliveryTo: "Livraison à",
   },
+  pl: {
+    title: "Pick lists", subtitle: "{n} pick lists · {d} derniers jours",
+    searchPh: "Rechercher PL, commande, préparateur…", fromBoard: "Créer depuis le tableau Commandes",
+    fAll: "Tout", fDraft: "Brouillon", fOpen: "Préparée · à expédier", fShipped: "Expédiée", fPartial: "Partielle", fCancelled: "Annulée",
+    kDraft: "Brouillon", kOpen: "Préparée · attend l’expédition", kShipped: "Expédiée", kCancelled: "Annulée",
+    thPl: "Pick List", thPicker: "Préparateur", thOrders: "Commandes", thItems: "Articles", thQty: "Qté",
+    thCreated: "Créée", thProgress: "Avancement", thStatus: "Statut", thType: "Type", thOrigin: "Origine",
+    combined: "Pick combiné", of: "sur", noRows: "Aucune pick list dans cette fenêtre.",
+    back: "Pick lists", openErp: "Ouvrir dans ERPNext", print: "Imprimer",
+    dOrders: "commandes", dLines: "lignes", dUnits: "unités", dShipped: "expédié",
+    lifecycle: "Cycle de la pick list", lcCreated: "Créée", lcPicked: "Préparée & validée", lcShipped: "Expédiée",
+    walk: "Parcours", bySku: "Par SKU", byOrder: "Par commande", optimized: "Optimisé par emplacement",
+    ordersOn: "Commandes de cette pick list", scanned: "scannés",
+  },
 };
