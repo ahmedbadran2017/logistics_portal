@@ -636,6 +636,10 @@ def activity(name):
         order_by="creation asc", limit=20,
     ):
         text = frappe.utils.strip_html(c.content or "").strip()
+        import re as _re
+        text = _re.sub(r"\[([^\]]*)\]\([^\)]*\)", r"\1", text)   # [label](url) → label
+        text = _re.sub(r"\S+@\S+\.\S+", "", text)                   # drop raw emails
+        text = _re.sub(r"\s{2,}", " ", text).strip(" :·-")
         if text:
             events.append({"when": str(c.creation)[:16], "kind": "comment",
                            "title": "Comment", "detail": text[:200], "actor": c.owner})

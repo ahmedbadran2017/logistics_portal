@@ -34,8 +34,10 @@
               <span class="w-1.5 h-1.5 rounded-full" :class="slaBadge.dot" /> {{ slaBadge.label }}
             </span>
           </div>
-          <div class="text-[13px] text-stone-600 mt-1">
-            {{ order.customer }} · {{ shipToLine }}
+          <div class="text-[13px] text-stone-600 mt-1 flex items-center gap-2 flex-wrap">
+            <span>{{ order.customer }} · {{ shipToLine }}</span>
+            <span class="font-mono text-[12px] font-semibold text-stone-900 tabular-nums bg-stone-100 rounded-md px-2 py-0.5">{{ fmtMAD(grand) }} MAD</span>
+            <span v-if="isLive && liveOrder.created" class="text-[11.5px] text-stone-400 tabular-nums">Placed {{ liveOrder.created.slice(5) }}</span>
           </div>
         </div>
         <div class="flex items-center gap-2">
@@ -63,13 +65,13 @@
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
           <div class="px-4 py-3 border-b border-stone-100">
             <div class="text-[13px] font-semibold text-stone-900">Line items</div>
-            <div class="text-[11.5px] text-stone-400 mt-0.5">{{ order.items }} items</div>
+            <div class="text-[11.5px] text-stone-400 mt-0.5">{{ items.length }} item{{ items.length === 1 ? "" : "s" }}</div>
           </div>
-          <table class="w-full">
+          <div class="overflow-x-auto"><table class="w-full min-w-[440px]">
             <thead>
               <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
                 <th class="text-start px-4 py-2.5">Product</th>
-                <th class="text-start px-4 py-2.5 hidden sm:table-cell">Bin</th>
+                <th v-if="!isLive" class="text-start px-4 py-2.5 hidden sm:table-cell">Bin</th>
                 <th class="text-end px-4 py-2.5">Qty</th>
                 <th class="text-end px-4 py-2.5 hidden sm:table-cell">Unit</th>
                 <th class="text-end px-4 py-2.5">Total</th>
@@ -91,7 +93,7 @@
                     </div>
                   </div>
                 </td>
-                <td class="px-4 py-2.5 font-mono text-[11.5px] text-stone-500 hidden sm:table-cell">{{ it.bin }}</td>
+                <td v-if="!isLive" class="px-4 py-2.5 font-mono text-[11.5px] text-stone-500 hidden sm:table-cell">{{ it.bin }}</td>
                 <td class="px-4 py-2.5 text-end text-[12.5px] font-medium text-stone-900 tabular-nums">{{ it.qty }}</td>
                 <td class="px-4 py-2.5 text-end text-[12px] text-stone-500 tabular-nums hidden sm:table-cell">{{ fmtMAD(it.price) }}</td>
                 <td class="px-4 py-2.5 text-end text-[12.5px] font-semibold text-stone-900 tabular-nums">{{ fmtMAD(it.line) }}</td>
@@ -121,7 +123,7 @@
                 </td>
               </tr>
             </tfoot>
-          </table>
+          </table></div>
         </div>
 
         <!-- Ship to + Payment -->
@@ -130,10 +132,17 @@
             <div class="text-[13px] font-semibold text-stone-900 mb-2">Ship to</div>
             <div class="text-[13px] font-medium text-stone-900">{{ order.customer }}</div>
             <div class="space-y-1.5 mt-2 text-[12px]">
-              <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Phone</span><span class="font-mono font-medium text-stone-800">{{ phone }}</span></div>
+              <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Phone</span>
+                <span class="flex items-center gap-1.5">
+                  <span class="font-mono font-medium text-stone-800">{{ phone }}</span>
+                  <template v-if="isLive && phone !== '—'">
+                    <a :href="'tel:' + phone" class="w-5 h-5 rounded-md bg-stone-100 text-stone-500 hover:bg-emerald-100 hover:text-emerald-700 flex items-center justify-center"><Icon name="phone" :size="11" /></a>
+                    <a :href="'https://wa.me/212' + phone.replace(/\D/g,'').replace(/^0/,'')" target="_blank" class="w-5 h-5 rounded-md bg-stone-100 text-stone-500 hover:bg-emerald-100 hover:text-emerald-700 flex items-center justify-center"><Icon name="message-circle" :size="11" /></a>
+                  </template>
+                </span></div>
               <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Destination</span><span class="font-medium text-stone-800 text-end truncate">{{ shipToLine }}</span></div>
               <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Governorate</span><span class="font-medium text-stone-800">{{ govern }}</span></div>
-              <div class="flex items-center justify-between gap-2"><span class="text-stone-400">Reference</span><span class="font-mono font-medium text-stone-800">{{ refNo }}</span></div>
+              <div v-if="refNo && refNo !== order.no" class="flex items-center justify-between gap-2"><span class="text-stone-400">Reference</span><span class="font-mono font-medium text-stone-800">{{ refNo }}</span></div>
             </div>
           </div>
           <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
@@ -238,9 +247,9 @@
                   <span class="text-[12.5px] font-medium text-stone-900 truncate">{{ e.title }}</span>
                   <span class="text-[11px] text-stone-400 tabular-nums flex-shrink-0">{{ e.when }}</span>
                 </div>
-                <div class="flex items-center gap-1.5 mt-0.5 min-w-0">
-                  <span class="text-[11px] text-stone-500 truncate">{{ actorShort(e.actor) }}</span>
-                  <span v-if="e.detail" class="font-mono text-[10px] text-stone-500 bg-stone-50 ring-1 ring-stone-200/70 rounded px-1 truncate">{{ e.detail }}</span>
+                <div class="flex items-start gap-1.5 mt-0.5 min-w-0">
+                  <span class="text-[10.5px] font-semibold text-stone-500 bg-stone-100 rounded px-1.5 py-px flex-shrink-0">{{ actorShort(e.actor) }}</span>
+                  <span v-if="e.detail" class="text-[11px] text-stone-500 leading-snug line-clamp-2 min-w-0">{{ e.detail }}</span>
                 </div>
               </div>
             </li>
@@ -412,8 +421,12 @@ const order = computed(() => {
     channel: live.channel || base.channel,
     total: live.total != null ? live.total : base.total,
     stage: RAW_STAGE[live.stage] || base.stage,
-    awb: live.awb || base.awb,
-    track: normTrack(live.tracking_status) || base.track,
+    // live orders NEVER inherit demo docs — absence is real information
+    awb: live.awb || "",
+    dn: live.dn || "",
+    track: normTrack(live.tracking_status) || "",
+    city: live.city || "",
+    picker: "",
   };
 });
 
