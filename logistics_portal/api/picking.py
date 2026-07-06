@@ -439,7 +439,7 @@ def _chunk(seq, cap_orders, cap_units, units_of):
 
 
 @frappe.whitelist()
-def suggest_batches(cap_orders=15, cap_units=25, min_mono=3):
+def suggest_batches(cap_orders=15, cap_units=25, min_mono=3, max_batches=40):
     """Batch proposal over the LIVE to-pick pool (same definition as the Orders
     board). Returns {batches, oos, poolTotal, batched, serverNow}; each batch
     carries its orders, walk-ordered lines, aisles and a time estimate."""
@@ -581,9 +581,20 @@ def suggest_batches(cap_orders=15, cap_units=25, min_mono=3):
         for i, b in enumerate(batches):
             b["key"] = f"B{i + 1}"
 
+        # Only ship the workable head: one run creates at most 20 lists, and a
+        # deep backlog (200+ batches) freezes the browser if sent whole. The
+        # rest is summarized — it resurfaces on the next open, highest priority
+        # first.
+        max_batches = min(max(int(max_batches or 40), 10), 100)
+        total_batches = len(batches)
+        batched_all = sum(len(b["orders"]) for b in batches)
+        batches = batches[:max_batches]
+
         return {
             "batches": batches, "oos": oos,
-            "poolTotal": len(orders), "batched": sum(len(b["orders"]) for b in batches),
+            "moreBatches": max(0, total_batches - len(batches)),
+            "moreOrders": batched_all - sum(len(b["orders"]) for b in batches),
+            "poolTotal": len(orders), "batched": batched_all,
             "params": {"cap_orders": cap_orders, "cap_units": cap_units, "min_mono": min_mono},
             "serverNow": str(_now)[:19],
         }

@@ -24,13 +24,22 @@
         <template v-else-if="suggest.data">
           <div v-if="!suggest.data.batches.length" class="text-center text-[13px] text-emerald-600 py-10">{{ t("pl.sbEmpty") }}</div>
 
+          <div class="flex items-center justify-between gap-2 px-0.5">
+            <div class="flex items-center gap-1.5">
+              <button class="h-7 px-2.5 rounded-lg text-[11.5px] font-semibold ring-1 ring-stone-200 bg-white text-stone-600 hover:ring-stone-300" @click="selectTop">{{ t("pl.sbSelTop") }}</button>
+              <button class="h-7 px-2.5 rounded-lg text-[11.5px] font-semibold ring-1 ring-stone-200 bg-white text-stone-600 hover:ring-stone-300" @click="picked = new Set()">{{ t("pl.sbSelNone") }}</button>
+            </div>
+            <span class="text-[11px] text-stone-400">{{ t("pl.sbPickHint") }}</span>
+          </div>
+
           <div v-for="b in suggest.data.batches" :key="b.key"
-               class="rounded-xl ring-1 p-3 transition-all"
-               :class="picked.has(b.key) ? 'ring-[var(--accent-300)] bg-[var(--accent-50)]/30' : 'ring-stone-200 opacity-60'">
+               class="rounded-xl ring-1 p-3 transition-all cursor-pointer select-none"
+               :class="picked.has(b.key) ? 'ring-[var(--accent-300)] bg-[var(--accent-50)]/30' : 'ring-stone-200 opacity-60 hover:opacity-90'"
+               @click="toggleBatch(b.key)">
             <div class="flex items-center gap-2.5 flex-wrap">
               <button class="w-4.5 h-4.5 w-[18px] h-[18px] rounded flex items-center justify-center ring-1 flex-shrink-0 transition-colors"
                       :class="picked.has(b.key) ? 'bg-[var(--accent-600)] ring-[var(--accent-600)] text-white' : 'ring-stone-300 bg-white'"
-                      @click="toggleBatch(b.key)">
+                      @click.stop="toggleBatch(b.key)">
                 <Icon v-if="picked.has(b.key)" name="check" :size="12" />
               </button>
               <span class="font-mono text-[11px] font-bold text-stone-400">{{ b.key }}</span>
@@ -70,6 +79,10 @@
             </div>
           </div>
 
+          <div v-if="suggest.data.moreBatches" class="rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-3 text-center text-[12px] text-stone-500">
+            {{ t("pl.sbMoreBatches").replace("{b}", suggest.data.moreBatches).replace("{o}", suggest.data.moreOrders) }}
+          </div>
+
           <div v-if="suggest.data.oos.length" class="rounded-xl bg-rose-50 ring-1 ring-rose-200/60 p-3">
             <div class="text-[12px] font-semibold text-rose-700 mb-0.5">{{ t("pl.sbOos") }} · {{ suggest.data.oos.length }}</div>
             <div class="text-[11px] text-rose-600 mb-1.5">{{ t("pl.sbOosHint") }}</div>
@@ -102,7 +115,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from "vue";
+import { ref, shallowRef, computed } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
@@ -114,7 +127,7 @@ const { success, warn } = useToast();
 
 const zapIcon = (s) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
 
-const suggest = ref(null);            // null | { loading, data }
+const suggest = shallowRef(null);     // null | { loading, data } (shallow: big payload)
 const picked = ref(new Set());        // selected batch keys
 const pickerFor = ref({});            // batch key -> picker email
 const sbPickers = ref([]);
@@ -139,6 +152,16 @@ function sbKindCls(k) {
     mixed: "text-stone-600 bg-stone-100 ring-stone-200",
   }[k] || "text-stone-600 bg-stone-100 ring-stone-200";
 }
+function selectTop() {
+  const sel = new Set();
+  let ords = 0;
+  for (const b of suggest.value.data.batches) {
+    if (sel.size >= 20 || ords + b.orders.length > 200) break;
+    sel.add(b.key);
+    ords += b.orders.length;
+  }
+  picked.value = sel;
+}
 function toggleBatch(key) {
   const s = new Set(picked.value);
   s.has(key) ? s.delete(key) : s.add(key);
@@ -156,15 +179,8 @@ async function openSuggest() {
   if (res && Array.isArray(res.batches)) {
     suggest.value = { loading: false, data: res };
     // Pre-select only what one run may create (server caps: 20 batches / 200
-    // orders) — on a deep backlog the rest stays visible but unchecked.
-    const sel = new Set();
-    let ords = 0;
-    for (const b of res.batches) {
-      if (sel.size >= 20 || ords + b.orders.length > 200) break;
-      sel.add(b.key);
-      ords += b.orders.length;
-    }
-    picked.value = sel;
+    // orders) — the tail stays visible but unchecked.
+    selectTop();
     for (const b of res.batches) pickerFor.value[b.key] = "";
   } else {
     suggest.value = null;
