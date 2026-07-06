@@ -42,7 +42,7 @@ def my_queue(user=None):
     user = user or frappe.session.user
     try:
         pls = frappe.db.sql(
-            """SELECT pl.name, pl.custom_items_count AS items,
+            """SELECT pl.name, pl.custom_items_count AS items_cnt,
                       pl.custom_total_quantity AS qty, pl.creation,
                       agg.orders, agg.so_one, agg.customer
                FROM `tabPick List` pl
@@ -64,7 +64,7 @@ def my_queue(user=None):
                 "pick_list": pl.name,
                 "customer": (pl.customer or "") if orders == 1 else f"Combined · {orders} orders",
                 "channel": "",
-                "items": int(pl.items or 0),
+                "items": int(pl.items_cnt or 0),
                 "qty": int(pl.qty or 0),
                 "orders": orders,
                 "total": 0,
@@ -184,7 +184,7 @@ def pick_lists(status="", q="", days=7, limit=30, offset=0):
         rows = frappe.db.sql(
             f"""SELECT pl.name, pl.docstatus, pl.custom_logistics_status AS lstatus,
                        COALESCE(NULLIF(pl.custom_assigned_picker,''), pl.owner) AS picker,
-                       pl.custom_items_count AS items, pl.custom_total_quantity AS qty,
+                       pl.custom_items_count AS items_cnt, pl.custom_total_quantity AS qty,
                        pl.custom_shipped_percentage AS pct, pl.creation,
                        {derived} AS status,
                        agg.orders, agg.so_one
@@ -203,7 +203,7 @@ def pick_lists(status="", q="", days=7, limit=30, offset=0):
             out.append({
                 "no": r.name,
                 "picker": r.picker or "",
-                "items": int(r.items or 0),
+                "items": int(r.items_cnt or 0),
                 "qty": int(r.qty or 0),
                 "orders": orders,
                 "order": "combined" if orders > 1 else (r.so_one or "—"),
@@ -614,12 +614,14 @@ def create_batches(batches):
     for b in batches:
         try:
             r = _build_pick_list(b.get("orders") or [], b.get("picker"))
+            # commit each batch as it lands — a later failure must not roll
+            # back earlier, already-reported successes
+            frappe.db.commit()
             results.append({"ok": True, **r, "picker": b.get("picker") or ""})
         except Exception as e:
             frappe.db.rollback()
             results.append({"ok": False, "error": str(e),
                             "orders": len(b.get("orders") or [])})
-    frappe.db.commit()
     frappe.cache().delete_value("lp_board_summary")
     return {"results": results,
             "created": sum(1 for r in results if r.get("ok")),
@@ -719,6 +721,7 @@ def _autopilot_core(trigger):
         picker = team[i % len(team)]["email"] if team else None
         try:
             r = _build_pick_list([o["so"] for o in b["orders"]], picker)
+            frappe.db.commit()
             created += 1
             placed += len(b["orders"])
             details.append({"pl": r["pl"], "kind": b["kind"], "orders": len(b["orders"]),
@@ -727,7 +730,6 @@ def _autopilot_core(trigger):
             frappe.db.rollback()
             failed += 1
             details.append({"error": str(e)[:120], "kind": b["kind"], "orders": len(b["orders"])})
-    frappe.db.commit()
     frappe.cache().delete_value("lp_board_summary")
 
     entry.update({"created": created, "failed": failed, "orders": placed, "details": details[:8]})

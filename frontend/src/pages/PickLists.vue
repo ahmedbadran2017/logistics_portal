@@ -16,7 +16,7 @@
           <div>
             <div class="flex items-center gap-2">
               <h1 class="text-[20px] font-semibold text-stone-900">Pick Autopilot</h1>
-              <span class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10.5px] font-medium text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500" />Active</span>
+              <span class="inline-flex items-center gap-1 px-2 h-[20px] rounded-md text-[11px] font-medium text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500" />Active</span>
             </div>
             <div class="text-[12.5px] text-stone-500 mt-0.5">AI agent · generates, assigns &amp; monitors picks</div>
           </div>
@@ -140,18 +140,18 @@
           <div>
             <div class="flex items-center gap-2 flex-wrap">
               <h1 class="font-mono text-[19px] font-bold text-stone-900">{{ detail.no }}</h1>
-              <span v-if="detail.order === 'combined'" class="inline-flex items-center px-1.5 h-[18px] rounded text-[10.5px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200 whitespace-nowrap">{{ t("pl.combined") }}</span>
-              <span v-else class="inline-flex items-center px-1.5 h-[18px] rounded text-[10.5px] font-medium text-stone-600 bg-stone-100 ring-1 ring-stone-200 font-mono">{{ detail.customer || detail.order }}</span>
-              <span v-if="detail.errors" class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10.5px] font-medium text-rose-700 bg-rose-50 ring-1 ring-rose-200 whitespace-nowrap"><span class="w-1.5 h-1.5 rounded-full bg-rose-500" />Short-pick</span>
-              <span v-else class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10.5px] font-medium ring-1" :class="statusPill(detail)"><span class="w-1.5 h-1.5 rounded-full" :class="statusPillDot(detail)" />{{ statusPillLabel(detail) }}</span>
+              <span v-if="detail.order === 'combined'" class="inline-flex items-center px-2 h-[20px] rounded-md text-[11px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200 whitespace-nowrap">{{ t("pl.combined") }}</span>
+              <span v-else class="inline-flex items-center px-2 h-[20px] rounded-md text-[11px] font-medium text-stone-600 bg-stone-100 ring-1 ring-stone-200 font-mono">{{ detail.customer || detail.order }}</span>
+              <span v-if="detail.errors" class="inline-flex items-center gap-1 px-2 h-[20px] rounded-md text-[11px] font-medium text-rose-700 bg-rose-50 ring-1 ring-rose-200 whitespace-nowrap"><span class="w-1.5 h-1.5 rounded-full bg-rose-500" />Short-pick</span>
+              <span v-else class="inline-flex items-center gap-1 px-2 h-[20px] rounded-md text-[11px] font-medium ring-1" :class="statusPill(detail)"><span class="w-1.5 h-1.5 rounded-full" :class="statusPillDot(detail)" />{{ statusPillLabel(detail) }}</span>
             </div>
             <div class="text-[12.5px] text-stone-600 mt-1 flex items-center gap-2">
               <span class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-[9px] font-bold">{{ pickerInitials(detail.picker) }}</span>
               {{ pickerName(detail.picker) }} · {{ t("pl.optimized") }}<span v-if="liveDetail" class="text-stone-400"> · {{ liveDetail.created }}</span>
             </div>
             <div class="flex items-center gap-1.5 mt-2 flex-wrap">
-              <span class="inline-flex items-center px-1.5 h-[18px] rounded text-[10.5px] font-medium text-stone-600 bg-stone-100 ring-1 ring-stone-200 whitespace-nowrap">Delivery</span>
-              <span class="inline-flex items-center px-1.5 h-[18px] rounded text-[10.5px] font-medium text-stone-600 bg-stone-100 ring-1 ring-stone-200 whitespace-nowrap">Source: {{ WAREHOUSE }}</span>
+              <span class="inline-flex items-center px-2 h-[20px] rounded-md text-[11px] font-medium text-stone-600 bg-stone-100 ring-1 ring-stone-200 whitespace-nowrap">Delivery</span>
+              <span class="inline-flex items-center px-2 h-[20px] rounded-md text-[11px] font-medium text-stone-600 bg-stone-100 ring-1 ring-stone-200 whitespace-nowrap">Source: {{ WAREHOUSE }}</span>
               <span class="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200/60 rounded px-1.5 py-0.5"><Icon name="scan-barcode" :size="10" />Scan mode</span>
               <span v-if="detail.order === 'combined'" class="inline-flex items-center gap-1 text-[11px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200/60 rounded px-1.5 py-0.5" v-html="layersIcon(10) + ' Grouped SKUs'" />
             </div>
@@ -261,7 +261,7 @@
               <div class="flex items-center gap-2 px-3 py-2 bg-stone-50 border-b border-stone-100">
                 <span class="font-mono text-[12px] font-semibold text-stone-900">{{ o.so }}</span>
                 <span class="text-[11.5px] text-stone-500 flex-1 truncate">{{ o.customer }}</span>
-                <span class="inline-flex items-center px-1.5 h-[18px] rounded text-[10.5px] font-medium text-stone-600 bg-stone-100 ring-1 ring-stone-200">{{ o.items.length }} lines</span>
+                <span class="inline-flex items-center px-2 h-[20px] rounded-md text-[11px] font-medium text-stone-600 bg-stone-100 ring-1 ring-stone-200">{{ o.items.length }} lines</span>
               </div>
               <div class="divide-y divide-stone-100">
                 <div v-for="(l, j) in o.items" :key="j" class="flex items-center gap-2.5 px-3 py-2">
@@ -314,7 +314,7 @@
       <div class="flex items-center gap-2">
         <div v-if="isLiveData" class="flex items-center rounded-lg ring-1 ring-stone-200 bg-white p-0.5">
           <button v-for="d in [7, 14, 30]" :key="d"
-                  class="px-2.5 h-7 text-[12px] font-medium rounded-md transition-colors"
+                  class="px-3 h-8 text-[12px] font-medium rounded-md transition-colors"
                   :class="daysF === d ? 'bg-stone-900 text-white' : 'text-stone-500 hover:text-stone-800'"
                   @click="daysF = d; load()">{{ d }}d</button>
         </div>
@@ -344,7 +344,7 @@
             <div>
               <div class="flex items-center gap-2">
                 <h2 class="text-[16px] font-semibold text-stone-900">{{ t("pl.apTitle") }}</h2>
-                <span class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10.5px] font-medium ring-1"
+                <span class="inline-flex items-center gap-1 px-2 h-[20px] rounded-md text-[11px] font-medium ring-1"
                       :class="ap.enabled ? 'text-emerald-700 bg-emerald-50 ring-emerald-200' : 'text-stone-600 bg-stone-100 ring-stone-200'">
                   <span class="w-1.5 h-1.5 rounded-full" :class="ap.enabled ? 'bg-emerald-500' : 'bg-stone-400'" />
                   {{ ap.enabled ? t("pl.apActive") : t("pl.apPaused") }}
@@ -398,7 +398,7 @@
             <div>
               <div class="flex items-center gap-2">
                 <h2 class="text-[16px] font-semibold text-stone-900">Pick Autopilot</h2>
-                <span class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10.5px] font-medium ring-1" :class="apOn ? 'text-emerald-700 bg-emerald-50 ring-emerald-200' : 'text-stone-600 bg-stone-100 ring-stone-200'"><span class="w-1.5 h-1.5 rounded-full" :class="apOn ? 'bg-emerald-500' : 'bg-stone-400'" />{{ apOn ? "Active" : "Paused" }}</span>
+                <span class="inline-flex items-center gap-1 px-2 h-[20px] rounded-md text-[11px] font-medium ring-1" :class="apOn ? 'text-emerald-700 bg-emerald-50 ring-emerald-200' : 'text-stone-600 bg-stone-100 ring-stone-200'"><span class="w-1.5 h-1.5 rounded-full" :class="apOn ? 'bg-emerald-500' : 'bg-stone-400'" />{{ apOn ? "Active" : "Paused" }}</span>
               </div>
               <div class="text-[12px] text-stone-500 mt-0.5">AI agent · generates, assigns &amp; monitors picks</div>
             </div>
@@ -459,9 +459,9 @@
       <div v-if="isLiveData" class="relative flex-shrink-0">
         <Icon name="search" :size="13" class="absolute start-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
         <input v-model="q" :placeholder="t('pl.searchPh')" @input="onSearch"
-               class="h-8 w-[200px] ps-8 pe-3 text-[12.5px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none" />
+               class="h-9 w-[210px] ps-8 pe-3 text-[13px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none" />
       </div>
-      <button v-for="f in filters" :key="f[0]" class="px-2.5 h-7 text-[12px] font-medium rounded-lg ring-1 transition-colors whitespace-nowrap" :class="filter === f[0] ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200 hover:ring-stone-300'" @click="setFilter(f[0])">{{ f[1] }}</button>
+      <button v-for="f in filters" :key="f[0]" class="px-3 h-8 text-[12px] font-medium rounded-lg ring-1 transition-colors whitespace-nowrap" :class="filter === f[0] ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200 hover:ring-stone-300'" @click="setFilter(f[0])">{{ f[1] }}</button>
     </div>
 
     <!-- table -->
@@ -469,7 +469,7 @@
       <div class="overflow-x-auto">
         <table class="w-full min-w-[760px]">
           <thead>
-            <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
+            <tr class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
               <th class="text-start px-4 py-2.5">{{ t("pl.thPl") }}</th>
               <th class="text-start px-4 py-2.5">{{ t("pl.thPicker") }}</th>
               <th v-if="!isLiveData" class="text-start px-4 py-2.5">{{ t("pl.thOrigin") }}</th>
@@ -486,12 +486,12 @@
               <td class="px-4 py-2.5 font-mono text-[12px] font-semibold text-stone-900 whitespace-nowrap">{{ p.no }}<svg v-if="p.errors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" class="text-rose-500 inline ms-1.5 -mt-0.5"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg></td>
               <td class="px-4 py-2.5"><div class="flex items-center gap-1.5"><span class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-[9px] font-bold">{{ pickerInitials(p.picker) }}</span><span class="text-[12px] text-stone-700">{{ pickerName(p.picker) }}</span></div></td>
               <td v-if="!isLiveData" class="px-4 py-2.5"><span v-if="plOrigin(p) === 'manual'" class="inline-flex items-center gap-1 text-[10.5px] font-medium text-stone-500 bg-stone-100 rounded px-1.5 py-0.5 whitespace-nowrap"><span v-html="usersIcon(9)" />Manual</span><span v-else class="inline-flex items-center gap-1 text-[10.5px] font-medium text-[var(--accent-700)] bg-[var(--accent-50)] rounded px-1.5 py-0.5 whitespace-nowrap"><span v-html="zapIcon(9)" />Autopilot</span></td>
-              <td class="px-4 py-2.5 text-[12px] text-stone-600"><span v-if="p.order === 'combined'" class="inline-flex items-center px-1.5 h-[18px] rounded text-[10.5px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200 whitespace-nowrap">{{ t("pl.combined") }}<template v-if="p.orders"> · {{ p.orders }}</template></span><span v-else class="font-mono text-[11.5px] truncate">{{ p.customer || p.order }}</span></td>
+              <td class="px-4 py-2.5 text-[12px] text-stone-600"><span v-if="p.order === 'combined'" class="inline-flex items-center px-2 h-[20px] rounded-md text-[11px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200 whitespace-nowrap">{{ t("pl.combined") }}<template v-if="p.orders"> · {{ p.orders }}</template></span><span v-else class="font-mono text-[11.5px] truncate">{{ p.customer || p.order }}</span></td>
               <td class="px-4 py-2.5 text-end text-[12px] text-stone-500 tabular-nums hidden sm:table-cell">{{ p.items ?? "—" }}</td>
               <td class="px-4 py-2.5 text-end text-[12.5px] font-semibold text-stone-900 tabular-nums">{{ p.qty }}</td>
               <td v-if="isLiveData" class="px-4 py-2.5 text-[11.5px] text-stone-500 tabular-nums whitespace-nowrap hidden md:table-cell">{{ (p.created || "").slice(5) }}</td>
               <td class="px-4 py-2.5"><div class="flex items-center gap-2"><div class="flex-1 h-1.5 rounded-full bg-stone-100 overflow-hidden"><div class="h-full rounded-full" :class="p.errors ? 'bg-rose-500' : 'bg-emerald-500'" :style="{ width: p.pct + '%' }" /></div><span class="text-[10.5px] text-stone-400 tabular-nums w-[28px]">{{ p.pct }}%</span></div></td>
-              <td class="px-4 py-2.5"><span v-if="p.errors" class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10.5px] font-medium text-rose-700 bg-rose-50 ring-1 ring-rose-200 whitespace-nowrap"><span class="w-1.5 h-1.5 rounded-full bg-rose-500" />Short-pick</span><span v-else class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10.5px] font-medium ring-1" :class="plStatusChip(p.status)"><span class="w-1.5 h-1.5 rounded-full" :class="plStatusDot(p.status)" />{{ plStatusLabel(p.status) }}</span></td>
+              <td class="px-4 py-2.5"><span v-if="p.errors" class="inline-flex items-center gap-1 px-2 h-[20px] rounded-md text-[11px] font-medium text-rose-700 bg-rose-50 ring-1 ring-rose-200 whitespace-nowrap"><span class="w-1.5 h-1.5 rounded-full bg-rose-500" />Short-pick</span><span v-else class="inline-flex items-center gap-1 px-2 h-[20px] rounded-md text-[11px] font-medium ring-1" :class="plStatusChip(p.status)"><span class="w-1.5 h-1.5 rounded-full" :class="plStatusDot(p.status)" />{{ plStatusLabel(p.status) }}</span></td>
             </tr>
           </tbody>
         </table>
@@ -557,7 +557,7 @@
                 <div class="ms-auto flex items-center gap-1.5">
                   <span class="text-[10.5px] text-stone-400">{{ t("pl.sbPicker") }}</span>
                   <select v-model="pickerFor[b.key]"
-                          class="h-7 ps-2 pe-6 rounded-md bg-white ring-1 ring-stone-200 text-[11.5px] text-stone-700 appearance-none cursor-pointer focus:outline-none"
+                          class="h-8 ps-2.5 pe-6 rounded-lg bg-white ring-1 ring-stone-200 text-[12px] text-stone-700 appearance-none cursor-pointer focus:outline-none"
                           @click.stop>
                     <option value="">{{ t("pl.sbUnassigned") }}</option>
                     <option v-for="p in sbPickers" :key="p.email" :value="p.email">{{ p.name }} ({{ p.load }})</option>
@@ -648,7 +648,7 @@
                 <div class="flex items-center justify-between gap-2">
                   <div class="flex items-center gap-2 min-w-0">
                     <span class="font-mono text-[12px] font-semibold text-stone-900">{{ g.no }}</span>
-                    <span class="inline-flex items-center px-1.5 h-[18px] rounded text-[10.5px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200 whitespace-nowrap">{{ g.kind }}</span>
+                    <span class="inline-flex items-center px-2 h-[20px] rounded-md text-[11px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200 whitespace-nowrap">{{ g.kind }}</span>
                     <span class="text-[12px] text-stone-600 truncate">{{ g.label }}</span>
                   </div>
                   <div class="flex items-center gap-1.5 flex-shrink-0">

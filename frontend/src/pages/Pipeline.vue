@@ -110,7 +110,7 @@
                     :style="{ background: s.hex + '1c', color: s.hex }">
                 <Icon :name="s.icon" :size="15" />
               </span>
-              <span class="text-[10.5px] font-semibold uppercase tracking-[0.04em] truncate"
+              <span class="text-[11px] font-semibold uppercase tracking-[0.04em] truncate"
                     :class="activeStage === s.key ? 'text-stone-900' : 'text-stone-500'">{{ t('ordersPg.stages.' + s.key + '.label') }}</span>
             </div>
             <div class="mt-2.5 flex items-baseline gap-1.5 min-w-0">
@@ -122,12 +122,12 @@
                 {{ fmtK(values[s.key]) }}
               </span>
               <span v-if="s.key === 'to_pick' && counts.to_pick_late > 0"
-                    class="ms-auto flex-shrink-0 text-[9.5px] font-bold text-rose-600 bg-rose-50 px-1 py-0.5 rounded tabular-nums"
+                    class="ms-auto flex-shrink-0 text-[10.5px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md tabular-nums"
                     :title="counts.to_pick_late + ' ' + t('ordersPg.late')">
                 ⏰{{ fmtK(counts.to_pick_late) }}
               </span>
             </div>
-            <div class="mt-1 text-[10.5px] text-stone-400 leading-tight truncate"
+            <div class="mt-1 text-[11px] text-stone-400 leading-tight truncate"
                  :title="t('ordersPg.stages.' + s.key + '.hint')">{{ t('ordersPg.stages.' + s.key + '.hint') }}</div>
             <div class="mt-auto pt-2">
               <div class="h-[3px] rounded-full bg-stone-100 overflow-hidden">
@@ -149,7 +149,7 @@
       <div class="relative">
         <select
           v-model="cityFilter"
-          class="h-8 ps-3 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] text-stone-700 appearance-none cursor-pointer capitalize focus:ring-2 focus:outline-none"
+          class="h-9 ps-3 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] text-stone-700 appearance-none cursor-pointer capitalize focus:ring-2 focus:outline-none"
           style="--tw-ring-color: var(--accent-400)"
           @change="load(activeStage, activeTrack)"
         >
@@ -209,18 +209,18 @@
               <th v-if="selectableStage" class="w-10 px-3 py-2.5 text-center">
                 <input type="checkbox" class="board-cb" :checked="allSelected" @change="toggleAll" />
               </th>
-              <th class="text-start px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thOrder") }}</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thCustomer") }}</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 hidden md:table-cell">{{ t("ordersPg.thChannel") }}</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thStage") }}</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thSla") }}</th>
-              <th v-if="activeStage !== 'to_pick'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 hidden xl:table-cell">{{ t("ordersPg.thDocs") }}</th>
-              <th v-if="activeStage === 'attention'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thFault") }}</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thCity") }}</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 hidden xl:table-cell">{{ t("ordersPg.thPicker") }}</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 cursor-pointer select-none hover:text-stone-600" @click="toggleSort('placed')" :class="'hidden lg:table-cell'">{{ t('ordersPg.thPlaced') }} <span v-if="sortKey==='placed'">{{ sortDir==='asc' ? '↑' : '↓' }}</span></th>
-              <th class="text-end px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 cursor-pointer select-none hover:text-stone-600" @click="toggleSort('value')">{{ t('ordersPg.thValue') }} <span v-if="sortKey==='value'">{{ sortDir==='asc' ? '↑' : '↓' }}</span></th>
-              <th class="text-end px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400"></th>
+              <th class="text-start px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thOrder") }}</th>
+              <th class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thCustomer") }}</th>
+              <th class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400 hidden md:table-cell">{{ t("ordersPg.thChannel") }}</th>
+              <th class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thStage") }}</th>
+              <th class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thSla") }}</th>
+              <th v-if="activeStage !== 'to_pick'" class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400 hidden xl:table-cell">{{ t("ordersPg.thDocs") }}</th>
+              <th v-if="activeStage === 'attention'" class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thFault") }}</th>
+              <th class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thCity") }}</th>
+              <th class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400 hidden xl:table-cell">{{ t("ordersPg.thPicker") }}</th>
+              <th class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400 cursor-pointer select-none hover:text-stone-600" @click="toggleSort('placed')" :class="'hidden lg:table-cell'">{{ t('ordersPg.thPlaced') }} <span v-if="sortKey==='placed'">{{ sortDir==='asc' ? '↑' : '↓' }}</span></th>
+              <th class="text-end px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400 cursor-pointer select-none hover:text-stone-600" @click="toggleSort('value')">{{ t('ordersPg.thValue') }} <span v-if="sortKey==='value'">{{ sortDir==='asc' ? '↑' : '↓' }}</span></th>
+              <th class="text-end px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400"></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-stone-100">
@@ -236,7 +236,7 @@
                 <div class="font-mono font-bold text-stone-900 flex items-center gap-1.5">
                   {{ r.no }}
                   <span v-if="activeStage === 'to_pick' && missedCutoff(r)"
-                        class="text-[9.5px] font-sans font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded ring-1 ring-rose-200/70 whitespace-nowrap">
+                        class="text-[10.5px] font-sans font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md ring-1 ring-rose-200/70 whitespace-nowrap">
                     {{ t("ordersPg.missedCutoff") }}
                   </span>
                 </div>
@@ -244,7 +244,7 @@
               </td>
               <td class="px-3 py-3">
                 <div class="font-medium text-stone-800 truncate max-w-[200px]">{{ r.customer }}</div>
-                <div v-if="r.itemsDesc" class="text-[10.5px] text-stone-400 truncate max-w-[200px] mt-0.5" :title="r.itemsDesc">
+                <div v-if="r.itemsDesc" class="text-[11px] text-stone-400 truncate max-w-[200px] mt-0.5" :title="r.itemsDesc">
                   {{ r.itemsDesc }}
                 </div>
                 <div class="flex items-center gap-1.5 mt-0.5">
@@ -358,7 +358,7 @@
           <div class="flex items-center gap-2">
             <select
               :value="pageSize"
-              class="h-7 ps-2 pe-6 rounded-md bg-white ring-1 ring-stone-200 text-[11.5px] text-stone-600 appearance-none cursor-pointer focus:outline-none"
+              class="h-8 ps-2.5 pe-6 rounded-lg bg-white ring-1 ring-stone-200 text-[12px] text-stone-600 appearance-none cursor-pointer focus:outline-none"
               @change="setPageSize"
             >
               <option :value="20">20 {{ t("ordersPg.perPage") }}</option>
@@ -490,7 +490,7 @@
                       <span class="text-[11.5px] font-medium text-stone-900 truncate">{{ e.title }}</span>
                       <span class="text-[10px] text-stone-400 tabular-nums flex-shrink-0">{{ e.when.slice(5) }}</span>
                     </div>
-                    <div class="text-[10.5px] text-stone-500 truncate">{{ qvActor(e.actor) }}<span v-if="e.detail" class="font-mono"> · {{ e.detail }}</span></div>
+                    <div class="text-[11px] text-stone-500 truncate">{{ qvActor(e.actor) }}<span v-if="e.detail" class="font-mono"> · {{ e.detail }}</span></div>
                   </div>
                 </li>
               </ol>
@@ -1027,7 +1027,7 @@ function actionFor(r) {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 4px 9px; border-radius: 7px;
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 11px; font-weight: 500;
+  font-size: 11.5px; font-weight: 500;
   box-shadow: inset 0 0 0 1px var(--chip-ring, transparent);
   transition: background-color .15s;
 }
@@ -1037,8 +1037,8 @@ function actionFor(r) {
 }
 .pager-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  height: 28px; padding: 0 7px; border-radius: 7px;
-  font-size: 12px; font-weight: 600; color: #57534e;
+  height: 32px; padding: 0 9px; border-radius: 8px;
+  font-size: 12.5px; font-weight: 600; color: #57534e;
   background: #fff; box-shadow: inset 0 0 0 1px #e7e5e4;
   transition: background-color .12s;
 }

@@ -14,6 +14,8 @@ export default defineConfig(({ mode }) => {
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // Chunk URLs must resolve against frappe's static mount, not the page URL.
+  base: mode === "production" ? "/assets/logistics_portal/" : "/",
   build: {
     outDir: "../logistics_portal/public",
     emptyOutDir: false,
@@ -22,9 +24,14 @@ export default defineConfig(({ mode }) => {
     rollupOptions: {
       input: path.resolve(__dirname, "src/main.js"),
       output: {
+        // Stable entry (frappe's include_script busts it with ?ver=), hashed
+        // route chunks (immutable-cacheable), one CSS file. Real code
+        // splitting: first paint ships the shell + current page only.
         entryFileNames: "logistics_portal.bundle.js",
+        chunkFileNames: "lp-[name]-[hash].js",
         assetFileNames: "logistics_portal.bundle.css",
-        inlineDynamicImports: true,
+        manualChunks: (id) =>
+          id.includes("node_modules") ? "vendor" : undefined,
       },
     },
   },
