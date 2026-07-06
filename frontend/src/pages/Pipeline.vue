@@ -15,7 +15,7 @@
           <input
             v-model="q"
             :placeholder="t('ordersPg.searchPh')"
-            class="h-9 w-[230px] ps-8 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[13px] text-stone-900 placeholder:text-stone-400 focus:ring-2 focus:outline-none transition"
+            class="h-9 w-[230px] max-w-full max-sm:w-[170px] ps-8 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[13px] text-stone-900 placeholder:text-stone-400 focus:ring-2 focus:outline-none transition"
             style="--tw-ring-color: var(--accent-400)"
             @input="onSearch"
           />
@@ -81,7 +81,7 @@
 
     <!-- Flow strip (skeleton on first load — never dummy numbers) -->
     <div v-if="mode === 'loading'" class="overflow-x-auto py-1 -mx-1 px-1">
-      <div class="flex items-stretch gap-2 min-w-[980px]">
+      <div class="flex items-stretch gap-2 min-w-[1120px]">
         <div v-for="n in 8" :key="n" class="flex-1 rounded-xl ring-1 ring-stone-200/60 bg-white/70 p-3 animate-pulse">
           <div class="flex items-center gap-2">
             <div class="w-7 h-7 rounded-lg bg-stone-100" />
@@ -93,43 +93,47 @@
       </div>
     </div>
     <div v-else class="overflow-x-auto py-1 -mx-1 px-1">
-      <div class="flex items-stretch gap-0 min-w-[980px]">
+      <div class="flex items-stretch gap-0 min-w-[1120px]">
         <template v-for="(s, i) in stages" :key="s.key">
           <button
-            class="relative flex-1 text-start rounded-xl p-3 ring-1 transition-all duration-200 group overflow-hidden"
+            class="relative flex-1 min-w-[122px] text-start rounded-xl p-3 ring-1 transition-all duration-200 group overflow-hidden flex flex-col"
             :class="activeStage === s.key
               ? 'bg-white shadow-[0_8px_24px_-8px_rgba(0,0,0,0.14)] ring-2'
-              : 'bg-white/60 ring-stone-200/70 hover:bg-white hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.1)]'"
+              : 'bg-white/60 ring-stone-200/70 hover:bg-white hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.1)] hover:-translate-y-px'"
             :style="activeStage === s.key ? { '--tw-ring-color': s.hex } : {}"
             @click="load(s.key)"
           >
             <span class="absolute top-0 inset-x-0 h-[3px] transition-opacity"
                   :style="{ background: s.hex, opacity: activeStage === s.key ? 1 : 0 }" />
-            <div class="flex items-center gap-2 whitespace-nowrap">
+            <div class="flex items-center gap-2 min-w-0">
               <span class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
                     :style="{ background: s.hex + '1c', color: s.hex }">
                 <Icon :name="s.icon" :size="15" />
               </span>
-              <span class="text-[10.5px] font-semibold uppercase tracking-[0.04em]"
+              <span class="text-[10.5px] font-semibold uppercase tracking-[0.04em] truncate"
                     :class="activeStage === s.key ? 'text-stone-900' : 'text-stone-500'">{{ t('ordersPg.stages.' + s.key + '.label') }}</span>
             </div>
-            <div class="mt-2 flex items-baseline gap-1.5">
-              <span class="text-[24px] leading-none font-semibold tabular-nums"
+            <div class="mt-2.5 flex items-baseline gap-1.5 min-w-0">
+              <span class="text-[25px] leading-none font-semibold tabular-nums flex-shrink-0"
                     :style="{ color: (counts[s.key] ?? 0) > 0 ? s.hex : '#d6d3d1' }">
                 {{ counts[s.key] ?? "—" }}
               </span>
-              <span v-if="values[s.key]" class="text-[10.5px] font-mono font-medium text-stone-400 tabular-nums">
+              <span v-if="values[s.key]" class="text-[10.5px] font-mono font-medium text-stone-400 tabular-nums truncate">
                 {{ fmtK(values[s.key]) }}
               </span>
               <span v-if="s.key === 'to_pick' && counts.to_pick_late > 0"
-                    class="ms-auto text-[9.5px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md ring-1 ring-rose-200/60 tabular-nums whitespace-nowrap">
-                {{ counts.to_pick_late }} {{ t('ordersPg.late') }}
+                    class="ms-auto flex-shrink-0 text-[9.5px] font-bold text-rose-600 bg-rose-50 px-1 py-0.5 rounded tabular-nums"
+                    :title="counts.to_pick_late + ' ' + t('ordersPg.late')">
+                ⏰{{ fmtK(counts.to_pick_late) }}
               </span>
             </div>
-            <div class="mt-1 text-[10.5px] text-stone-400 leading-tight">{{ t('ordersPg.stages.' + s.key + '.hint') }}</div>
-            <div class="mt-2 h-[3px] rounded-full bg-stone-100 overflow-hidden">
-              <div class="h-full rounded-full transition-all duration-500"
-                   :style="{ width: stageShare(s.key) + '%', background: s.hex, opacity: 0.7 }" />
+            <div class="mt-1 text-[10.5px] text-stone-400 leading-tight truncate"
+                 :title="t('ordersPg.stages.' + s.key + '.hint')">{{ t('ordersPg.stages.' + s.key + '.hint') }}</div>
+            <div class="mt-auto pt-2">
+              <div class="h-[3px] rounded-full bg-stone-100 overflow-hidden">
+                <div class="h-full rounded-full transition-all duration-500"
+                     :style="{ width: stageShare(s.key) + '%', background: s.hex, opacity: 0.7 }" />
+              </div>
             </div>
           </button>
           <div v-if="i < stages.length - 1" class="flex items-center px-0.5 text-stone-300 flex-shrink-0">
@@ -207,14 +211,14 @@
               </th>
               <th class="text-start px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thOrder") }}</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thCustomer") }}</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thChannel") }}</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 hidden md:table-cell">{{ t("ordersPg.thChannel") }}</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thStage") }}</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thSla") }}</th>
-              <th v-if="activeStage !== 'to_pick'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thDocs") }}</th>
+              <th v-if="activeStage !== 'to_pick'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 hidden xl:table-cell">{{ t("ordersPg.thDocs") }}</th>
               <th v-if="activeStage === 'attention'" class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thFault") }}</th>
               <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thCity") }}</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thPicker") }}</th>
-              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 cursor-pointer select-none hover:text-stone-600" @click="toggleSort('placed')">{{ t('ordersPg.thPlaced') }} <span v-if="sortKey==='placed'">{{ sortDir==='asc' ? '↑' : '↓' }}</span></th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 hidden xl:table-cell">{{ t("ordersPg.thPicker") }}</th>
+              <th class="text-start px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 cursor-pointer select-none hover:text-stone-600" @click="toggleSort('placed')" :class="'hidden lg:table-cell'">{{ t('ordersPg.thPlaced') }} <span v-if="sortKey==='placed'">{{ sortDir==='asc' ? '↑' : '↓' }}</span></th>
               <th class="text-end px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 cursor-pointer select-none hover:text-stone-600" @click="toggleSort('value')">{{ t('ordersPg.thValue') }} <span v-if="sortKey==='value'">{{ sortDir==='asc' ? '↑' : '↓' }}</span></th>
               <th class="text-end px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400"></th>
             </tr>
@@ -259,7 +263,7 @@
                   </template>
                 </div>
               </td>
-              <td class="px-3 py-3">
+              <td class="px-3 py-3 hidden md:table-cell">
                 <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-semibold ring-1 ring-inset whitespace-nowrap bg-white"
                       :style="{ color: channelHex(channelOf(r)), '--tw-ring-color': channelHex(channelOf(r)) + '55' }">
                   {{ channelLabel(channelOf(r)) }}
@@ -280,7 +284,7 @@
                   {{ slaOf(r).label }}
                 </span>
               </td>
-              <td v-if="activeStage !== 'to_pick'" class="px-3 py-3">
+              <td v-if="activeStage !== 'to_pick'" class="px-3 py-3 hidden xl:table-cell">
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <a v-if="r.pl" :href="desk('pick-list', r.pl)" target="_blank" @click.stop
                      class="doc-chip text-violet-700 bg-violet-50 hover:bg-violet-100" style="--chip-ring:#ddd6fe">
@@ -311,10 +315,10 @@
                 </span>
               </td>
               <td class="px-3 py-3">
-                <span v-if="r.city" class="text-[12px] text-stone-600 capitalize whitespace-nowrap">{{ r.city }}</span>
+                <span v-if="r.city" class="text-[12px] text-stone-600 capitalize block truncate max-w-[150px]" :title="r.city">{{ r.city }}</span>
                 <span v-else class="text-[11px] text-stone-300">—</span>
               </td>
-              <td class="px-3 py-3">
+              <td class="px-3 py-3 hidden xl:table-cell">
                 <div v-if="r.picker" class="flex items-center gap-1.5">
                   <span class="w-6 h-6 rounded-full bg-stone-200/80 text-stone-600 text-[9.5px] font-bold flex items-center justify-center uppercase">
                     {{ initials(r.picker) }}
@@ -323,7 +327,7 @@
                 </div>
                 <span v-else class="text-[11px] text-stone-300">—</span>
               </td>
-              <td class="px-3 py-3 whitespace-nowrap">
+              <td class="px-3 py-3 whitespace-nowrap hidden lg:table-cell">
                 <span v-if="r.created" class="text-[12.5px] font-medium text-stone-700 tabular-nums">{{ createdFmt(r.created) }}</span>
                 <span class="text-[11.5px] tabular-nums ms-1.5 font-semibold" :style="{ color: ageHex(r.ageMins) }">· {{ ageFmt(r.ageMins) }}</span>
               </td>

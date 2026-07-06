@@ -187,7 +187,7 @@ def _city_facet(stage, track, top=14):
             SELECT COALESCE(NULLIF(so.custom_shipping_city,''), addr.city) c, COUNT(*) n
             FROM `tabSales Order` so {joins}
             WHERE {where}
-            GROUP BY c HAVING c IS NOT NULL AND c != ''
+            GROUP BY c HAVING c IS NOT NULL AND c != '' AND CHAR_LENGTH(c) <= 28
             ORDER BY n DESC LIMIT {int(top)}""", tuple(args), as_dict=True)
         return [{"city": r.c, "count": int(r.n)} for r in rows]
     except Exception:
@@ -363,7 +363,9 @@ def _row(r, **extra):
     return dict({
         "no": r.name, "customer": r.customer_name, "total": r.grand_total or 0,
         "channel": (r.custom_channel or "").lower(),
-        "items": r.custom_items_count or 1, "city": r.get("city_val") or "",
+        "items": r.custom_items_count or 1,
+        # >28 chars means the Address "city" field holds a full address line — not a city.
+        "city": (r.get("city_val") or "") if len(r.get("city_val") or "") <= 28 else "",
         "status": r.get("lstatus") or "",
         "phone": r.get("phone") or "",
         "awb": r.custom_awb or "", "labelUrl": r.get("custom_label_url") or "",
