@@ -136,3 +136,11 @@ html[data-theme="dark"] img[alt="Justyol"] { filter: invert(1) brightness(1.8); 
 
 [dir="rtl"] .flip-rtl { transform: scaleX(-1); }
 @keyframes shimmer { 100% { transform: translateX(100%); } }
+
+/* ==========================================================================
+   Comfort remap — light mode only. Raw stone-400/500 text was a step too
+   faint for hours of reading (≈2.9:1 on white); nudge one step darker.
+   Icons/dots keep their own colors; this touches text color utilities only.
+   ========================================================================== */
+html:not([data-theme="dark"]) .text-stone-400 { color: #8a827c; }
+html:not([data-theme="dark"]) .text-stone-500 { color: #5f5a54; }

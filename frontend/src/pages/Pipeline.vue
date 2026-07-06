@@ -89,7 +89,7 @@
 
     <!-- Flow strip (skeleton on first load — never dummy numbers) -->
     <div v-if="mode === 'loading'" class="overflow-x-auto py-1 -mx-1 px-1">
-      <div class="flex items-stretch gap-2 min-w-[1120px]">
+      <div class="flex items-stretch gap-2 min-w-[920px]">
         <div v-for="n in 8" :key="n" class="flex-1 rounded-xl ring-1 ring-stone-200/60 bg-white/70 p-3 animate-pulse">
           <div class="flex items-center gap-2">
             <div class="w-7 h-7 rounded-lg bg-stone-100" />
@@ -101,10 +101,10 @@
       </div>
     </div>
     <div v-else class="overflow-x-auto py-1 -mx-1 px-1">
-      <div class="flex items-stretch gap-0 min-w-[1120px]">
+      <div class="flex items-stretch gap-1.5 min-w-[920px]">
         <template v-for="(s, i) in stages" :key="s.key">
           <button
-            class="relative flex-1 min-w-[122px] text-start rounded-xl p-3 ring-1 transition-all duration-200 group overflow-hidden flex flex-col"
+            class="relative flex-1 min-w-[106px] text-start rounded-xl p-3 ring-1 transition-all duration-200 group overflow-hidden flex flex-col"
             :class="activeStage === s.key
               ? 'bg-white shadow-[0_8px_24px_-8px_rgba(0,0,0,0.14)] ring-2'
               : 'bg-white/60 ring-stone-200/70 hover:bg-white hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.1)] hover:-translate-y-px'"
@@ -113,17 +113,17 @@
           >
             <span class="absolute top-0 inset-x-0 h-[3px] transition-opacity"
                   :style="{ background: s.hex, opacity: activeStage === s.key ? 1 : 0 }" />
-            <div class="flex items-center gap-2 min-w-0">
-              <span class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+            <div class="flex items-center gap-1.5 min-w-0">
+              <span class="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0"
                     :style="{ background: s.hex + '1c', color: s.hex }">
-                <Icon :name="s.icon" :size="15" />
+                <Icon :name="s.icon" :size="13" />
               </span>
-              <span class="text-[11px] font-semibold uppercase tracking-[0.04em] truncate"
+              <span class="text-[10.5px] font-semibold uppercase tracking-[0.03em] truncate"
                     :class="activeStage === s.key ? 'text-stone-900' : 'text-stone-500'">{{ t('ordersPg.stages.' + s.key + '.label') }}</span>
             </div>
-            <div class="mt-2.5 flex items-baseline gap-1.5 min-w-0">
-              <span class="text-[25px] leading-none font-semibold tabular-nums flex-shrink-0"
-                    :style="{ color: (counts[s.key] ?? 0) > 0 ? s.hex : '#d6d3d1' }">
+            <div class="mt-2.5 flex items-baseline gap-1.5 min-w-0 flex-wrap">
+              <span class="text-[23px] leading-none font-semibold tabular-nums flex-shrink-0"
+                    :class="(counts[s.key] ?? 0) > 0 ? 'text-stone-900' : 'text-stone-300'">
                 {{ counts[s.key] ?? "—" }}
               </span>
               <span v-if="values[s.key]" class="text-[10.5px] font-mono font-medium text-stone-400 tabular-nums truncate">
@@ -144,7 +144,7 @@
               </div>
             </div>
           </button>
-          <div v-if="i < stages.length - 1" class="flex items-center px-0.5 text-stone-300 flex-shrink-0">
+          <div v-if="i < stages.length - 1" class="hidden 2xl:flex items-center px-0.5 text-stone-300 flex-shrink-0">
             <Icon name="chevron-right" :size="14" class="flip-rtl" />
           </div>
         </template>
@@ -272,8 +272,8 @@
                 </div>
               </td>
               <td class="px-3 py-3 hidden md:table-cell">
-                <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-semibold ring-1 ring-inset whitespace-nowrap bg-white"
-                      :style="{ color: channelHex(channelOf(r)), '--tw-ring-color': channelHex(channelOf(r)) + '55' }">
+                <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11.5px] font-medium text-stone-600 whitespace-nowrap">
+                  <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="{ background: channelHex(channelOf(r)) }" />
                   {{ channelLabel(channelOf(r)) }}
                 </span>
               </td>
@@ -286,7 +286,12 @@
                 <span v-else class="text-[11px] text-stone-300">—</span>
               </td>
               <td class="px-3 py-3">
-                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold ring-1 ring-inset whitespace-nowrap"
+                <span v-if="slaOf(r).calm"
+                      class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11.5px] font-medium text-stone-500 whitespace-nowrap">
+                  <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="{ background: slaOf(r).hex }" />
+                  {{ slaOf(r).label }}
+                </span>
+                <span v-else class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold ring-1 ring-inset whitespace-nowrap"
                       :style="{ color: slaOf(r).hex, background: slaOf(r).hex + '10', '--tw-ring-color': slaOf(r).hex + '45' }">
                   <span class="w-1.5 h-1.5 rounded-full" :style="{ background: slaOf(r).hex }" />
                   {{ slaOf(r).label }}
@@ -340,7 +345,7 @@
                 <span class="text-[11.5px] tabular-nums ms-1.5 font-semibold" :style="{ color: ageHex(r.ageMins) }">· {{ ageFmt(r.ageMins) }}</span>
               </td>
               <td class="px-3 py-3 text-end">
-                <span class="font-mono font-semibold text-stone-900 tabular-nums">{{ fmtMAD(r.total) }}</span>
+                <span class="font-semibold text-stone-900 tabular-nums">{{ fmtMAD(r.total) }}</span>
                 <span class="text-[10px] text-stone-400"> MAD</span>
               </td>
               <td class="px-4 py-3 text-end">
@@ -361,7 +366,7 @@
         <div class="flex items-center justify-between gap-3 px-4 py-2.5 border-t border-stone-100 bg-stone-50/50 flex-wrap">
           <span class="text-[11.5px] text-stone-500 tabular-nums whitespace-nowrap">
             {{ rangeStart }}–{{ rangeEnd }} {{ t("ordersPg.of") }} {{ total }}
-            <span class="text-stone-400 ms-2 font-mono">{{ fmtMAD(rowsTotal) }} MAD</span>
+            <span class="text-stone-400 ms-2 tabular-nums">{{ fmtMAD(rowsTotal) }} MAD</span>
           </span>
           <div class="flex items-center gap-2">
             <select
@@ -978,11 +983,11 @@ function stageLabelOf() {
 // carrier has it; carrier exceptions after.
 function slaOf(r) {
   const st = activeStage.value;
-  if (st === "delivered") return { label: t("sla.delivered"), hex: "#10b981" };
-  if (st === "to_return" || st === "returned") return { label: t("sla.returned"), hex: "#78716c" };
+  if (st === "delivered") return { label: t("sla.delivered"), hex: "#10b981", calm: true };
+  if (st === "to_return" || st === "returned") return { label: t("sla.returned"), hex: "#78716c", calm: true };
   if (st === "shipped") {
     if (r.track === "Delivery Exception" || r.track === "Failed Attempt") return { label: t("sla.late"), hex: "#ea580c" };
-    return { label: t("sla.onTrack"), hex: "#10b981" };
+    return { label: t("sla.onTrack"), hex: "#10b981", calm: true };
   }
   if (missedCutoff(r)) return { label: t("sla.breached"), hex: "#e11d48" };
   if (r.created) {
@@ -992,7 +997,7 @@ function slaOf(r) {
     const today = new Date(now); today.setHours(0, 0, 0, 0);
     if (created >= today && now < cut && (cut - now) < 90 * 60000) return { label: t("sla.atRisk"), hex: "#d97706" };
   }
-  return { label: t("sla.onTrack"), hex: "#10b981" };
+  return { label: t("sla.onTrack"), hex: "#10b981", calm: true };
 }
 function statusHex(s) {
   return {
