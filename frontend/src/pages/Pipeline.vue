@@ -39,6 +39,14 @@
           <Icon name="chevron-down" :size="13" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-end:.6rem" />
         </div>
         <button
+          v-if="activeStage === 'to_pick' && mode === 'live'"
+          class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white transition-colors hover:brightness-110"
+          style="background: var(--accent-600)"
+          @click="sbModal && sbModal.open()"
+        >
+          <Icon name="package" :size="14" /> {{ t("pl.sbBtn") }}
+        </button>
+        <button
           class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
           :class="exporting ? 'opacity-60 pointer-events-none' : ''"
           @click="exportCsv"
@@ -390,6 +398,8 @@
       {{ t("ordersPg.footnote") }} {{ updatedAgo }}
     </div>
 
+    <SuggestBatchesModal ref="sbModal" @created="load('to_pick')" />
+
     <!-- Quick-view drawer -->
     <transition name="qv">
       <div v-if="drawerRow" class="fixed inset-0 z-[90]">
@@ -555,6 +565,7 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import SuggestBatchesModal from "@/components/SuggestBatchesModal.vue";
 import { WAREHOUSE, fmtMAD } from "@/lib/handoffData";
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
@@ -562,6 +573,7 @@ import { useI18n } from "@/composables/useI18n";
 
 const router = useRouter();
 const route = useRoute();
+const sbModal = ref(null);
 const { success, warn } = useToast();
 const { t, locale } = useI18n();
 
