@@ -270,6 +270,14 @@ def create_pick_list_from_orders(orders, picker=None):
 
     if isinstance(orders, str):
         orders = json.loads(orders)
+    result = _build_pick_list(orders, picker)
+    frappe.cache().delete_value("lp_board_summary")
+    return result
+
+
+def _build_pick_list(orders, picker=None):
+    """Validate + insert one draft Pick List for a batch of orders (no role
+    check, no cache bust — callers own those)."""
     orders = [o.strip() for o in (orders or []) if o and o.strip()]
     if not orders:
         frappe.throw("No orders selected.")
@@ -319,8 +327,6 @@ def create_pick_list_from_orders(orders, picker=None):
     except Exception:
         pass
     pl.insert()
-    # The board caches its summary for 60s — bust it so the action shows at once.
-    frappe.cache().delete_value("lp_board_summary")
     return {"pl": pl.name, "orders": len(sos), "items": len(pl.locations)}
 
 
@@ -343,6 +349,7 @@ def pickers():
                 continue
             out.append({
                 "id": pid,
+                "email": r.email,
                 "name": frappe.db.get_value("User", r.email, "full_name") or r.email,
                 "load": int(r.load or 0),
                 "capacity": 15,
@@ -356,6 +363,249 @@ def pickers():
 def assignment_board():
     """Unassigned ready orders + per-picker live load, for the dispatcher board."""
     return {"unassigned": [], "pickers": pickers()}
+
+
+
+
+# ---------------------------------------------------------------------------
+# Smart batching engine — one brain for manual preview AND the autopilot.
+# Waterfall: mono-SKU express → single-line aisle run → multi-line zone
+# cluster → mixed sweep. Grounded in production: 75% of the to-pick pool is
+# single-line, top SKUs repeat 5-10x, shelf warehouses encode aisle/rack/level
+# (e.g. "H4B - JM"), and 15% of pending SKUs have no stock (excluded as OOS).
+# ---------------------------------------------------------------------------
+import re as _re
+
+_SHELF_RE = _re.compile(r"^([A-Z])(\d+)([A-Z]) - JM$")
+
+
+def _resolve_bins(item_codes):
+    """item_code → its best pick location: a shelf bin with stock first
+    (aisle-walkable), else any staging bin with stock, else None (OOS)."""
+    if not item_codes:
+        return {}
+    rows = frappe.db.sql(
+        """SELECT item_code, warehouse, actual_qty FROM `tabBin`
+           WHERE actual_qty > 0 AND item_code IN %(items)s""",
+        {"items": tuple(item_codes)}, as_dict=True)
+    best = {}
+    for r in rows:
+        m = _SHELF_RE.match(r.warehouse or "")
+        cand = {
+            "bin": r.warehouse,
+            "shelf": bool(m),
+            "aisle": m.group(1) if m else "STG",
+            "walk": (m.group(1), int(m.group(2)), m.group(3)) if m else ("~", 0, ""),
+            "qty": float(r.actual_qty or 0),
+        }
+        cur = best.get(r.item_code)
+        # prefer shelf over staging; within the same class prefer more stock
+        if not cur or (cand["shelf"], cand["qty"]) > (cur["shelf"], cur["qty"]):
+            best[r.item_code] = cand
+    return best
+
+
+def _chunk(seq, cap_orders, cap_units, units_of):
+    """Split a queue into batches respecting both caps."""
+    out, cur, cur_units = [], [], 0
+    for o in seq:
+        u = units_of(o)
+        if cur and (len(cur) >= cap_orders or cur_units + u > cap_units):
+            out.append(cur)
+            cur, cur_units = [], 0
+        cur.append(o)
+        cur_units += u
+    if cur:
+        out.append(cur)
+    return out
+
+
+@frappe.whitelist()
+def suggest_batches(cap_orders=15, cap_units=25, min_mono=3):
+    """Batch proposal over the LIVE to-pick pool (same definition as the Orders
+    board). Returns {batches, oos, poolTotal, batched, serverNow}; each batch
+    carries its orders, walk-ordered lines, aisles and a time estimate."""
+    try:
+        from frappe.utils import now_datetime, nowdate
+        cap_orders = min(max(int(cap_orders or 15), 3), 30)
+        cap_units = min(max(int(cap_units or 25), 5), 60)
+        min_mono = min(max(int(min_mono or 3), 2), 10)
+
+        rows = frappe.db.sql(
+            """SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
+                      so.creation, soi.item_code,
+                      COALESCE(NULLIF(soi.item_name,''), soi.item_code) AS item_name,
+                      GREATEST(soi.qty - soi.delivered_qty, 0) AS qty
+               FROM `tabSales Order` so
+               JOIN `tabSales Order Item` soi ON soi.parent = so.name
+               LEFT JOIN (SELECT DISTINCT pli.sales_order FROM `tabPick List Item` pli
+                          JOIN `tabPick List` p ON p.name = pli.parent
+                          WHERE p.docstatus < 2) pl ON pl.sales_order = so.name
+               WHERE so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
+                 AND so.custom_logistics_status = 'Pending' AND pl.sales_order IS NULL
+                 AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+               ORDER BY so.creation""",
+            as_dict=True)
+
+        orders = {}
+        for r in rows:
+            if r.qty <= 0:
+                continue
+            o = orders.setdefault(r.name, {
+                "so": r.name, "customer": r.customer or "", "total": float(r.total or 0),
+                "creation": str(r.creation), "lines": [],
+            })
+            o["lines"].append({"sku": r.item_code, "name": r.item_name, "qty": int(r.qty)})
+
+        # same-day cutoff flag (14:00, matching the board)
+        _now = now_datetime()
+        cutoff = f"{nowdate()} 14:00:00"
+        day0 = f"{nowdate()} 00:00:00"
+        past_cutoff = str(_now)[11:16] >= "14:00"
+        for o in orders.values():
+            c = o["creation"]
+            o["missed"] = c < day0 or (past_cutoff and c < cutoff)
+            o["units"] = sum(l["qty"] for l in o["lines"])
+
+        bins = _resolve_bins({l["sku"] for o in orders.values() for l in o["lines"]})
+
+        # OOS: any line without stock anywhere → the order can't be picked today.
+        oos, pool = [], []
+        for o in orders.values():
+            missing = [l["sku"] for l in o["lines"] if l["sku"] not in bins]
+            if missing:
+                oos.append({"so": o["so"], "customer": o["customer"], "missing": missing})
+            else:
+                pool.append(o)
+
+        def sort_q(q):
+            return sorted(q, key=lambda o: (not o["missed"], o["creation"]))
+
+        def walk_of(o):
+            return min(bins[l["sku"]]["walk"] for l in o["lines"])
+
+        singles = [o for o in pool if len(o["lines"]) == 1]
+        multis = [o for o in pool if len(o["lines"]) > 1]
+        batches = []
+
+        def emit(kind, label, chunk, aisle_hint=None):
+            lines = {}
+            for o in chunk:
+                for l in o["lines"]:
+                    b = bins[l["sku"]]
+                    key = (l["sku"], b["bin"])
+                    ln = lines.setdefault(key, {
+                        "sku": l["sku"], "name": l["name"], "bin": b["bin"],
+                        "walk": b["walk"], "qty": 0, "orders": 0,
+                    })
+                    ln["qty"] += l["qty"]
+                    ln["orders"] += 1
+            lns = sorted(lines.values(), key=lambda x: x["walk"])
+            for ln in lns:
+                ln.pop("walk", None)
+            aisles = sorted({bins[l["sku"]]["aisle"] for o in chunk for l in o["lines"]})
+            units = sum(o["units"] for o in chunk)
+            batches.append({
+                "kind": kind, "label": label,
+                "orders": [{"so": o["so"], "customer": o["customer"],
+                            "missed": o["missed"], "units": o["units"]} for o in chunk],
+                "lines": lns, "units": units, "aisles": aisles,
+                "late": sum(1 for o in chunk if o["missed"]),
+                "est": int(round(len(lns) * 1.2 + len(aisles) * 1.5 + len(chunk) * 0.4 + 2)),
+            })
+
+        # 1 — mono-SKU express
+        by_sku = {}
+        for o in singles:
+            by_sku.setdefault(o["lines"][0]["sku"], []).append(o)
+        mono_done = set()
+        for sku, grp in by_sku.items():
+            if len(grp) >= min_mono:
+                for chunk in _chunk(sort_q(grp), cap_orders, cap_units, lambda o: o["units"]):
+                    emit("mono", grp[0]["lines"][0]["name"], chunk)
+                mono_done.update(o["so"] for o in grp)
+        singles = [o for o in singles if o["so"] not in mono_done]
+
+        # 2 — single-line aisle run
+        by_aisle = {}
+        for o in singles:
+            by_aisle.setdefault(bins[o["lines"][0]["sku"]]["aisle"], []).append(o)
+        aisle_done = set()
+        for aisle, grp in by_aisle.items():
+            if len(grp) >= 2:
+                grp = sorted(grp, key=lambda o: (not o["missed"], walk_of(o)))
+                for chunk in _chunk(grp, cap_orders, cap_units, lambda o: o["units"]):
+                    emit("aisle", aisle, chunk)
+                aisle_done.update(o["so"] for o in grp)
+        leftovers = [o for o in singles if o["so"] not in aisle_done]
+
+        # 3 — multi-line zone cluster (all lines in ONE aisle)
+        zone_done = set()
+        by_zone = {}
+        for o in multis:
+            aisles = {bins[l["sku"]]["aisle"] for l in o["lines"]}
+            if len(aisles) == 1:
+                by_zone.setdefault(next(iter(aisles)), []).append(o)
+        for aisle, grp in by_zone.items():
+            if len(grp) >= 2:
+                grp = sorted(grp, key=lambda o: (not o["missed"], walk_of(o)))
+                for chunk in _chunk(grp, cap_orders, cap_units, lambda o: o["units"]):
+                    emit("zone", aisle, chunk)
+                zone_done.update(o["so"] for o in grp)
+        leftovers += [o for o in multis if o["so"] not in zone_done]
+
+        # 4 — mixed sweep: nothing gets left behind
+        for chunk in _chunk(sort_q(leftovers), cap_orders, cap_units, lambda o: o["units"]):
+            emit("mixed", "", chunk)
+
+        kind_rank = {"mono": 0, "aisle": 1, "zone": 2, "mixed": 3}
+        batches.sort(key=lambda b: (-b["late"], kind_rank[b["kind"]], -len(b["orders"])))
+        for i, b in enumerate(batches):
+            b["key"] = f"B{i + 1}"
+
+        return {
+            "batches": batches, "oos": oos,
+            "poolTotal": len(orders), "batched": sum(len(b["orders"]) for b in batches),
+            "params": {"cap_orders": cap_orders, "cap_units": cap_units, "min_mono": min_mono},
+            "serverNow": str(_now)[:19],
+        }
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.suggest_batches")
+        return {}
+
+
+@frappe.whitelist()
+def create_batches(batches):
+    """Materialize approved batches as draft Pick Lists (one per batch), each
+    optionally pre-assigned to a picker. Per-batch failures don't abort the
+    rest. Dispatcher/manager only."""
+    import json
+    from logistics_portal.api.auth import resolve_role
+
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Only a dispatcher or manager can create pick lists.", frappe.PermissionError)
+    if isinstance(batches, str):
+        batches = json.loads(batches)
+    batches = batches or []
+    if not batches or len(batches) > 20:
+        frappe.throw("Select between 1 and 20 batches.")
+    if sum(len(b.get("orders") or []) for b in batches) > 200:
+        frappe.throw("Too many orders in one run (max 200).")
+
+    results = []
+    for b in batches:
+        try:
+            r = _build_pick_list(b.get("orders") or [], b.get("picker"))
+            results.append({"ok": True, **r, "picker": b.get("picker") or ""})
+        except Exception as e:
+            frappe.db.rollback()
+            results.append({"ok": False, "error": str(e),
+                            "orders": len(b.get("orders") or [])})
+    frappe.db.commit()
+    frappe.cache().delete_value("lp_board_summary")
+    return {"results": results,
+            "created": sum(1 for r in results if r.get("ok")),
+            "failed": sum(1 for r in results if not r.get("ok"))}
 
 
 # ---------------------------------------------------------------------------
