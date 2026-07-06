@@ -11,15 +11,9 @@
       <Icon name="menu" :size="18" />
     </button>
 
-    <!-- Role badge + page label -->
+    <!-- Page label -->
     <div class="flex items-center gap-2 min-w-0">
-      <span
-        class="inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2 py-0.5 rounded-md ring-1 ring-inset text-[var(--accent-700)] bg-[var(--accent-50)] ring-[var(--accent-200)]/60"
-      >
-        <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent-600)]" />
-        {{ t(`roles.${role}`) }}
-      </span>
-      <span class="hidden sm:inline text-[13px] font-medium text-stone-900 truncate">{{ pageLabel }}</span>
+      <span class="text-[13px] font-medium text-stone-900 truncate">{{ pageLabel }}</span>
     </div>
 
     <div class="flex-1" />
