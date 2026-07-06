@@ -101,7 +101,7 @@ const slaHit = 94;
 const orders = ref(DEMO_ORDERS);
 
 onMounted(async () => {
-  const live = await liveOr(null, () => api("orders.list", { scope: "queue", limit: 40 }));
+  const live = await liveOr(null, () => api("picking.my_queue"));
   if (live && live.length) orders.value = live;
 });
 

@@ -190,6 +190,11 @@ export default {
     sbOos: "Can't be picked — no stock", sbOosHint: "These orders are excluded; restock or cancel them.",
     sbCreate: "Create {n} pick lists", sbCreating: "Creating…", sbEmpty: "Nothing to batch — the pool is clear 🎉",
     sbCreated: "{n} pick lists created", sbFailed: "{n} failed",
+    apTitle: "Pick Autopilot", apSub: "Same engine as Suggest batches · every 15 min · assigns by load",
+    apActive: "Active", apPaused: "Paused", apEnable: "Enable", apPause: "Pause",
+    apRun: "Run now", apRunning: "Running…", apLog: "Recent decisions", apNoRuns: "No runs yet.",
+    apCreatedN: "{c} lists · {o} orders", apSkip: "skipped — pool below threshold",
+    apManual: "manual", apAuto: "auto", apToggleOn: "enabled", apToggleOff: "paused",
     ordersOn: "Orders on this pick list", scanned: "scanned",
   },
   ret: {

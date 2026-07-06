@@ -36,36 +36,42 @@ def sync_pick_progress(doc, method=None):
 # ---------------------------------------------------------------------------
 @frappe.whitelist()
 def my_queue(user=None):
-    """Pick lists assigned to the current picker that aren't shipped yet,
-    shaped for the queue cards. Sorted by SLA urgency (expected ship date)."""
+    """The picker's actionable queue: DRAFT pick lists assigned to them (by the
+    dispatcher or the autopilot) or created by them. Oldest first — matching the
+    cutoff-first batching order."""
     user = user or frappe.session.user
     try:
-        pls = frappe.get_all(
-            "Pick List",
-            filters={
-                "custom_assigned_picker": user,
-                "custom_logistics_status": ["!=", "Shipped"],
-                "docstatus": ["<", 2],
-            },
-            fields=["name", "custom_items_count", "custom_total_quantity", "modified"],
-            order_by="modified desc",
-            limit=50,
-        )
+        pls = frappe.db.sql(
+            """SELECT pl.name, pl.custom_items_count AS items,
+                      pl.custom_total_quantity AS qty, pl.creation,
+                      agg.orders, agg.so_one, agg.customer
+               FROM `tabPick List` pl
+               LEFT JOIN (SELECT pli.parent, COUNT(DISTINCT pli.sales_order) orders,
+                                 MAX(pli.sales_order) so_one, MAX(so.customer_name) customer
+                          FROM `tabPick List Item` pli
+                          LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
+                          GROUP BY pli.parent) agg ON agg.parent = pl.name
+               WHERE pl.docstatus = 0
+                 AND (pl.custom_assigned_picker = %(u)s OR pl.owner = %(u)s)
+               ORDER BY pl.creation
+               LIMIT 50""",
+            {"u": user}, as_dict=True)
         out = []
         for pl in pls:
-            so = _linked_sales_order(pl.name)
-            out.append(
-                {
-                    "name": "#" + (so.get("name") if so else pl.name),
-                    "pick_list": pl.name,
-                    "customer": (so or {}).get("customer_name", ""),
-                    "channel": (so or {}).get("custom_channel", ""),
-                    "items": pl.custom_items_count or 0,
-                    "total": (so or {}).get("grand_total", 0),
-                    "stage": (so or {}).get("custom_logistics_status", "Pending"),
-                    "sla": "On Track",
-                }
-            )
+            orders = int(pl.orders or 0)
+            out.append({
+                "name": pl.so_one if orders == 1 and pl.so_one else pl.name,
+                "pick_list": pl.name,
+                "customer": (pl.customer or "") if orders == 1 else f"Combined · {orders} orders",
+                "channel": "",
+                "items": int(pl.items or 0),
+                "qty": int(pl.qty or 0),
+                "orders": orders,
+                "total": 0,
+                "stage": "Pending",
+                "sla": "On Track",
+                "created": str(pl.creation)[:16],
+            })
         return out
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.my_queue")
@@ -74,19 +80,31 @@ def my_queue(user=None):
 
 @frappe.whitelist()
 def pick_items(order):
-    """Items to pick for a given order (via its Pick List)."""
+    """The walk-ordered pick sheet for a Pick List (or an order's PL): lines
+    sorted by warehouse so the picker never backtracks, with the destination
+    order per line so mono-SKU batches can be labelled straight off the list."""
     try:
         pl = frappe.db.get_value(
             "Pick List", {"name": order}, "name"
         ) or _pick_list_for_order(order)
         if not pl:
             return []
-        rows = frappe.get_all(
-            "Pick List Item",
-            filters={"parent": pl},
-            fields=["item_name as name", "custom_sku as sku", "qty", "warehouse as bin"],
-        )
-        return [dict(r, picked=0) for r in rows]
+        rows = frappe.db.sql(
+            """SELECT COALESCE(NULLIF(pli.item_name,''), pli.item_code) AS name,
+                      pli.item_code AS sku, pli.qty, pli.picked_qty,
+                      pli.warehouse AS bin, pli.sales_order AS so,
+                      so.customer_name AS customer, it.image
+               FROM `tabPick List Item` pli
+               LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
+               LEFT JOIN `tabItem` it ON it.name = pli.item_code
+               WHERE pli.parent = %(pl)s
+               ORDER BY pli.warehouse, pli.idx""",
+            {"pl": pl}, as_dict=True)
+        return [{
+            "name": r.name, "sku": r.sku, "qty": int(r.qty or 0),
+            "bin": r.bin or "—", "so": r.so or "", "customer": r.customer or "",
+            "image": r.image or "", "picked": 0,
+        } for r in rows]
     except Exception:
         return []
 
@@ -606,6 +624,115 @@ def create_batches(batches):
     return {"results": results,
             "created": sum(1 for r in results if r.get("ok")),
             "failed": sum(1 for r in results if not r.get("ok"))}
+
+
+
+
+# ---------------------------------------------------------------------------
+# Autopilot — the same batching engine on a 15-minute clock. Guard-railed:
+# only runs when enabled, skips thin pools, caps batches per run, assigns by
+# live load, and keeps a persisted decision log the UI shows verbatim.
+# ---------------------------------------------------------------------------
+_AP_ENABLED = "lp_autopilot_enabled"
+_AP_LOG = "lp_autopilot_log"
+_AP_MIN_ORDERS = 6     # don't bother the floor for less than this (auto runs)
+_AP_MAX_BATCHES = 8    # per run — keeps every run reviewable
+
+
+def _ap_runs():
+    import json
+    try:
+        return json.loads(frappe.db.get_default(_AP_LOG) or "[]")
+    except Exception:
+        return []
+
+
+def _ap_record(entry):
+    import json
+    runs = [entry] + _ap_runs()
+    frappe.db.set_default(_AP_LOG, json.dumps(runs[:30]))
+
+
+@frappe.whitelist()
+def autopilot_status():
+    """Toggle state + the recent decision log (for the Pick Lists card)."""
+    return {
+        "enabled": frappe.db.get_default(_AP_ENABLED) == "1",
+        "schedule": "*/15",
+        "runs": _ap_runs()[:10],
+    }
+
+
+@frappe.whitelist()
+def autopilot_toggle(enabled):
+    from logistics_portal.api.auth import resolve_role
+
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Only a dispatcher or manager can control the autopilot.", frappe.PermissionError)
+    on = str(enabled).lower() in ("1", "true", "yes")
+    frappe.db.set_default(_AP_ENABLED, "1" if on else "0")
+    _ap_record({"at": str(frappe.utils.now_datetime())[:19], "trigger": "toggle",
+                "note": "enabled" if on else "paused", "by": frappe.session.user})
+    return {"enabled": on}
+
+
+@frappe.whitelist()
+def autopilot_run():
+    """Manual 'Run now' from the UI (dispatcher/manager)."""
+    from logistics_portal.api.auth import resolve_role
+
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Only a dispatcher or manager can run the autopilot.", frappe.PermissionError)
+    return _autopilot_core(trigger="manual")
+
+
+def autopilot_tick():
+    """Scheduler entry (every 15 minutes) — no-op unless enabled."""
+    if frappe.db.get_default(_AP_ENABLED) != "1":
+        return None
+    return _autopilot_core(trigger="auto")
+
+
+def _autopilot_core(trigger):
+    from frappe.utils import now_datetime
+
+    sugg = suggest_batches()
+    batches = (sugg or {}).get("batches") or []
+    pool = sum(len(b["orders"]) for b in batches)
+    entry = {"at": str(now_datetime())[:19], "trigger": trigger,
+             "pool": (sugg or {}).get("poolTotal", 0), "oos": len((sugg or {}).get("oos") or [])}
+
+    if not batches or (trigger == "auto" and pool < _AP_MIN_ORDERS):
+        entry.update({"note": "skipped — pool below threshold", "created": 0, "failed": 0, "orders": 0})
+        _ap_record(entry)
+        return entry
+
+    batches = batches[:_AP_MAX_BATCHES]
+
+    # least-loaded assignment (live open-PL load per known picker)
+    team = sorted(pickers(), key=lambda p: p.get("load", 0))
+    team = [p for p in team if p.get("email")]
+
+    created, failed, placed = 0, 0, 0
+    details = []
+    for i, b in enumerate(batches):
+        picker = team[i % len(team)]["email"] if team else None
+        try:
+            r = _build_pick_list([o["so"] for o in b["orders"]], picker)
+            created += 1
+            placed += len(b["orders"])
+            details.append({"pl": r["pl"], "kind": b["kind"], "orders": len(b["orders"]),
+                            "picker": picker or ""})
+        except Exception as e:
+            frappe.db.rollback()
+            failed += 1
+            details.append({"error": str(e)[:120], "kind": b["kind"], "orders": len(b["orders"])})
+    frappe.db.commit()
+    frappe.cache().delete_value("lp_board_summary")
+
+    entry.update({"created": created, "failed": failed, "orders": placed, "details": details[:8]})
+    _ap_record(entry)
+    return entry
 
 
 # ---------------------------------------------------------------------------

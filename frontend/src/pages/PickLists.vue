@@ -330,6 +330,62 @@
       </div>
     </div>
 
+    <!-- autopilot card (LIVE — real engine, real log) -->
+    <div v-if="isLiveData" class="rounded-2xl ring-1 mb-4 overflow-hidden"
+         :class="ap.enabled ? 'ring-[var(--accent-300)]/60 bg-gradient-to-br from-[var(--accent-50)]/60 to-white' : 'ring-stone-200 bg-white'">
+      <div class="p-4">
+        <div class="flex items-start justify-between gap-3 flex-wrap">
+          <div class="flex items-center gap-3">
+            <div class="relative w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+                 :class="ap.enabled ? 'bg-gradient-to-br from-[var(--accent-500)] to-[var(--accent-700)] text-white' : 'bg-stone-100 text-stone-400'">
+              <span v-html="zapIcon(22)" />
+              <span v-if="ap.enabled" class="absolute -top-0.5 -end-0.5 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-white animate-pulse" />
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h2 class="text-[16px] font-semibold text-stone-900">{{ t("pl.apTitle") }}</h2>
+                <span class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10.5px] font-medium ring-1"
+                      :class="ap.enabled ? 'text-emerald-700 bg-emerald-50 ring-emerald-200' : 'text-stone-600 bg-stone-100 ring-stone-200'">
+                  <span class="w-1.5 h-1.5 rounded-full" :class="ap.enabled ? 'bg-emerald-500' : 'bg-stone-400'" />
+                  {{ ap.enabled ? t("pl.apActive") : t("pl.apPaused") }}
+                </span>
+              </div>
+              <div class="text-[12px] text-stone-500 mt-0.5">{{ t("pl.apSub") }}</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 disabled:opacity-40"
+                    :disabled="apBusy || !ap.enabled" @click="apRunNow">
+              <span v-html="zapIcon(15)" />{{ apBusy ? t("pl.apRunning") : t("pl.apRun") }}
+            </button>
+            <button class="inline-flex items-center h-9 px-3 rounded-lg text-[13px] font-medium transition-colors"
+                    :class="ap.enabled ? 'text-stone-600 hover:bg-stone-100 ring-1 ring-stone-200 bg-white' : 'text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]'"
+                    :disabled="apBusy" @click="apToggle">
+              {{ ap.enabled ? t("pl.apPause") : t("pl.apEnable") }}
+            </button>
+          </div>
+        </div>
+        <div v-if="ap.runs.length" class="mt-4">
+          <div class="text-[11px] font-semibold uppercase tracking-wide text-stone-400 mb-2">{{ t("pl.apLog") }}</div>
+          <div class="space-y-1">
+            <div v-for="(r, i) in ap.runs.slice(0, 5)" :key="i" class="flex items-center gap-2.5 px-1 py-1 text-[12px]">
+              <span class="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0"
+                    :class="r.note ? 'bg-stone-100 text-stone-400' : 'bg-emerald-50 text-emerald-600'">
+                <span v-html="zapIcon(12)" />
+              </span>
+              <span class="text-stone-700 flex-1 truncate">
+                <template v-if="r.trigger === 'toggle'">{{ r.note === 'enabled' ? t("pl.apToggleOn") : t("pl.apToggleOff") }} · {{ (r.by || '').split('@')[0] }}</template>
+                <template v-else-if="r.note">{{ t("pl.apSkip") }}</template>
+                <template v-else>{{ t("pl.apCreatedN").replace("{c}", r.created).replace("{o}", r.orders) }}<span v-if="r.failed" class="text-rose-600"> · {{ r.failed }}✗</span></template>
+                <span class="text-stone-400"> · {{ r.trigger === 'manual' ? t("pl.apManual") : r.trigger === 'auto' ? t("pl.apAuto") : '' }}</span>
+              </span>
+              <span class="text-[10.5px] text-stone-400 tabular-nums flex-shrink-0">{{ (r.at || '').slice(5, 16) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- autopilot card (concept preview — demo mode only) -->
     <div v-if="!isLiveData" class="rounded-2xl ring-1 mb-4 overflow-hidden" :class="apOn ? 'ring-[var(--accent-300)]/60 bg-gradient-to-br from-[var(--accent-50)]/60 to-white' : 'ring-stone-200 bg-white'">
       <div class="p-4">
@@ -777,6 +833,7 @@ async function load(keepPage = false) {
     rows.value = live.rows.map((p) => ({ ...p }));
     counts.value = live.counts || {};
     total.value = live.total || 0;
+    if (!ap.value.runs.length && !ap.value.enabled) apRefresh();
   } else if (dataMode.value !== "live") {
     dataMode.value = "demo";
   }
@@ -1021,6 +1078,39 @@ async function createSuggested() {
     warn("Couldn't create batches", String(e.message || e));
   } finally {
     sbCreating.value = false;
+  }
+}
+
+// ── live autopilot card ──────────────────────────────────────────────────
+const ap = ref({ enabled: false, runs: [] });
+const apBusy = ref(false);
+async function apRefresh() {
+  const st = await liveOr(null, () => api("picking.autopilot_status"));
+  if (st && typeof st.enabled === "boolean") ap.value = { enabled: st.enabled, runs: st.runs || [] };
+}
+async function apToggle() {
+  apBusy.value = true;
+  try {
+    const res = await apiPost("picking.autopilot_toggle", { enabled: !ap.value.enabled ? 1 : 0 });
+    ap.value.enabled = !!res.enabled;
+    await apRefresh();
+  } catch (e) {
+    warn("Autopilot", String(e.message || e));
+  } finally {
+    apBusy.value = false;
+  }
+}
+async function apRunNow() {
+  apBusy.value = true;
+  try {
+    const res = await apiPost("picking.autopilot_run", {});
+    success(t("pl.apCreatedN").replace("{c}", res.created || 0).replace("{o}", res.orders || 0));
+    await apRefresh();
+    load(true);
+  } catch (e) {
+    warn("Autopilot", String(e.message || e));
+  } finally {
+    apBusy.value = false;
   }
 }
 

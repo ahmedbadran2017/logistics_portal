@@ -190,6 +190,11 @@ export default {
     sbOos: "لا يمكن تجهيزها — بدون مخزون", sbOosHint: "هذه الطلبات مستبعدة؛ وفّر المخزون أو ألغِها.",
     sbCreate: "إنشاء {n} قائمة", sbCreating: "جارٍ الإنشاء…", sbEmpty: "لا شيء للتجميع — الطابور فاضي 🎉",
     sbCreated: "أُنشئت {n} قائمة", sbFailed: "فشلت {n}",
+    apTitle: "الطيار الآلي للتجهيز", apSub: "نفس محرك الاقتراحات · كل 15 دقيقة · يوزّع بالحِمل",
+    apActive: "شغّال", apPaused: "متوقف", apEnable: "تشغيل", apPause: "إيقاف",
+    apRun: "شغّل الآن", apRunning: "جارٍ التشغيل…", apLog: "آخر القرارات", apNoRuns: "لا تشغيلات بعد.",
+    apCreatedN: "{c} قائمة · {o} طلب", apSkip: "تخطّى — الطابور تحت الحد",
+    apManual: "يدوي", apAuto: "آلي", apToggleOn: "تشغيل", apToggleOff: "إيقاف",
     ordersOn: "طلبات هذه القائمة", scanned: "ممسوح",
   },
   ret: {

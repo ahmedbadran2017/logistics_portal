@@ -190,6 +190,11 @@ export default {
     sbOos: "Impossible à préparer — rupture de stock", sbOosHint: "Ces commandes sont exclues ; réapprovisionner ou annuler.",
     sbCreate: "Créer {n} pick lists", sbCreating: "Création…", sbEmpty: "Rien à regrouper — file vide 🎉",
     sbCreated: "{n} pick lists créées", sbFailed: "{n} en échec",
+    apTitle: "Autopilote de préparation", apSub: "Même moteur que les suggestions · toutes les 15 min · assigne par charge",
+    apActive: "Actif", apPaused: "En pause", apEnable: "Activer", apPause: "Mettre en pause",
+    apRun: "Lancer maintenant", apRunning: "En cours…", apLog: "Décisions récentes", apNoRuns: "Aucune exécution.",
+    apCreatedN: "{c} listes · {o} commandes", apSkip: "ignoré — file sous le seuil",
+    apManual: "manuel", apAuto: "auto", apToggleOn: "activé", apToggleOff: "en pause",
     ordersOn: "Commandes de cette pick list", scanned: "scannés",
   },
   ret: {

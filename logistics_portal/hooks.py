@@ -47,6 +47,8 @@ scheduler_events = {
         # SLA engine: recompute expected dates + sla_status every 15 minutes.
         "*/15 * * * *": [
             "logistics_portal.api.sla.run_sla_engine",
+            # Pick autopilot: batch + assign the to-pick pool (no-op unless enabled).
+            "logistics_portal.api.picking.autopilot_tick",
         ],
         # Audit rule engine: scan recent docs against thresholds every 10 minutes.
         "*/10 * * * *": [
