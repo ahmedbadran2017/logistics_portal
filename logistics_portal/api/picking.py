@@ -444,15 +444,15 @@ def _chunk(seq, cap_orders, cap_units, units_of):
 
 
 @frappe.whitelist()
-def suggest_batches(cap_orders=15, cap_units=25, min_mono=3, max_batches=40):
+def suggest_batches(cap_orders=20, cap_units=None, min_mono=8, max_batches=40):
     """Batch proposal over the LIVE to-pick pool (same definition as the Orders
     board). Returns {batches, oos, poolTotal, batched, serverNow}; each batch
     carries its orders, walk-ordered lines, aisles and a time estimate."""
     try:
         from frappe.utils import now_datetime, nowdate
-        cap_orders = min(max(int(cap_orders or 15), 3), 30)
-        cap_units = min(max(int(cap_units or 25), 5), 60)
-        min_mono = min(max(int(min_mono or 3), 2), 10)
+        cap_orders = min(max(int(cap_orders or 20), 5), 30)
+        cap_units = min(max(int(cap_units or cap_orders * 2), 10), 60)
+        min_mono = min(max(int(min_mono or 8), 4), 20)
 
         rows = frappe.db.sql(
             """SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
@@ -507,9 +507,13 @@ def suggest_batches(cap_orders=15, cap_units=25, min_mono=3, max_batches=40):
         def walk_of(o):
             return min(bins[l["sku"]]["walk"] for l in o["lines"])
 
+        MIN_BATCH = 5  # smaller than this folds into the next tier — no runt runs
+
         singles = [o for o in pool if len(o["lines"]) == 1]
         multis = [o for o in pool if len(o["lines"]) > 1]
         batches = []
+        aisle_pool = []
+        mixed_pool = []
 
         def emit(kind, label, chunk, aisle_hint=None):
             lines = {}
@@ -537,48 +541,42 @@ def suggest_batches(cap_orders=15, cap_units=25, min_mono=3, max_batches=40):
                 "est": int(round(len(lns) * 1.2 + len(aisles) * 1.5 + len(chunk) * 0.4 + 2)),
             })
 
-        # 1 — mono-SKU express
+        # 1 — mono-SKU express: only groups big enough to earn a dedicated
+        #     one-stop run. Smaller same-SKU groups fold into the aisle pool —
+        #     the walk order still lands them on the same shelf consecutively.
         by_sku = {}
         for o in singles:
             by_sku.setdefault(o["lines"][0]["sku"], []).append(o)
-        mono_done = set()
         for sku, grp in by_sku.items():
-            if len(grp) >= min_mono:
-                for chunk in _chunk(sort_q(grp), cap_orders, cap_units, lambda o: o["units"]):
-                    emit("mono", grp[0]["lines"][0]["name"], chunk)
-                mono_done.update(o["so"] for o in grp)
-        singles = [o for o in singles if o["so"] not in mono_done]
+            if len(grp) < min_mono:
+                aisle_pool.extend(grp)
+                continue
+            chunks = _chunk(sort_q(grp), cap_orders, cap_units, lambda o: o["units"])
+            for i, ch in enumerate(chunks):
+                if len(chunks) > 1 and i == len(chunks) - 1 and len(ch) < MIN_BATCH:
+                    aisle_pool.extend(ch)  # runt tail rides an aisle run instead
+                else:
+                    emit("mono", grp[0]["lines"][0]["name"], ch)
 
-        # 2 — single-line aisle run
-        by_aisle = {}
-        for o in singles:
-            by_aisle.setdefault(bins[o["lines"][0]["sku"]]["aisle"], []).append(o)
-        aisle_done = set()
-        for aisle, grp in by_aisle.items():
-            if len(grp) >= 2:
-                grp = sorted(grp, key=lambda o: (not o["missed"], walk_of(o)))
-                for chunk in _chunk(grp, cap_orders, cap_units, lambda o: o["units"]):
-                    emit("aisle", aisle, chunk)
-                aisle_done.update(o["so"] for o in grp)
-        leftovers = [o for o in singles if o["so"] not in aisle_done]
-
-        # 3 — multi-line zone cluster (all lines in ONE aisle)
-        zone_done = set()
-        by_zone = {}
+        # 2 — aisle runs: ALL work living in one aisle, single- and multi-line
+        #     together (the old aisle/zone split just fragmented batches)
         for o in multis:
             aisles = {bins[l["sku"]]["aisle"] for l in o["lines"]}
-            if len(aisles) == 1:
-                by_zone.setdefault(next(iter(aisles)), []).append(o)
-        for aisle, grp in by_zone.items():
-            if len(grp) >= 2:
-                grp = sorted(grp, key=lambda o: (not o["missed"], walk_of(o)))
-                for chunk in _chunk(grp, cap_orders, cap_units, lambda o: o["units"]):
-                    emit("zone", aisle, chunk)
-                zone_done.update(o["so"] for o in grp)
-        leftovers += [o for o in multis if o["so"] not in zone_done]
+            (aisle_pool if len(aisles) == 1 else mixed_pool).append(o)
+        by_aisle = {}
+        for o in aisle_pool:
+            by_aisle.setdefault(bins[o["lines"][0]["sku"]]["aisle"], []).append(o)
+        for aisle, grp in sorted(by_aisle.items()):
+            grp = sorted(grp, key=lambda o: (not o["missed"], walk_of(o)))
+            chunks = _chunk(grp, cap_orders, cap_units, lambda o: o["units"])
+            for i, ch in enumerate(chunks):
+                if i == len(chunks) - 1 and len(ch) < MIN_BATCH:
+                    mixed_pool.extend(ch)  # runts merge into the sweep
+                else:
+                    emit("aisle", aisle, ch)
 
-        # 4 — mixed sweep: nothing gets left behind
-        for chunk in _chunk(sort_q(leftovers), cap_orders, cap_units, lambda o: o["units"]):
+        # 3 — mixed sweep: nothing gets left behind (the final tail may be small)
+        for chunk in _chunk(sort_q(mixed_pool), cap_orders, cap_units, lambda o: o["units"]):
             emit("mixed", "", chunk)
 
         kind_rank = {"mono": 0, "aisle": 1, "zone": 2, "mixed": 3}

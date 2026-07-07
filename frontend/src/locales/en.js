@@ -191,7 +191,7 @@ export default {
     sbCreate: "Create {n} pick lists", sbCreating: "Creating…", sbEmpty: "Nothing to batch — the pool is clear 🎉",
     sbCreated: "{n} pick lists created", sbFailed: "{n} failed",
     sbCap: "max 20 batches / 200 orders per run",
-    sbSelTop: "Select top 20", sbSelNone: "Clear", sbPickHint: "Tap a card to include / exclude it",
+    sbSelTop: "Select top 20", sbSelNone: "Clear", sbSize: "Batch size", sbPickHint: "Tap a card to include / exclude it",
     sbMoreBatches: "+{b} more batches ({o} orders) queued — create these first, then reopen.",
     apTitle: "Pick Autopilot", apSub: "Same engine as Suggest batches · every 15 min · assigns by load",
     apActive: "Active", apPaused: "Paused", apEnable: "Enable", apPause: "Pause",

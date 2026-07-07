@@ -24,10 +24,19 @@
         <template v-else-if="suggest.data">
           <div v-if="!suggest.data.batches.length" class="text-center text-[13px] text-emerald-600 py-10">{{ t("pl.sbEmpty") }}</div>
 
-          <div class="flex items-center justify-between gap-2 px-0.5">
+          <div class="flex items-center justify-between gap-2 px-0.5 flex-wrap">
             <div class="flex items-center gap-1.5">
               <button class="h-7 px-2.5 rounded-lg text-[11.5px] font-semibold ring-1 ring-stone-200 bg-white text-stone-600 hover:ring-stone-300" @click="selectTop">{{ t("pl.sbSelTop") }}</button>
               <button class="h-7 px-2.5 rounded-lg text-[11.5px] font-semibold ring-1 ring-stone-200 bg-white text-stone-600 hover:ring-stone-300" @click="picked = new Set()">{{ t("pl.sbSelNone") }}</button>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[11px] text-stone-400">{{ t("pl.sbSize") }}</span>
+              <div class="flex items-center rounded-lg ring-1 ring-stone-200 bg-white p-0.5">
+                <button v-for="c in [15, 20, 25]" :key="c"
+                        class="px-2 h-6 text-[11.5px] font-semibold rounded-md transition-colors"
+                        :class="capSel === c ? 'bg-stone-900 text-white' : 'text-stone-500 hover:text-stone-800'"
+                        @click="capSel = c; openSuggest()">{{ c }}</button>
+              </div>
             </div>
             <span class="text-[11px] text-stone-400">{{ t("pl.sbPickHint") }}</span>
           </div>
@@ -132,6 +141,7 @@ const picked = ref(new Set());        // selected batch keys
 const pickerFor = ref({});            // batch key -> picker email
 const sbPickers = ref([]);
 const sbCreating = ref(false);
+const capSel = ref(20);
 
 const pickedOrders = computed(() => {
   if (!suggest.value?.data) return 0;
@@ -172,7 +182,7 @@ async function openSuggest() {
   picked.value = new Set();
   pickerFor.value = {};
   const [res, pk] = await Promise.all([
-    liveOr(null, () => api("picking.suggest_batches")),
+    liveOr(null, () => api("picking.suggest_batches", { cap_orders: capSel.value })),
     liveOr(null, () => api("picking.pickers")),
   ]);
   if (Array.isArray(pk)) sbPickers.value = pk.filter((p) => p.email);
