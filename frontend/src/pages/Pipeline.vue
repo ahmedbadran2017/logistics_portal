@@ -219,16 +219,14 @@
               </th>
               <th class="text-start px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thOrder") }}</th>
               <th class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thCustomer") }}</th>
-              <th class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400 hidden md:table-cell">{{ t("ordersPg.thChannel") }}</th>
               <th class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thStage") }}</th>
               <th class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thSla") }}</th>
               <th v-if="activeStage !== 'to_pick'" class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400 hidden xl:table-cell">{{ t("ordersPg.thDocs") }}</th>
               <th v-if="activeStage === 'attention'" class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thFault") }}</th>
-              <th class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">{{ t("ordersPg.thCity") }}</th>
               <th class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400 hidden xl:table-cell">{{ t("ordersPg.thPicker") }}</th>
               <th class="text-start px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400 cursor-pointer select-none hover:text-stone-600" @click="toggleSort('placed')" :class="'hidden lg:table-cell'">{{ t('ordersPg.thPlaced') }} <span v-if="sortKey==='placed'">{{ sortDir==='asc' ? '↑' : '↓' }}</span></th>
               <th class="text-end px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400 cursor-pointer select-none hover:text-stone-600" @click="toggleSort('value')">{{ t('ordersPg.thValue') }} <span v-if="sortKey==='value'">{{ sortDir==='asc' ? '↑' : '↓' }}</span></th>
-              <th class="text-end px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400"></th>
+              <th class="text-end px-2 py-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400"></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-stone-100">
@@ -241,22 +239,20 @@
                 <input type="checkbox" class="board-cb" :checked="selected.has(r.no)" @change="toggleRow(r.no)" />
               </td>
               <td class="px-4 py-3">
-                <div class="font-mono font-bold text-stone-900 flex items-center gap-1.5">
-                  {{ r.no }}
-                  <span v-if="activeStage === 'to_pick' && missedCutoff(r)"
-                        class="text-[10.5px] font-sans font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md ring-1 ring-rose-200/70 whitespace-nowrap">
-                    {{ t("ordersPg.missedCutoff") }}
-                  </span>
-                </div>
-
+                <div class="font-mono font-bold text-stone-900 whitespace-nowrap">{{ r.no }}</div>
+                <span v-if="activeStage === 'to_pick' && missedCutoff(r)"
+                      class="inline-block mt-1 text-[10px] font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md ring-1 ring-rose-200/70 whitespace-nowrap">
+                  {{ t("ordersPg.missedCutoff") }}
+                </span>
               </td>
               <td class="px-3 py-3">
-                <div class="font-medium text-stone-800 truncate max-w-[200px]">{{ r.customer }}</div>
+                <div class="font-medium text-stone-800 truncate max-w-[185px]">{{ r.customer }}</div>
                 <div v-if="r.itemsDesc" class="text-[11px] text-stone-400 truncate max-w-[200px] mt-0.5" :title="r.itemsDesc">
                   {{ r.itemsDesc }}
                 </div>
-                <div class="flex items-center gap-1.5 mt-0.5">
-                  <span class="text-[11px] text-stone-400 tabular-nums">{{ r.items }} {{ itemsWord(r.items) }}</span>
+                <div class="flex items-center gap-1.5 mt-0.5 min-w-0">
+                  <span class="text-[11px] text-stone-400 tabular-nums whitespace-nowrap">{{ r.items }} {{ itemsWord(r.items) }}</span>
+                  <span v-if="r.city" class="text-[11px] text-stone-400 capitalize truncate max-w-[120px]" :title="r.city">· {{ r.city }}</span>
                   <template v-if="r.phone">
                     <a :href="'tel:' + r.phone" @click.stop
                        class="w-5 h-5 rounded-md bg-stone-100 text-stone-500 hover:bg-emerald-100 hover:text-emerald-700 flex items-center justify-center transition-colors"
@@ -270,12 +266,6 @@
                     </a>
                   </template>
                 </div>
-              </td>
-              <td class="px-3 py-3 hidden md:table-cell">
-                <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11.5px] font-medium text-stone-600 whitespace-nowrap">
-                  <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="{ background: channelHex(channelOf(r)) }" />
-                  {{ channelLabel(channelOf(r)) }}
-                </span>
               </td>
               <td class="px-3 py-3">
                 <span v-if="r.status" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold ring-1 ring-inset whitespace-nowrap bg-white"
@@ -327,10 +317,6 @@
                   {{ faultLabel(r.kind) }}
                 </span>
               </td>
-              <td class="px-3 py-3">
-                <span v-if="r.city" class="text-[12px] text-stone-600 capitalize block truncate max-w-[150px]" :title="r.city">{{ r.city }}</span>
-                <span v-else class="text-[11px] text-stone-300">—</span>
-              </td>
               <td class="px-3 py-3 hidden xl:table-cell">
                 <div v-if="r.picker" class="flex items-center gap-1.5">
                   <span class="w-6 h-6 rounded-full bg-stone-200/80 text-stone-600 text-[9.5px] font-bold flex items-center justify-center uppercase">
@@ -341,14 +327,14 @@
                 <span v-else class="text-[11px] text-stone-300">—</span>
               </td>
               <td class="px-3 py-3 whitespace-nowrap hidden lg:table-cell">
-                <span v-if="r.created" class="text-[12.5px] font-medium text-stone-700 tabular-nums">{{ createdFmt(r.created) }}</span>
-                <span class="text-[11.5px] tabular-nums ms-1.5 font-semibold" :style="{ color: ageHex(r.ageMins) }">· {{ ageFmt(r.ageMins) }}</span>
+                <div v-if="r.created" class="text-[12.5px] font-medium text-stone-700 tabular-nums">{{ createdFmt(r.created) }}</div>
+                <div class="text-[11px] tabular-nums font-semibold mt-0.5" :style="{ color: ageHex(r.ageMins) }">{{ ageFmt(r.ageMins) }}</div>
               </td>
               <td class="px-3 py-3 text-end">
                 <span class="font-semibold text-stone-900 tabular-nums">{{ fmtMAD(r.total) }}</span>
                 <span class="text-[10px] text-stone-400"> MAD</span>
               </td>
-              <td class="px-4 py-3 text-end">
+              <td class="px-2 py-3 text-end">
                 <component
                   :is="actionFor(r) && actionFor(r).href ? 'a' : 'button'"
                   v-if="actionFor(r)"
