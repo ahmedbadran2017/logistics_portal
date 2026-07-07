@@ -44,13 +44,14 @@ def my_queue(user=None):
         pls = frappe.db.sql(
             """SELECT pl.name, pl.custom_items_count AS items_cnt,
                       pl.custom_total_quantity AS qty, pl.creation,
-                      agg.orders, agg.so_one, agg.customer
+                      (SELECT COUNT(DISTINCT pli.sales_order) FROM `tabPick List Item` pli
+                       WHERE pli.parent = pl.name) AS orders,
+                      (SELECT MAX(pli.sales_order) FROM `tabPick List Item` pli
+                       WHERE pli.parent = pl.name) AS so_one,
+                      (SELECT MAX(so.customer_name) FROM `tabPick List Item` pli
+                       LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
+                       WHERE pli.parent = pl.name) AS customer
                FROM `tabPick List` pl
-               LEFT JOIN (SELECT pli.parent, COUNT(DISTINCT pli.sales_order) orders,
-                                 MAX(pli.sales_order) so_one, MAX(so.customer_name) customer
-                          FROM `tabPick List Item` pli
-                          LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
-                          GROUP BY pli.parent) agg ON agg.parent = pl.name
                WHERE pl.docstatus = 0
                  AND (pl.custom_assigned_picker = %(u)s OR pl.owner = %(u)s)
                ORDER BY pl.creation
@@ -187,11 +188,11 @@ def pick_lists(status="", q="", days=7, limit=30, offset=0):
                        pl.custom_items_count AS items_cnt, pl.custom_total_quantity AS qty,
                        pl.custom_shipped_percentage AS pct, pl.creation,
                        {derived} AS status,
-                       agg.orders, agg.so_one
+                       (SELECT COUNT(DISTINCT pli.sales_order) FROM `tabPick List Item` pli
+                        WHERE pli.parent = pl.name) AS orders,
+                       (SELECT MAX(pli.sales_order) FROM `tabPick List Item` pli
+                        WHERE pli.parent = pl.name) AS so_one
                 FROM `tabPick List` pl
-                LEFT JOIN (SELECT parent, COUNT(DISTINCT sales_order) AS orders,
-                                  MAX(sales_order) AS so_one
-                           FROM `tabPick List Item` GROUP BY parent) agg ON agg.parent = pl.name
                 WHERE {where}
                 ORDER BY pl.creation DESC
                 LIMIT %(limit)s OFFSET %(offset)s""",
@@ -350,28 +351,32 @@ def _build_pick_list(orders, picker=None):
 
 @frappe.whitelist()
 def pickers():
-    """Active pickers + live load (open pick lists), for the dispatcher board."""
+    """The whole picking team with live load. Load counts open (unshipped,
+    recent) pick lists whether assigned OR self-created (on production pickers
+    create their own PLs, so owner is the real signal). Zero-load pickers are
+    included — an empty assignment dropdown helps nobody."""
     try:
-        rows = frappe.db.sql(
-            """SELECT custom_assigned_picker AS email, COUNT(*) AS load
+        loads = {}
+        for r in frappe.db.sql(
+            """SELECT COALESCE(NULLIF(custom_assigned_picker,''), owner) AS email,
+                      COUNT(*) AS cnt
                FROM `tabPick List`
-               WHERE custom_assigned_picker IS NOT NULL AND custom_assigned_picker!=''
-                 AND custom_logistics_status != 'Shipped'
-               GROUP BY custom_assigned_picker ORDER BY load DESC""",
+               WHERE docstatus < 2 AND custom_logistics_status != 'Shipped'
+                 AND creation >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+               GROUP BY email""",
             as_dict=True,
-        )
+        ):
+            loads[r.email] = int(r.cnt or 0)
         out = []
-        for r in rows:
-            pid = _PICKER_ID.get(r.email)
-            if not pid:
-                continue
+        for email, pid in _PICKER_ID.items():
             out.append({
                 "id": pid,
-                "email": r.email,
-                "name": frappe.db.get_value("User", r.email, "full_name") or r.email,
-                "load": int(r.load or 0),
+                "email": email,
+                "name": frappe.db.get_value("User", email, "full_name") or pid.title(),
+                "load": loads.get(email, 0),
                 "capacity": 15,
             })
+        out.sort(key=lambda p: p["load"])
         return out
     except Exception:
         return []
