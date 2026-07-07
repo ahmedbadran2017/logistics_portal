@@ -42,6 +42,9 @@ doc_events = {
 # ---------------------------------------------------------------------------
 # Scheduled jobs — SLA engine + audit rule engine + daily LLM digest.
 # ---------------------------------------------------------------------------
+# Performance indexes for the board queries (idempotent, runs on every migrate).
+after_migrate = ["logistics_portal.install.ensure_indexes"]
+
 scheduler_events = {
     "cron": {
         # SLA engine: recompute expected dates + sla_status every 15 minutes.

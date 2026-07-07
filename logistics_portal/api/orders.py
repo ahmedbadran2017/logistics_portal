@@ -75,10 +75,12 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
             shipped_tracks, attention = summary["tracks"], summary["attention"]
         else:
             counts, values, shipped_tracks, attention = _board_counts()
+            # Writes bust this cache; fresh orders can wait a few minutes for
+            # COUNTS (rows are always live) — the cold recompute costs ~4s.
             cache.set_value("lp_board_summary", _json.dumps({
                 "counts": counts, "values": values,
                 "tracks": shipped_tracks, "attention": attention,
-            }), expires_in_sec=60)
+            }), expires_in_sec=300)
 
         facet_key = f"lp_board_cities:{stage}:{track or ''}"
         cached_facet = cache.get_value(facet_key)
@@ -86,10 +88,17 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
             cities = _json.loads(cached_facet)
         else:
             cities = _city_facet(stage, track)
-            cache.set_value(facet_key, _json.dumps(cities), expires_in_sec=120)
+            cache.set_value(facet_key, _json.dumps(cities), expires_in_sec=600)
 
         rows = _board_rows(stage, track, limit, q, offset, city, sort, dates)
-        total = len(rows) if stage == "attention" else _board_total(stage, track, q, city, dates)
+        # Unfiltered views reuse the cached stage count — the mirrored COUNT(*)
+        # scan is only worth paying when q/city/dates narrow the set.
+        if stage == "attention":
+            total = len(rows)
+        elif not q and not city and not dates and not track:
+            total = counts.get(stage, len(rows))
+        else:
+            total = _board_total(stage, track, q, city, dates)
         from frappe.utils import now_datetime
         return {"counts": counts, "values": values, "shippedTracks": shipped_tracks,
                 "attention": attention, "rows": rows, "cities": cities,
