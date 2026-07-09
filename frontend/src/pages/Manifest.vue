@@ -131,10 +131,39 @@
           </div>
           <button
             class="inline-flex items-center justify-center gap-1.5 w-full h-11 rounded-lg text-[14px] font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            :disabled="!parcels.length"
+            :disabled="!parcels.length || closing"
             @click="closeManifest"
           >
-            <Icon name="send" :size="16" /> Close manifest &amp; hand to carrier
+            <Icon name="send" :size="16" /> {{ closing ? "Closing…" : "Close manifest & hand to carrier" }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirm: closing submits the Shipment (real carrier handover) -->
+    <div v-if="confirmClose" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div class="absolute inset-0 bg-stone-900/40" @click="confirmClose = false" />
+      <div class="relative bg-white rounded-2xl ring-1 ring-stone-200 shadow-xl w-full max-w-md p-5">
+        <div class="flex items-center gap-2.5 mb-2">
+          <span class="inline-flex w-9 h-9 rounded-xl items-center justify-center bg-emerald-50 text-emerald-600">
+            <Icon name="send" :size="18" />
+          </span>
+          <h3 class="text-[15px] font-semibold text-stone-900">Close today's manifest?</h3>
+        </div>
+        <p class="text-[13px] text-stone-600 leading-relaxed">
+          This submits the Shipment for <b class="tabular-nums">{{ parcels.length }}</b> parcels
+          (<b class="tabular-nums">{{ fmtMAD(totalValue) }} MAD</b>) to {{ CARRIER }}. Every order
+          is marked <b>Shipped</b> and its invoice drafted. This can't be undone from the portal.
+        </p>
+        <p v-if="notLabeled > 0" class="mt-2 text-[12px] text-amber-700 bg-amber-50 ring-1 ring-amber-200/60 rounded-lg px-3 py-2">
+          {{ notLabeled }} picked orders aren't labeled yet — they won't be on this manifest.
+        </p>
+        <div class="flex items-center justify-end gap-2 mt-4">
+          <button class="h-9 px-4 rounded-lg text-[13px] font-medium text-stone-600 hover:bg-stone-100"
+                  :disabled="closing" @click="confirmClose = false">Keep open</button>
+          <button class="h-9 px-4 rounded-lg text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+                  :disabled="closing" @click="doClose">
+            {{ closing ? "Closing…" : "Close & submit" }}
           </button>
         </div>
       </div>
@@ -150,10 +179,15 @@ import {
   MANIFEST as DEMO_MANIFEST, RECENT_MANIFESTS as DEMO_RECENT_MANIFESTS, PARCELS, SLA, SLA_LABEL,
   CARRIER, CUTOFF as DEMO_CUTOFF, fmtMAD,
 } from "@/lib/handoffData.js";
-import { api, liveOr } from "@/lib/resource";
+import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
 
 const { success, warn } = useToast();
+
+// Closing the manifest is a real submit: it hands the parcels to the carrier,
+// flips every order to Shipped and drafts their invoices — so it's confirmed.
+const closing = ref(false);
+const confirmClose = ref(false);
 
 // Live-or-demo refs (same names as the demo consts so the template keeps working).
 const MANIFEST = ref({ ...DEMO_MANIFEST });
@@ -219,38 +253,47 @@ function remove(i) {
 }
 
 function closeManifest() {
-  if (isLive.value) {
-    // The Shipment doc is the source of truth — submit it there.
-    window.open("/app/shipment/" + encodeURIComponent(MANIFEST.value.no), "_blank");
+  if (!parcels.value.length) return;
+  if (!isLive.value) {
+    // Demo mode — no backend, just show the outcome.
+    success("Shipment SH-000180 submitted", `${parcels.value.length} parcels handed to ${CARRIER}`);
     return;
   }
-  if (!parcels.value.length) return;
-  if (notLabeled.value > 0) {
-    warn(`${notLabeled.value} picked orders not yet labeled`, "Label them before closing the manifest.");
+  confirmClose.value = true;
+}
+async function doClose() {
+  closing.value = true;
+  try {
+    const res = await apiPost("shipping.close_manifest");
+    confirmClose.value = false;
+    success(
+      `Shipment ${res.shipment} submitted`,
+      `${res.parcels} parcels · ${fmtMAD(res.value)} MAD handed to ${CARRIER} — orders marked Shipped`,
+    );
+    await loadManifest();
+  } catch (e) {
+    warn("Couldn't close the manifest", String(e.message || e));
+  } finally {
+    closing.value = false;
   }
-  success("Shipment SH-000180 submitted", `${parcels.value.length} parcels handed to ${CARRIER}`);
 }
 
-onMounted(async () => {
-  timer = setInterval(() => (now.value = new Date()), 30000);
-
+async function loadManifest() {
   // Live-or-demo: today's manifest from `shipping.today_manifest`.
   const live = await liveOr(null, () => api("shipping.today_manifest"));
   if (live && live.no) {
     isLive.value = true;
     MANIFEST.value = { ...DEMO_MANIFEST, ...live };
     if (live.cutoff) CUTOFF.value = live.cutoff;
-    if (Array.isArray(live.parcelRows) && live.parcelRows.length) {
-      parcels.value = live.parcelRows.map((p) => ({
-        dn: p.dn || "—",
-        awb: p.awb || "—",
-        order: p.order || "—",
-        customer: p.customer || "—",
-        value: Number(p.value || 0),
-        sla: p.sla || "ontrack",
-      }));
-      pool.value = [];
-    }
+    parcels.value = (Array.isArray(live.parcelRows) ? live.parcelRows : []).map((p) => ({
+      dn: p.dn || "—",
+      awb: p.awb || "—",
+      order: p.order || "—",
+      customer: p.customer || "—",
+      value: Number(p.value || 0),
+      sla: p.sla || "ontrack",
+    }));
+    pool.value = [];
     if (live.notOnManifest != null) notLabeled.value = Number(live.notOnManifest) || 0;
   }
 
@@ -265,6 +308,11 @@ onMounted(async () => {
       status: m.status || "—",
     }));
   }
+}
+
+onMounted(() => {
+  timer = setInterval(() => (now.value = new Date()), 30000);
+  loadManifest();
 });
 onUnmounted(() => timer && clearInterval(timer));
 </script>
