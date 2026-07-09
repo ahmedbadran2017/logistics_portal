@@ -640,7 +640,7 @@ def consolidation_groups(limit=30):
             except Exception:
                 a = 0
             ages.append(a)
-            orders.append({"no": it.no, "total": it.total or 0,
+            orders.append({"no": it.no, "total": float(it.total or 0),  # Decimal → JSON-safe
                            "city": (it.city or "") if len(it.city or "") <= 28 else "",
                            "items": it.nitems or 1, "ageMins": a})
         orders.sort(key=lambda o: o["no"])
@@ -733,7 +733,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
         qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS} FROM `tabSales Order` so {addr}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
-              AND so.custom_logistics_status='Delivered' AND so.creation >= %s {qc} {cc}
+              AND so.custom_logistics_status='Delivered' AND so.creation >= %s {qc} {cc} {dc}
             ORDER BY so.modified DESC LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
         return [_row(r) for r in rows]
 

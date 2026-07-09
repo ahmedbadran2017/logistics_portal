@@ -1024,7 +1024,7 @@ async function openDetail(p) {
     if (d && d.no) {
       liveDetail.value = d;
       const awbOrder = (d.orders || []).find((o) => o.awb);
-      if (awbOrder) liveAwbUrl.value = "/app/delivery-note/" + encodeURIComponent(d.orders[0].dn || "");
+      if (awbOrder && awbOrder.dn) liveAwbUrl.value = "/app/delivery-note/" + encodeURIComponent(awbOrder.dn);
     }
   }
 }
@@ -1067,7 +1067,7 @@ const lines = computed(() => {
   if (!pl) return [];
   if (liveDetail.value) {
     const done = liveDetail.value.status !== "draft";
-    return liveDetail.value.lines.map((l) => ({
+    return (liveDetail.value.lines || []).map((l) => ({
       ...l, code: "", serial: false, batch: false,
       picked: done && l.pickedQty >= l.qty,
       partial: l.pickedQty > 0 && l.pickedQty < l.qty,
@@ -1110,7 +1110,11 @@ const lifecycleSteps = [
 ];
 const lifecycleTimes = computed(() => {
   const lv = liveDetail.value;
-  if (lv) return [lv.created.slice(5), lv.created.slice(5), lv.status === "shipped" || lv.status === "partial" ? lv.updated.slice(5) : "—"];
+  if (lv) {
+    const c = (lv.created || "").slice(5) || "—";
+    const shipped = lv.status === "shipped" || lv.status === "partial";
+    return [c, c, shipped ? (lv.updated || "").slice(5) || "—" : "—"];
+  }
   return ["08:58", "09:01", "09:08", "09:25", "—"];
 });
 const lifecycleCur = computed(() => {

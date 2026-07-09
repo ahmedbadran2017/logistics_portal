@@ -127,6 +127,10 @@ def complete_pick(order):
         frappe.throw("You are not the assigned picker for this order.", frappe.PermissionError)
 
     frappe.get_doc("Sales Order", name).db_set("custom_logistics_status", "Picked")
+    # Picked → out of the to-pick pool; refresh the board / availability / clusters.
+    frappe.cache().delete_value("lp_board_summary")
+    frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_value("lp_consolidation")
     return {"ok": True}
 
 
@@ -357,7 +361,17 @@ def _build_pick_list(orders, picker=None):
     another open pick list), it falls back to per-order inserts — skipping only
     the orders that truly can't be picked. Never 417s the whole batch for one
     bad order. Returns {pl, orders, items, skipped, pls}."""
-    orders = [o.strip() for o in (orders or []) if o and o.strip()]
+    # Coerce to trimmed strings and de-duplicate (preserve order). A repeated
+    # name would otherwise append the same SO's lines twice — over-picking the
+    # combined list, or spawning a second pick list for it in the fallback
+    # (which bypasses _pick_gate). "Ship together" can pass repeats on double-tap.
+    seen, clean = set(), []
+    for o in (orders or []):
+        o = str(o).strip() if o is not None else ""
+        if o and o not in seen:
+            seen.add(o)
+            clean.append(o)
+    orders = clean
     if not orders:
         frappe.throw("No orders selected.")
     if len(orders) > 120:
