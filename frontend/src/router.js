@@ -94,4 +94,19 @@ router.beforeEach(async (to, from, next) => {
   }
 });
 
+// Belt-and-suspenders: if a dynamically-imported asset ever fails to load
+// (stale cache after a deploy), hard-reload ONCE so the browser refetches the
+// freshly ?ver-busted entry instead of showing a blank route.
+router.onError((err) => {
+  const msg = String(err && err.message || "");
+  if (/dynamically imported module|Failed to fetch|module script failed|Importing a module/i.test(msg)) {
+    const KEY = "lp_asset_reload";
+    if (!sessionStorage.getItem(KEY)) {
+      sessionStorage.setItem(KEY, "1");
+      window.location.reload();
+    }
+  }
+});
+router.afterEach(() => sessionStorage.removeItem("lp_asset_reload"));
+
 export default router;

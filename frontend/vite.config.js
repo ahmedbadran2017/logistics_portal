@@ -24,14 +24,16 @@ export default defineConfig(({ mode }) => {
     rollupOptions: {
       input: path.resolve(__dirname, "src/main.js"),
       output: {
-        // Stable entry (frappe's include_script busts it with ?ver=), hashed
-        // route chunks (immutable-cacheable), one CSS file. Real code
-        // splitting: first paint ships the shell + current page only.
+        // ONE self-contained bundle. Route-level code splitting was reverted:
+        // frappe serves static public/ files and busts the entry via
+        // include_script(...?ver=<hash>), but hashed lazy chunks aren't
+        // coordinated with that — a browser holding a stale entry requests a
+        // deleted chunk hash and the route renders blank. A single bundle
+        // (frappe ?ver-busted, then cached) is the robust trade for a
+        // self-hosted team tool; the real load win was the DB indexes.
         entryFileNames: "logistics_portal.bundle.js",
-        chunkFileNames: "lp-[name]-[hash].js",
         assetFileNames: "logistics_portal.bundle.css",
-        manualChunks: (id) =>
-          id.includes("node_modules") ? "vendor" : undefined,
+        inlineDynamicImports: true,
       },
     },
   },
