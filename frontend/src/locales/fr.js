@@ -115,6 +115,9 @@ export default {
     faults: { cancelled_midflow: "Annulée en cours de flux", no_awb: "PL validée · sans AWB", sync_lag: "Livrée · non synchronisée" },
     faultsLong: { cancelled_midflow: "Annulée en cours de flux — restocker", no_awb: "Automatisation AWB en échec", sync_lag: "Livrée — statut bloqué" },
     actions: { assign: "Assigner", openPl: "Ouvrir PL", print: "Imprimer", open: "Ouvrir", manifest: "Manifeste", track: "Suivre", openRet: "Ouvrir RET", fix: "Corriger" },
+    pickReady: "Prêt à préparer", pickPartial: "Partiel", pickOos: "Rupture de stock",
+    pickReadyHint: "tous les articles en stock", pickPartialHint: "articles manquants", pickOosHint: "rien en stock",
+    missing: "Manquant",
   },
   od: {
     placed: "Créée", printAwb: "Imprimer l’étiquette AWB", openErp: "Ouvrir dans ERPNext",

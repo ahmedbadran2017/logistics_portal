@@ -115,6 +115,9 @@ export default {
     faults: { cancelled_midflow: "أُلغي أثناء التنفيذ", no_awb: "PL معتمدة · بدون بوليصة", sync_lag: "سُلِّم · غير مُزامَن" },
     faultsLong: { cancelled_midflow: "أُلغي أثناء التنفيذ — أعد للمخزون", no_awb: "فشل إصدار البوليصة تلقائيًا", sync_lag: "سُلِّم — الحالة عالقة" },
     actions: { assign: "إسناد", openPl: "فتح PL", print: "طباعة", open: "فتح", manifest: "مانيفست", track: "تتبع", openRet: "فتح RET", fix: "إصلاح" },
+    pickReady: "جاهز للتجهيز", pickPartial: "جزئي", pickOos: "نافد المخزون",
+    pickReadyHint: "كل الأصناف متوفرة", pickPartialHint: "بعض الأصناف ناقصة", pickOosHint: "لا شيء متوفر",
+    missing: "ناقص",
   },
   od: {
     placed: "أُنشئ", printAwb: "طباعة البوليصة", openErp: "فتح في ERPNext",

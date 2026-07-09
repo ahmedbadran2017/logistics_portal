@@ -345,4 +345,5 @@ def mark_labels_printed(orders):
                 "custom_logistics_status", "Label Printed")
             done += 1
     frappe.cache().delete_value("lp_board_summary")
+    frappe.cache().delete_value("lp_pick_avail")
     return {"printed": done}

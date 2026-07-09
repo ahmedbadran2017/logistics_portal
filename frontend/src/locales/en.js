@@ -115,6 +115,9 @@ export default {
     faults: { cancelled_midflow: "Cancelled mid-flow", no_awb: "PL submitted · no AWB", sync_lag: "Delivered · not synced" },
     faultsLong: { cancelled_midflow: "Cancelled mid-flow — restock", no_awb: "AWB automation failed", sync_lag: "Delivered — status stuck" },
     actions: { assign: "Assign", openPl: "Open PL", print: "Print", open: "Open", manifest: "Manifest", track: "Track", openRet: "Open RET", fix: "Fix" },
+    pickReady: "Ready to prepare", pickPartial: "Partial", pickOos: "Out of stock",
+    pickReadyHint: "all items in stock", pickPartialHint: "some items missing", pickOosHint: "nothing in stock",
+    missing: "Missing",
   },
   od: {
     placed: "Placed", printAwb: "Print AWB label", openErp: "Open in ERPNext",

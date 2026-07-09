@@ -57,7 +57,7 @@ def _win(days):
 
 
 @frappe.whitelist()
-def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, sort=None, dates=None):
+def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, sort=None, dates=None, pick=None):
     """Counts + MAD value per stage, rows for the requested stage, and a city
     facet for filtering. `q` searches order no / customer / AWB."""
     import json as _json
@@ -90,25 +90,41 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
             cities = _city_facet(stage, track)
             cache.set_value(facet_key, _json.dumps(cities), expires_in_sec=600)
 
-        rows = _board_rows(stage, track, limit, q, offset, city, sort, dates)
+        # To-Pick splits by locally-pickable stock: Ready / Partial / OOS.
+        pick_avail = pick_buckets = pick_names = None
+        if stage == "to_pick":
+            pick_avail = _pick_availability()
+            pick_buckets = {k: len(pick_avail[k]) for k in ("ready", "partial", "oos")}
+            if pick in ("ready", "partial", "oos"):
+                pick_names = pick_avail[pick]
+
+        rows = _board_rows(stage, track, limit, q, offset, city, sort, dates, pick_names=pick_names)
         # Unfiltered views reuse the cached stage count — the mirrored COUNT(*)
         # scan is only worth paying when q/city/dates narrow the set.
         if stage == "attention":
             total = len(rows)
+        elif pick_names is not None:
+            total = len(pick_names) if not (q or city or dates) \
+                else _board_total(stage, track, q, city, dates, pick_names=pick_names)
         elif not q and not city and not dates and not track:
             total = counts.get(stage, len(rows))
         else:
             total = _board_total(stage, track, q, city, dates)
         from frappe.utils import now_datetime
-        return {"counts": counts, "values": values, "shippedTracks": shipped_tracks,
+        resp = {"counts": counts, "values": values, "shippedTracks": shipped_tracks,
                 "attention": attention, "rows": rows, "cities": cities,
                 "total": total, "stage": stage, "serverNow": str(now_datetime())[:16]}
+        if pick_buckets is not None:
+            resp["pickBuckets"] = pick_buckets
+            if pick in ("partial", "oos"):
+                resp["pickMissing"] = {r["no"]: pick_avail["missing"].get(r["no"], []) for r in rows}
+        return resp
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.orders.board")
         return {}
 
 
-def _board_total(stage, track, q=None, city=None, dates=None):
+def _board_total(stage, track, q=None, city=None, dates=None, pick_names=None):
     """Filtered row count for the stage — powers real pagination."""
     w, dw = _win(BOARD_WINDOW_DAYS), _win(DONE_WINDOW_DAYS)
     addr = """LEFT JOIN `tabAddress` addr
@@ -154,6 +170,11 @@ def _board_total(stage, track, q=None, city=None, dates=None):
     where += _q_cond(q, args)
     where += _city_cond(city, args)
     where += _date_cond(dates, args)
+    if pick_names is not None and stage == "to_pick":
+        if not pick_names:
+            return 0
+        where += " AND so.name IN (%s)" % ", ".join(["%s"] * len(pick_names))
+        args.extend(pick_names)
     try:
         return int(frappe.db.sql(
             f"SELECT COUNT(*) FROM `tabSales Order` so {joins} WHERE {where}",
@@ -384,7 +405,71 @@ def _row(r, **extra):
     }, **extra)
 
 
-def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dates=None):
+# Locally-pickable stock: any "- JM" warehouse with qty (incl. Slow/Receiving/
+# Return zones — returned stock IS resold per ops), excluding Turkey/transit/
+# containers/defective/correcting/old. Patterns are params (no literal % in the
+# SQL) so this splices safely into queries that also carry %s args.
+def _pickable_bin_subquery():
+    sql = ("SELECT DISTINCT item_code FROM `tabBin` b WHERE b.actual_qty > 0 "
+           "AND b.warehouse LIKE %s AND b.warehouse NOT LIKE %s "
+           "AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s "
+           "AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s")
+    args = ["% - JM", "Defective%", "Container%", "Air Freight%", "%Old%", "CORRECTING%"]
+    return sql, args
+
+
+def _pick_availability():
+    """Stock split of the current To-Pick pool, cached 120s.
+    {"ready":[so], "partial":[so], "oos":[so], "missing":{so:[item_name,...]}}."""
+    import json as _json
+    cache = frappe.cache()
+    cached = cache.get_value("lp_pick_avail")
+    if cached:
+        return _json.loads(cached)
+    w = _win(BOARD_WINDOW_DAYS)
+    pk_sql, pk_args = _pickable_bin_subquery()
+    try:
+        rows = frappe.db.sql(f"""
+            SELECT so.name AS so,
+                   COALESCE(NULLIF(soi.item_name,''), soi.item_code) AS item_name,
+                   MAX(CASE WHEN pk.item_code IS NOT NULL THEN 1 ELSE 0 END) AS avail
+            FROM `tabSales Order` so
+            JOIN `tabSales Order Item` soi ON soi.parent = so.name
+            LEFT JOIN ({pk_sql}) pk ON pk.item_code = soi.item_code
+            LEFT JOIN (SELECT pli.sales_order FROM `tabPick List Item` pli
+                       JOIN `tabPick List` p ON p.name=pli.parent
+                       WHERE p.docstatus < 2 GROUP BY pli.sales_order) pl ON pl.sales_order = so.name
+            WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
+              AND so.custom_logistics_status='Pending' AND pl.sales_order IS NULL
+              AND so.creation >= %s
+            GROUP BY so.name, soi.item_code, item_name""",
+            tuple(pk_args) + (w,), as_dict=True)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal._pick_availability")
+        return {"ready": [], "partial": [], "oos": [], "missing": {}}
+
+    per = {}
+    for r in rows:
+        d = per.setdefault(r.so, {"n": 0, "avail": 0, "missing": []})
+        d["n"] += 1
+        if r.avail:
+            d["avail"] += 1
+        elif len(d["missing"]) < 6:
+            d["missing"].append(r.item_name)
+    ready, partial, oos, missing = [], [], [], {}
+    for name, d in per.items():
+        if d["avail"] >= d["n"]:
+            ready.append(name)
+        elif d["avail"] == 0:
+            oos.append(name); missing[name] = d["missing"]
+        else:
+            partial.append(name); missing[name] = d["missing"]
+    out = {"ready": ready, "partial": partial, "oos": oos, "missing": missing}
+    cache.set_value("lp_pick_avail", _json.dumps(out), expires_in_sec=120)
+    return out
+
+
+def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dates=None, pick_names=None):
     w, dw = _win(BOARD_WINDOW_DAYS), _win(DONE_WINDOW_DAYS)
     addr = """LEFT JOIN `tabAddress` addr
         ON addr.name = COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address)"""
@@ -397,10 +482,16 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
     if stage == "to_pick":
         args = [w]
         qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _date_cond(dates, args)
+        pc = ""
+        if pick_names is not None:
+            if not pick_names:
+                return []
+            pc = " AND so.name IN (%s)" % ", ".join(["%s"] * len(pick_names))
+            args.extend(pick_names)
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS} FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Pending' AND pl.sales_order IS NULL
-              AND so.creation >= %s {qc} {cc} {dc} ORDER BY {_order_by(sort, 'so.creation ASC')} LIMIT {limit} OFFSET {offset}""",
+              AND so.creation >= %s {qc} {cc} {dc}{pc} ORDER BY {_order_by(sort, 'so.creation ASC')} LIMIT {limit} OFFSET {offset}""",
             tuple(args), as_dict=True)
         return [_row(r) for r in rows]
 

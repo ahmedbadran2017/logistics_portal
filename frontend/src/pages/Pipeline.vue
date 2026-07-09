@@ -151,6 +151,28 @@
       </div>
     </div>
 
+    <!-- To-Pick stock sub-tabs -->
+    <div v-if="activeStage === 'to_pick' && mode === 'live'" class="flex items-center gap-1.5 flex-wrap">
+      <button
+        v-for="tb in [
+          { k: 'ready',   label: t('ordersPg.pickReady'),   hex: '#059669' },
+          { k: 'partial', label: t('ordersPg.pickPartial'), hex: '#d97706' },
+          { k: 'oos',     label: t('ordersPg.pickOos'),     hex: '#e11d48' },
+        ]" :key="tb.k"
+        class="inline-flex items-center gap-2 h-9 ps-2.5 pe-3 rounded-lg ring-1 transition-all"
+        :class="pickTab === tb.k ? 'bg-white ring-2 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.12)]' : 'bg-white/60 ring-stone-200/70 hover:bg-white'"
+        :style="pickTab === tb.k ? { '--tw-ring-color': tb.hex } : {}"
+        @click="setPickTab(tb.k)"
+      >
+        <span class="w-2 h-2 rounded-full flex-shrink-0" :style="{ background: tb.hex }" />
+        <span class="text-[12.5px] font-semibold" :class="pickTab === tb.k ? 'text-stone-900' : 'text-stone-600'">{{ tb.label }}</span>
+        <span class="text-[12.5px] font-bold tabular-nums" :style="{ color: (pickBuckets[tb.k] ?? 0) > 0 ? tb.hex : '#d6d3d1' }">{{ pickBuckets[tb.k] ?? "—" }}</span>
+      </button>
+      <span class="text-[11px] text-stone-400 ms-1 hidden sm:inline">
+        {{ pickTab === 'ready' ? t('ordersPg.pickReadyHint') : pickTab === 'partial' ? t('ordersPg.pickPartialHint') : t('ordersPg.pickOosHint') }}
+      </span>
+    </div>
+
     <!-- City filter -->
     <div v-if="cities.length" class="flex items-center gap-2 flex-wrap">
       <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t("ordersPg.city") }}</span>
@@ -265,6 +287,11 @@
                       <Icon name="message-circle" :size="11" />
                     </a>
                   </template>
+                </div>
+                <div v-if="pickMissing[r.no] && pickMissing[r.no].length"
+                     class="text-[10.5px] text-rose-600 truncate max-w-[240px] mt-0.5"
+                     :title="pickMissing[r.no].join(', ')">
+                  {{ t('ordersPg.missing') }}: {{ pickMissing[r.no].join(', ') }}
                 </div>
               </td>
               <td class="px-3 py-3">
@@ -655,10 +682,15 @@ const drawerLoading = ref(false);
 const cityFilter = ref("");
 const page = ref(1);
 const pageSize = ref(20);
+const pickTab = ref("ready");
+const pickBuckets = ref({});
+const pickMissing = ref({});
 const total = ref(0);
 
 async function load(stage, track = "", keepPage = false) {
-  if (stage !== activeStage.value) cityFilter.value = "";
+  const stageChanged = stage !== activeStage.value;
+  if (stageChanged) cityFilter.value = "";
+  if (stageChanged && stage === "to_pick") pickTab.value = "ready";
   if (!keepPage) page.value = 1;
   activeStage.value = stage;
   activeTrack.value = stage === "shipped" ? track : "";
@@ -667,6 +699,7 @@ async function load(stage, track = "", keepPage = false) {
   const live = await liveOr(null, () =>
     api("orders.board", {
       stage, track: track || undefined,
+      pick: stage === "to_pick" ? pickTab.value : undefined,
       limit: pageSize.value, offset: (page.value - 1) * pageSize.value,
       q: q.value.trim() || undefined, city: cityFilter.value || undefined,
       sort: sortKey.value ? `${sortKey.value}_${sortDir.value}` : undefined,
@@ -682,6 +715,8 @@ async function load(stage, track = "", keepPage = false) {
     rows.value = live.rows || [];
     cities.value = live.cities || [];
     total.value = live.total ?? (live.rows || []).length;
+    pickBuckets.value = live.pickBuckets || {};
+    pickMissing.value = live.pickMissing || {};
     if (live.serverNow) serverNow.value = live.serverNow;
     updatedAt.value = Date.now();
   } else if (mode.value !== "live") {
@@ -700,7 +735,14 @@ async function load(stage, track = "", keepPage = false) {
   loading.value = false;
 }
 
-const selectableStage = computed(() => ["to_pick", "prepared"].includes(activeStage.value));
+function setPickTab(tab) {
+  if (pickTab.value === tab) return;
+  pickTab.value = tab;
+  load("to_pick");
+}
+// Only the Ready sub-tab is actionable — you can't pick OOS/partial orders.
+const selectableStage = computed(() =>
+  (activeStage.value === "to_pick" && pickTab.value === "ready") || activeStage.value === "prepared");
 
 function toggleSort(key) {
   if (sortKey.value === key) sortDir.value = sortDir.value === "desc" ? "asc" : "desc";

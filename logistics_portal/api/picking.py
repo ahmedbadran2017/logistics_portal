@@ -291,6 +291,7 @@ def create_pick_list_from_orders(orders, picker=None):
         orders = json.loads(orders)
     result = _build_pick_list(orders, picker)
     frappe.cache().delete_value("lp_board_summary")
+    frappe.cache().delete_value("lp_pick_avail")
     return result
 
 
@@ -407,10 +408,19 @@ def _resolve_bins(item_codes):
     (aisle-walkable), else any staging bin with stock, else None (OOS)."""
     if not item_codes:
         return {}
+    # Locally-pickable only: '- JM' warehouses (incl. Slow/Receiving/Return
+    # zones), excluding Turkey/transit/containers/defective/correcting/old — so
+    # the engine's OOS detection matches the Orders board's Ready/Partial/OOS.
     rows = frappe.db.sql(
         """SELECT item_code, warehouse, actual_qty FROM `tabBin`
-           WHERE actual_qty > 0 AND item_code IN %(items)s""",
-        {"items": tuple(item_codes)}, as_dict=True)
+           WHERE actual_qty > 0 AND item_code IN %(items)s
+             AND warehouse LIKE %(w_jm)s
+             AND warehouse NOT LIKE %(w_def)s AND warehouse NOT LIKE %(w_cont)s
+             AND warehouse NOT LIKE %(w_air)s AND warehouse NOT LIKE %(w_old)s
+             AND warehouse NOT LIKE %(w_corr)s""",
+        {"items": tuple(item_codes), "w_jm": "% - JM", "w_def": "Defective%",
+         "w_cont": "Container%", "w_air": "Air Freight%", "w_old": "%Old%",
+         "w_corr": "CORRECTING%"}, as_dict=True)
     best = {}
     for r in rows:
         m = _SHELF_RE.match(r.warehouse or "")
@@ -637,6 +647,7 @@ def create_batches(batches):
             results.append({"ok": False, "error": str(e),
                             "orders": len(b.get("orders") or [])})
     frappe.cache().delete_value("lp_board_summary")
+    frappe.cache().delete_value("lp_pick_avail")
     return {"results": results,
             "created": sum(1 for r in results if r.get("ok")),
             "failed": sum(1 for r in results if not r.get("ok"))}
@@ -745,6 +756,7 @@ def _autopilot_core(trigger):
             failed += 1
             details.append({"error": str(e)[:120], "kind": b["kind"], "orders": len(b["orders"])})
     frappe.cache().delete_value("lp_board_summary")
+    frappe.cache().delete_value("lp_pick_avail")
 
     entry.update({"created": created, "failed": failed, "orders": placed, "details": details[:8]})
     _ap_record(entry)
