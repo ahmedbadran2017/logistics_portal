@@ -129,6 +129,9 @@ export default {
     consolTitle: "Same customer, multiple orders", consolHint: "Pick together so their parcels leave in one go",
     consolParcels: "extra parcels", consolShip: "Ship together", consolDiffAddr: "different address",
     consolDone: "{n} orders for {c} on one pick list", consolSkipped: "skipped", consolFail: "Couldn't group these orders",
+    awbRetry: "Regenerate AWB", awbBusy: "Queuing…", awbQueuedTitle: "AWB regeneration queued",
+    awbQueuedBody: "{o} — the carrier label is being recreated in the background", awbFail: "Couldn't regenerate the AWB",
+    awbDoneTitle: "This order already has an AWB",
   },
   od: {
     placed: "Placed", printAwb: "Print AWB label", openErp: "Open in ERPNext",

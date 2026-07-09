@@ -129,6 +129,9 @@ export default {
     consolTitle: "نفس العميل، أكتر من أوردر", consolHint: "حضّرهم مع بعض عشان يخرجوا في مرة واحدة",
     consolParcels: "طرد إضافي", consolShip: "اشحنهم مع بعض", consolDiffAddr: "عنوان مختلف",
     consolDone: "{n} أوردر لـ {c} في قائمة تجهيز واحدة", consolSkipped: "اتخطّى", consolFail: "متعذّر تجميع الأوردرات دي",
+    awbRetry: "أعد توليد البوليصة", awbBusy: "جاري الإضافة…", awbQueuedTitle: "بدأ توليد البوليصة",
+    awbQueuedBody: "{o} — البوليصة بيعاد إنشاؤها في الخلفية", awbFail: "متعذّر إعادة توليد البوليصة",
+    awbDoneTitle: "الأوردر ده عنده بوليصة بالفعل",
   },
   od: {
     placed: "أُنشئ", printAwb: "طباعة البوليصة", openErp: "فتح في ERPNext",

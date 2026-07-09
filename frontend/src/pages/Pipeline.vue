@@ -423,9 +423,20 @@
                 </div>
               </td>
               <td v-if="activeStage === 'attention'" class="px-3 py-3">
-                <span class="doc-chip" :style="{ color: faultHex(r.kind), background: faultHex(r.kind) + '14', '--chip-ring': faultHex(r.kind) + '40' }">
-                  {{ faultLabel(r.kind) }}
-                </span>
+                <div class="flex items-center gap-2">
+                  <span class="doc-chip" :style="{ color: faultHex(r.kind), background: faultHex(r.kind) + '14', '--chip-ring': faultHex(r.kind) + '40' }">
+                    {{ faultLabel(r.kind) }}
+                  </span>
+                  <button
+                    v-if="r.kind === 'no_awb' && mode === 'live'"
+                    class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-[11.5px] font-semibold text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50 flex-shrink-0"
+                    :disabled="awbBusy === r.no"
+                    @click.stop="retryAwb(r)"
+                  >
+                    <Icon name="refresh-cw" :size="12" />
+                    {{ awbBusy === r.no ? t('ordersPg.awbBusy') : t('ordersPg.awbRetry') }}
+                  </button>
+                </div>
               </td>
               <td class="px-3 py-3 hidden xl:table-cell">
                 <div v-if="r.picker" class="flex items-center gap-1.5">
@@ -724,6 +735,7 @@ const pickStuck = ref({});
 const blocking = ref([]);
 const consol = ref([]);        // same-customer clusters awaiting pick (Phase 1)
 const consolBusy = ref("");    // group key currently being shipped-together
+const awbBusy = ref("");       // order no whose AWB is being regenerated
 const rows = ref([]);
 const activeStage = ref("to_pick");
 const activeTrack = ref("");
@@ -1012,6 +1024,22 @@ async function shipTogether(g) {
     warn(t("ordersPg.consolFail"), String(e.message || e));
   } finally {
     consolBusy.value = "";
+  }
+}
+
+// Regenerate a stuck order's AWB (no_awb attention) — re-runs the same carrier
+// automation the system runs on pick-list submit; skips orders already done.
+async function retryAwb(r) {
+  awbBusy.value = r.no;
+  try {
+    const res = await apiPost("shipping.retry_awb", { order: r.no });
+    if (res.already) success(t("ordersPg.awbDoneTitle"), `${r.no} · ${res.awb}`);
+    else success(t("ordersPg.awbQueuedTitle"), t("ordersPg.awbQueuedBody").replace("{o}", r.no));
+    setTimeout(() => load("attention"), 1500);
+  } catch (e) {
+    warn(t("ordersPg.awbFail"), String(e.message || e));
+  } finally {
+    awbBusy.value = "";
   }
 }
 

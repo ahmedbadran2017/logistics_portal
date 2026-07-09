@@ -91,6 +91,43 @@ def generate_label(order):
     return {"awb": "LD" + frappe.generate_hash(length=9).upper()[:9], "status": "Label Generated"}
 
 
+@frappe.whitelist()
+def retry_awb(order):
+    """Re-run DN + Cathedis AWB creation for an order whose pick list was
+    submitted but whose AWB never came back (the 'Needs a human · no AWB'
+    bucket). Re-enqueues the exact ecommerce_integrations job the system runs on
+    pick-list submit; that job skips orders that already have a Delivery Note, so
+    re-running is safe and won't duplicate. Dispatcher/manager only — this hands
+    the parcel to the carrier."""
+    from logistics_portal.api.auth import resolve_role
+
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Only a dispatcher or manager can regenerate an AWB.",
+                     frappe.PermissionError)
+    name = (order or "").lstrip("#").strip()
+    if not frappe.db.exists("Sales Order", name):
+        frappe.throw("Unknown order.")
+    if frappe.db.get_value("Sales Order", name, "custom_awb"):
+        return {"ok": True, "already": True,
+                "awb": frappe.db.get_value("Sales Order", name, "custom_awb")}
+    pl = frappe.db.sql(
+        """SELECT p.name, p.company FROM `tabPick List` p
+           JOIN `tabPick List Item` pli ON pli.parent = p.name
+           WHERE pli.sales_order = %s AND p.docstatus = 1
+           ORDER BY p.modified DESC LIMIT 1""", (name,), as_dict=True)
+    if not pl:
+        frappe.throw("No submitted pick list for this order yet — it hasn't "
+                     "reached AWB creation.")
+    pl = pl[0]
+    frappe.enqueue(
+        "ecommerce_integrations.overrides.pick_list.create_delivery_notes_background",
+        pick_list_name=pl.name, company=pl.company,
+        queue="default", timeout=9600, at_front=True,
+        job_name=f"create_delivery_notes_{pl.name}")
+    frappe.cache().delete_value("lp_board_summary")
+    return {"ok": True, "queued": True, "pickList": pl.name}
+
+
 _TRACK_MAP = {
     "Pending": "pending", "Picked up": "pickedup", "In Transit": "intransit",
     "Out For Delivery": "outfordelivery", "Delivered": "delivered",

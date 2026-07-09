@@ -129,6 +129,9 @@ export default {
     consolTitle: "Même client, plusieurs commandes", consolHint: "Préparez-les ensemble pour un seul départ",
     consolParcels: "colis en trop", consolShip: "Expédier ensemble", consolDiffAddr: "adresse différente",
     consolDone: "{n} commandes pour {c} sur une liste", consolSkipped: "ignorées", consolFail: "Impossible de regrouper ces commandes",
+    awbRetry: "Régénérer le BL", awbBusy: "En file…", awbQueuedTitle: "Régénération du BL lancée",
+    awbQueuedBody: "{o} — l'étiquette transporteur est recréée en arrière-plan", awbFail: "Impossible de régénérer le BL",
+    awbDoneTitle: "Cette commande a déjà un BL",
   },
   od: {
     placed: "Créée", printAwb: "Imprimer l’étiquette AWB", openErp: "Ouvrir dans ERPNext",
