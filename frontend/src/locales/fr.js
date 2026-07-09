@@ -126,6 +126,9 @@ export default {
     missing: "Manquant",
     stuckOos: "bloqués en rupture", blockingTitle: "Réapprovisionner en priorité — bloque le plus de commandes",
     blOrders: "commandes", blStuck: "bloqués", blOldest: "plus ancien", blDays: "{n}j", blNoData: "Rien de bloqué 🎉",
+    consolTitle: "Même client, plusieurs commandes", consolHint: "Préparez-les ensemble pour un seul départ",
+    consolParcels: "colis en trop", consolShip: "Expédier ensemble", consolDiffAddr: "adresse différente",
+    consolDone: "{n} commandes pour {c} sur une liste", consolSkipped: "ignorées", consolFail: "Impossible de regrouper ces commandes",
   },
   od: {
     placed: "Créée", printAwb: "Imprimer l’étiquette AWB", openErp: "Ouvrir dans ERPNext",

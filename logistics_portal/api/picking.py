@@ -292,6 +292,7 @@ def create_pick_list_from_orders(orders, picker=None):
     result = _build_pick_list(orders, picker)
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_value("lp_consolidation")
     return result
 
 
@@ -427,6 +428,7 @@ def submit_pick_list(name):
     pl.submit()
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_value("lp_consolidation")
     dn = frappe.db.sql(
         """SELECT MAX(dni.parent) FROM `tabDelivery Note Item` dni
            JOIN `tabPick List Item` pli ON pli.parent=%s AND pli.sales_order=dni.against_sales_order""",
@@ -469,6 +471,7 @@ def cancel_pick_list(name, reason=None):
     frappe.delete_doc("Pick List", name, ignore_permissions=False)
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_value("lp_consolidation")
     return {"ok": True}
 
 
@@ -773,6 +776,7 @@ def create_batches(batches):
                             "orders": len(b.get("orders") or [])})
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_value("lp_consolidation")
     return {"results": results,
             "created": sum(1 for r in results if r.get("ok")),
             "failed": sum(1 for r in results if not r.get("ok"))}
@@ -882,6 +886,7 @@ def _autopilot_core(trigger):
             details.append({"error": str(e)[:120], "kind": b["kind"], "orders": len(b["orders"])})
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_value("lp_consolidation")
 
     entry.update({"created": created, "failed": failed, "orders": placed, "details": details[:8]})
     _ap_record(entry)

@@ -346,4 +346,5 @@ def mark_labels_printed(orders):
             done += 1
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_value("lp_consolidation")
     return {"printed": done}

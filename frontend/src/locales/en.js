@@ -126,6 +126,9 @@ export default {
     missing: "Missing",
     stuckOos: "stuck out of stock", blockingTitle: "Restock these first — blocking the most orders",
     blOrders: "orders", blStuck: "stuck", blOldest: "oldest", blDays: "{n}d", blNoData: "Nothing blocked 🎉",
+    consolTitle: "Same customer, multiple orders", consolHint: "Pick together so their parcels leave in one go",
+    consolParcels: "extra parcels", consolShip: "Ship together", consolDiffAddr: "different address",
+    consolDone: "{n} orders for {c} on one pick list", consolSkipped: "skipped", consolFail: "Couldn't group these orders",
   },
   od: {
     placed: "Placed", printAwb: "Print AWB label", openErp: "Open in ERPNext",

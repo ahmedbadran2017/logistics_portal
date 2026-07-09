@@ -126,6 +126,9 @@ export default {
     missing: "ناقص",
     stuckOos: "واقفين نافد المخزون", blockingTitle: "وفّر دول الأول — بيحجبوا أكبر عدد أوردرات",
     blOrders: "أوردر", blStuck: "واقفين", blOldest: "أقدم", blDays: "{n} يوم", blNoData: "لا شيء محجوب 🎉",
+    consolTitle: "نفس العميل، أكتر من أوردر", consolHint: "حضّرهم مع بعض عشان يخرجوا في مرة واحدة",
+    consolParcels: "طرد إضافي", consolShip: "اشحنهم مع بعض", consolDiffAddr: "عنوان مختلف",
+    consolDone: "{n} أوردر لـ {c} في قائمة تجهيز واحدة", consolSkipped: "اتخطّى", consolFail: "متعذّر تجميع الأوردرات دي",
   },
   od: {
     placed: "أُنشئ", printAwb: "طباعة البوليصة", openErp: "فتح في ERPNext",

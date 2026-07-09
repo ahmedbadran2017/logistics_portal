@@ -570,6 +570,96 @@ def _pick_availability():
     return out
 
 
+def _norm_phone(p):
+    """Bare national number for identity matching: digits only, drop a leading
+    212/0 country/trunk prefix, keep the last 9 (Moroccan mobiles are 9 digits
+    after the 0). Two orders with the same normalized phone are the same person."""
+    d = "".join(c for c in (p or "") if c.isdigit())
+    if d.startswith("212"):
+        d = d[3:]
+    return d[-9:] if len(d) >= 9 else d
+
+
+@frappe.whitelist()
+def consolidation_groups(limit=30):
+    """Same-customer clusters still waiting to be picked: 2+ Confirmed orders
+    sharing a phone number, none yet on a pick list. Phase 1 consolidation =
+    pick & ship them in one go so they leave together (each order keeps its own
+    AWB + COD — no carrier/accounting change, fully safe). Cached 120s.
+    Returns [{key, customer, phone, city, sameAddress, count, mad, ageMins,
+    orders:[{no, total, city, ageMins, items}]}] sorted by size then value."""
+    import json as _json
+    from frappe.utils import time_diff_in_seconds, now_datetime
+    cache = frappe.cache()
+    cached = cache.get_value("lp_consolidation")
+    if cached:
+        groups = _json.loads(cached)
+        return groups[: min(int(limit), 60)]
+    w = _win(BOARD_WINDOW_DAYS)
+    try:
+        rows = frappe.db.sql("""
+            SELECT so.name AS no, so.customer_name AS customer, so.grand_total AS total,
+                   so.custom_items_count AS nitems, so.creation AS created,
+                   COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone) AS phone,
+                   COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address) AS addr,
+                   COALESCE(NULLIF(so.custom_shipping_city,''), addr.city) AS city
+            FROM `tabSales Order` so
+            LEFT JOIN `tabAddress` addr
+                ON addr.name = COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address)
+            LEFT JOIN (SELECT pli.sales_order FROM `tabPick List Item` pli
+                       JOIN `tabPick List` p ON p.name=pli.parent
+                       WHERE p.docstatus < 2 GROUP BY pli.sales_order) pl ON pl.sales_order = so.name
+            WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
+              AND so.custom_logistics_status='Pending' AND pl.sales_order IS NULL
+              AND so.creation >= %s
+              AND COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone, '') != ''
+            ORDER BY so.creation DESC""", (w,), as_dict=True)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.consolidation_groups")
+        return []
+
+    now = now_datetime()
+    clusters = {}
+    for r in rows:
+        key = _norm_phone(r.phone)
+        if len(key) < 6:  # too short to trust as an identity
+            continue
+        clusters.setdefault(key, []).append(r)
+
+    groups = []
+    for key, items in clusters.items():
+        if len(items) < 2:
+            continue
+        addrs = {(it.addr or "") for it in items}
+        cities = [it.city for it in items if it.city]
+        ages = []
+        orders = []
+        for it in items:
+            try:
+                a = max(0, int(time_diff_in_seconds(now, it.created) // 60))
+            except Exception:
+                a = 0
+            ages.append(a)
+            orders.append({"no": it.no, "total": it.total or 0,
+                           "city": (it.city or "") if len(it.city or "") <= 28 else "",
+                           "items": it.nitems or 1, "ageMins": a})
+        orders.sort(key=lambda o: o["no"])
+        groups.append({
+            "key": key,
+            "customer": items[0].customer or "",
+            "phone": items[0].phone or "",
+            "city": (cities[0] if cities else "") if len((cities[0] if cities else "")) <= 28 else "",
+            "sameAddress": len(addrs) == 1,  # one drop point vs. same person/diff address
+            "count": len(items),
+            "mad": round(sum(float(o["total"] or 0) for o in orders)),
+            "ageMins": max(ages) if ages else 0,
+            "orders": orders,
+        })
+    groups.sort(key=lambda g: (-g["count"], -g["mad"]))
+    cache.set_value("lp_consolidation", _json.dumps(groups), expires_in_sec=120)
+    return groups[: min(int(limit), 60)]
+
+
 def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dates=None, pick_names=None):
     w, dw = _win(BOARD_WINDOW_DAYS), _win(DONE_WINDOW_DAYS)
     addr = """LEFT JOIN `tabAddress` addr
