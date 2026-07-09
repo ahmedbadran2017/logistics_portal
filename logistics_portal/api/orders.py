@@ -111,9 +111,14 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
         else:
             total = _board_total(stage, track, q, city, dates)
         from frappe.utils import now_datetime
+        # A date filter re-scopes the DONE-stage cards to that period (throughput),
+        # while the backlog cards stay live. Only pay for it when a filter is set.
+        if dates:
+            counts = {**counts, **_done_counts(dates)}
         resp = {"counts": counts, "values": values, "shippedTracks": shipped_tracks,
                 "attention": attention, "rows": rows, "cities": cities,
-                "total": total, "stage": stage, "serverNow": str(now_datetime())[:16]}
+                "total": total, "stage": stage, "intakeToday": _intake_today(),
+                "serverNow": str(now_datetime())[:16]}
         if pick_buckets is not None:
             resp["pickBuckets"] = pick_buckets
             if pick in ("partial", "oos"):
@@ -169,7 +174,7 @@ def _board_total(stage, track, q=None, city=None, dates=None, pick_names=None):
 
     where += _q_cond(q, args)
     where += _city_cond(city, args)
-    where += _date_cond(dates, args)
+    where += _period_cond(dates, args, _dcol(stage))
     if pick_names is not None and stage == "to_pick":
         if not pick_names:
             return 0
@@ -366,18 +371,74 @@ def _order_by(sort, default):
     return _SORTS.get(sort or "", default)
 
 
-def _date_cond(dates, args):
-    """dates: today | yesterday | 7d | 30d — anchored to server date."""
-    from frappe.utils import nowdate, add_days
+DONE_STAGES = ("shipped", "delivered", "returned")  # events: scoped by period
+_DONE_STATUS = {"shipped": "Shipped", "delivered": "Delivered", "returned": "Returned"}
+
+
+def _period_bounds(dates):
+    """(start_date, end_date_inclusive|None) for a filter token, or None.
+    today/yesterday/this_week/this_month/7d/30d — anchored to the server date."""
+    from frappe.utils import nowdate, add_days, get_first_day, getdate
     if not dates:
+        return None
+    today = getdate(nowdate())
+    if dates == "today":      return (today, today)
+    if dates == "yesterday":  y = add_days(today, -1); return (y, y)
+    if dates == "this_week":  return (add_days(today, -today.weekday()), today)  # Mon-start
+    if dates == "this_month": return (get_first_day(today), today)
+    if dates in ("7d", "30d"): return (add_days(today, -int(dates[:-1])), today)
+    return None
+
+
+def _period_cond(dates, args, col="so.creation"):
+    """Date-range filter on `col`. Backlog stages scope by creation (when it
+    arrived); done stages scope by modified (when it reached the stage)."""
+    b = _period_bounds(dates)
+    if not b:
         return ""
-    if dates == "today":
-        args.append(nowdate()); return " AND DATE(so.creation) = %s"
-    if dates == "yesterday":
-        args.append(add_days(nowdate(), -1)); return " AND DATE(so.creation) = %s"
-    if dates in ("7d", "30d"):
-        args.append(add_days(nowdate(), -int(dates[:-1]))); return " AND so.creation >= %s"
-    return ""
+    start, end = b
+    args.append(str(start))
+    cond = f" AND DATE({col}) >= %s"
+    if end is not None:
+        args.append(str(end)); cond += f" AND DATE({col}) <= %s"
+    return cond
+
+
+def _dcol(stage):
+    return "so.modified" if stage in DONE_STAGES + ("to_return",) else "so.creation"
+
+
+def _date_cond(dates, args):  # back-compat shim (creation-scoped)
+    return _period_cond(dates, args, "so.creation")
+
+
+def _done_counts(dates):
+    """Throughput counts for the DONE stages within a period (by so.modified =
+    when the order reached that stage). Only shipped/delivered/returned are
+    events; to_return stays a live in-flight state."""
+    out = {}
+    for stage in DONE_STAGES:
+        args = []
+        pc = _period_cond(dates, args, "so.modified")
+        if not pc:
+            return {}
+        out[stage] = int(frappe.db.sql(
+            f"""SELECT COUNT(*) FROM `tabSales Order` so
+                WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
+                  AND so.custom_logistics_status=%s{pc}""",
+            tuple([_DONE_STATUS[stage]] + args))[0][0] or 0)
+    return out
+
+
+def _intake_today():
+    from frappe.utils import nowdate
+    try:
+        return int(frappe.db.sql(
+            """SELECT COUNT(*) FROM `tabSales Order`
+               WHERE docstatus=1 AND custom_sales_status='Confirmed' AND DATE(creation)=%s""",
+            (nowdate(),))[0][0] or 0)
+    except Exception:
+        return 0
 
 
 def _city_cond(city, args):
@@ -481,7 +542,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
 
     if stage == "to_pick":
         args = [w]
-        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _date_cond(dates, args)
+        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
         pc = ""
         if pick_names is not None:
             if not pick_names:
@@ -497,7 +558,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
 
     if stage == "picking":
         args = [w]
-        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _date_cond(dates, args)
+        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, pl.pl, pl.picker, pl.pl_owner
             FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
@@ -511,7 +572,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
             if stage == "prepared" else ["Label Printed"]
         ph = ", ".join(["%s"] * len(statuses))
         args = statuses + [w]
-        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _date_cond(dates, args)
+        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, pl.pl, pl.picker, pl.pl_owner
             FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
@@ -526,7 +587,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
         elif track:
             cond = "AND so.custom_track_shipment_status = %s"
             args.append(track)
-        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _date_cond(dates, args)
+        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, sh.sh FROM `tabSales Order` so {addr}
             LEFT JOIN (SELECT dni.against_sales_order so_name, MAX(sdn.parent) sh
                        FROM `tabDelivery Note Item` dni
@@ -539,7 +600,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
 
     if stage == "delivered":
         args = [dw]
-        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _date_cond(dates, args)
+        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS} FROM `tabSales Order` so {addr}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Delivered' AND so.creation >= %s {qc} {cc}
@@ -550,7 +611,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
         cond = "AND (dn.ret IS NOT NULL AND dn.ret != '')" if stage == "returned" \
             else "AND (dn.ret IS NULL OR dn.ret = '')"
         args = [dw]
-        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _date_cond(dates, args)
+        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, dn.ret, dn.dn FROM `tabSales Order` so {addr}
             LEFT JOIN (SELECT dni.against_sales_order so_name, MAX(d.custom_return_shipment) ret,
                               MAX(d.name) dn

@@ -7,6 +7,9 @@
         <p class="text-[13px] text-stone-500 mt-0.5 flex items-center gap-1.5">
           <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
           {{ t("ordersPg.subtitle") }} · {{ WAREHOUSE }}
+          <span v-if="intakeToday > 0" class="inline-flex items-center gap-1 ms-1 text-[11.5px] font-semibold text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200/60 rounded-md px-1.5 py-0.5">
+            <Icon name="arrow-down" :size="11" /> {{ intakeToday }} {{ t("ordersPg.intakeToday") }}
+          </span>
         </p>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
@@ -33,6 +36,8 @@
             <option value="">{{ t("ordersPg.allDates") }}</option>
             <option value="today">{{ t("ordersPg.today") }}</option>
             <option value="yesterday">{{ t("ordersPg.yesterday") }}</option>
+            <option value="this_week">{{ t("ordersPg.thisWeek") }}</option>
+            <option value="this_month">{{ t("ordersPg.thisMonth") }}</option>
             <option value="7d">{{ t("ordersPg.last7") }}</option>
             <option value="30d">{{ t("ordersPg.last30") }}</option>
           </select>
@@ -79,6 +84,7 @@
         v-for="a in attentionChips" :key="a.key"
         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold ring-1 transition-all hover:-translate-y-px"
         :class="activeStage === 'attention' ? 'bg-rose-600 text-white ring-rose-600' : 'bg-white text-stone-700 ring-stone-200 hover:ring-rose-300'"
+        :title="t('ordersPg.faultsWhy.' + a.key)"
         @click="load('attention')"
       >
         <span class="w-1.5 h-1.5 rounded-full" :style="{ background: a.hex }" />
@@ -636,6 +642,7 @@ const counts = ref({});
 const values = ref({});
 const shippedTracks = ref({});
 const attention = ref({});
+const intakeToday = ref(0);
 const rows = ref([]);
 const activeStage = ref("to_pick");
 const activeTrack = ref("");
@@ -717,6 +724,7 @@ async function load(stage, track = "", keepPage = false) {
     total.value = live.total ?? (live.rows || []).length;
     pickBuckets.value = live.pickBuckets || {};
     pickMissing.value = live.pickMissing || {};
+    intakeToday.value = live.intakeToday || 0;
     if (live.serverNow) serverNow.value = live.serverNow;
     updatedAt.value = Date.now();
   } else if (mode.value !== "live") {
