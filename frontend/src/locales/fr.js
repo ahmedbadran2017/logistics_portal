@@ -199,7 +199,7 @@ export default {
     sbOos: "Impossible à préparer — rupture de stock", sbOosHint: "Ces commandes sont exclues ; réapprovisionner ou annuler.",
     sbCreate: "Créer {n} pick lists", sbCreating: "Création…", sbEmpty: "Rien à regrouper — file vide 🎉",
     sbCreated: "{n} pick lists créées", sbFailed: "{n} en échec",
-    sbCap: "max 20 lots / 200 commandes par exécution",
+    sbCap: "max 20 lots / 600 commandes par exécution",
     sbSelTop: "Top 20", sbSelNone: "Vider", sbSize: "Taille du lot", sbPickHint: "Touchez une carte pour l’inclure / l’exclure",
     sbMoreBatches: "+{b} lots supplémentaires ({o} commandes) en file — créez ceux-ci d’abord, puis rouvrez.",
     apTitle: "Autopilote de préparation", apSub: "Même moteur que les suggestions · toutes les 15 min · assigne par charge",

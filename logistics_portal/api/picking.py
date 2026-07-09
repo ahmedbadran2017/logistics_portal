@@ -473,14 +473,14 @@ def _chunk(seq, cap_orders, cap_units, units_of):
 
 
 @frappe.whitelist()
-def suggest_batches(cap_orders=20, cap_units=None, min_mono=8, max_batches=40):
+def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
     """Batch proposal over the LIVE to-pick pool (same definition as the Orders
     board). Returns {batches, oos, poolTotal, batched, serverNow}; each batch
     carries its orders, walk-ordered lines, aisles and a time estimate."""
     try:
         from frappe.utils import now_datetime, nowdate
-        cap_orders = min(max(int(cap_orders or 20), 5), 30)
-        cap_units = min(max(int(cap_units or cap_orders * 2), 10), 60)
+        cap_orders = min(max(int(cap_orders or 40), 5), 50)
+        cap_units = min(max(int(cap_units or cap_orders * 2), 10), 120)
         min_mono = min(max(int(min_mono or 8), 4), 20)
 
         rows = frappe.db.sql(
@@ -650,8 +650,8 @@ def create_batches(batches):
     batches = batches or []
     if not batches or len(batches) > 20:
         frappe.throw("Select between 1 and 20 batches.")
-    if sum(len(b.get("orders") or []) for b in batches) > 200:
-        frappe.throw("Too many orders in one run (max 200).")
+    if sum(len(b.get("orders") or []) for b in batches) > 600:
+        frappe.throw("Too many orders in one run (max 600).")
 
     results = []
     for b in batches:

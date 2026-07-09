@@ -32,7 +32,7 @@
             <div class="flex items-center gap-1.5">
               <span class="text-[11px] text-stone-400">{{ t("pl.sbSize") }}</span>
               <div class="flex items-center rounded-lg ring-1 ring-stone-200 bg-white p-0.5">
-                <button v-for="c in [15, 20, 25]" :key="c"
+                <button v-for="c in [30, 40, 50]" :key="c"
                         class="px-2 h-6 text-[11.5px] font-semibold rounded-md transition-colors"
                         :class="capSel === c ? 'bg-stone-900 text-white' : 'text-stone-500 hover:text-stone-800'"
                         @click="capSel = c; openSuggest()">{{ c }}</button>
@@ -141,7 +141,7 @@ const picked = ref(new Set());        // selected batch keys
 const pickerFor = ref({});            // batch key -> picker email
 const sbPickers = ref([]);
 const sbCreating = ref(false);
-const capSel = ref(20);
+const capSel = ref(40);
 
 const pickedOrders = computed(() => {
   if (!suggest.value?.data) return 0;
@@ -150,7 +150,7 @@ const pickedOrders = computed(() => {
     .reduce((a, b) => a + b.orders.length, 0);
 });
 // server accepts at most 20 batches / 200 orders per run
-const overCap = computed(() => picked.value.size > 20 || pickedOrders.value > 200);
+const overCap = computed(() => picked.value.size > 20 || pickedOrders.value > 600);
 function sbKindLabel(k) {
   return t({ mono: "pl.sbMono", aisle: "pl.sbAisle", zone: "pl.sbZone", mixed: "pl.sbMixed" }[k] || k);
 }
@@ -166,7 +166,7 @@ function selectTop() {
   const sel = new Set();
   let ords = 0;
   for (const b of suggest.value.data.batches) {
-    if (sel.size >= 20 || ords + b.orders.length > 200) break;
+    if (sel.size >= 20 || ords + b.orders.length > 600) break;
     sel.add(b.key);
     ords += b.orders.length;
   }
