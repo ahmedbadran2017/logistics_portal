@@ -879,7 +879,10 @@ async function createPL() {
     const res = await apiPost("picking.create_pick_list_from_orders", {
       orders: Array.from(selected.value),
     });
-    success(`Pick List ${res.pl} created`, `${res.orders} orders · ${res.items} items — draft, ready to assign`);
+    const nSkip = (res.skipped || []).length;
+    const detail = `${res.orders} orders · ${res.items} items — draft, ready to assign`
+      + (nSkip ? ` · ${nSkip} skipped (already picked)` : "");
+    success(`Pick List ${res.pl} created`, detail);
     selected.value = new Set();
     load("to_pick");
   } catch (e) {

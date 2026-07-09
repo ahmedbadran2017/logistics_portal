@@ -295,27 +295,46 @@ def create_pick_list_from_orders(orders, picker=None):
     return result
 
 
+def _pick_gate(name):
+    """Why an order can't be picked right now, or None if it's good to go.
+    A single stale selection must not sink the whole batch — callers skip on a
+    reason instead of aborting."""
+    if not frappe.db.exists("Sales Order", name):
+        return "unknown order"
+    so = frappe.db.get_value(
+        "Sales Order", name,
+        ["docstatus", "custom_sales_status", "custom_logistics_status"], as_dict=True)
+    if so.docstatus != 1 or so.custom_sales_status != "Confirmed":
+        return "not a submitted Confirmed order"
+    if so.custom_logistics_status not in (None, "", "Pending"):
+        return f"already in the flow ({so.custom_logistics_status})"
+    if frappe.db.exists("Pick List Item", {"sales_order": name, "docstatus": ["<", 2]}):
+        return "already on a pick list"
+    return None
+
+
 def _build_pick_list(orders, picker=None):
     """Validate + insert one draft Pick List for a batch of orders (no role
-    check, no cache bust — callers own those)."""
+    check, no cache bust — callers own those). Invalid orders (already picked,
+    cancelled, in-flow) are SKIPPED and reported, never aborting the batch —
+    board data can be seconds stale, and one bad pick shouldn't 417 the rest."""
     orders = [o.strip() for o in (orders or []) if o and o.strip()]
     if not orders:
         frappe.throw("No orders selected.")
     if len(orders) > 50:
         frappe.throw("Too many orders for one pick list (max 50).")
 
-    sos = []
+    sos, skipped = [], []
     for name in orders:
-        if not frappe.db.exists("Sales Order", name):
-            frappe.throw(f"Unknown order: {name}")
-        so = frappe.get_doc("Sales Order", name)
-        if so.docstatus != 1 or so.get("custom_sales_status") != "Confirmed":
-            frappe.throw(f"{name} is not a submitted Confirmed order.")
-        if so.get("custom_logistics_status") not in (None, "", "Pending"):
-            frappe.throw(f"{name} is already in the flow ({so.custom_logistics_status}).")
-        if frappe.db.exists("Pick List Item", {"sales_order": name, "docstatus": ["<", 2]}):
-            frappe.throw(f"{name} already has a pick list.")
-        sos.append(so)
+        reason = _pick_gate(name)
+        if reason:
+            skipped.append({"order": name, "reason": reason})
+        else:
+            sos.append(frappe.get_doc("Sales Order", name))
+    if not sos:
+        detail = "; ".join(f"{s['order']} — {s['reason']}" for s in skipped[:4])
+        frappe.throw("None of the selected orders can be picked (already picked or "
+                     f"in the flow): {detail}")
 
     pl = frappe.new_doc("Pick List")
     pl.company = sos[0].company
@@ -347,7 +366,7 @@ def _build_pick_list(orders, picker=None):
     except Exception:
         pass
     pl.insert()
-    return {"pl": pl.name, "orders": len(sos), "items": len(pl.locations)}
+    return {"pl": pl.name, "orders": len(sos), "items": len(pl.locations), "skipped": skipped}
 
 
 @frappe.whitelist()
