@@ -199,6 +199,7 @@ export default {
     dOrders: "طلبات", dLines: "سطور", dUnits: "وحدات", dShipped: "شُحن",
     lifecycle: "دورة قائمة التجهيز", lcCreated: "أُنشئت", lcPicked: "جُهّزت واعتُمدت", lcShipped: "شُحنت",
     walk: "مسار المشي", bySku: "حسب الصنف", byOrder: "حسب الطلب", optimized: "مرتّب حسب الموقع",
+    grab: "تجيب", splitsTo: "{n} أوردر — جيبهم كلهم من هنا", stopsCount: "{s} محطة · {u} وحدة",
     sbBtn: "اقترح دفعات", sbTitle: "دفعات التجهيز المقترحة",
     sbSub: "{n} طلب بالانتظار · {b} في دفعات · {o} بدون مخزون",
     sbMono: "نفس المنتج", sbAisle: "مشوار ممر", sbZone: "منطقة واحدة", sbMixed: "جولة متنوعة",

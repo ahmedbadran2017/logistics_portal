@@ -229,37 +229,47 @@
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center justify-between">
           <div>
             <span class="text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ view === "walk" ? t("pl.walk") : view === "sku" ? t("pl.bySku") : t("pl.byOrder") }}</span>
-            <span v-if="view === 'walk'" class="text-[11px] text-stone-400"> · {{ t("pl.optimized") }}</span>
+            <span v-if="view === 'walk'" class="text-[11px] text-stone-400"> · {{ t('pl.stopsCount').replace('{s}', walkStops.length).replace('{u}', detailUnits) }}</span>
           </div>
           <div class="inline-flex bg-stone-100/80 rounded-lg p-0.5">
             <button v-for="v in [['walk', t('pl.walk')],['sku', t('pl.bySku')],['order', t('pl.byOrder')]]" :key="v[0]" class="px-2.5 h-7 text-[11.5px] font-medium rounded-md transition-all" :class="view === v[0] ? 'bg-white text-stone-900 shadow-[0_1px_2px_rgba(0,0,0,0.06)]' : 'text-stone-500 hover:text-stone-800'" @click="view = v[0]">{{ v[1] }}</button>
           </div>
         </div>
         <div class="p-4">
-          <!-- walk -->
+          <!-- walk — one stop per (bin, product), whatever the order count -->
           <ol v-if="view === 'walk'" class="relative">
-            <li v-for="(l, i) in lines" :key="i" class="relative flex gap-3.5 pb-3 last:pb-0">
-              <span v-if="i !== lines.length - 1" class="absolute top-9 w-px" :class="l.picked ? 'bg-emerald-200' : 'bg-stone-200'" style="left:15px" />
-              <span class="relative z-10 w-[31px] h-[31px] rounded-lg flex items-center justify-center text-[12px] font-bold flex-shrink-0" :class="l.picked ? 'bg-emerald-500 text-white' : l.partial ? 'bg-amber-500 text-white' : 'bg-white ring-1 ring-stone-300 text-stone-500'">
-                <Icon v-if="l.picked" name="check-circle" :size="15" />
-                <svg v-else-if="l.partial" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+            <li v-for="(s, i) in walkStops" :key="s.key" class="relative flex gap-3.5 pb-3 last:pb-0">
+              <span v-if="i !== walkStops.length - 1" class="absolute top-9 w-px" :class="s.picked ? 'bg-emerald-200' : 'bg-stone-200'" style="left:15px" />
+              <span class="relative z-10 w-[31px] h-[31px] rounded-lg flex items-center justify-center text-[12px] font-bold flex-shrink-0" :class="s.picked ? 'bg-emerald-500 text-white' : s.partial ? 'bg-amber-500 text-white' : 'bg-white ring-1 ring-stone-300 text-stone-500'">
+                <Icon v-if="s.picked" name="check-circle" :size="15" />
+                <svg v-else-if="s.partial" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
                 <template v-else>{{ i + 1 }}</template>
               </span>
-              <div class="min-w-0 flex-1 rounded-xl ring-1 p-3" :class="l.picked ? 'ring-emerald-200 bg-emerald-50/40' : l.partial ? 'ring-amber-200 bg-amber-50/40' : 'ring-stone-200 bg-white'">
+              <div class="min-w-0 flex-1 rounded-xl ring-1 p-3" :class="s.picked ? 'ring-emerald-200 bg-emerald-50/40' : s.partial ? 'ring-amber-200 bg-amber-50/40' : 'ring-stone-200 bg-white'">
                 <div class="flex items-center justify-between gap-2">
                   <div class="flex items-center gap-2">
-                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-900 text-white text-[12px] font-bold font-mono"><Icon name="map-pin" :size="11" />{{ l.bin }}</span>
-                    <span v-if="isNewAisle(i)" class="text-[10px] font-medium text-[var(--accent-700)] bg-[var(--accent-50)] rounded px-1.5 py-0.5">{{ binZone(l.bin).replace(" - JM", "") }}</span>
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-900 text-white text-[12px] font-bold font-mono"><Icon name="map-pin" :size="11" />{{ s.bin }}</span>
+                    <span v-if="isNewAisleStop(i)" class="text-[10px] font-medium text-[var(--accent-700)] bg-[var(--accent-50)] rounded px-1.5 py-0.5">{{ binZone(s.bin).replace(" - JM", "") }}</span>
                   </div>
-                  <span class="text-[13px] font-bold tabular-nums" :class="l.partial ? 'text-amber-600' : 'text-stone-900'">{{ l.pickedQty }}/{{ l.qty }} {{ l.partial ? "picked" : "×" }}</span>
+                  <span class="text-[15px] font-bold tabular-nums" :class="s.partial ? 'text-amber-600' : 'text-stone-900'">{{ s.pickedQty }}/{{ s.qty }} <span class="text-[12px] font-semibold text-stone-400">{{ t('pl.grab') }}</span></span>
                 </div>
-                <div class="text-[13.5px] font-medium text-stone-900 mt-2">{{ l.name }}</div>
-                <div class="text-[11.5px] text-stone-500 flex items-center gap-2 mt-1 flex-wrap"><span class="font-mono">{{ l.sku }}</span><span class="text-stone-300">·</span><span class="truncate">{{ l.so }} · {{ l.customer }}</span></div>
+                <div class="text-[13.5px] font-medium text-stone-900 mt-2">{{ s.name }}</div>
+                <div class="text-[11.5px] text-stone-500 flex items-center gap-2 mt-1 flex-wrap">
+                  <span class="font-mono">{{ s.sku }}</span>
+                  <span class="text-stone-300">·</span>
+                  <span v-if="s.orders.length === 1" class="truncate">{{ s.orders[0].so }} · {{ s.orders[0].customer }}</span>
+                  <span v-else class="font-semibold text-[var(--accent-700)]">{{ t('pl.splitsTo').replace('{n}', s.orders.length) }}</span>
+                </div>
                 <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                  <span v-if="l.code" class="font-mono text-[10px] text-stone-400 bg-stone-50 ring-1 ring-stone-200/70 rounded px-1.5 py-0.5">⌗ {{ l.code }}</span>
-                  <span v-if="l.grp" class="text-[10px] font-medium text-stone-500 bg-stone-100 rounded px-1.5 py-0.5">{{ l.grp }}</span>
-                  <span v-if="l.uom && l.uom !== 'Nos'" class="text-[10px] font-medium text-stone-500 bg-stone-100 rounded px-1.5 py-0.5">{{ l.uom }}</span>
-                  <span v-if="l.serial || l.batch" class="inline-flex items-center gap-1 text-[10px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200/60 rounded px-1.5 py-0.5"><span v-html="tagIcon(9)" />{{ l.serial ? "Serial" : "Batch" }}</span>
+                  <span v-if="grpClean(s.grp)" class="text-[10px] font-medium text-stone-500 bg-stone-100 rounded px-1.5 py-0.5">{{ s.grp }}</span>
+                  <span v-if="s.uom && s.uom !== 'Nos'" class="text-[10px] font-medium text-stone-500 bg-stone-100 rounded px-1.5 py-0.5">{{ s.uom }}</span>
+                  <span v-if="s.serial || s.batch" class="inline-flex items-center gap-1 text-[10px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200/60 rounded px-1.5 py-0.5"><span v-html="tagIcon(9)" />{{ s.serial ? "Serial" : "Batch" }}</span>
+                </div>
+                <!-- packing map: which orders this grab splits into -->
+                <div v-if="s.orders.length > 1" class="mt-2 pt-2 border-t border-stone-100 flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                  <span v-for="o in s.orders" :key="o.so" class="inline-flex items-center gap-1 text-[10.5px] font-mono text-stone-600 bg-stone-50 ring-1 ring-stone-200/70 rounded px-1.5 py-0.5" :title="o.customer">
+                    {{ o.so }}<span v-if="o.qty > 1" class="font-bold text-stone-400">×{{ o.qty }}</span>
+                  </span>
                 </div>
               </div>
             </li>
@@ -1086,7 +1096,9 @@ const doneCount = computed(() => lines.value.filter((l) => l.picked).length);
 const detailOrders = computed(() => new Set(lines.value.map((l) => l.so)).size);
 const detailUnits = computed(() => lines.value.reduce((a, l) => a + l.qty, 0));
 const detailAisles = computed(() => new Set(lines.value.map((l) => aisle(l.bin))).size);
-const estTime = computed(() => Math.round(lines.value.length * 1.6 + detailAisles.value * 1.2));
+// Time is driven by physical stops (walking) + units grabbed, not raw lines —
+// a 146-line mono list is one stop, not 146 walks.
+const estTime = computed(() => Math.round(walkStops.value.length * 1.6 + detailUnits.value * 0.12 + detailAisles.value * 1.2));
 
 const isNewAisle = (i) => i === 0 || aisle(lines.value[i].bin) !== aisle(lines.value[i - 1].bin);
 
@@ -1100,6 +1112,37 @@ const byOrder = computed(() => {
   lines.value.forEach((l) => { (m[l.so] = m[l.so] || { so: l.so, customer: l.customer, items: [] }); m[l.so].items.push(l); });
   return Object.values(m);
 });
+
+// A walk STOP is one physical grab: same product at the same bin, however many
+// orders it serves. Collapsing lines this way turns a 30-order mono pick list
+// (30 identical rows) into a single "grab 30× here → 30 orders" stop — which is
+// how the picker actually works it. Mixed lists degrade to one stop per line.
+const walkStops = computed(() => {
+  const m = new Map();
+  lines.value.forEach((l) => {
+    const key = `${l.bin}|||${l.sku}`;
+    let s = m.get(key);
+    if (!s) {
+      s = { key, bin: l.bin, sku: l.sku, name: l.name, grp: l.grp, uom: l.uom,
+            serial: l.serial, batch: l.batch, image: l.image,
+            qty: 0, pickedQty: 0, orders: [] };
+      m.set(key, s);
+    }
+    s.qty += l.qty || 0;
+    s.pickedQty += l.pickedQty || 0;
+    if (l.so) s.orders.push({ so: l.so, customer: l.customer, qty: l.qty || 1 });
+  });
+  return [...m.values()].map((s) => ({
+    ...s,
+    picked: s.qty > 0 && s.pickedQty >= s.qty,
+    partial: s.pickedQty > 0 && s.pickedQty < s.qty,
+  }));
+});
+const isNewAisleStop = (i) =>
+  i === 0 || aisle(walkStops.value[i].bin) !== aisle(walkStops.value[i - 1].bin);
+// ERPNext's root item group ("All Item Groups") means the item is simply
+// uncategorised — showing it as a chip is noise, so drop it (and blanks).
+const grpClean = (g) => (g && g !== "All Item Groups" ? g : "");
 
 const lifecycleSteps = [
   { label: "Created", icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>` },

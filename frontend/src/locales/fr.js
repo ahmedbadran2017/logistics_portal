@@ -199,6 +199,7 @@ export default {
     dOrders: "commandes", dLines: "lignes", dUnits: "unités", dShipped: "expédié",
     lifecycle: "Cycle de la pick list", lcCreated: "Créée", lcPicked: "Préparée & validée", lcShipped: "Expédiée",
     walk: "Parcours", bySku: "Par SKU", byOrder: "Par commande", optimized: "Optimisé par emplacement",
+    grab: "à prendre", splitsTo: "{n} commandes — tout prendre ici", stopsCount: "{s} arrêts · {u} unités",
     sbBtn: "Suggérer des lots", sbTitle: "Lots de préparation suggérés",
     sbSub: "{n} commandes en attente · {b} en lots · {o} en rupture",
     sbMono: "Même produit", sbAisle: "Parcours d’allée", sbZone: "Cluster de zone", sbMixed: "Balayage mixte",
