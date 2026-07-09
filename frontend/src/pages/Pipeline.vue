@@ -71,9 +71,9 @@
     <!-- Attention bar -->
     <div
       v-if="attentionTotal > 0"
-      class="rounded-2xl ring-1 ring-rose-200/70 bg-gradient-to-r from-rose-50 via-amber-50/60 to-white p-3.5 flex items-center gap-3 flex-wrap"
+      class="rounded-2xl ring-1 ring-rose-100 bg-rose-50/40 p-3.5 flex items-center gap-3 flex-wrap"
     >
-      <span class="w-9 h-9 rounded-xl bg-rose-500 text-white flex items-center justify-center flex-shrink-0">
+      <span class="w-9 h-9 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0">
         <Icon name="alert-triangle" :size="18" />
       </span>
       <div class="me-1">
@@ -292,9 +292,7 @@
           </thead>
           <tbody class="divide-y divide-stone-100">
             <tr v-for="r in rows" :key="r.no" class="hover:bg-stone-50/70 transition-colors cursor-pointer group"
-                :class="selected.has(r.no) ? 'bg-amber-50/50' : ''"
-                :style="activeStage === 'to_pick' && missedCutoff(r)
-                  ? { boxShadow: 'inset 3px 0 0 #f43f5e' } : {}"
+                :class="selected.has(r.no) ? 'bg-[var(--accent-50)]/50' : ''"
                 @click="openDrawer(r)">
               <td v-if="selectableStage" class="px-3 py-3 text-center" @click.stop>
                 <input type="checkbox" class="board-cb" :checked="selected.has(r.no)" @change="toggleRow(r.no)" />
@@ -302,8 +300,8 @@
               <td class="px-4 py-3">
                 <div class="font-mono font-bold text-stone-900 whitespace-nowrap">{{ r.no }}</div>
                 <span v-if="activeStage === 'to_pick' && missedCutoff(r)"
-                      class="inline-block mt-1 text-[10px] font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md ring-1 ring-rose-200/70 whitespace-nowrap">
-                  {{ t("ordersPg.missedCutoff") }}
+                      class="inline-flex items-center gap-1 mt-0.5 text-[10.5px] font-medium text-amber-600 whitespace-nowrap">
+                  <span class="w-1 h-1 rounded-full bg-amber-500" /> {{ t("ordersPg.missedCutoff") }}
                 </span>
               </td>
               <td class="px-3 py-3">
@@ -337,9 +335,8 @@
                 </div>
               </td>
               <td class="px-3 py-3">
-                <span v-if="r.status" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold ring-1 ring-inset whitespace-nowrap bg-white"
-                      :style="{ color: statusHex(r.status), '--tw-ring-color': statusHex(r.status) + '55' }">
-                  <span class="w-1.5 h-1.5 rounded-full" :style="{ background: statusHex(r.status) }" />
+                <span v-if="r.status" class="inline-flex items-center gap-1.5 text-[12px] font-medium text-stone-600 whitespace-nowrap">
+                  <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="{ background: statusHex(r.status) }" />
                   {{ statusLabel(r.status) }}
                 </span>
                 <span v-else class="text-[11px] text-stone-300">—</span>
@@ -350,9 +347,9 @@
                   <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="{ background: slaOf(r).hex }" />
                   {{ slaOf(r).label }}
                 </span>
-                <span v-else class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold ring-1 ring-inset whitespace-nowrap"
-                      :style="{ color: slaOf(r).hex, background: slaOf(r).hex + '10', '--tw-ring-color': slaOf(r).hex + '45' }">
-                  <span class="w-1.5 h-1.5 rounded-full" :style="{ background: slaOf(r).hex }" />
+                <span v-else class="inline-flex items-center gap-1.5 text-[12px] font-medium whitespace-nowrap"
+                      :style="{ color: slaOf(r).hex }">
+                  <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="{ background: slaOf(r).hex }" />
                   {{ slaOf(r).label }}
                 </span>
               </td>
