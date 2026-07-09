@@ -401,6 +401,78 @@ def _build_pick_list(orders, picker=None):
 
 
 @frappe.whitelist()
+def submit_pick_list(name):
+    """Submit a draft Pick List. ecommerce_integrations creates the Delivery
+    Note + carrier AWB + label on submit, so this single action completes the
+    whole downstream chain from the portal — no desk needed. Assigned picker,
+    the list owner, or a dispatcher/manager only. Returns the DN + AWB."""
+    from logistics_portal.api.auth import resolve_role
+    if not frappe.db.exists("Pick List", name):
+        frappe.throw("Unknown pick list.")
+    pl = frappe.get_doc("Pick List", name)
+    role = resolve_role(frappe.session.user)
+    owner_or_picker = frappe.session.user in (pl.get("custom_assigned_picker"), pl.owner)
+    if role not in ("dispatcher", "manager") and not owner_or_picker:
+        frappe.throw("Only the assigned picker or a dispatcher can submit this pick list.",
+                     frappe.PermissionError)
+    if pl.docstatus == 1:
+        frappe.throw("This pick list is already submitted.")
+    if pl.docstatus == 2:
+        frappe.throw("This pick list is cancelled.")
+    # capture enforcement needs a picker on submit; default to the actor.
+    if frappe.get_meta("Pick List").has_field("custom_assigned_picker") \
+            and not pl.get("custom_assigned_picker"):
+        pl.db_set("custom_assigned_picker", frappe.session.user, update_modified=False)
+        pl.reload()
+    pl.submit()
+    frappe.cache().delete_value("lp_board_summary")
+    frappe.cache().delete_value("lp_pick_avail")
+    dn = frappe.db.sql(
+        """SELECT MAX(dni.parent) FROM `tabDelivery Note Item` dni
+           JOIN `tabPick List Item` pli ON pli.parent=%s AND pli.sales_order=dni.against_sales_order""",
+        (name,))[0][0]
+    awb = frappe.db.get_value("Delivery Note", dn, "custom_awb") if dn else None
+    return {"ok": True, "pl": name, "dn": dn or "", "awb": awb or ""}
+
+
+@frappe.whitelist()
+def assign_picker(name, picker=None):
+    """Assign / reassign the picker on a DRAFT pick list. Dispatcher/manager."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Only a dispatcher or manager can assign pickers.", frappe.PermissionError)
+    if not frappe.db.exists("Pick List", name):
+        frappe.throw("Unknown pick list.")
+    if not frappe.get_meta("Pick List").has_field("custom_assigned_picker"):
+        frappe.throw("The assigned-picker field isn't installed.")
+    if frappe.db.get_value("Pick List", name, "docstatus") != 0:
+        frappe.throw("A picker can only be assigned while the pick list is a draft.")
+    frappe.db.set_value("Pick List", name, "custom_assigned_picker", (picker or "").strip() or None)
+    frappe.cache().delete_value("lp_board_summary")
+    return {"ok": True, "picker": picker or ""}
+
+
+@frappe.whitelist()
+def cancel_pick_list(name, reason=None):
+    """Delete a DRAFT pick list — frees its orders back to To Pick. Submitted
+    lists (which already carry an AWB) are left to the desk. Dispatcher/manager."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Only a dispatcher or manager can cancel pick lists.", frappe.PermissionError)
+    if not frappe.db.exists("Pick List", name):
+        frappe.throw("Unknown pick list.")
+    ds = frappe.db.get_value("Pick List", name, "docstatus")
+    if ds == 2:
+        frappe.throw("This pick list is already cancelled.")
+    if ds == 1:
+        frappe.throw("Submitted pick lists already have an AWB — cancel them in ERPNext.")
+    frappe.delete_doc("Pick List", name, ignore_permissions=False)
+    frappe.cache().delete_value("lp_board_summary")
+    frappe.cache().delete_value("lp_pick_avail")
+    return {"ok": True}
+
+
+@frappe.whitelist()
 def pickers():
     """The whole picking team with live load. Load counts open (unshipped,
     recent) pick lists whether assigned OR self-created (on production pickers

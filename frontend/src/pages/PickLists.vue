@@ -159,8 +159,30 @@
         </div>
         <div class="flex items-center gap-2">
           <template v-if="isLiveData">
-            <a :href="'/app/pick-list/' + encodeURIComponent(detail.no)" target="_blank" class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50">{{ t("pl.openErp") }} <Icon name="arrow-right" :size="13" class="flip-rtl" /></a>
-            <a :href="'/printview?doctype=Pick%20List&name=' + encodeURIComponent(detail.no)" target="_blank" class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50"><Icon name="printer" :size="15" />{{ t("pl.print") }}</a>
+            <!-- DRAFT: assign · cancel · submit (the action that finishes it on the portal) -->
+            <template v-if="liveDetail && liveDetail.status === 'draft'">
+              <div class="relative">
+                <select :value="liveDetail.picker"
+                        class="h-9 ps-3 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] text-stone-700 appearance-none cursor-pointer focus:outline-none hover:ring-stone-300"
+                        :disabled="assigning" @change="doAssign($event.target.value)">
+                  <option value="">{{ t("pl.assignPicker") }}</option>
+                  <option v-for="p in sbPickers" :key="p.email" :value="p.email">{{ p.name }} ({{ p.load }})</option>
+                </select>
+                <Icon name="chevron-down" :size="13" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-end:.6rem" />
+              </div>
+              <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-rose-600 bg-white ring-1 ring-rose-200 hover:bg-rose-50" @click="confirmCancel = true">
+                <Icon name="x" :size="15" />{{ t("pl.cancelPl") }}
+              </button>
+              <button class="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-[13px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] shadow-[0_4px_14px_-4px_rgba(196,73,42,0.5)] transition-all hover:-translate-y-px disabled:opacity-50"
+                      :disabled="submitting" @click="confirmSubmit = true">
+                <Icon name="check-circle" :size="15" />{{ submitting ? t("pl.submitting") : t("pl.submit") }}
+              </button>
+            </template>
+            <!-- SUBMITTED: AWB ready -> print label -->
+            <template v-else>
+              <a v-if="liveAwbUrl" :href="liveAwbUrl" target="_blank" class="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-[13px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]"><Icon name="printer" :size="15" />{{ t("pl.printAwb") }}</a>
+              <a :href="'/app/pick-list/' + encodeURIComponent(detail.no)" target="_blank" class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50">{{ t("pl.openErp") }} <Icon name="arrow-right" :size="13" class="flip-rtl" /></a>
+            </template>
           </template>
           <template v-else>
             <button v-if="detail.pct < 100" class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]"><span v-html="boxIcon(15)" />{{ detail.pct > 0 ? "Continue pick" : "Start pick" }}</button>
@@ -299,6 +321,42 @@
               <div class="text-[11px] text-stone-400">{{ ev.who }} · {{ ev.at }}</div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Submit confirm (creates the DN + Cathedis AWB — irreversible) -->
+    <div v-if="confirmSubmit" class="fixed inset-0 z-[160] flex items-center justify-center p-4">
+      <div class="absolute inset-0 bg-stone-900/30 backdrop-blur-[1px]" @click="confirmSubmit = false" />
+      <div class="relative w-full max-w-[420px] bg-white rounded-2xl shadow-[0_24px_64px_-16px_rgba(0,0,0,0.3)] p-5 animate-scale-in">
+        <div class="flex items-center gap-2.5 mb-2">
+          <span class="w-9 h-9 rounded-xl bg-[var(--accent-50)] text-[var(--accent-700)] flex items-center justify-center"><Icon name="check-circle" :size="18" /></span>
+          <div class="text-[15px] font-semibold text-stone-900">{{ t("pl.submitTitle") }}</div>
+        </div>
+        <p class="text-[12.5px] text-stone-500 leading-relaxed mb-4">{{ t("pl.submitBody") }}</p>
+        <div class="flex items-center justify-end gap-2">
+          <button class="h-9 px-3 rounded-lg text-[13px] font-medium text-stone-600 hover:bg-stone-100" @click="confirmSubmit = false">{{ t("pl.keep") }}</button>
+          <button class="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg text-[13px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]" @click="doSubmit">
+            <Icon name="check-circle" :size="15" />{{ t("pl.confirm") }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cancel confirm (deletes a draft — orders return to To Pick) -->
+    <div v-if="confirmCancel" class="fixed inset-0 z-[160] flex items-center justify-center p-4">
+      <div class="absolute inset-0 bg-stone-900/30 backdrop-blur-[1px]" @click="confirmCancel = false" />
+      <div class="relative w-full max-w-[420px] bg-white rounded-2xl shadow-[0_24px_64px_-16px_rgba(0,0,0,0.3)] p-5 animate-scale-in">
+        <div class="flex items-center gap-2.5 mb-2">
+          <span class="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center"><Icon name="alert-triangle" :size="18" /></span>
+          <div class="text-[15px] font-semibold text-stone-900">{{ t("pl.cancelTitle") }}</div>
+        </div>
+        <p class="text-[12.5px] text-stone-500 leading-relaxed mb-4">{{ t("pl.cancelBody") }}</p>
+        <div class="flex items-center justify-end gap-2">
+          <button class="h-9 px-3 rounded-lg text-[13px] font-medium text-stone-600 hover:bg-stone-100" @click="confirmCancel = false">{{ t("pl.keep") }}</button>
+          <button class="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg text-[13px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="doCancel">
+            <Icon name="x" :size="15" />{{ t("pl.confirm") }}
+          </button>
         </div>
       </div>
     </div>
@@ -599,11 +657,11 @@ import { ref, reactive, computed, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import SuggestBatchesModal from "@/components/SuggestBatchesModal.vue";
 import { PICKLISTS as DEMO_PICKLISTS, TEAM, WAREHOUSE, byId } from "@/lib/handoffData.js";
-import { api, liveOr } from "@/lib/resource";
+import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
 import { useI18n } from "@/composables/useI18n";
 
-const { success } = useToast();
+const { success, warn } = useToast();
 const { t } = useI18n();
 
 // ── local data (from data.jsx) ─────────────────────────────────────────
@@ -711,6 +769,33 @@ function autoPickGroups(strategy, cap2 = 12) {
 // ── list state (server-driven when live · demo seed as fallback) ────────
 const rows = ref(DEMO_PICKLISTS.map((p) => ({ ...p })));
 const sbModal = ref(null);
+const sbPickers = ref([]);
+
+// ── Live autopilot card state (was lost in a refactor — restored + wired) ──
+const ap = ref({ enabled: false, runs: [] });
+const apBusy = ref(false);
+async function apRefresh() {
+  const s = await liveOr(null, () => api("picking.autopilot_status"));
+  if (s) ap.value = { enabled: !!s.enabled, runs: Array.isArray(s.runs) ? s.runs : [] };
+}
+async function apToggle() {
+  apBusy.value = true;
+  try {
+    await apiPost("picking.autopilot_toggle", { enabled: !ap.value.enabled });
+    await apRefresh();
+  } catch (e) { warn("Autopilot", String(e.message || e)); }
+  finally { apBusy.value = false; }
+}
+async function apRunNow() {
+  apBusy.value = true;
+  try {
+    const r = await apiPost("picking.autopilot_run");
+    success(t("pl.apRun"), r && r.created != null ? `${r.created} pick lists` : "");
+    await apRefresh();
+    load();
+  } catch (e) { warn("Autopilot", String(e.message || e)); }
+  finally { apBusy.value = false; }
+}
 const dataMode = ref("loading");
 const counts = ref({});
 const total = ref(0);
@@ -921,13 +1006,61 @@ function createManual() {
 // ── detail view ─────────────────────────────────────────────────────────
 const view = ref("walk");
 const liveDetail = ref(null);
+const submitting = ref(false);
+const assigning = ref(false);
+const confirmSubmit = ref(false);
+const confirmCancel = ref(false);
+const liveAwbUrl = ref("");
 async function openDetail(p) {
   detail.value = p;
   liveDetail.value = null;
+  liveAwbUrl.value = "";
+  confirmSubmit.value = confirmCancel.value = false;
   if (isLiveData.value) {
-    const d = await liveOr(null, () => api("picking.pick_list_detail", { name: p.no }));
-    if (d && d.no) liveDetail.value = d;
+    const [d] = await Promise.all([
+      liveOr(null, () => api("picking.pick_list_detail", { name: p.no })),
+      sbPickers.value.length ? Promise.resolve() : loadPickers(),
+    ]);
+    if (d && d.no) {
+      liveDetail.value = d;
+      const awbOrder = (d.orders || []).find((o) => o.awb);
+      if (awbOrder) liveAwbUrl.value = "/app/delivery-note/" + encodeURIComponent(d.orders[0].dn || "");
+    }
   }
+}
+async function loadPickers() {
+  const pk = await liveOr(null, () => api("picking.pickers"));
+  if (Array.isArray(pk)) sbPickers.value = pk.filter((p) => p.email);
+}
+async function doAssign(email) {
+  assigning.value = true;
+  try {
+    await apiPost("picking.assign_picker", { name: detail.value.no, picker: email });
+    if (liveDetail.value) liveDetail.value = { ...liveDetail.value, picker: email };
+    if (email) success(t("pl.assignedOk").replace("{n}", pickerName(email)));
+    await loadPickers();
+  } catch (e) { warn("Couldn't assign", String(e.message || e)); }
+  finally { assigning.value = false; }
+}
+async function doSubmit() {
+  confirmSubmit.value = false;
+  submitting.value = true;
+  try {
+    const res = await apiPost("picking.submit_pick_list", { name: detail.value.no });
+    success(t("pl.submitOk").replace("{awb}", res.awb || "—"));
+    detail.value = null;      // back to the list; it's off to shipping now
+    load();
+  } catch (e) { warn("Couldn't submit the pick list", String(e.message || e)); }
+  finally { submitting.value = false; }
+}
+async function doCancel() {
+  confirmCancel.value = false;
+  try {
+    await apiPost("picking.cancel_pick_list", { name: detail.value.no });
+    success(t("pl.cancelledOk"));
+    detail.value = null;
+    load();
+  } catch (e) { warn("Couldn't cancel", String(e.message || e)); }
 }
 const lines = computed(() => {
   const pl = detail.value;
