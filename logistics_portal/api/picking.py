@@ -359,8 +359,8 @@ def _build_pick_list(orders, picker=None):
     orders = [o.strip() for o in (orders or []) if o and o.strip()]
     if not orders:
         frappe.throw("No orders selected.")
-    if len(orders) > 50:
-        frappe.throw("Too many orders for one pick list (max 50).")
+    if len(orders) > 120:
+        frappe.throw("Too many orders for one pick list (max 120).")
 
     sos, skipped = [], []
     for name in orders:
@@ -585,6 +585,9 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
         cap_orders = min(max(int(cap_orders or 40), 5), 50)
         cap_units = min(max(int(cap_units or cap_orders * 2), 10), 120)
         min_mono = min(max(int(min_mono or 8), 4), 20)
+        # Same-product batches are one shelf grab — pulling 100 of the same SKU is
+        # as easy as 10, so they get a much higher cap than mixed walks.
+        cap_mono = min(max(cap_orders * 2, 80), 120)
 
         rows = frappe.db.sql(
             """SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
@@ -683,7 +686,7 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
             if len(grp) < min_mono:
                 aisle_pool.extend(grp)
                 continue
-            chunks = _chunk(sort_q(grp), cap_orders, cap_units, lambda o: o["units"])
+            chunks = _chunk(sort_q(grp), cap_mono, cap_mono, lambda o: o["units"])
             for i, ch in enumerate(chunks):
                 if len(chunks) > 1 and i == len(chunks) - 1 and len(ch) < MIN_BATCH:
                     aisle_pool.extend(ch)  # runt tail rides an aisle run instead
