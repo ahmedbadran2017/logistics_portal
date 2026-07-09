@@ -45,7 +45,7 @@
         </div>
         <button
           v-if="activeStage === 'to_pick' && mode === 'live'"
-          class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white transition-colors hover:brightness-110"
+          class="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-[13px] font-semibold text-white transition-all hover:brightness-110 hover:-translate-y-px shadow-[0_4px_14px_-4px_rgba(196,73,42,0.5)]"
           style="background: var(--accent-600)"
           @click="sbModal && sbModal.open()"
         >
@@ -96,7 +96,7 @@
     <!-- Flow strip (skeleton on first load — never dummy numbers) -->
     <div v-if="mode === 'loading'" class="overflow-x-auto py-1 -mx-1 px-1">
       <div class="flex items-stretch gap-2 min-w-[920px]">
-        <div v-for="n in 8" :key="n" class="flex-1 rounded-xl ring-1 ring-stone-200/60 bg-white/70 p-3 animate-pulse">
+        <div v-for="n in 8" :key="n" class="flex-1 rounded-2xl ring-1 ring-stone-200/60 bg-white p-3.5 animate-pulse shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
           <div class="flex items-center gap-2">
             <div class="w-7 h-7 rounded-lg bg-stone-100" />
             <div class="h-2.5 w-14 rounded bg-stone-100" />
@@ -110,29 +110,29 @@
       <div class="flex items-stretch gap-1.5 min-w-[920px]">
         <template v-for="(s, i) in stages" :key="s.key">
           <button
-            class="relative flex-1 min-w-[106px] text-start rounded-xl p-3 ring-1 transition-all duration-200 group overflow-hidden flex flex-col"
+            class="relative flex-1 min-w-[106px] text-start rounded-2xl p-3.5 ring-1 transition-all duration-200 group overflow-hidden flex flex-col"
             :class="activeStage === s.key
-              ? 'bg-white shadow-[0_8px_24px_-8px_rgba(0,0,0,0.14)] ring-2'
-              : 'bg-white/60 ring-stone-200/70 hover:bg-white hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.1)] hover:-translate-y-px'"
+              ? 'bg-white ring-2 shadow-[0_12px_32px_-14px_rgba(0,0,0,0.22)] -translate-y-0.5'
+              : 'bg-white ring-stone-200/60 shadow-[0_1px_2px_rgba(0,0,0,0.03)] hover:ring-stone-300/70 hover:shadow-[0_10px_24px_-12px_rgba(0,0,0,0.14)] hover:-translate-y-0.5'"
             :style="activeStage === s.key ? { '--tw-ring-color': s.hex } : {}"
             @click="load(s.key)"
           >
             <span class="absolute top-0 inset-x-0 h-[3px] transition-opacity"
                   :style="{ background: s.hex, opacity: activeStage === s.key ? 1 : 0 }" />
             <div class="flex items-center gap-1.5 min-w-0">
-              <span class="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0"
-                    :style="{ background: s.hex + '1c', color: s.hex }">
-                <Icon :name="s.icon" :size="13" />
+              <span class="w-[26px] h-[26px] rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+                    :style="{ background: s.hex + (activeStage === s.key ? '26' : '17'), color: s.hex }">
+                <Icon :name="s.icon" :size="14" />
               </span>
-              <span class="text-[10.5px] font-semibold uppercase tracking-[0.03em] truncate"
-                    :class="activeStage === s.key ? 'text-stone-900' : 'text-stone-500'">{{ t('ordersPg.stages.' + s.key + '.label') }}</span>
+              <span class="text-[10.5px] font-semibold uppercase tracking-[0.02em] truncate"
+                    :class="activeStage === s.key ? 'text-stone-900' : 'text-stone-400'">{{ t('ordersPg.stages.' + s.key + '.label') }}</span>
             </div>
-            <div class="mt-2.5 flex items-baseline gap-1.5 min-w-0 flex-wrap">
-              <span class="text-[23px] leading-none font-semibold tabular-nums flex-shrink-0"
+            <div class="mt-3 flex items-baseline gap-1.5 min-w-0 flex-wrap">
+              <span class="text-[27px] leading-none font-bold tabular-nums tracking-[-0.02em] flex-shrink-0"
                     :class="(counts[s.key] ?? 0) > 0 ? 'text-stone-900' : 'text-stone-300'">
                 {{ counts[s.key] ?? "—" }}
               </span>
-              <span v-if="values[s.key]" class="text-[10.5px] font-mono font-medium text-stone-400 tabular-nums truncate">
+              <span v-if="values[s.key]" class="text-[10.5px] font-medium text-stone-400 tabular-nums truncate">
                 {{ fmtK(values[s.key]) }}
               </span>
               <span v-if="s.key === 'to_pick' && counts.to_pick_late > 0"
@@ -141,12 +141,12 @@
                 ⏰{{ fmtK(counts.to_pick_late) }}
               </span>
             </div>
-            <div class="mt-1 text-[11px] text-stone-400 leading-tight truncate"
+            <div class="mt-1.5 text-[11px] text-stone-400 leading-tight truncate"
                  :title="t('ordersPg.stages.' + s.key + '.hint')">{{ t('ordersPg.stages.' + s.key + '.hint') }}</div>
-            <div class="mt-auto pt-2">
-              <div class="h-[3px] rounded-full bg-stone-100 overflow-hidden">
-                <div class="h-full rounded-full transition-all duration-500"
-                     :style="{ width: stageShare(s.key) + '%', background: s.hex, opacity: 0.7 }" />
+            <div class="mt-auto pt-3">
+              <div class="h-1 rounded-full bg-stone-100 overflow-hidden">
+                <div class="h-full rounded-full transition-all duration-700 ease-out"
+                     :style="{ width: stageShare(s.key) + '%', background: s.hex, opacity: activeStage === s.key ? 0.9 : 0.5 }" />
               </div>
             </div>
           </button>
@@ -251,7 +251,7 @@
     </div>
 
     <!-- Rows -->
-    <div class="bg-white rounded-xl ring-1 ring-stone-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.03)] overflow-hidden">
+    <div class="bg-white rounded-2xl ring-1 ring-stone-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
       <div v-if="loading" class="divide-y divide-stone-100">
         <div v-for="n in 6" :key="n" class="px-4 py-3.5 flex items-center gap-4">
           <div class="h-3.5 w-20 rounded bg-stone-100 animate-pulse" />
