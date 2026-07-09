@@ -928,9 +928,11 @@ async function createPL() {
       orders: Array.from(selected.value),
     });
     const nSkip = (res.skipped || []).length;
+    const nPls = (res.pls || [res.pl]).length;
+    const title = nPls > 1 ? `${nPls} pick lists created` : `Pick List ${res.pl} created`;
     const detail = `${res.orders} orders · ${res.items} items — draft, ready to assign`
-      + (nSkip ? ` · ${nSkip} skipped (already picked)` : "");
-    success(`Pick List ${res.pl} created`, detail);
+      + (nSkip ? ` · ${nSkip} skipped (out of stock / already picked)` : "");
+    success(title, detail);
     selected.value = new Set();
     load("to_pick");
   } catch (e) {

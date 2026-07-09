@@ -473,7 +473,9 @@ def _row(r, **extra):
 # containers/defective/correcting/old. Patterns are params (no literal % in the
 # SQL) so this splices safely into queries that also carry %s args.
 def _pickable_bin_subquery():
-    sql = ("SELECT DISTINCT item_code FROM `tabBin` b WHERE b.actual_qty > 0 "
+    # Available to pick = actual - reserved (a reserved unit is spoken for).
+    sql = ("SELECT DISTINCT item_code FROM `tabBin` b "
+           "WHERE (b.actual_qty - b.reserved_qty) > 0 "
            "AND b.warehouse LIKE %s AND b.warehouse NOT LIKE %s "
            "AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s "
            "AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s")

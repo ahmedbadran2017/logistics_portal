@@ -313,11 +313,49 @@ def _pick_gate(name):
     return None
 
 
+def _insert_one(sos, picker=None):
+    """Build + insert ONE combined draft Pick List from resolved SO docs.
+    Points each line at the warehouse that actually holds AVAILABLE stock (the
+    resolved pickable bin) — the SO item's parent warehouse ("ERPNext - JM")
+    has no leaf stock, so ecommerce_integrations' validate would strip the
+    lines and 417 the create. Raises on any validation failure."""
+    pl = frappe.new_doc("Pick List")
+    pl.company = sos[0].company
+    pl.purpose = "Delivery"
+    if picker and frappe.get_meta("Pick List").has_field("custom_assigned_picker"):
+        pl.custom_assigned_picker = picker
+    bins = _resolve_bins({it.item_code for so in sos for it in so.items})
+    for so in sos:
+        for it in so.items:
+            pending = (it.qty or 0) - (it.delivered_qty or 0)
+            if pending <= 0:
+                continue
+            b = bins.get(it.item_code)
+            pl.append("locations", {
+                "item_code": it.item_code, "qty": pending, "stock_qty": pending,
+                "conversion_factor": it.conversion_factor or 1,
+                "sales_order": so.name, "sales_order_item": it.name, "uom": it.uom,
+                "warehouse": b["bin"] if b else it.warehouse,
+            })
+    if not pl.get("locations"):
+        raise frappe.ValidationError("nothing pickable")
+    pl.insert()
+    return {"pl": pl.name, "orders": len({l.sales_order for l in pl.locations}),
+            "items": len(pl.locations)}
+
+
+def _short_err(e):
+    msg = frappe.utils.strip_html(str(getattr(e, "message", None) or e) or "")
+    return (msg.split("\n")[0][:90]).strip() or "stock unavailable"
+
+
 def _build_pick_list(orders, picker=None):
-    """Validate + insert one draft Pick List for a batch of orders (no role
-    check, no cache bust — callers own those). Invalid orders (already picked,
-    cancelled, in-flow) are SKIPPED and reported, never aborting the batch —
-    board data can be seconds stale, and one bad pick shouldn't 417 the rest."""
+    """One combined draft Pick List from a batch of orders. Resilient by design:
+    orders that are stale (already picked / in-flow) are gated out first, and if
+    the combined insert still fails on live stock (reserved, or already locked in
+    another open pick list), it falls back to per-order inserts — skipping only
+    the orders that truly can't be picked. Never 417s the whole batch for one
+    bad order. Returns {pl, orders, items, skipped, pls}."""
     orders = [o.strip() for o in (orders or []) if o and o.strip()]
     if not orders:
         frappe.throw("No orders selected.")
@@ -336,37 +374,30 @@ def _build_pick_list(orders, picker=None):
         frappe.throw("None of the selected orders can be picked (already picked or "
                      f"in the flow): {detail}")
 
-    pl = frappe.new_doc("Pick List")
-    pl.company = sos[0].company
-    pl.purpose = "Delivery"
-    if picker and frappe.get_meta("Pick List").has_field("custom_assigned_picker"):
-        pl.custom_assigned_picker = picker
-    for so in sos:
-        for it in so.items:
-            pending = (it.qty or 0) - (it.delivered_qty or 0)
-            if pending <= 0:
-                continue
-            pl.append("locations", {
-                "item_code": it.item_code,
-                "qty": pending,
-                "stock_qty": pending,
-                "conversion_factor": it.conversion_factor or 1,
-                "sales_order": so.name,
-                "sales_order_item": it.name,
-                "uom": it.uom,
-                "warehouse": it.warehouse,
-            })
-    if not pl.get("locations"):
-        frappe.throw("Nothing left to pick on the selected orders.")
-
-    # Let ERPNext resolve bins/batches the standard way; fall back to the
-    # SO-item warehouses if location assignment isn't available.
+    # Happy path: one combined pick list.
     try:
-        pl.set_item_locations()
+        r = _insert_one(sos, picker)
+        return {**r, "skipped": skipped, "pls": [r["pl"]]}
     except Exception:
-        pass
-    pl.insert()
-    return {"pl": pl.name, "orders": len(sos), "items": len(pl.locations), "skipped": skipped}
+        frappe.db.rollback()
+
+    # Fallback: live-stock contention emptied or blocked the combined insert.
+    # Insert per order, commit each success, skip (and report) the ones that
+    # can't be picked right now — so the dispatcher still gets pick lists.
+    made = []
+    for so in sos:
+        try:
+            made.append(_insert_one([so], picker))
+            frappe.db.commit()
+        except Exception as e:
+            frappe.db.rollback()
+            skipped.append({"order": so.name, "reason": _short_err(e)})
+    if not made:
+        detail = "; ".join(f"{s['order']} — {s['reason']}" for s in skipped[:4])
+        frappe.throw(f"Couldn't pick any of the selected orders — {detail}")
+    return {"pl": made[0]["pl"], "orders": sum(m["orders"] for m in made),
+            "items": sum(m["items"] for m in made),
+            "pls": [m["pl"] for m in made], "skipped": skipped}
 
 
 @frappe.whitelist()
@@ -431,8 +462,8 @@ def _resolve_bins(item_codes):
     # zones), excluding Turkey/transit/containers/defective/correcting/old — so
     # the engine's OOS detection matches the Orders board's Ready/Partial/OOS.
     rows = frappe.db.sql(
-        """SELECT item_code, warehouse, actual_qty FROM `tabBin`
-           WHERE actual_qty > 0 AND item_code IN %(items)s
+        """SELECT item_code, warehouse, (actual_qty - reserved_qty) AS avail FROM `tabBin`
+           WHERE (actual_qty - reserved_qty) > 0 AND item_code IN %(items)s
              AND warehouse LIKE %(w_jm)s
              AND warehouse NOT LIKE %(w_def)s AND warehouse NOT LIKE %(w_cont)s
              AND warehouse NOT LIKE %(w_air)s AND warehouse NOT LIKE %(w_old)s
@@ -448,7 +479,7 @@ def _resolve_bins(item_codes):
             "shelf": bool(m),
             "aisle": m.group(1) if m else "STG",
             "walk": (m.group(1), int(m.group(2)), m.group(3)) if m else ("~", 0, ""),
-            "qty": float(r.actual_qty or 0),
+            "qty": float(r.avail or 0),
         }
         cur = best.get(r.item_code)
         # prefer shelf over staging; within the same class prefer more stock
