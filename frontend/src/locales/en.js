@@ -124,6 +124,8 @@ export default {
     pickReady: "Ready to prepare", pickPartial: "Partial", pickOos: "Out of stock",
     pickReadyHint: "all items in stock", pickPartialHint: "some items missing", pickOosHint: "nothing in stock",
     missing: "Missing",
+    stuckOos: "stuck out of stock", blockingTitle: "Restock these first — blocking the most orders",
+    blOrders: "orders", blStuck: "stuck", blOldest: "oldest", blDays: "{n}d", blNoData: "Nothing blocked 🎉",
   },
   od: {
     placed: "Placed", printAwb: "Print AWB label", openErp: "Open in ERPNext",

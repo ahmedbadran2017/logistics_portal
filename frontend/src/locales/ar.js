@@ -124,6 +124,8 @@ export default {
     pickReady: "جاهز للتجهيز", pickPartial: "جزئي", pickOos: "نافد المخزون",
     pickReadyHint: "كل الأصناف متوفرة", pickPartialHint: "بعض الأصناف ناقصة", pickOosHint: "لا شيء متوفر",
     missing: "ناقص",
+    stuckOos: "واقفين نافد المخزون", blockingTitle: "وفّر دول الأول — بيحجبوا أكبر عدد أوردرات",
+    blOrders: "أوردر", blStuck: "واقفين", blOldest: "أقدم", blDays: "{n} يوم", blNoData: "لا شيء محجوب 🎉",
   },
   od: {
     placed: "أُنشئ", printAwb: "طباعة البوليصة", openErp: "فتح في ERPNext",

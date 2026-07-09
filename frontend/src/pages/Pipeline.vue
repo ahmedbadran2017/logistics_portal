@@ -177,6 +177,39 @@
       <span class="text-[11px] text-stone-400 ms-1 hidden sm:inline">
         {{ pickTab === 'ready' ? t('ordersPg.pickReadyHint') : pickTab === 'partial' ? t('ordersPg.pickPartialHint') : t('ordersPg.pickOosHint') }}
       </span>
+      <span v-if="(pickStuck.oos || 0) > 0" class="ms-auto inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-rose-700 bg-rose-50 ring-1 ring-rose-200/60 rounded-md px-2 py-1">
+        <Icon name="alert-triangle" :size="12" />
+        {{ (pickBuckets.oos || 0) }} · {{ fmtMAD(pickStuck.oos) }} MAD {{ t('ordersPg.stuckOos') }}
+      </span>
+    </div>
+
+    <!-- Blocking SKUs — restock worklist (OOS / Partial tabs) -->
+    <div v-if="activeStage === 'to_pick' && mode === 'live' && (pickTab === 'oos' || pickTab === 'partial')"
+         class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+      <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
+        <Icon name="package" :size="14" class="text-rose-500" />
+        <span class="text-[12px] font-semibold text-stone-900">{{ t('ordersPg.blockingTitle') }}</span>
+      </div>
+      <div v-if="blocking.length" class="divide-y divide-stone-100">
+        <div v-for="(b, i) in blocking" :key="b.sku" class="flex items-center gap-3 px-4 py-2.5">
+          <span class="w-5 text-[11px] font-bold text-stone-300 tabular-nums flex-shrink-0">{{ i + 1 }}</span>
+          <div class="min-w-0 flex-1">
+            <div class="text-[12.5px] font-medium text-stone-900 truncate" :title="b.name">{{ b.name }}</div>
+            <div class="font-mono text-[10.5px] text-stone-400 truncate">{{ b.sku }}</div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <span class="inline-flex items-center gap-1 text-[11.5px] font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200/60 rounded-md px-2 py-0.5 tabular-nums">
+              {{ b.orders }} {{ t('ordersPg.blOrders') }}
+            </span>
+            <span class="text-[11.5px] text-stone-500 tabular-nums w-[92px] text-end">{{ fmtMAD(b.mad) }} MAD</span>
+            <span class="text-[11px] tabular-nums w-[52px] text-end font-semibold"
+                  :style="{ color: b.age > 7 ? '#e11d48' : b.age > 3 ? '#d97706' : '#78716c' }">
+              {{ t('ordersPg.blDays').replace('{n}', b.age) }}
+            </span>
+          </div>
+        </div>
+      </div>
+      <div v-else class="text-center text-[12px] text-emerald-600 py-6">{{ t('ordersPg.blNoData') }}</div>
     </div>
 
     <!-- City filter -->
@@ -294,10 +327,13 @@
                     </a>
                   </template>
                 </div>
-                <div v-if="pickMissing[r.no] && pickMissing[r.no].length"
-                     class="text-[10.5px] text-rose-600 truncate max-w-[240px] mt-0.5"
-                     :title="pickMissing[r.no].join(', ')">
-                  {{ t('ordersPg.missing') }}: {{ pickMissing[r.no].join(', ') }}
+                <div v-if="pickMissing[r.no] && pickMissing[r.no].length" class="flex items-center gap-1 mt-1 flex-wrap">
+                  <span class="text-[10px] font-semibold text-rose-500 uppercase tracking-wide me-0.5">{{ t('ordersPg.missing') }}</span>
+                  <span v-for="(mi, k) in pickMissing[r.no].slice(0, 3)" :key="k"
+                        class="inline-flex items-center text-[10.5px] font-medium text-rose-700 bg-rose-50 ring-1 ring-rose-200/60 rounded px-1.5 py-0.5 truncate max-w-[150px]" :title="mi">
+                    {{ mi }}
+                  </span>
+                  <span v-if="pickMissing[r.no].length > 3" class="text-[10.5px] text-rose-400">+{{ pickMissing[r.no].length - 3 }}</span>
                 </div>
               </td>
               <td class="px-3 py-3">
@@ -643,6 +679,8 @@ const values = ref({});
 const shippedTracks = ref({});
 const attention = ref({});
 const intakeToday = ref(0);
+const pickStuck = ref({});
+const blocking = ref([]);
 const rows = ref([]);
 const activeStage = ref("to_pick");
 const activeTrack = ref("");
@@ -725,6 +763,8 @@ async function load(stage, track = "", keepPage = false) {
     pickBuckets.value = live.pickBuckets || {};
     pickMissing.value = live.pickMissing || {};
     intakeToday.value = live.intakeToday || 0;
+    pickStuck.value = live.pickStuck || {};
+    blocking.value = live.blocking || [];
     if (live.serverNow) serverNow.value = live.serverNow;
     updatedAt.value = Date.now();
   } else if (mode.value !== "live") {

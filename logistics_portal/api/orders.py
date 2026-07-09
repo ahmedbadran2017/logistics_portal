@@ -121,6 +121,8 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
                 "serverNow": str(now_datetime())[:16]}
         if pick_buckets is not None:
             resp["pickBuckets"] = pick_buckets
+            resp["pickStuck"] = pick_avail.get("stuck", {})
+            resp["blocking"] = pick_avail.get("blocking", [])
             if pick in ("partial", "oos"):
                 resp["pickMissing"] = {r["no"]: pick_avail["missing"].get(r["no"], []) for r in rows}
         return resp
@@ -479,10 +481,17 @@ def _pickable_bin_subquery():
     return sql, args
 
 
+_EMPTY_AVAIL = {"ready": [], "partial": [], "oos": [], "missing": {},
+                "blocking": [], "stuck": {"oos": 0, "partial": 0}}
+
+
 def _pick_availability():
-    """Stock split of the current To-Pick pool, cached 120s.
-    {"ready":[so], "partial":[so], "oos":[so], "missing":{so:[item_name,...]}}."""
+    """Stock split of the current To-Pick pool, cached 120s. Also aggregates the
+    SKUs blocking the most orders (a restock worklist) and the MAD stuck out of
+    stock. {ready, partial, oos, missing, blocking:[{sku,name,orders,mad,age}],
+    stuck:{oos, partial}}."""
     import json as _json
+    from frappe.utils import date_diff, nowdate
     cache = frappe.cache()
     cached = cache.get_value("lp_pick_avail")
     if cached:
@@ -491,7 +500,8 @@ def _pick_availability():
     pk_sql, pk_args = _pickable_bin_subquery()
     try:
         rows = frappe.db.sql(f"""
-            SELECT so.name AS so,
+            SELECT so.name AS so, so.grand_total AS val, so.creation AS created,
+                   soi.item_code AS code,
                    COALESCE(NULLIF(soi.item_name,''), soi.item_code) AS item_name,
                    MAX(CASE WHEN pk.item_code IS NOT NULL THEN 1 ELSE 0 END) AS avail
             FROM `tabSales Order` so
@@ -503,29 +513,57 @@ def _pick_availability():
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Pending' AND pl.sales_order IS NULL
               AND so.creation >= %s
-            GROUP BY so.name, soi.item_code, item_name""",
+            GROUP BY so.name, soi.item_code, item_name, val, created""",
             tuple(pk_args) + (w,), as_dict=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal._pick_availability")
-        return {"ready": [], "partial": [], "oos": [], "missing": {}}
+        return dict(_EMPTY_AVAIL)
 
+    today = nowdate()
     per = {}
     for r in rows:
-        d = per.setdefault(r.so, {"n": 0, "avail": 0, "missing": []})
+        d = per.setdefault(r.so, {"n": 0, "avail": 0, "missing": [], "miss_codes": [],
+                                  "val": float(r.val or 0), "created": r.created})
         d["n"] += 1
         if r.avail:
             d["avail"] += 1
-        elif len(d["missing"]) < 6:
-            d["missing"].append(r.item_name)
+        else:
+            if len(d["missing"]) < 6:
+                d["missing"].append(r.item_name)
+            d["miss_codes"].append((r.code, r.item_name))
+
     ready, partial, oos, missing = [], [], [], {}
+    block = {}  # code -> {name, orders:set, mad, oldest}
+    stuck_oos = stuck_partial = 0.0
     for name, d in per.items():
         if d["avail"] >= d["n"]:
-            ready.append(name)
-        elif d["avail"] == 0:
-            oos.append(name); missing[name] = d["missing"]
+            ready.append(name); continue
+        blocked = d["avail"] == 0
+        (oos if blocked else partial).append(name)
+        missing[name] = d["missing"]
+        if blocked:
+            stuck_oos += d["val"]
         else:
-            partial.append(name); missing[name] = d["missing"]
-    out = {"ready": ready, "partial": partial, "oos": oos, "missing": missing}
+            stuck_partial += d["val"]
+        try:
+            age = max(0, date_diff(today, str(d["created"])[:10]))
+        except Exception:
+            age = 0
+        for code, iname in d["miss_codes"]:
+            b = block.setdefault(code, {"sku": code, "name": iname, "orders": set(),
+                                        "mad": 0.0, "age": 0})
+            if name not in b["orders"]:
+                b["orders"].add(name); b["mad"] += d["val"]
+            b["age"] = max(b["age"], age)
+
+    blocking = sorted(
+        ({"sku": b["sku"], "name": b["name"], "orders": len(b["orders"]),
+          "mad": round(b["mad"]), "age": b["age"]} for b in block.values()),
+        key=lambda x: (-x["orders"], -x["mad"]))[:12]
+
+    out = {"ready": ready, "partial": partial, "oos": oos, "missing": missing,
+           "blocking": blocking,
+           "stuck": {"oos": round(stuck_oos), "partial": round(stuck_partial)}}
     cache.set_value("lp_pick_avail", _json.dumps(out), expires_in_sec=120)
     return out
 

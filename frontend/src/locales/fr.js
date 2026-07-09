@@ -124,6 +124,8 @@ export default {
     pickReady: "Prêt à préparer", pickPartial: "Partiel", pickOos: "Rupture de stock",
     pickReadyHint: "tous les articles en stock", pickPartialHint: "articles manquants", pickOosHint: "rien en stock",
     missing: "Manquant",
+    stuckOos: "bloqués en rupture", blockingTitle: "Réapprovisionner en priorité — bloque le plus de commandes",
+    blOrders: "commandes", blStuck: "bloqués", blOldest: "plus ancien", blDays: "{n}j", blNoData: "Rien de bloqué 🎉",
   },
   od: {
     placed: "Créée", printAwb: "Imprimer l’étiquette AWB", openErp: "Ouvrir dans ERPNext",
