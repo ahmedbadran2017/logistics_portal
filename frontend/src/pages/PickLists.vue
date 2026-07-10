@@ -283,7 +283,10 @@
                 <span class="text-[15px] font-bold text-[var(--accent-700)] tabular-nums">{{ l.qtyTot }}× batch-pick</span>
               </div>
               <div class="text-[13.5px] font-medium text-stone-900 mt-2">{{ l.name }}</div>
-              <div class="text-[11.5px] text-stone-500 mt-1"><span class="font-mono">{{ l.sku }}</span> · splits to {{ l.orders.length }} orders: <span class="text-stone-600">{{ l.orders.join(", ") }}</span></div>
+              <div class="text-[11.5px] text-stone-500 mt-1"><span class="font-mono">{{ l.sku }}</span> · {{ t('pl.splitsTo').replace('{n}', l.orders.length) }}</div>
+              <div v-if="l.orders.length > 1" class="mt-2 pt-2 border-t border-stone-100 flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                <span v-for="(so, j) in l.orders" :key="j" class="text-[10.5px] font-mono text-stone-600 bg-stone-50 ring-1 ring-stone-200/70 rounded px-1.5 py-0.5">{{ so }}</span>
+              </div>
             </div>
           </div>
 
