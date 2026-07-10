@@ -195,6 +195,7 @@ export default {
     thPl: "القائمة", thPicker: "المجهِّز", thOrders: "الطلبات", thItems: "الأصناف", thQty: "الكمية",
     thCreated: "أُنشئت", thProgress: "التقدم", thStatus: "الحالة", thType: "النوع", thOrigin: "المصدر",
     combined: "قائمة مجمّعة", of: "من", noRows: "لا قوائم في هذه الفترة.",
+    mono: "مونو", monoHint: "منتج واحد في كل الأوردرات — مسكة واحدة من الرف",
     back: "قوائم التجهيز", openErp: "فتح في ERPNext", print: "طباعة",
     dOrders: "طلبات", dLines: "سطور", dUnits: "وحدات", dShipped: "شُحن",
     lifecycle: "دورة قائمة التجهيز", lcCreated: "أُنشئت", lcPicked: "جُهّزت واعتُمدت", lcShipped: "شُحنت",

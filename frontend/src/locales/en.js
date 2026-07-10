@@ -195,6 +195,7 @@ export default {
     thPl: "Pick List", thPicker: "Picker", thOrders: "Orders", thItems: "Items", thQty: "Qty",
     thCreated: "Created", thProgress: "Progress", thStatus: "Status", thType: "Type", thOrigin: "Origin",
     combined: "Combined Pick", of: "of", noRows: "No pick lists in this window.",
+    mono: "Mono", monoHint: "One product across all orders — a single shelf grab",
     back: "Pick lists", openErp: "Open in ERPNext", print: "Print",
     dOrders: "orders", dLines: "lines", dUnits: "units", dShipped: "shipped",
     lifecycle: "Pick list lifecycle", lcCreated: "Created", lcPicked: "Picked & submitted", lcShipped: "Shipped",

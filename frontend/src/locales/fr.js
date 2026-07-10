@@ -195,6 +195,7 @@ export default {
     thPl: "Pick List", thPicker: "Préparateur", thOrders: "Commandes", thItems: "Articles", thQty: "Qté",
     thCreated: "Créée", thProgress: "Avancement", thStatus: "Statut", thType: "Type", thOrigin: "Origine",
     combined: "Pick combiné", of: "sur", noRows: "Aucune pick list dans cette fenêtre.",
+    mono: "Mono", monoHint: "Un seul produit sur toutes les commandes — une prise unique",
     back: "Pick lists", openErp: "Ouvrir dans ERPNext", print: "Imprimer",
     dOrders: "commandes", dLines: "lignes", dUnits: "unités", dShipped: "expédié",
     lifecycle: "Cycle de la pick list", lcCreated: "Créée", lcPicked: "Préparée & validée", lcShipped: "Expédiée",

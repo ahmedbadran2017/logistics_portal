@@ -194,6 +194,8 @@ def pick_lists(status="", q="", days=7, limit=30, offset=0):
                        {derived} AS status,
                        (SELECT COUNT(DISTINCT pli.sales_order) FROM `tabPick List Item` pli
                         WHERE pli.parent = pl.name) AS orders,
+                       (SELECT COUNT(DISTINCT pli.item_code) FROM `tabPick List Item` pli
+                        WHERE pli.parent = pl.name) AS skus,
                        (SELECT MAX(pli.sales_order) FROM `tabPick List Item` pli
                         WHERE pli.parent = pl.name) AS so_one
                 FROM `tabPick List` pl
@@ -205,12 +207,16 @@ def pick_lists(status="", q="", days=7, limit=30, offset=0):
         out = []
         for r in rows:
             orders = int(r.orders or 0)
+            skus = int(r.skus or 0)
             out.append({
                 "no": r.name,
                 "picker": r.picker or "",
                 "items": int(r.items_cnt or 0),
                 "qty": int(r.qty or 0),
                 "orders": orders,
+                "skus": skus,
+                # Mono = one product across many orders: a single shelf grab.
+                "mono": skus == 1 and orders > 1,
                 "order": "combined" if orders > 1 else (r.so_one or "—"),
                 "customer": "",
                 "status": r.status,
