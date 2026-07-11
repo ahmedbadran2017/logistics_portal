@@ -40,6 +40,7 @@ export default {
     carriers: "شركات الشحن",
     warehouse: "المستودع",
     stock: "المخزون",
+    skuLookup: "بحث SKU",
     reports: "التقارير",
     roster: "الجدول",
     bonus: "المكافآت",
@@ -139,6 +140,9 @@ export default {
     placeholder: "SKU، كود صنف، رقم أوردر، أو اسم المنتج…",
     search: "بحث", searching: "بيبحث", inStock: "فيه ستوك", allOut: "كله فاضي",
     ordered: "المطلوب", none: "مفيش نتايج", noneHint: "مفيش صنف بنفس الـSKU أو الكود أو الاسم.",
+    pageIntro: "نفس المنتج أحياناً بيتكرر على أكتر من كود بنفس الـSKU — واحد يبقى فاضي والتاني فيه ستوك. ابحث بـSKU أو كود صنف أو رقم أوردر أو اسم عشان تشوف المخزون تحت كل الأكواد.",
+    resultsFor: "نتايج", skusFound: "SKU", codes: "كود", avail: "متاح",
+    emptyTitle: "ابحث بـSKU أو أوردر", emptyHint: "اكتب SKU أو كود صنف أو رقم أوردر أو اسم منتج عشان تشوف مخزونه في كل الأكواد المكررة.",
   },
   od: {
     placed: "أُنشئ", printAwb: "طباعة البوليصة", openErp: "فتح في ERPNext",

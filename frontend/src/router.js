@@ -56,6 +56,7 @@ const routes = [
       // Inventory
       { path: "warehouse", name: "Warehouse", component: () => import("@/pages/Warehouse.vue") },
       { path: "inventory", name: "Inventory", component: () => import("@/pages/Inventory.vue") },
+      { path: "sku", name: "SkuLookup", component: () => import("@/pages/SkuLookup.vue") },
       { path: "reports", name: "Reports", component: () => import("@/pages/Reports.vue") },
 
       // Team

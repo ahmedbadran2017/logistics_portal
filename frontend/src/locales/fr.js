@@ -40,6 +40,7 @@ export default {
     carriers: "Transporteurs",
     warehouse: "Entrepôt",
     stock: "Inventaire",
+    skuLookup: "Recherche SKU",
     reports: "Rapports",
     roster: "Planning",
     bonus: "Primes",
@@ -139,6 +140,9 @@ export default {
     placeholder: "SKU, code article, n° de commande ou nom du produit…",
     search: "Chercher", searching: "Recherche", inStock: "En stock", allOut: "Épuisé",
     ordered: "Commandé", none: "Rien trouvé", noneHint: "Aucun article ne partage ce SKU, code ou nom.",
+    pageIntro: "Le même produit est parfois dupliqué sur plusieurs codes article partageant un SKU — l'un peut être épuisé pendant qu'un autre a du stock. Cherchez un SKU, un code, un n° de commande ou un nom pour voir le stock sous chaque code.",
+    resultsFor: "Résultats pour", skusFound: "SKU", codes: "codes article", avail: "dispo",
+    emptyTitle: "Cherchez un SKU ou une commande", emptyHint: "Saisissez un SKU, un code article, un n° de commande ou un nom de produit pour voir où se trouve son stock — sur chaque code dupliqué.",
   },
   od: {
     placed: "Créée", printAwb: "Imprimer l’étiquette AWB", openErp: "Ouvrir dans ERPNext",

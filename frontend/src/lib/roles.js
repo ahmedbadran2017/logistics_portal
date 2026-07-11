@@ -43,6 +43,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "Warehouse", label: "nav.warehouse", icon: "warehouse" },
           { to: "Inventory", label: "nav.stock", icon: "boxes" },
+          { to: "SkuLookup", label: "nav.skuLookup", icon: "search" },
           { to: "Reports", label: "nav.reports", icon: "file-text" },
         ],
       },
@@ -74,6 +75,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "Warehouse", label: "nav.warehouse", icon: "warehouse" },
           { to: "Inventory", label: "nav.stock", icon: "boxes" },
+          { to: "SkuLookup", label: "nav.skuLookup", icon: "search" },
         ],
       },
       {

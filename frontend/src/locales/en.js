@@ -40,6 +40,7 @@ export default {
     carriers: "Carriers",
     warehouse: "Warehouse",
     stock: "Inventory",
+    skuLookup: "SKU Finder",
     reports: "Reports",
     roster: "Roster",
     bonus: "Bonus",
@@ -139,6 +140,9 @@ export default {
     placeholder: "SKU, item code, order number, or product name…",
     search: "Search", searching: "Searching", inStock: "In stock", allOut: "All out",
     ordered: "Ordered", none: "Nothing found", noneHint: "No item shares that SKU, code, or name.",
+    pageIntro: "The same product is sometimes duplicated across several item codes that share one SKU — one can be out of stock while another holds it. Search a SKU, item code, order number, or name to see the stock under every code.",
+    resultsFor: "Results for", skusFound: "SKUs", codes: "item codes", avail: "avail",
+    emptyTitle: "Search a SKU or an order", emptyHint: "Type a SKU, item code, order number, or product name to see where its stock is — across every duplicate item code.",
   },
   od: {
     placed: "Placed", printAwb: "Print AWB label", openErp: "Open in ERPNext",
