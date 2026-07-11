@@ -134,6 +134,7 @@ export default {
     awbQueuedBody: "{o} — l'étiquette transporteur est recréée en arrière-plan", awbFail: "Impossible de régénérer le BL",
     awbDoneTitle: "Cette commande a déjà un BL",
     skuLookupBtn: "Recherche SKU", skuLookupRow: "Chercher ce SKU sur tous les codes article",
+    rescueBadge: "En stock sous un autre code · {n}", rescueHint: "Ce SKU a du stock sous un autre code article — ouvrir la recherche SKU",
   },
   sku: {
     title: "Recherche SKU", subtitle: "Trouvez le stock d'un produit sur tous les codes partageant son SKU",
@@ -143,6 +144,9 @@ export default {
     pageIntro: "Le même produit est parfois dupliqué sur plusieurs codes article partageant un SKU — l'un peut être épuisé pendant qu'un autre a du stock. Cherchez un SKU, un code, un n° de commande ou un nom pour voir le stock sous chaque code.",
     resultsFor: "Résultats pour", skusFound: "SKU", codes: "codes article", avail: "dispo",
     emptyTitle: "Cherchez un SKU ou une commande", emptyHint: "Saisissez un SKU, un code article, un n° de commande ou un nom de produit pour voir où se trouve son stock — sur chaque code dupliqué.",
+    tabSearch: "Recherche", tabDupes: "Doublons à nettoyer",
+    dupesIntro: "Même produit (même variante) dupliqué sur plusieurs codes avec le stock réparti — le stock est sur un code pendant qu'un doublon paraît vide. Fusionnez-les pour éviter la fausse rupture. Cliquez pour voir les codes.",
+    dupesNone: "Aucun doublon réparti trouvé", dupCodes: "{n} codes",
   },
   od: {
     placed: "Créée", printAwb: "Imprimer l’étiquette AWB", openErp: "Ouvrir dans ERPNext",

@@ -112,6 +112,49 @@ _SKU_WH_PATTERNS = ["% - JM", "Defective%", "Container%", "Air Freight%", "%Old%
 
 
 @frappe.whitelist()
+def sku_duplicates(limit=60):
+    """Merge-candidate report: **variant-level** SKUs (≤8 item codes, so the codes
+    are the same sellable unit — not a style's size/colour spread) that are
+    duplicated across item_codes with the stock SPLIT — real stock sitting on one
+    code while a duplicate code shows empty, which is what makes an order falsely
+    OOS. Style-level SKUs (many codes = different variants) are excluded. Cached
+    600s. Returns [{sku, codes, codesInStock, stock, name}] by stock desc."""
+    import json as _json
+    cache = frappe.cache()
+    cached = cache.get_value("lp_sku_dupes")
+    if cached:
+        return _json.loads(cached)[: min(int(limit), 200)]
+    wp = _SKU_WH_PATTERNS
+    jm = ("b.warehouse LIKE %s AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s "
+          "AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s")
+    try:
+        rows = frappe.db.sql(
+            f"""SELECT it.custom_sku AS sku,
+                   COUNT(DISTINCT it.name) AS codes,
+                   COUNT(DISTINCT CASE WHEN bs.net > 0 THEN it.name END) AS codes_in_stock,
+                   ROUND(SUM(GREATEST(COALESCE(bs.net, 0), 0))) AS stock,
+                   MAX(it.item_name) AS name
+                FROM `tabItem` it
+                LEFT JOIN (SELECT item_code, SUM(actual_qty - reserved_qty) net
+                           FROM `tabBin` b WHERE {jm} GROUP BY item_code) bs
+                  ON bs.item_code = it.name
+                WHERE COALESCE(it.custom_sku, '') != ''
+                GROUP BY it.custom_sku
+                HAVING codes BETWEEN 2 AND 8 AND codes_in_stock >= 1
+                   AND codes > codes_in_stock AND stock > 0
+                ORDER BY stock DESC
+                LIMIT 200""", tuple(wp), as_dict=True)
+        out = [{"sku": r.sku, "codes": int(r.codes or 0),
+                "codesInStock": int(r.codes_in_stock or 0),
+                "stock": int(r.stock or 0), "name": r.name or ""} for r in rows]
+        cache.set_value("lp_sku_dupes", _json.dumps(out), expires_in_sec=600)
+        return out[: min(int(limit), 200)]
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.sku_duplicates")
+        return []
+
+
+@frappe.whitelist()
 def sku_lookup(query, limit=80):
     """Answer 'is this SKU actually in the warehouse — maybe under a different
     item code?'. Many physical products are duplicated as several ERPNext Items

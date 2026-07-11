@@ -383,6 +383,10 @@
                   </span>
                   <span v-if="pickMissing[r.no].length > 3" class="text-[10.5px] text-rose-400">+{{ pickMissing[r.no].length - 3 }}</span>
                 </div>
+                <button v-if="rescuable[r.no]" class="inline-flex items-center gap-1 mt-1.5 text-[10.5px] font-semibold text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200/70 rounded-md px-1.5 py-0.5 hover:bg-emerald-100"
+                        :title="t('ordersPg.rescueHint')" @click.stop="openSkuLookup(r.no)">
+                  <Icon name="search" :size="10" />{{ t('ordersPg.rescueBadge').replace('{n}', rescuable[r.no].net) }}
+                </button>
               </td>
               <td class="px-3 py-3">
                 <span v-if="r.status" class="inline-flex items-center gap-1.5 text-[12px] font-medium text-stone-600 whitespace-nowrap">
@@ -795,6 +799,7 @@ const pageSize = ref(20);
 const pickTab = ref("ready");
 const pickBuckets = ref({});
 const pickMissing = ref({});
+const rescuable = ref({});     // order → in-stock SKU sibling (false-OOS)
 const total = ref(0);
 
 async function load(stage, track = "", keepPage = false) {
@@ -827,6 +832,7 @@ async function load(stage, track = "", keepPage = false) {
     total.value = live.total ?? (live.rows || []).length;
     pickBuckets.value = live.pickBuckets || {};
     pickMissing.value = live.pickMissing || {};
+    rescuable.value = live.rescuable || {};
     intakeToday.value = live.intakeToday || 0;
     pickStuck.value = live.pickStuck || {};
     blocking.value = live.blocking || [];

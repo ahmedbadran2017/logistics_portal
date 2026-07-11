@@ -134,6 +134,7 @@ export default {
     awbQueuedBody: "{o} — the carrier label is being recreated in the background", awbFail: "Couldn't regenerate the AWB",
     awbDoneTitle: "This order already has an AWB",
     skuLookupBtn: "SKU lookup", skuLookupRow: "Search this SKU across all item codes",
+    rescueBadge: "In stock under another code · {n}", rescueHint: "This SKU has stock under a different item code — open SKU lookup",
   },
   sku: {
     title: "SKU lookup", subtitle: "Find a product's stock across every item code that shares its SKU",
@@ -143,6 +144,9 @@ export default {
     pageIntro: "The same product is sometimes duplicated across several item codes that share one SKU — one can be out of stock while another holds it. Search a SKU, item code, order number, or name to see the stock under every code.",
     resultsFor: "Results for", skusFound: "SKUs", codes: "item codes", avail: "avail",
     emptyTitle: "Search a SKU or an order", emptyHint: "Type a SKU, item code, order number, or product name to see where its stock is — across every duplicate item code.",
+    tabSearch: "Search", tabDupes: "Duplicates to clean",
+    dupesIntro: "Same product (same variant) duplicated across item codes with the stock split — stock sits on one code while a duplicate shows empty. Merge these to stop the false OOS. Tap one to see its codes.",
+    dupesNone: "No split duplicates found", dupCodes: "{n} codes",
   },
   od: {
     placed: "Placed", printAwb: "Print AWB label", openErp: "Open in ERPNext",

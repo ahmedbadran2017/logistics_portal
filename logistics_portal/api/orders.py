@@ -123,6 +123,7 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
             resp["pickBuckets"] = pick_buckets
             resp["pickStuck"] = pick_avail.get("stuck", {})
             resp["blocking"] = pick_avail.get("blocking", [])
+            resp["rescuable"] = pick_avail.get("rescuable", {})
             if pick in ("partial", "oos"):
                 resp["pickMissing"] = {r["no"]: pick_avail["missing"].get(r["no"], []) for r in rows}
         return resp
@@ -536,6 +537,7 @@ def _pick_availability():
 
     ready, partial, oos, missing = [], [], [], {}
     block = {}  # code -> {name, orders:set, mad, oldest}
+    miss_by_order = {}  # order -> [(missing item_code, item_name)] for SKU-rescue
     stuck_oos = stuck_partial = 0.0
     for name, d in per.items():
         if d["avail"] >= d["n"]:
@@ -543,6 +545,7 @@ def _pick_availability():
         blocked = d["avail"] == 0
         (oos if blocked else partial).append(name)
         missing[name] = d["missing"]
+        miss_by_order[name] = d["miss_codes"]
         if blocked:
             stuck_oos += d["val"]
         else:
@@ -563,11 +566,71 @@ def _pick_availability():
           "mad": round(b["mad"]), "age": b["age"]} for b in block.values()),
         key=lambda x: (-x["orders"], -x["mad"]))[:12]
 
+    rescuable = _sku_rescue(miss_by_order)
+
     out = {"ready": ready, "partial": partial, "oos": oos, "missing": missing,
-           "blocking": blocking,
+           "blocking": blocking, "rescuable": rescuable,
            "stuck": {"oos": round(stuck_oos), "partial": round(stuck_partial)}}
     cache.set_value("lp_pick_avail", _json.dumps(out), expires_in_sec=120)
     return out
+
+
+def _sku_rescue(miss_by_order):
+    """False-OOS finder: for orders stuck out of stock, spot missing items whose
+    SKU (custom_sku) has a NET-positive sibling item_code — i.e. the product IS
+    in the building under a different code. Returns
+    {order: {sku, missCode, code, net}} for the first rescuable missing line."""
+    codes = list({c for lst in miss_by_order.values() for (c, _n) in lst})
+    if not codes:
+        return {}
+    try:
+        cph = ", ".join(["%s"] * len(codes))
+        code2sku = {}
+        for r in frappe.db.sql(
+            f"SELECT name, custom_sku FROM `tabItem` WHERE name IN ({cph}) "
+            f"AND COALESCE(custom_sku,'') != ''", tuple(codes), as_dict=True):
+            code2sku[r.name] = r.custom_sku
+        skus = list({s for s in code2sku.values()})
+        if not skus:
+            return {}
+        # custom_sku is used at two granularities: variant-level SKUs (encode the
+        # size/colour, e.g. JST0672-NavyBlue-L/XL) where siblings ARE the same
+        # sellable unit — safe to rescue; and bare style-level SKUs (e.g. SS10019
+        # with 82 codes) whose siblings are DIFFERENT variants — a wrong rescue.
+        # Only trust SKUs with few codes (variant-level); skip the big styles.
+        sph0 = ", ".join(["%s"] * len(skus))
+        safe = [r.custom_sku for r in frappe.db.sql(
+            f"SELECT custom_sku, COUNT(*) n FROM `tabItem` WHERE custom_sku IN ({sph0}) "
+            f"GROUP BY custom_sku HAVING n <= 8", tuple(skus), as_dict=True)]
+        skus = safe
+        if not skus:
+            return {}
+        wp = ["% - JM", "Defective%", "Container%", "Air Freight%", "%Old%", "CORRECTING%"]
+        net_sub = ("(SELECT COALESCE(SUM(b.actual_qty-b.reserved_qty),0) FROM `tabBin` b "
+                   "WHERE b.item_code=it.name AND b.warehouse LIKE %s "
+                   "AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s "
+                   "AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s "
+                   "AND b.warehouse NOT LIKE %s)")
+        sph = ", ".join(["%s"] * len(skus))
+        best = {}  # sku -> {code, net}
+        for r in frappe.db.sql(
+            f"SELECT it.custom_sku AS sku, it.name AS code, {net_sub} AS net "
+            f"FROM `tabItem` it WHERE it.custom_sku IN ({sph}) HAVING net > 0",
+            tuple(wp) + tuple(skus), as_dict=True):
+            if r.sku not in best or r.net > best[r.sku]["net"]:
+                best[r.sku] = {"code": r.code, "net": int(r.net or 0)}
+        out = {}
+        for order, lst in miss_by_order.items():
+            for code, iname in lst:
+                sku = code2sku.get(code)
+                if sku and sku in best:
+                    out[order] = {"sku": sku, "missCode": code, "missName": iname,
+                                  "code": best[sku]["code"], "net": best[sku]["net"]}
+                    break
+        return out
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal._sku_rescue")
+        return {}
 
 
 def _norm_phone(p):

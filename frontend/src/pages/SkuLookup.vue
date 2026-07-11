@@ -5,8 +5,16 @@
       <p class="text-[13px] text-stone-500 mt-1">{{ t('sku.pageIntro') }}</p>
     </header>
 
+    <!-- mode toggle -->
+    <div class="inline-flex bg-stone-100/80 rounded-lg p-0.5">
+      <button v-for="m in [['search', t('sku.tabSearch')],['dupes', t('sku.tabDupes')]]" :key="m[0]"
+              class="px-3 h-8 text-[12.5px] font-medium rounded-md transition-all"
+              :class="mode === m[0] ? 'bg-white text-stone-900 shadow-[0_1px_2px_rgba(0,0,0,0.06)]' : 'text-stone-500 hover:text-stone-800'"
+              @click="setMode(m[0])">{{ m[1] }}</button>
+    </div>
+
     <!-- search -->
-    <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4">
+    <div v-show="mode === 'search'" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4">
       <div class="flex items-center gap-2">
         <div class="relative flex-1">
           <Icon name="search" :size="15" class="absolute top-1/2 -translate-y-1/2 text-stone-400" style="inset-inline-start:.7rem" />
@@ -27,7 +35,8 @@
       </div>
     </div>
 
-    <!-- results -->
+    <!-- results (search mode) -->
+    <template v-if="mode === 'search'">
     <div v-if="loading" class="text-center text-[13px] text-stone-400 py-12">{{ t('sku.searching') }}…</div>
 
     <div v-else-if="searched && !groups.length" class="text-center py-16">
@@ -69,6 +78,30 @@
         </div>
       </div>
     </div>
+    </template>
+
+    <!-- duplicates report -->
+    <template v-else>
+      <p class="text-[12.5px] text-stone-500">{{ t('sku.dupesIntro') }}</p>
+      <div v-if="dupesLoading" class="text-center text-[13px] text-stone-400 py-12">{{ t('sku.searching') }}…</div>
+      <div v-else-if="!dupes.length" class="text-center py-16">
+        <span class="inline-flex w-12 h-12 rounded-2xl items-center justify-center bg-emerald-50 text-emerald-600 mb-3"><Icon name="check-circle" :size="22" /></span>
+        <div class="text-[14.5px] font-semibold text-stone-800">{{ t('sku.dupesNone') }}</div>
+      </div>
+      <div v-else class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden divide-y divide-stone-100">
+        <button v-for="d in dupes" :key="d.sku" class="w-full flex items-center gap-3 px-4 py-2.5 text-start hover:bg-stone-50" @click="searchSku(d.sku)">
+          <div class="min-w-0 flex-1">
+            <div class="font-mono text-[12.5px] font-semibold text-stone-900 truncate">{{ d.sku }}</div>
+            <div class="text-[11.5px] text-stone-500 truncate">{{ d.name }}</div>
+          </div>
+          <span class="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 ring-1 ring-amber-200/60 rounded-md px-2 py-0.5 tabular-nums flex-shrink-0">
+            {{ t('sku.dupCodes').replace('{n}', d.codes) }}
+          </span>
+          <span class="text-[12.5px] font-bold text-emerald-600 tabular-nums w-[70px] text-end flex-shrink-0">{{ d.stock }} <span class="text-[10px] font-medium text-stone-400">{{ t('sku.avail') }}</span></span>
+          <Icon name="chevron-right" :size="14" class="text-stone-300 flip-rtl flex-shrink-0" />
+        </button>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -81,12 +114,16 @@ import { useI18n } from "@/composables/useI18n";
 
 const { t } = useI18n();
 const route = useRoute();
+const mode = ref("search");
 const q = ref("");
 const lastQuery = ref("");
 const loading = ref(false);
 const searched = ref(false);
 const groups = ref([]);
 const input = ref(null);
+const dupes = ref([]);
+const dupesLoading = ref(false);
+let dupesLoaded = false;
 
 async function run() {
   if (!q.value.trim()) return;
@@ -101,6 +138,29 @@ async function run() {
   } finally {
     loading.value = false;
   }
+}
+
+async function loadDupes() {
+  if (dupesLoaded) return;
+  dupesLoading.value = true;
+  try {
+    const res = await liveOr(null, () => api("inventory.sku_duplicates", { limit: 80 }));
+    dupes.value = Array.isArray(res) ? res : [];
+    dupesLoaded = true;
+  } catch {
+    dupes.value = [];
+  } finally {
+    dupesLoading.value = false;
+  }
+}
+function setMode(m) {
+  mode.value = m;
+  if (m === "dupes") loadDupes();
+}
+function searchSku(sku) {
+  mode.value = "search";
+  q.value = sku;
+  run();
 }
 
 onMounted(() => {
