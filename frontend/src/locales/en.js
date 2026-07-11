@@ -132,6 +132,13 @@ export default {
     awbRetry: "Regenerate AWB", awbBusy: "Queuing…", awbQueuedTitle: "AWB regeneration queued",
     awbQueuedBody: "{o} — the carrier label is being recreated in the background", awbFail: "Couldn't regenerate the AWB",
     awbDoneTitle: "This order already has an AWB",
+    skuLookupBtn: "SKU lookup", skuLookupRow: "Search this SKU across all item codes",
+  },
+  sku: {
+    title: "SKU lookup", subtitle: "Find a product's stock across every item code that shares its SKU",
+    placeholder: "SKU, item code, order number, or product name…",
+    search: "Search", searching: "Searching", inStock: "In stock", allOut: "All out",
+    ordered: "Ordered", none: "Nothing found", noneHint: "No item shares that SKU, code, or name.",
   },
   od: {
     placed: "Placed", printAwb: "Print AWB label", openErp: "Open in ERPNext",

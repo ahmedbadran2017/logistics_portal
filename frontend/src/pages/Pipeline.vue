@@ -177,7 +177,10 @@
       <span class="text-[11px] text-stone-400 ms-1 hidden sm:inline">
         {{ pickTab === 'ready' ? t('ordersPg.pickReadyHint') : pickTab === 'partial' ? t('ordersPg.pickPartialHint') : t('ordersPg.pickOosHint') }}
       </span>
-      <span v-if="(pickStuck.oos || 0) > 0" class="ms-auto inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-rose-700 bg-rose-50 ring-1 ring-rose-200/60 rounded-md px-2 py-1">
+      <button class="ms-auto inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-[11.5px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200 hover:ring-stone-300 hover:text-stone-900" @click="openSkuLookup('')">
+        <Icon name="search" :size="12" />{{ t('ordersPg.skuLookupBtn') }}
+      </button>
+      <span v-if="(pickStuck.oos || 0) > 0" class="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-rose-700 bg-rose-50 ring-1 ring-rose-200/60 rounded-md px-2 py-1">
         <Icon name="alert-triangle" :size="12" />
         {{ (pickBuckets.oos || 0) }} · {{ fmtMAD(pickStuck.oos) }} MAD {{ t('ordersPg.stuckOos') }}
       </span>
@@ -189,9 +192,12 @@
       <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
         <Icon name="package" :size="14" class="text-rose-500" />
         <span class="text-[12px] font-semibold text-stone-900">{{ t('ordersPg.blockingTitle') }}</span>
+        <button class="ms-auto inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-[11.5px] font-semibold text-[var(--accent-700)] bg-[var(--accent-50)] ring-1 ring-[var(--accent-200)]/60 hover:bg-[var(--accent-100)]" @click="openSkuLookup('')">
+          <Icon name="search" :size="12" />{{ t('ordersPg.skuLookupBtn') }}
+        </button>
       </div>
       <div v-if="blocking.length" class="divide-y divide-stone-100">
-        <div v-for="(b, i) in blocking" :key="b.sku" class="flex items-center gap-3 px-4 py-2.5">
+        <div v-for="(b, i) in blocking" :key="b.sku" class="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-stone-50" :title="t('ordersPg.skuLookupRow')" @click="openSkuLookup(b.sku)">
           <span class="w-5 text-[11px] font-bold text-stone-300 tabular-nums flex-shrink-0">{{ i + 1 }}</span>
           <div class="min-w-0 flex-1">
             <div class="text-[12.5px] font-medium text-stone-900 truncate" :title="b.name">{{ b.name }}</div>
@@ -511,6 +517,7 @@
     </div>
 
     <SuggestBatchesModal ref="sbModal" @created="load('to_pick')" />
+    <SkuLookupModal ref="skuModal" />
 
     <!-- Quick-view drawer -->
     <transition name="qv">
@@ -678,6 +685,7 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import SuggestBatchesModal from "@/components/SuggestBatchesModal.vue";
+import SkuLookupModal from "@/components/SkuLookupModal.vue";
 import { WAREHOUSE, fmtMAD } from "@/lib/handoffData";
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
@@ -736,6 +744,8 @@ const blocking = ref([]);
 const consol = ref([]);        // same-customer clusters awaiting pick (Phase 1)
 const consolBusy = ref("");    // group key currently being shipped-together
 const awbBusy = ref("");       // order no whose AWB is being regenerated
+const skuModal = ref(null);
+function openSkuLookup(query = "") { skuModal.value?.openWith(query); }
 const rows = ref([]);
 const activeStage = ref("to_pick");
 const activeTrack = ref("");

@@ -132,6 +132,13 @@ export default {
     awbRetry: "أعد توليد البوليصة", awbBusy: "جاري الإضافة…", awbQueuedTitle: "بدأ توليد البوليصة",
     awbQueuedBody: "{o} — البوليصة بيعاد إنشاؤها في الخلفية", awbFail: "متعذّر إعادة توليد البوليصة",
     awbDoneTitle: "الأوردر ده عنده بوليصة بالفعل",
+    skuLookupBtn: "بحث بالـSKU", skuLookupRow: "ابحث عن الـSKU ده في كل الأكواد",
+  },
+  sku: {
+    title: "بحث بالـSKU", subtitle: "شوف مخزون المنتج في كل الأكواد اللي بتشارك نفس الـSKU",
+    placeholder: "SKU، كود صنف، رقم أوردر، أو اسم المنتج…",
+    search: "بحث", searching: "بيبحث", inStock: "فيه ستوك", allOut: "كله فاضي",
+    ordered: "المطلوب", none: "مفيش نتايج", noneHint: "مفيش صنف بنفس الـSKU أو الكود أو الاسم.",
   },
   od: {
     placed: "أُنشئ", printAwb: "طباعة البوليصة", openErp: "فتح في ERPNext",

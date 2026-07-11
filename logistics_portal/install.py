@@ -14,6 +14,8 @@ INDEXES = [
     ("Pick List Item", ["sales_order"], "lp_pli_so_idx"),
     ("Delivery Note Item", ["against_sales_order"], "lp_dni_so_idx"),
     ("Delivery Note", ["custom_track_shipment_status"], "lp_dn_track_idx"),
+    # SKU lookup scans 151k Items by custom_sku — index it.
+    ("Item", ["custom_sku"], "lp_item_sku_idx"),
 ]
 
 

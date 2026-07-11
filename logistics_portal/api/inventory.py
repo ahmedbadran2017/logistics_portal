@@ -105,3 +105,103 @@ def stats(warehouse_like="%JM%"):
         }
     except Exception:
         return {}
+
+
+# Valid pickable JM warehouses (exclude transit/defective/containers/old/correcting).
+_SKU_WH_PATTERNS = ["% - JM", "Defective%", "Container%", "Air Freight%", "%Old%", "CORRECTING%"]
+
+
+@frappe.whitelist()
+def sku_lookup(query, limit=80):
+    """Answer 'is this SKU actually in the warehouse — maybe under a different
+    item code?'. Many physical products are duplicated as several ERPNext Items
+    (different item_code, one Shopify SKU in custom_sku); an order can show OOS
+    on an empty code while a sibling code has stock.
+
+    Accepts a custom_sku, an item_code, an order number, or a name fragment.
+    Returns groups by custom_sku, each listing every sibling item_code with its
+    NET available stock (actual − reserved across JM warehouses) and the bins
+    holding it, flagging the one that was actually ordered."""
+    try:
+        q = (query or "").strip()
+        if not q:
+            return {"query": "", "groups": []}
+        ordered_codes, skus, so_name = set(), [], None
+
+        oname = q.lstrip("#").strip()
+        for cand in (q, oname, "#" + oname):
+            if frappe.db.exists("Sales Order", cand):
+                so_name = cand
+                break
+        if so_name:
+            for r in frappe.db.sql(
+                """SELECT soi.item_code AS code, it.custom_sku AS sku
+                   FROM `tabSales Order Item` soi
+                   LEFT JOIN `tabItem` it ON it.name = soi.item_code
+                   WHERE soi.parent = %s""", (so_name,), as_dict=True):
+                ordered_codes.add(r.code)
+                if r.sku:
+                    skus.append(r.sku)
+        elif frappe.db.exists("Item", q):
+            ordered_codes.add(q)
+            sku = frappe.db.get_value("Item", q, "custom_sku")
+            if sku:
+                skus.append(sku)
+        elif frappe.db.exists("Item", {"custom_sku": q}):
+            skus.append(q)
+        else:
+            like = f"%{q}%"
+            for r in frappe.db.sql(
+                """SELECT DISTINCT custom_sku FROM `tabItem`
+                   WHERE COALESCE(custom_sku,'') != '' AND (custom_sku LIKE %s OR item_name LIKE %s)
+                   LIMIT 8""", (like, like), as_dict=True):
+                skus.append(r.custom_sku)
+
+        skus = list(dict.fromkeys([s for s in skus if s]))[:6]
+        if not skus:
+            return {"query": q, "order": so_name, "groups": []}
+
+        ph = ", ".join(["%s"] * len(skus))
+        items = frappe.db.sql(
+            f"""SELECT name AS code, item_name AS name, custom_sku AS sku
+                FROM `tabItem` WHERE custom_sku IN ({ph})
+                ORDER BY custom_sku LIMIT %s""",
+            tuple(skus) + (min(int(limit), 300),), as_dict=True)
+
+        codes = [it.code for it in items]
+        binmap = {}
+        if codes:
+            cph = ", ".join(["%s"] * len(codes))
+            wp = _SKU_WH_PATTERNS
+            for b in frappe.db.sql(
+                f"""SELECT item_code, warehouse,
+                       ROUND(actual_qty - reserved_qty) AS net, ROUND(actual_qty) AS onhand
+                    FROM `tabBin`
+                    WHERE item_code IN ({cph}) AND actual_qty <> 0
+                      AND warehouse LIKE %s AND warehouse NOT LIKE %s AND warehouse NOT LIKE %s
+                      AND warehouse NOT LIKE %s AND warehouse NOT LIKE %s AND warehouse NOT LIKE %s""",
+                tuple(codes) + tuple(wp), as_dict=True):
+                binmap.setdefault(b.item_code, []).append(
+                    {"bin": b.warehouse, "net": int(b.net or 0), "onHand": int(b.onhand or 0)})
+
+        groups = {}
+        for it in items:
+            g = groups.setdefault(it.sku, {"sku": it.sku, "items": [], "anyStock": False})
+            bins = sorted(binmap.get(it.code, []), key=lambda x: -x["net"])
+            avail = sum(x["net"] for x in bins)
+            if avail > 0:
+                g["anyStock"] = True
+            g["items"].append({
+                "code": it.code, "name": it.name or it.code, "avail": avail,
+                "ordered": it.code in ordered_codes, "bins": bins[:4],
+            })
+        out = []
+        for g in groups.values():
+            # Ordered code first, then most-available.
+            g["items"].sort(key=lambda x: (not x["ordered"], -x["avail"]))
+            out.append(g)
+        out.sort(key=lambda g: (not g["anyStock"],))
+        return {"query": q, "order": so_name, "groups": out}
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.sku_lookup")
+        return {"query": query, "groups": []}

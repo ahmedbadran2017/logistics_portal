@@ -132,6 +132,13 @@ export default {
     awbRetry: "Régénérer le BL", awbBusy: "En file…", awbQueuedTitle: "Régénération du BL lancée",
     awbQueuedBody: "{o} — l'étiquette transporteur est recréée en arrière-plan", awbFail: "Impossible de régénérer le BL",
     awbDoneTitle: "Cette commande a déjà un BL",
+    skuLookupBtn: "Recherche SKU", skuLookupRow: "Chercher ce SKU sur tous les codes article",
+  },
+  sku: {
+    title: "Recherche SKU", subtitle: "Trouvez le stock d'un produit sur tous les codes partageant son SKU",
+    placeholder: "SKU, code article, n° de commande ou nom du produit…",
+    search: "Chercher", searching: "Recherche", inStock: "En stock", allOut: "Épuisé",
+    ordered: "Commandé", none: "Rien trouvé", noneHint: "Aucun article ne partage ce SKU, code ou nom.",
   },
   od: {
     placed: "Créée", printAwb: "Imprimer l’étiquette AWB", openErp: "Ouvrir dans ERPNext",
