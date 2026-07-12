@@ -1,6 +1,6 @@
 """Catalog Hub — Phase 0: read-only Shopify product/variant status sync.
 
-Pulls each duplicate-SKU Item's live Shopify status into ERPNext so ops can tell
+Pulls the live Shopify status of every in-stock or duplicate-SKU Item into ERPNext so ops can tell
 which code is ACTIVE vs archived/draft/deleted — the authoritative signal (found
 during investigation) that resolves stranded stock and false-OOS. It is
 READ-ONLY against Shopify (reuses ecommerce_integrations' authenticated session)
@@ -23,40 +23,49 @@ SYNCED_ON_FIELD = "custom_shopify_synced_on"
 
 # Bulk status: for each Product id, its status + the ids of its live variants.
 # A deleted product comes back as null in `nodes`, which we map to DELETED.
+# first:250 (Shopify's max single page) so a big style product's variant is not
+# falsely read as gone; batch kept small to stay under the cost limit.
 _NODES_QUERY = (
     "query($ids:[ID!]!){ nodes(ids:$ids){ ... on Product { "
-    "id status variants(first:100){ nodes { id } } } } }"
+    "id status variants(first:250){ nodes { id } } } } }"
 )
+_BATCH = 20
 
-# Shopify's cost-based limit: keep product batches modest since each product
-# pulls up to 100 variant ids.
-_BATCH = 30
+# Locally-held JM warehouses (same definition the board/pick engine use).
+_JM = ("b.warehouse LIKE %s AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s "
+       "AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s")
+_JM_ARGS = ["% - JM", "Defective%", "Container%", "Air Freight%", "%Old%", "CORRECTING%"]
 
 
-def _dupe_target_items(limit):
-    """Items under a variant-level duplicate SKU (2..8 codes) that carry a
-    Shopify mapping — the set worth reconciling first. Returns
+def _target_items(limit):
+    """Mapped items worth reconciling: everything that HOLDS stock (so the
+    stranded-stock report is complete, not just duplicates) plus every item under
+    a variant-level duplicate SKU (2..8 codes, for the false-OOS/consolidate
+    path). Deterministic order so a capped run resumes predictably. Returns
     [{item_code, product_id, variant_id}]."""
     rows = frappe.db.sql(
-        """
+        f"""
         SELECT it.name AS item_code, ei.integration_item_code AS product_id,
                ei.variant_id AS variant_id
         FROM `tabItem` it
         JOIN `tabEcommerce Item` ei
           ON ei.erpnext_item_code = it.name AND ei.integration = 'shopify'
-        WHERE it.custom_sku IN (
+             AND COALESCE(ei.integration_item_code, '') != ''
+        WHERE it.name IN (
+            SELECT item_code FROM `tabBin` b WHERE {_JM}
+            GROUP BY item_code HAVING SUM(b.actual_qty - b.reserved_qty) > 0
+        )
+        OR it.custom_sku IN (
             SELECT sku FROM (
-                SELECT custom_sku AS sku
-                FROM `tabItem`
+                SELECT custom_sku AS sku FROM `tabItem`
                 WHERE COALESCE(custom_sku, '') != ''
-                GROUP BY custom_sku
-                HAVING COUNT(DISTINCT name) BETWEEN 2 AND 8
+                GROUP BY custom_sku HAVING COUNT(*) BETWEEN 2 AND 8
             ) d
         )
-          AND COALESCE(ei.integration_item_code, '') != ''
+        ORDER BY it.name
         LIMIT %s
         """,
-        (int(limit),), as_dict=True)
+        tuple(_JM_ARGS) + (int(limit),), as_dict=True)
     return rows
 
 
@@ -83,7 +92,7 @@ def enqueue_sync(limit=20000):
 
 
 def _run_sync(limit=20000, dry_run=False):
-    items = _dupe_target_items(limit)
+    items = _target_items(limit)
     if not items:
         return {"checked": 0, "updated": 0, "batches": 0}
 
@@ -143,13 +152,44 @@ def _run_sync(limit=20000, dry_run=False):
 
 
 def _fetch_status(product_gids):
-    """Run the bulk status query inside ecommerce_integrations' Shopify session."""
-    from ecommerce_integrations.shopify.connection import temp_shopify_session
+    """POST the bulk status query to Shopify's Admin GraphQL endpoint using the
+    ecommerce_integrations Shopify Setting credentials. A direct POST (not the
+    shopify SDK's GraphQL helper — this SDK build doesn't ship one). Retries a
+    couple of times on HTTP 429 or a GraphQL THROTTLED error (cost-based limit)."""
+    import time
 
-    @temp_shopify_session
-    def _inner():
-        import shopify
-        raw = shopify.GraphQL().execute(_NODES_QUERY, variables={"ids": product_gids})
-        return json.loads(raw)
+    import requests
+    from ecommerce_integrations.shopify.constants import API_VERSION, SETTING_DOCTYPE
 
-    return _inner()
+    setting = frappe.get_doc(SETTING_DOCTYPE)
+    shop = (setting.shopify_url or "").replace("https://", "").replace("http://", "").strip("/")
+    token = setting.get_password("password")
+    if not shop or not token:
+        frappe.throw("Shopify Setting is missing a URL or access token.")
+    url = f"https://{shop}/admin/api/{API_VERSION}/graphql.json"
+    headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
+    body = {"query": _NODES_QUERY, "variables": {"ids": product_gids}}
+
+    # A trustworthy answer has a `data` object and no top-level errors; only then
+    # is a null node a genuine deletion. Anything else (real errors, missing
+    # data, or persistent throttling) RAISES so the caller SKIPS the batch —
+    # never mistaking a failed query for "all these products are deleted".
+    for attempt in range(3):
+        r = requests.post(url, json=body, headers=headers, timeout=30)
+        if r.status_code == 429:
+            time.sleep(2 * (attempt + 1))
+            continue
+        r.raise_for_status()
+        data = r.json() or {}
+        errs = data.get("errors") or []
+        if errs:
+            throttled = any(
+                ((e.get("extensions") or {}).get("code") == "THROTTLED") for e in errs)
+            if throttled:
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise Exception("Shopify GraphQL errors: " + json.dumps(errs)[:300])
+        if data.get("data") is None:
+            raise Exception("Shopify GraphQL response missing data")
+        return data
+    raise Exception("Shopify GraphQL throttled after retries")

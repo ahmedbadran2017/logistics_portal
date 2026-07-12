@@ -14,8 +14,11 @@
       </div>
     </header>
 
+    <!-- loading -->
+    <div v-if="loading" class="text-center text-[13px] text-stone-400 py-16">{{ t('catalog.syncing') }}…</div>
+
     <!-- not synced yet -->
-    <div v-if="!loading && !ov.synced" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-8 text-center">
+    <div v-else-if="!ov.synced" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-8 text-center">
       <span class="inline-flex w-12 h-12 rounded-2xl items-center justify-center bg-[var(--accent-50)] text-[var(--accent-600)] mb-3"><Icon name="refresh-cw" :size="22" /></span>
       <div class="text-[15px] font-semibold text-stone-900">{{ t('catalog.emptyTitle') }}</div>
       <div class="text-[12.5px] text-stone-500 mt-1 max-w-md mx-auto">{{ t('catalog.emptyHint') }}</div>

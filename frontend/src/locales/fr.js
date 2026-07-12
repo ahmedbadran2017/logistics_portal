@@ -150,7 +150,7 @@ export default {
     dupesNone: "Aucun doublon réparti trouvé", dupCodes: "{n} codes",
   },
   catalog: {
-    title: "Hub Catalogue", intro: "Reflète le statut Shopify en direct de chaque article à SKU dupliqué dans ERPNext pour voir quel code est actif vs archivé, supprimé ou brouillon — et repérer le stock réel bloqué sous des listings qui ne peuvent pas le vendre.",
+    title: "Hub Catalogue", intro: "Reflète dans ERPNext le statut Shopify en direct de chaque article qui détient du stock ou partage un SKU dupliqué — pour voir quel code est actif vs archivé, supprimé ou brouillon, et repérer le stock réel bloqué sous des listings invendables.",
     lastSync: "Dernière synchro", runSync: "Lancer la synchro Shopify", syncing: "Démarrage…",
     syncQueued: "Synchro lancée", syncQueuedBody: "Le statut Shopify est en cours de rafraîchissement en arrière-plan — rechargez dans une minute.", syncFail: "Impossible de lancer la synchro",
     emptyTitle: "Pas encore de statut Shopify", emptyHint: "Lancez la synchro Shopify pour récupérer le statut de chaque article dupliqué. Ce hub affichera ensuite le stock bloqué et sa valeur.",

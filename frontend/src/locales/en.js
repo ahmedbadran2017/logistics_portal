@@ -150,7 +150,7 @@ export default {
     dupesNone: "No split duplicates found", dupCodes: "{n} codes",
   },
   catalog: {
-    title: "Catalog Hub", intro: "Mirrors each duplicate-SKU item's live Shopify status into ERPNext so you can see which code is active vs archived, deleted, or draft — and find real stock stranded under listings that can't sell it.",
+    title: "Catalog Hub", intro: "Mirrors the live Shopify status of every item that holds stock or shares a duplicated SKU into ERPNext — so you can see which code is active vs archived, deleted, or draft, and find real stock stranded under listings that can't sell it.",
     lastSync: "Last synced", runSync: "Run Shopify sync", syncing: "Starting…",
     syncQueued: "Sync started", syncQueuedBody: "Shopify status is being refreshed in the background — reload in a minute.", syncFail: "Couldn't start the sync",
     emptyTitle: "No Shopify status yet", emptyHint: "Run the Shopify sync to pull each duplicate-SKU item's live status. Then this hub shows the stranded stock and its value.",
