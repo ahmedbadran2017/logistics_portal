@@ -307,15 +307,12 @@ def today_manifest():
         if not sh:
             # No open draft → the manifest waiting to be closed is the live
             # ready-to-ship pool (what close_manifest will actually ship).
-            rows = _ready_parcels()
-            value = round(sum(float(r.val or 0) for r in rows), 2)
             return {
                 "no": "NEW",
-                "parcels": len(rows),
-                "parcelRows": [{"awb": r.awb or "", "dn": r.dn, "order": "",
-                                "customer": r.customer or "", "value": r.val or 0}
-                               for r in rows[:60]],
-                "value": value,
+                "parcels": 0,
+                "parcelRows": [],
+                "readyCount": len(_ready_parcels()),
+                "value": 0,
                 "carrier": "Cathedis",
                 "pickupDate": nowdate(),
                 "window": "09:00 – 17:00",
@@ -355,6 +352,7 @@ def today_manifest():
             "no": sh.name,
             "parcels": total_parcels,
             "parcelRows": parcels,
+            "readyCount": len(_ready_parcels()),
             "value": sh.value_of_goods or 0,
             "carrier": "Cathedis",
             "pickupDate": str(sh.pickup_date) if sh.pickup_date else nowdate(),
@@ -398,6 +396,75 @@ def _ready_parcels(dn_names=None):
         keep = set(dn_names)
         return [r for r in frappe.db.sql(_READY_PARCEL_SQL, as_dict=True) if r.dn in keep]
     return frappe.db.sql(_READY_PARCEL_SQL, as_dict=True)
+
+
+@frappe.whitelist()
+def manifest_scan(code):
+    """Scan a parcel's AWB as it is handed to the carrier — validates it's a
+    printed, ready-to-ship Delivery Note not already on an open/submitted
+    Shipment, and returns it for the manifest being built. Packer/dispatcher/
+    manager only. Returns {ok, dn, awb, order, customer, value} or
+    {ok: False, reason}."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("packer", "dispatcher", "manager"):
+        frappe.throw("Not authorized to build the manifest.", frappe.PermissionError)
+    code = (code or "").strip()
+    if not code:
+        return {"ok": False, "reason": "empty"}
+    rows = frappe.db.sql(
+        """SELECT dn.name AS dn, dn.custom_awb AS awb, dn.customer_name AS customer,
+                  dn.grand_total AS value, so.custom_logistics_status AS lstatus,
+                  (SELECT dni.against_sales_order FROM `tabDelivery Note Item` dni
+                   WHERE dni.parent = dn.name AND dni.against_sales_order IS NOT NULL
+                   LIMIT 1) AS so
+           FROM `tabDelivery Note` dn
+           LEFT JOIN `tabSales Order` so ON so.name = (
+               SELECT dni.against_sales_order FROM `tabDelivery Note Item` dni
+               WHERE dni.parent = dn.name AND dni.against_sales_order IS NOT NULL LIMIT 1)
+           WHERE dn.docstatus = 1 AND (dn.custom_awb = %s OR dn.custom_tracking_number = %s)
+           LIMIT 1""", (code, code), as_dict=True)
+    if not rows:
+        return {"ok": False, "reason": "unknown", "code": code}
+    d = rows[0]
+    on = frappe.db.sql(
+        """SELECT 1 FROM `tabShipment Delivery Note` sdn
+           JOIN `tabShipment` sh ON sh.name = sdn.parent
+           WHERE sdn.delivery_note = %s AND sh.docstatus < 2 LIMIT 1""", (d.dn,))
+    if on:
+        return {"ok": False, "reason": "already", "dn": d.dn, "awb": d.awb or ""}
+    if d.lstatus not in ("Label Printed", "Label Generated"):
+        return {"ok": False, "reason": "not_ready", "dn": d.dn, "status": d.lstatus or ""}
+    sh = _open_or_new_manifest()
+    if any(r.delivery_note == d.dn for r in (sh.get("shipment_delivery_note") or [])):
+        return {"ok": False, "reason": "already", "dn": d.dn, "shipment": sh.name}
+    sh.append("shipment_delivery_note", {"delivery_note": d.dn, "grand_total": d.value or 0})
+    sh.value_of_goods = float(sh.value_of_goods or 0) + float(d.value or 0)
+    sh.save(ignore_permissions=True)
+    frappe.db.commit()
+    return {"ok": True, "dn": d.dn, "awb": d.awb or "", "order": d.so or "",
+            "customer": d.customer or "", "value": float(d.value or 0),
+            "shipment": sh.name, "count": len(sh.shipment_delivery_note),
+            "manifestValue": round(float(sh.value_of_goods or 0), 2)}
+
+
+def _open_or_new_manifest():
+    """Today's open manifest (draft Shipment), created from the last submitted one
+    on the first scan of the day so it inherits the Justyol to CATHEDIS config."""
+    draft = frappe.get_all("Shipment", filters={"docstatus": 0}, order_by="creation desc", limit=1)
+    if draft:
+        return frappe.get_doc("Shipment", draft[0].name)
+    template = frappe.get_all("Shipment", filters={"docstatus": 1}, order_by="creation desc", limit=1)
+    if not template:
+        frappe.throw("No previous Shipment to base the manifest on — create the first from the desk.")
+    sh = frappe.copy_doc(frappe.get_doc("Shipment", template[0].name))
+    sh.set("shipment_delivery_note", [])
+    sh.value_of_goods = 0
+    sh.pickup_date = nowdate()
+    for f in ("awb", "tracking_url", "carrier_service", "tracking_status", "custom_awb", "custom_tracking_number"):
+        if sh.meta.has_field(f):
+            sh.set(f, None)
+    sh.insert(ignore_permissions=True)
+    return sh
 
 
 @frappe.whitelist()

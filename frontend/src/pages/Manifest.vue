@@ -198,6 +198,7 @@ const scanner = ref(null);
 const isLive = ref(false);
 // preload the first two parcels as "just added" so the manifest isn't empty
 const parcels = ref(PARCELS.slice(0, 2).map((p) => ({ ...p })));
+const readyCount = ref(0); // ready-to-ship parcels waiting to be scanned onto the manifest
 const pool = ref(PARCELS.slice(2).map((p) => ({ ...p })));
 const notLabeled = ref(3);
 
@@ -222,10 +223,24 @@ const countdown = computed(() => {
   return `${h}h ${m}m`;
 });
 
-function onScan(code) {
+async function onScan(code) {
+  const c = String(code || "").trim();
   if (isLive.value) {
-    // Real manifests are scanned in ERPNext (Shipment doc) — never fabricate rows.
-    warn("Scanning is wired in ERPNext", "Open the Shipment doc to add parcels — this view mirrors it live.");
+    if (!c) return;
+    if (parcels.value.some((p) => (p.awb || "").toLowerCase() === c.toLowerCase())) {
+      scanner.value?.showError("Already on this manifest"); return;
+    }
+    const res = await liveOr(null, () => apiPost("shipping.manifest_scan", { code: c }));
+    if (!res || !res.ok) {
+      scanner.value?.showError(
+        res && res.reason === "already" ? "Already on a shipment"
+          : res && res.reason === "not_ready" ? "Not printed / ready yet"
+            : "Unknown AWB");
+      return;
+    }
+    parcels.value.unshift({ dn: res.dn, awb: res.awb, order: res.order,
+      customer: res.customer, value: res.value, sla: "ontrack" });
+    scanner.value?.showSuccess(`✓ ${res.awb} · ${parcels.value.length}`);
     return;
   }
   let parcel;
@@ -248,7 +263,6 @@ function onScan(code) {
 }
 
 function remove(i) {
-  if (isLive.value) return;
   parcels.value.splice(i, 1);
 }
 
@@ -285,13 +299,12 @@ async function loadManifest() {
     isLive.value = true;
     MANIFEST.value = { ...DEMO_MANIFEST, ...live };
     if (live.cutoff) CUTOFF.value = live.cutoff;
+    // Scan-built manifest: the parcels are the ones already scanned onto today's
+    // draft Shipment (resumed on reload); readyCount is what's still to scan.
+    readyCount.value = Number(live.readyCount || 0);
     parcels.value = (Array.isArray(live.parcelRows) ? live.parcelRows : []).map((p) => ({
-      dn: p.dn || "—",
-      awb: p.awb || "—",
-      order: p.order || "—",
-      customer: p.customer || "—",
-      value: Number(p.value || 0),
-      sla: p.sla || "ontrack",
+      dn: p.dn || "—", awb: p.awb || "—", order: p.order || "—",
+      customer: p.customer || "—", value: Number(p.value || 0), sla: "ontrack",
     }));
     pool.value = [];
     if (live.notOnManifest != null) notLabeled.value = Number(live.notOnManifest) || 0;
