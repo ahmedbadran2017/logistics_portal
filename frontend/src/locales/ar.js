@@ -160,6 +160,14 @@ export default {
     thItem: "الصنف", thStatus: "شوبيفاي", thUnits: "وحدات", thValue: "القيمة (تكلفة)",
     variantGone: "الـvariant اتمسح", strandedNone: "مفيش مخزون محبوس 🎉",
   },
+  pack: {
+    title: "محطة التغليف", intro: "امسح أي قطعة — السيستم يلاقي أوردرها، تكمّله وتطبع البوليصة.",
+    packedToday: "اتغلّف اليوم", scanStart: "امسح أي قطعة تبدأ أوردر", scanNext: "امسح القطعة / الأوردر اللي بعده",
+    itemsPacked: "قطعة اتغلّفت", emptyTitle: "امسح قطعة تبدأ", emptyHint: "امسح أي قطعة مجهّزة والسيستم يفتح أوردرها — أوردرات القطعة الواحدة بتطبع فوراً.",
+    single: "قطعة واحدة", itemsWord: "قطع", skip: "تخطّي الأوردر ده", printFinish: "اطبع البوليصة وأنهِ", finishing: "جاري الإنهاء…",
+    packed: "اتغلّف واتطبع", finishFail: "متعذّر إنهاء الأوردر ده", finishFirst: "كمّل الأوردر ده الأول",
+    noOrder: "مفيش أوردر محتاج القطعة دي", unknown: "قطعة غير معروفة",
+  },
   od: {
     placed: "أُنشئ", printAwb: "طباعة البوليصة", openErp: "فتح في ERPNext",
     lineItems: "الأصناف", product: "المنتج", bin: "الموقع", qty: "الكمية", unit: "سعر الوحدة", total: "الإجمالي",

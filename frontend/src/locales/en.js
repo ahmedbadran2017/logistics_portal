@@ -160,6 +160,14 @@ export default {
     thItem: "Item", thStatus: "Shopify", thUnits: "Units", thValue: "Value (cost)",
     variantGone: "variant gone", strandedNone: "No stranded stock 🎉",
   },
+  pack: {
+    title: "Pack station", intro: "Scan any item — the system finds its order, you complete it and print the label.",
+    packedToday: "packed today", scanStart: "Scan any item to start an order", scanNext: "Scan the next item / order",
+    itemsPacked: "items packed", emptyTitle: "Scan an item to start", emptyHint: "Scan any picked item and the system opens the order it belongs to — single-item orders print instantly.",
+    single: "1 piece", itemsWord: "items", skip: "Skip this order", printFinish: "Print label & finish", finishing: "Finishing…",
+    packed: "Packed & labeled", finishFail: "Couldn't finish this order", finishFirst: "Finish this order first",
+    noOrder: "No order needs this item", unknown: "Unknown item",
+  },
   od: {
     placed: "Placed", printAwb: "Print AWB label", openErp: "Open in ERPNext",
     lineItems: "Line items", product: "Product", bin: "Bin", qty: "Qty", unit: "Unit", total: "Total",

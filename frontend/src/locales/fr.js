@@ -160,6 +160,14 @@ export default {
     thItem: "Article", thStatus: "Shopify", thUnits: "Unités", thValue: "Valeur (coût)",
     variantGone: "variante supprimée", strandedNone: "Aucun stock bloqué 🎉",
   },
+  pack: {
+    title: "Poste d'emballage", intro: "Scannez un article — le système trouve sa commande, vous la complétez et imprimez l'étiquette.",
+    packedToday: "emballés auj.", scanStart: "Scannez un article pour démarrer", scanNext: "Scannez l'article / la commande suivante",
+    itemsPacked: "articles emballés", emptyTitle: "Scannez un article pour démarrer", emptyHint: "Scannez un article prélevé et le système ouvre sa commande — les commandes mono-article s'impriment instantanément.",
+    single: "1 pièce", itemsWord: "articles", skip: "Ignorer cette commande", printFinish: "Imprimer l'étiquette & terminer", finishing: "Finalisation…",
+    packed: "Emballé & étiqueté", finishFail: "Impossible de terminer cette commande", finishFirst: "Terminez d'abord cette commande",
+    noOrder: "Aucune commande ne demande cet article", unknown: "Article inconnu",
+  },
   od: {
     placed: "Créée", printAwb: "Imprimer l’étiquette AWB", openErp: "Ouvrir dans ERPNext",
     lineItems: "Articles", product: "Produit", bin: "Emplacement", qty: "Qté", unit: "Unitaire", total: "Total",

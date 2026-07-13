@@ -177,6 +177,74 @@ def scan_pick(pick_list, code):
             "totalScanned": int(tot.s or 0), "totalQty": int(tot.q or 0)}
 
 
+def _pack_order(order):
+    """One order's packing view: customer, label, and every item with image + SKU
+    so the packer can complete a multi-piece parcel. `single` = a one-piece order
+    (the fast path: scan → label)."""
+    so = frappe.db.get_value(
+        "Sales Order", order,
+        ["customer_name", "custom_awb", "custom_label_url", "grand_total",
+         "custom_shipping_city"], as_dict=True) or {}
+    items = frappe.db.sql(
+        """SELECT soi.item_code AS sku, it.custom_sku AS real_sku,
+                  COALESCE(NULLIF(soi.item_name,''), soi.item_code) AS name,
+                  soi.qty, it.image
+           FROM `tabSales Order Item` soi
+           LEFT JOIN `tabItem` it ON it.name = soi.item_code
+           WHERE soi.parent = %s ORDER BY soi.idx""", (order,), as_dict=True)
+    pieces = sum(int(i.qty or 0) for i in items)
+    return {
+        "order": order, "customer": so.get("customer_name") or "",
+        "city": so.get("custom_shipping_city") or "", "awb": so.get("custom_awb") or "",
+        "labelUrl": so.get("custom_label_url") or "", "total": float(so.get("grand_total") or 0),
+        "single": pieces <= 1,
+        "items": [{"sku": i.sku, "realSku": i.real_sku or "", "name": i.name,
+                   "qty": int(i.qty or 0), "image": i.image or ""} for i in items],
+    }
+
+
+@frappe.whitelist()
+def pack_scan(code):
+    """Packer scans any item from the tote; the system finds the order it belongs
+    to that still needs packing (Label Generated) and returns it with all its
+    items. Single-piece orders are the fast path (scan → label). Packer /
+    dispatcher / manager only."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("packer", "dispatcher", "manager"):
+        frappe.throw("Not authorized to pack.", frappe.PermissionError)
+    r = resolve_scan(code)
+    item_code = r.get("itemCode")
+    if not item_code:
+        return {"ok": False, "reason": "unknown_item"}
+    row = frappe.db.sql(
+        """SELECT so.name FROM `tabSales Order` so
+           JOIN `tabSales Order Item` soi ON soi.parent = so.name
+           WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
+             AND so.custom_logistics_status='Label Generated'
+             AND soi.item_code=%s
+           ORDER BY so.creation ASC LIMIT 1""", (item_code,), as_dict=True)
+    if not row:
+        return {"ok": False, "reason": "no_order", "itemCode": item_code, "name": r.get("name")}
+    return {"ok": True, "scannedItem": item_code, **_pack_order(row[0].name)}
+
+
+@frappe.whitelist()
+def mark_packed(order):
+    """Finish an order at the pack station: Label Generated → Label Printed.
+    Returns the label URL so the client can send it to the thermal printer."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("packer", "dispatcher", "manager"):
+        frappe.throw("Not authorized to pack.", frappe.PermissionError)
+    name = (order or "").lstrip("#").strip()
+    if not frappe.db.exists("Sales Order", name):
+        frappe.throw("Unknown order.")
+    st = frappe.db.get_value("Sales Order", name, "custom_logistics_status")
+    if st in ("Label Generated", "Picked", "In transit", "Received"):
+        frappe.get_doc("Sales Order", name).db_set("custom_logistics_status", "Label Printed")
+    frappe.cache().delete_value("lp_board_summary")
+    return {"ok": True, "labelUrl": frappe.db.get_value("Sales Order", name, "custom_label_url") or ""}
+
+
 @frappe.whitelist()
 def complete_pick(order):
     """Mark the order Picked once all items are scanned. Only the assigned picker
