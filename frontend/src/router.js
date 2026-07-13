@@ -25,7 +25,6 @@ const routes = [
 
       // Dispatcher
       { path: "assign", name: "Assign", component: () => import("@/pages/Assign.vue") },
-      { path: "combined", name: "Combined", component: () => import("@/pages/Combined.vue") },
       { path: "pipeline", name: "Pipeline", component: () => import("@/pages/Pipeline.vue") },
       // Confirmation-team review: same-customer clusters → one merged order.
       { path: "consolidation", name: "Consolidation", component: () => import("@/pages/Consolidation.vue") },
@@ -40,7 +39,6 @@ const routes = [
       { path: "cockpit", name: "Cockpit", component: () => import("@/pages/Cockpit.vue") },
       { path: "shipments", name: "Shipments", component: () => import("@/pages/Shipments.vue") },
       { path: "audit", name: "Audit", component: () => import("@/pages/Audit.vue") },
-      { path: "copilot", name: "Copilot", component: () => import("@/pages/Copilot.vue") },
 
       // Manager — overview
       { path: "floor", name: "FloorBoard", component: () => import("@/pages/FloorBoard.vue") },
@@ -50,10 +48,8 @@ const routes = [
       // Fulfillment
       { path: "picklists", name: "PickLists", component: () => import("@/pages/PickLists.vue") },
       { path: "pack", name: "PackStation", component: () => import("@/pages/PackStation.vue") },
-      { path: "routes", name: "Routes", component: () => import("@/pages/Routes.vue") },
       { path: "tracking", name: "Tracking", component: () => import("@/pages/Tracking.vue") },
       { path: "exceptions", name: "Exceptions", component: () => import("@/pages/Exceptions.vue") },
-      { path: "cod", name: "COD", component: () => import("@/pages/COD.vue") },
       { path: "carriers", name: "Carriers", component: () => import("@/pages/Carriers.vue") },
 
       // Inventory
@@ -61,16 +57,15 @@ const routes = [
       { path: "inventory", name: "Inventory", component: () => import("@/pages/Inventory.vue") },
       { path: "sku", name: "SkuLookup", component: () => import("@/pages/SkuLookup.vue") },
       { path: "catalog", name: "CatalogHub", component: () => import("@/pages/CatalogHub.vue") },
-      { path: "reports", name: "Reports", component: () => import("@/pages/Reports.vue") },
 
       // Team
-      { path: "roster", name: "Roster", component: () => import("@/pages/Roster.vue") },
-      { path: "bonus", name: "Bonus", component: () => import("@/pages/Bonus.vue") },
 
       // Shared
       { path: "performance", name: "Performance", component: () => import("@/pages/Performance.vue") },
       { path: "settings", name: "Settings", component: () => import("@/pages/Settings.vue") },
       { path: "order/:name", name: "OrderDetail", component: () => import("@/pages/OrderDetail.vue"), props: true },
+      // Anything unknown (incl. links to removed demo pages) → role home.
+      { path: ":pathMatch(.*)*", redirect: () => ({ name: "Home2" }) },
     ],
   },
   { path: "/:pathMatch(.*)*", redirect: "/logistics" },

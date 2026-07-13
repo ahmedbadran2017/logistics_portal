@@ -241,15 +241,21 @@ def tracking(days=14, state="", q="", limit=30, offset=0):
 
 
 @frappe.whitelist()
-def exceptions(days=14, limit=50, offset=0):
+def exceptions(days=14, limit=50, offset=0, tab="open"):
     """Delivery exceptions / failed attempts inside the recent window, enriched
-    with the order, phone and city so the team can act without leaving the page."""
+    with the order, phone and city so the team can act without leaving the page.
+    tab='open' → not yet triaged; 'handled' → a decision was recorded."""
     try:
         days = min(max(int(days or 14), 1), 90)
         limit = min(max(int(limit or 50), 1), 100)
         offset = max(int(offset or 0), 0)
         vals = {"days": days, "limit": limit, "offset": offset}
-        base = """FROM `tabDelivery Note` dn
+        has_action = frappe.get_meta("Delivery Note").has_field("custom_exception_action")
+        tab_cond = ""
+        if has_action:
+            tab_cond = ("AND COALESCE(dn.custom_exception_action,'') != ''" if tab == "handled"
+                        else "AND COALESCE(dn.custom_exception_action,'') = ''")
+        base = f"""FROM `tabDelivery Note` dn
                   LEFT JOIN (SELECT parent, MAX(against_sales_order) AS so
                              FROM `tabDelivery Note Item` GROUP BY parent) dni ON dni.parent = dn.name
                   LEFT JOIN `tabSales Order` so ON so.name = dni.so
@@ -257,7 +263,8 @@ def exceptions(days=14, limit=50, offset=0):
                      ON addr.name = COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address)
                   WHERE dn.docstatus = 1
                     AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)
-                    AND dn.custom_track_shipment_status IN ('Delivery Exception', 'Failed Attempt')"""
+                    AND dn.custom_track_shipment_status IN ('Delivery Exception', 'Failed Attempt')
+                    {tab_cond}"""
         total = frappe.db.sql(f"SELECT COUNT(*) {base}", vals)[0][0]
         failed = frappe.db.sql(
             f"SELECT COUNT(*) {base} AND dn.custom_track_shipment_status = 'Failed Attempt'", vals)[0][0]
@@ -267,7 +274,8 @@ def exceptions(days=14, limit=50, offset=0):
                        DATEDIFF(CURDATE(), dn.posting_date) AS age,
                        dni.so AS so,
                        COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone) AS phone,
-                       COALESCE(NULLIF(so.custom_shipping_city,''), addr.city) AS city
+                       COALESCE(NULLIF(so.custom_shipping_city,''), addr.city) AS city,
+                       dn.custom_exception_action AS action
                 {base}
                 ORDER BY dn.modified DESC LIMIT %(limit)s OFFSET %(offset)s""",
             vals, as_dict=True)
@@ -278,6 +286,7 @@ def exceptions(days=14, limit=50, offset=0):
                 "kind": "failed" if r.raw == "Failed Attempt" else "exception",
                 "detail": r.raw or "", "value": r.value or 0, "age": int(r.age or 0),
                 "phone": r.phone or "", "city": (r.city or "").strip().title(),
+                "action": r.get("action") or "",
             } for r in rows],
             "total": int(total or 0), "failed": int(failed or 0),
             "exceptions": int(total or 0) - int(failed or 0), "days": days,
@@ -620,3 +629,29 @@ def mark_labels_printed(orders):
     frappe.cache().delete_value("lp_pick_avail")
     frappe.cache().delete_value("lp_consolidation")
     return {"printed": done}
+
+
+@frappe.whitelist()
+def handle_exception(dn, action, note=None):
+    """Record the triage decision for a failed parcel. No carrier API exists
+    for redelivery, so this is a DECISION LOG — but it turns the anonymous
+    exceptions pile into a worked queue: who decided what, when, visible in
+    the 'handled' tab and on the document trail. Dispatcher/returns/manager."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("dispatcher", "returns", "manager"):
+        frappe.throw("Not authorized to triage exceptions.", frappe.PermissionError)
+    if action not in ("Redeliver", "Return Requested", "Resolved"):
+        frappe.throw("Invalid action.")
+    if not frappe.db.exists("Delivery Note", dn):
+        frappe.throw("Unknown parcel.")
+    if not frappe.get_meta("Delivery Note").has_field("custom_exception_action"):
+        frappe.throw("Exception fields not installed yet — run migrate.")
+    doc = frappe.get_doc("Delivery Note", dn)
+    doc.db_set("custom_exception_action", action, update_modified=False)
+    doc.db_set("custom_exception_actioned_at", frappe.utils.now_datetime(),
+               update_modified=False)
+    doc.add_comment("Comment",
+                    f"Exception triage: {action} by {frappe.session.user}."
+                    + (f" Note: {note}" if note else ""))
+    frappe.db.commit()
+    return {"ok": True, "dn": dn, "action": action}

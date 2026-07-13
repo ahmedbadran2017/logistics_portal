@@ -1308,3 +1308,58 @@ def _do_merge(names):
     frappe.db.commit()
     return {"ok": True, "order": base.name, "total": float(base.grand_total or 0),
             "items": len(base.items), "cancelled": names}
+
+
+@frappe.whitelist()
+def reship(order):
+    """Re-enter a failed delivery into the shipping cycle. Creates a NEW Sales
+    Order copy (same customer/address/items) that flows through pick → sort →
+    manifest normally and gets its own DN + AWB — the carrier automation skips
+    orders that already have a Delivery Note, so reusing the original SO can't
+    work. The original keeps its history and its coming-back parcel (which
+    re-enters stock through the RET receiving + restock flow).
+    Dispatcher/manager only."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Only a dispatcher or manager can reship.", frappe.PermissionError)
+
+    raw = (order or "").strip()
+    stripped = raw.lstrip("#")
+    name = None
+    for cand in (raw, stripped, "#" + stripped):
+        if cand and frappe.db.exists("Sales Order", cand):
+            name = cand
+            break
+    if not name:
+        frappe.throw("Unknown order.")
+    so = frappe.get_doc("Sales Order", name)
+    if so.docstatus != 1:
+        frappe.throw("Original order must be submitted.")
+    # Guard: one live reship at a time (a Confirmed copy already in flight).
+    dup = frappe.db.sql(
+        """SELECT c.reference_name FROM `tabComment` c
+           WHERE c.reference_doctype='Sales Order' AND c.reference_name=%s
+             AND c.content LIKE 'Reshipped as%%' LIMIT 1""", (name,))
+    if dup:
+        frappe.throw("This order was already reshipped — check its comments.")
+
+    new = frappe.copy_doc(so)
+    new.custom_sales_status = "Confirmed"
+    for f in ("custom_logistics_status",):
+        if new.meta.has_field(f):
+            new.set(f, "Pending")
+    for f in ("custom_awb", "custom_label_url", "custom_tracking_number",
+              "custom_track_shipment_status", "custom_short_picked_at"):
+        if new.meta.has_field(f):
+            new.set(f, None)
+    new.flags.ignore_permissions = True
+    new.insert(ignore_permissions=True)
+    new.submit()
+    new.add_comment("Comment", f"Reship of {name} (failed delivery).")
+    so.add_comment("Comment", f"Reshipped as {new.name} by {frappe.session.user}.")
+
+    for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    frappe.db.commit()
+    return {"ok": True, "order": new.name, "original": name,
+            "total": float(new.grand_total or 0)}

@@ -327,6 +327,13 @@ export default {
     allKinds: "كل الأنواع", failedDelivery: "تسليم فاشل", carrierException: "استثناء الناقل",
     overdue: "متأخر", dOld: "منذ {n} يوم", dn: "DN", order: "الطلب", resolve: "حل",
     allClear: "كل شيء سليم — لا استثناءات مفتوحة", of: "من",
+    tabOpen: "مستني قرار", tabHandled: "اتصرف فيه",
+    actRedeliver: "إعادة محاولة", actRedeliverHint: "تسجيل: نطلب من الناقل محاولة تانية",
+    actReturn: "طلب إرجاع", actReturnHint: "تسجيل: نطلب من الناقل يرجّعها",
+    actResolved: "تم الحل", actResolvedHint: "تسجيل: اتحلت (اتسلمت / اتواصلنا مع العميل)",
+    actReship: "إعادة شحن", actReshipHint: "أوردر جديد بنفس البيانات — يدخل دورة التجهيز والشحن من الأول",
+    triaged: "القرار اتسجل", triageFail: "تعذّر تسجيل القرار",
+    reshipped: "اتعمل إعادة شحن", reshipFail: "تعذّرت إعادة الشحن",
     openPlain: "مفتوح", critical: "حرج",
   },
   shp: {

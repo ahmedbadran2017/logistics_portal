@@ -20,6 +20,18 @@
       </div>
     </div>
 
+    <!-- open/handled tabs -->
+    <div v-if="isLive" class="flex items-center gap-1.5">
+      <button
+        v-for="tb in ['open', 'handled']" :key="tb"
+        class="px-3 h-9 text-[12.5px] font-semibold rounded-lg ring-1 whitespace-nowrap"
+        :class="tab === tb ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200 hover:ring-stone-300'"
+        @click="tab = tb; page = 1; loadLive()"
+      >
+        {{ tb === 'open' ? t('exc.tabOpen') : t('exc.tabHandled') }}
+      </button>
+    </div>
+
     <!-- kind filter -->
     <div class="flex items-center gap-1.5 overflow-x-auto pb-1">
       <button
@@ -90,6 +102,29 @@
           >
             <Icon name="arrow-right" :size="13" class="flip-rtl" />{{ t("exc.order") }}
           </button>
+          <!-- Triage (live, open tab): record the decision -->
+          <template v-if="isLive && tab === 'open'">
+            <button class="triage-btn text-amber-700 ring-amber-200 hover:bg-amber-50" :disabled="busy === e.id"
+                    :title="t('exc.actRedeliverHint')" @click="triage(e, 'Redeliver')">
+              <Icon name="refresh-cw" :size="12" />{{ t('exc.actRedeliver') }}
+            </button>
+            <button class="triage-btn text-violet-700 ring-violet-200 hover:bg-violet-50" :disabled="busy === e.id"
+                    :title="t('exc.actReturnHint')" @click="triage(e, 'Return Requested')">
+              <Icon name="rotate-ccw" :size="12" />{{ t('exc.actReturn') }}
+            </button>
+            <button class="triage-btn text-emerald-700 ring-emerald-200 hover:bg-emerald-50" :disabled="busy === e.id"
+                    :title="t('exc.actResolvedHint')" @click="triage(e, 'Resolved')">
+              <Icon name="check" :size="12" />{{ t('exc.actResolved') }}
+            </button>
+            <button v-if="e.order" class="triage-btn text-stone-700 ring-stone-200 hover:bg-stone-50" :disabled="busy === e.id"
+                    :title="t('exc.actReshipHint')" @click="doReship(e)">
+              <Icon name="send" :size="12" />{{ t('exc.actReship') }}
+            </button>
+          </template>
+          <span v-else-if="isLive && e.action"
+                class="inline-flex items-center gap-1 px-2 h-7 rounded-md text-[11px] font-semibold ring-1 text-stone-600 bg-stone-50 ring-stone-200">
+            <Icon name="check" :size="11" />{{ e.action }}
+          </span>
           <button
             v-else-if="!isLive"
             class="inline-flex items-center gap-1.5 px-2.5 h-8 text-[12px] font-medium rounded-lg ring-1 whitespace-nowrap text-white"
@@ -127,11 +162,11 @@ import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { useToast } from "@/composables/useToast";
 import { byId } from "@/lib/handoffData";
-import { api, liveOr } from "@/lib/resource";
+import { api, apiPost, liveOr } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 
 const router = useRouter();
-const { success } = useToast();
+const { success, warn } = useToast();
 const { t } = useI18n();
 
 // ── local data (not exported from handoffData) ─────────────────────
@@ -158,6 +193,8 @@ const kinds = computed(() => isLive.value ? ["all", "exception", "failed"] : ["a
 // Live data from the windowed `shipping.exceptions` ({rows,total,failed,days});
 // the demo seed only survives when the backend is truly unreachable.
 const isLive = ref(false);
+const tab = ref("open");
+const busy = ref("");
 const total = ref(0);
 const failedN = ref(0);
 const days = ref(14);
@@ -167,6 +204,7 @@ const pageSize = 50;
 async function loadLive() {
   const live = await liveOr(null, () => api("shipping.exceptions", {
     days: days.value, limit: pageSize, offset: (page.value - 1) * pageSize,
+    tab: tab.value,
   }));
   if (live && Array.isArray(live.rows)) {
     isLive.value = true;
@@ -179,6 +217,7 @@ async function loadLive() {
       labelKey: r.kind === "failed" ? "exc.failedDelivery" : "exc.carrierException",
       detail: [r.customer, r.city, r.awb].filter(Boolean).join(" · "),
       value: r.value ?? null, phone: r.phone || "",
+      action: r.action || "",
       owner: null, age: r.age ?? 0,
       sev: r.kind === "failed" ? "red" : "orange", sla: 3,
     }));
@@ -248,8 +287,55 @@ function resolveExc(id) {
   rows.value = rows.value.filter((e) => e.id !== id);
   success(`${id} resolved`);
 }
+async function triage(e, action) {
+  busy.value = e.id;
+  try {
+    await apiPost("shipping.handle_exception", { dn: e.dn, action });
+    rows.value = rows.value.filter((x) => x.id !== e.id);
+    total.value = Math.max(0, total.value - 1);
+    success(t("exc.triaged"), `${e.id} · ${action}`);
+  } catch (err) {
+    warn(t("exc.triageFail"), String(err.message || err));
+  } finally {
+    busy.value = "";
+  }
+}
+
+async function doReship(e) {
+  busy.value = e.id;
+  try {
+    const res = await apiPost("orders.reship", { order: e.order });
+    await apiPost("shipping.handle_exception", { dn: e.dn, action: "Redeliver",
+      note: `Reshipped as ${res.order}` }).catch(() => {});
+    rows.value = rows.value.filter((x) => x.id !== e.id);
+    success(t("exc.reshipped"), `${e.order} → ${res.order}`);
+  } catch (err) {
+    warn(t("exc.reshipFail"), String(err.message || err));
+  } finally {
+    busy.value = "";
+  }
+}
+
 function openOrder(id) {
   if (!id) return;
   router.push({ name: "OrderDetail", params: { name: String(id).replace("#", "") } });
 }
 </script>
+
+<style scoped>
+.triage-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-inline: 8px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: #fff;
+  /* ring-1: the ring-color utility classes on each button set --tw-ring-color */
+  box-shadow: 0 0 0 1px var(--tw-ring-color, #e7e5e4);
+}
+.triage-btn:disabled { opacity: 0.5; pointer-events: none; }
+</style>

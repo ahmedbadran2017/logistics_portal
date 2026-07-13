@@ -70,6 +70,16 @@ _PLI_FIELDS = [
 ]
 
 
+_DN_EXC_FIELDS = [
+    # Exceptions triage: the recorded decision per failed parcel. Turns the
+    # exceptions pile into a worked queue (who decided what, when).
+    {"fieldname": "custom_exception_action", "label": "Exception Action",
+     "fieldtype": "Select", "options": "\nRedeliver\nReturn Requested\nResolved",
+     "read_only": 1, "no_copy": 1, "hidden": 1},
+    {"fieldname": "custom_exception_actioned_at", "label": "Exception Actioned At",
+     "fieldtype": "Datetime", "read_only": 1, "no_copy": 1, "hidden": 1},
+]
+
 _SO_SHORT_FIELDS = [
     # Set when a picker reports the item physically missing (short pick):
     # batching skips the order for 24h so it doesn't bounce straight back
@@ -83,6 +93,7 @@ def ensure_pick_fields():
     try:
         from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
         create_custom_fields({"Pick List Item": _PLI_FIELDS,
-                              "Sales Order": _SO_SHORT_FIELDS}, ignore_validate=True)
+                              "Sales Order": _SO_SHORT_FIELDS,
+                              "Delivery Note": _DN_EXC_FIELDS}, ignore_validate=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_pick_fields")

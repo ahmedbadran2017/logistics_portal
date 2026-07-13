@@ -327,6 +327,13 @@ export default {
     allKinds: "Tous types", failedDelivery: "Livraison échouée", carrierException: "Exception transporteur",
     overdue: "En retard", dOld: "{n}j", dn: "BL", order: "Commande", resolve: "Résoudre",
     allClear: "Tout est réglé — aucune exception ouverte", of: "sur",
+    tabOpen: "À décider", tabHandled: "Traitées",
+    actRedeliver: "Relivrer", actRedeliverHint: "Consigner : redemander une tentative au transporteur",
+    actReturn: "Demander retour", actReturnHint: "Consigner : demander le renvoi au transporteur",
+    actResolved: "Résolu", actResolvedHint: "Consigner : réglé (livré / client joint)",
+    actReship: "Réexpédier", actReshipHint: "Nouvelle commande copie — repasse par préparation → expédition",
+    triaged: "Décision consignée", triageFail: "Échec de l'enregistrement",
+    reshipped: "Réexpédiée", reshipFail: "Échec de la réexpédition",
     openPlain: "Ouverts", critical: "Critiques",
   },
   shp: {
