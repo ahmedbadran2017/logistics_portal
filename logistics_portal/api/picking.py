@@ -173,16 +173,18 @@ def scan_pick(pick_list, code):
     item_code = r.get("itemCode")
     if not item_code:
         return {"ok": False, "reason": "unknown_item"}
-    row = frappe.db.sql(
-        """SELECT name, qty, COALESCE(custom_scanned_qty,0) sc FROM `tabPick List Item`
+    # Atomic increment: two PDAs scanning the same line concurrently must not
+    # read-modify-write the same value (a unit would vanish from the count).
+    # The WHERE guard makes the bump conditional and the DB serializes it.
+    frappe.db.sql(
+        """UPDATE `tabPick List Item`
+           SET custom_scanned_qty = COALESCE(custom_scanned_qty,0) + 1
            WHERE parent=%s AND item_code=%s AND COALESCE(custom_scanned_qty,0) < qty
-           ORDER BY idx LIMIT 1""", (pick_list, item_code), as_dict=True)
-    if not row:
+           ORDER BY idx LIMIT 1""", (pick_list, item_code))
+    if not frappe.db.sql("SELECT ROW_COUNT()")[0][0]:
         on = frappe.db.exists("Pick List Item", {"parent": pick_list, "item_code": item_code})
         return {"ok": False, "reason": "done" if on else "not_on_list",
                 "itemCode": item_code, "name": r.get("name")}
-    frappe.db.set_value("Pick List Item", row[0].name,
-                        "custom_scanned_qty", int(row[0].sc) + 1, update_modified=False)
     it = frappe.db.sql(
         """SELECT SUM(qty) q, SUM(COALESCE(custom_scanned_qty,0)) s FROM `tabPick List Item`
            WHERE parent=%s AND item_code=%s""", (pick_list, item_code), as_dict=True)[0]
@@ -1088,7 +1090,11 @@ def _linked_sales_order(pick_list):
 
 
 def _pick_list_for_order(order):
-    name = order.lstrip("#")
+    # Production SO names carry the '#'; resolve the real name first (the old
+    # lstrip-only lookup returned nothing for every hash-named order).
+    name = _resolve_order_name(order)
+    if not name:
+        return None
     return frappe.db.get_value("Pick List Item", {"sales_order": name}, "parent")
 
 
@@ -1221,18 +1227,35 @@ def sort_scan(pick_list, code):
     rows.sort(key=lambda x: remaining.get(x.so, 9999))
     row = rows[0]
 
-    frappe.db.set_value("Pick List Item", row.name, "custom_sorted_qty",
-                        int(row.sorted_qty) + 1, update_modified=False)
+    # Atomic bump (two sorters, one wall): the WHERE guard means concurrent
+    # scans can't both count the same unit.
+    frappe.db.sql(
+        """UPDATE `tabPick List Item`
+           SET custom_sorted_qty = COALESCE(custom_sorted_qty,0) + 1
+           WHERE name = %s AND COALESCE(custom_sorted_qty,0) < qty""", (row.name,))
+    if not frappe.db.sql("SELECT ROW_COUNT()")[0][0]:
+        # Someone else just filled this line — report the item as done.
+        return {"ok": False, "reason": "done", "itemCode": item_code,
+                "name": r.get("name"), "sku": r.get("sku")}
 
-    left = remaining[row.so] - 1
+    # Re-read remaining AFTER the write so it reflects concurrent scans.
+    left = int(frappe.db.sql(
+        """SELECT SUM(qty) - SUM(COALESCE(custom_sorted_qty,0))
+           FROM `tabPick List Item` WHERE parent = %s AND sales_order = %s""",
+        (pick_list, row.so))[0][0] or 0)
     result = {"ok": True, "order": row.so, "itemCode": item_code,
               "sku": r.get("sku"), "name": r.get("name"),
               "orderRemaining": max(0, left), "orderComplete": left <= 0}
     if left <= 0:
-        so_doc = frappe.get_doc("Sales Order", row.so)
-        if (so_doc.custom_logistics_status or "") in ("Label Generated", "Picked", "Pending", ""):
-            so_doc.db_set("custom_logistics_status", "Label Printed")
-        result["labelUrl"] = so_doc.get("custom_label_url") or ""
+        # Conditional flip — exactly ONE scanner wins the status change, so the
+        # auto-print fires once even if two devices complete the order together.
+        frappe.db.sql(
+            """UPDATE `tabSales Order` SET custom_logistics_status = 'Label Printed'
+               WHERE name = %s AND COALESCE(custom_logistics_status,'')
+                     IN ('Label Generated','Picked','Pending','')""", (row.so,))
+        won = bool(frappe.db.sql("SELECT ROW_COUNT()")[0][0])
+        result["orderComplete"] = won
+        result["labelUrl"] = frappe.db.get_value("Sales Order", row.so, "custom_label_url") or ""
         frappe.cache().delete_value("lp_board_summary")
     frappe.db.commit()
     return result

@@ -456,7 +456,7 @@ import { useToast } from "@/composables/useToast";
 import { byId, fmtMAD, WAREHOUSE, getInitial } from "@/lib/handoffData.js";
 import { api, liveOr } from "@/lib/resource";
 
-const { success, info } = useToast();
+const { success, info, warn } = useToast();
 
 // ── Data not exported from handoffData.js — inlined from data.jsx ────────
 const DEMO_MAP = {
@@ -620,7 +620,7 @@ function scanBin() {
 }
 function postCount() {
   cStage.value = 3;
-  success(`${openCount.value.no} posted`, "Stock Reconciliation");
+  warn("عرض تجريبي — لم يتم ترحيل أي Stock Reconciliation", "الجرد غير مربوط بالسيستم بعد");
 }
 
 // ── Receiving detail ────────────────────────────────────────────────────
@@ -654,7 +654,7 @@ function scanRecv() {
 }
 function postReceipt() {
   rStage.value = 3;
-  success(`${openInbound.value.no} · Material Receipt posted`);
+  warn("عرض تجريبي — لم يتم ترحيل أي Material Receipt", "الاستلام غير مربوط بالسيستم بعد");
 }
 
 // ── Local presentational primitives (match handoff Tailwind) ────────────

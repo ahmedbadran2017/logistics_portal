@@ -34,7 +34,10 @@ def resolve_role(user):
     if user in SEED_ROLES:
         return SEED_ROLES[user]
 
-    # 3) Heuristics.
+    # 3) Heuristics — deliberately narrow. Manager comes ONLY from real ERPNext
+    # roles; membership in the logistics department grants floor access; anyone
+    # else gets NO portal role. (The old fallback made every logged-in user a
+    # picker and any "…Operations…" department a manager.)
     roles = set(frappe.get_roles(user))
     if {"System Manager", "Logistics Manager"} & roles:
         return "manager"
@@ -42,7 +45,7 @@ def resolve_role(user):
     dept = frappe.db.get_value("Employee", {"user_id": user}, "department") or ""
     if dept.startswith("Logistics"):
         return "picker"  # safe default for floor staff
-    return "manager" if "Operations" in dept else "picker"
+    return None
 
 
 def resolve_zone(user):

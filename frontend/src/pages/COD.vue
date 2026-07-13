@@ -8,7 +8,7 @@
       </div>
       <button
         class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium text-stone-700 bg-white rounded-lg ring-1 ring-stone-200 hover:ring-stone-300 transition-colors whitespace-nowrap"
-        @click="info('Export queued')"
+        @click="warn('عرض تجريبي — لا يوجد ملف للتصدير')"
       >
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" />
@@ -118,7 +118,7 @@ import Icon from "@/components/ui/Icon.vue";
 import { CARRIER, fmtMAD } from "@/lib/handoffData";
 import { useToast } from "@/composables/useToast";
 
-const { success, info } = useToast();
+const { success, info, warn } = useToast();
 
 // COD reconciliation data (from design_handoff/logistics/data.jsx)
 const COD = {
@@ -139,7 +139,7 @@ function reconcile(no) {
   rows.value = rows.value.map((r) =>
     r.no === no ? { ...r, status: "reconciled", received: r.expected, diff: 0 } : r
   );
-  success(`${no} reconciled · posted to ERPNext`);
+  warn("عرض تجريبي — لم يتم ترحيل أي تسوية", "الصفحة غير مربوطة بالسيستم بعد");
 }
 
 const kpis = computed(() => [

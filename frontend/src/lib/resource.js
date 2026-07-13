@@ -56,20 +56,31 @@ export function apiPost(method, args = {}) {
 
 /**
  * Live-or-demo: await a real API call and return its result when it yields
- * usable data; otherwise fall back to `demo`. Screens wire live data by passing
- * the api() promise + their handoffData fallback, so they render real numbers
- * once the app is installed and degrade gracefully in preview / before go-live.
+ * usable data; otherwise fall back to `demo` — but ONLY during development.
+ * In production a backend hiccup or a genuinely empty queue must never be
+ * papered over with plausible fake numbers: an empty live array is REAL data
+ * (the queue IS empty), and an error returns the demo's empty shape so pages
+ * keep rendering without inventing content.
  */
+const DEMO_OK = import.meta.env.DEV;
+
+function emptyLike(demo) {
+  if (Array.isArray(demo)) return [];
+  return demo && typeof demo === "object" ? null : demo;
+}
+
 export async function liveOr(demo, promiseOrFn) {
   try {
     const p = typeof promiseOrFn === "function" ? promiseOrFn() : promiseOrFn;
     const res = await p;
-    if (res == null) return demo;
-    if (Array.isArray(res)) return res.length ? res : demo;
-    if (typeof res === "object" && Object.keys(res).length === 0) return demo;
+    if (res == null) return DEMO_OK ? demo : emptyLike(demo);
+    if (Array.isArray(res)) return res.length || !DEMO_OK ? res : demo;
+    if (typeof res === "object" && Object.keys(res).length === 0)
+      return DEMO_OK ? demo : emptyLike(demo);
     return res;
-  } catch (_) {
-    return demo;
+  } catch (e) {
+    console.warn("liveOr: live call failed", e);
+    return DEMO_OK ? demo : emptyLike(demo);
   }
 }
 

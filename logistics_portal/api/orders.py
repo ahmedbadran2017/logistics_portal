@@ -623,7 +623,10 @@ def _sku_rescue(miss_by_order):
     SKU (custom_sku) has a NET-positive sibling item_code — i.e. the product IS
     in the building under a different code. Returns
     {order: {sku, missCode, code, net}} for the first rescuable missing line."""
-    codes = list({c for lst in miss_by_order.values() for (c, _n) in lst})
+    # NB: [*set] not list(set) — `def list(...)` below shadows the builtin
+    # module-wide, which silently invoked the whitelisted endpoint here and
+    # killed this whole feature since day one.
+    codes = [*{c for lst in miss_by_order.values() for (c, _n) in lst}]
     if not codes:
         return {}
     try:
@@ -633,7 +636,7 @@ def _sku_rescue(miss_by_order):
             f"SELECT name, custom_sku FROM `tabItem` WHERE name IN ({cph}) "
             f"AND COALESCE(custom_sku,'') != ''", tuple(codes), as_dict=True):
             code2sku[r.name] = r.custom_sku
-        skus = list({s for s in code2sku.values()})
+        skus = [*{s for s in code2sku.values()}]
         if not skus:
             return {}
         # custom_sku is used at two granularities: variant-level SKUs (encode the
@@ -900,7 +903,9 @@ _PICKER_ID = {
 
 
 @frappe.whitelist()
-def list(scope="floor", picker=None, limit=60):
+def list(scope="floor", picker=None, limit=60):  # noqa: A001 — public RPC name.
+    # WARNING: this shadows the builtin `list` for the WHOLE module. Never call
+    # list(...) as a constructor anywhere in this file — use [*iterable].
     """Recent orders in the SPA's ORDERS shape (Pipeline + Picker queue).
     scope='queue' narrows to pick-ready stages; `picker` filters to that user's
     assigned pick lists."""
@@ -1186,6 +1191,16 @@ def merge_orders(orders):
     if len(names) < 2:
         frappe.throw("Select at least two orders to merge.")
 
+    # Serialize merges: without this, two agents merging overlapping clusters
+    # (or a merge racing a pick-list creation) can cancel an order twice or
+    # merge one that just got picked.
+    from logistics_portal.api.locks import named_lock
+
+    with named_lock("merge_orders", timeout=20):
+        return _do_merge(names)
+
+
+def _do_merge(names):
     docs = []
     for name in names:
         if not frappe.db.exists("Sales Order", name):

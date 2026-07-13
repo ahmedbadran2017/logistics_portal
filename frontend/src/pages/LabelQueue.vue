@@ -136,7 +136,7 @@ import { LABEL_QUEUE as DEMO_LABEL_QUEUE, CHANNELS, SLA, SLA_LABEL, CARRIER, WAR
 import { api, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
 
-const { success } = useToast();
+const { success, warn } = useToast();
 
 const labelRows = ref(DEMO_LABEL_QUEUE.map((r) => ({ ...r })));
 const rows = labelRows;
@@ -179,7 +179,7 @@ function channelChip(key) {
 function print(order) {
   const row = rows.value.find((r) => r.order === order);
   if (row) row.printed = true;
-  success(`AWB generated · #${order}`);
+  warn("عرض تجريبي — لم يتم توليد AWB", "استخدم محطة الفرز للطباعة الحقيقية");
 }
 
 function printAll() {

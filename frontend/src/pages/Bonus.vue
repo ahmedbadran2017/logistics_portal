@@ -170,7 +170,7 @@ import Icon from "@/components/ui/Icon.vue";
 import { useToast } from "@/composables/useToast";
 import { fmtMAD, byId } from "@/lib/handoffData";
 
-const { success } = useToast();
+const { success, warn } = useToast();
 
 // TEAM_MEMBERS (with perf) and the bonus engine are not exported from
 // handoffData.js — inlined from design_handoff/logistics/data.jsx.
@@ -240,7 +240,7 @@ const rules = [
 ];
 
 function runPayout() {
-  success(`Payout run · ${fmtMAD(pool.value)} MAD · ${rows.value.length} Additional Salary drafts in ERPNext`);
+  warn("عرض تجريبي — لم يتم ترحيل أي رواتب", "الصفحة غير مربوطة بالسيستم بعد");
 }
 function roleLabel(role) {
   return role.charAt(0).toUpperCase() + role.slice(1);

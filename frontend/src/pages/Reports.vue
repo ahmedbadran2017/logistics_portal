@@ -154,8 +154,8 @@ import Icon from "@/components/ui/Icon.vue";
 import { useToast } from "@/composables/useToast";
 import { WAREHOUSE, CARRIER, RESTOCK, RETURN_BY_SKU, CHANNEL_MIX, CHANNELS } from "@/lib/handoffData";
 
-const { success } = useToast();
-const exp = (name) => success(`${name} · CSV exported`);
+const { success, warn } = useToast();
+const exp = () => warn("عرض تجريبي — لا يوجد ملف للتصدير");
 
 // Fabricated 30-day series (matches prototype generators)
 const sla30 = Array.from({ length: 30 }, (_, i) => Math.round(80 + 10 * Math.sin(i / 4) + i * 0.2));

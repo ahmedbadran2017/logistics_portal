@@ -196,11 +196,13 @@ const CUTOFF = ref(DEMO_CUTOFF);
 
 const scanner = ref(null);
 const isLive = ref(false);
-// preload the first two parcels as "just added" so the manifest isn't empty
-const parcels = ref(PARCELS.slice(0, 2).map((p) => ({ ...p })));
+// Demo seeding happens ONLY in dev builds — production must never show or
+// fabricate parcels that don't exist.
+const DEMO_OK = import.meta.env.DEV;
+const parcels = ref(DEMO_OK ? PARCELS.slice(0, 2).map((p) => ({ ...p })) : []);
 const readyCount = ref(0); // ready-to-ship parcels waiting to be scanned onto the manifest
-const pool = ref(PARCELS.slice(2).map((p) => ({ ...p })));
-const notLabeled = ref(3);
+const pool = ref(DEMO_OK ? PARCELS.slice(2).map((p) => ({ ...p })) : []);
+const notLabeled = ref(DEMO_OK ? 3 : 0);
 
 const totalValue = computed(() => parcels.value.reduce((s, p) => s + Number(p.value || 0), 0));
 
@@ -243,6 +245,11 @@ async function onScan(code) {
     scanner.value?.showSuccess(`✓ ${res.awb} · ${parcels.value.length}`);
     return;
   }
+  // Not live: NEVER invent a parcel in production — the backend is the truth.
+  if (!DEMO_OK) {
+    scanner.value?.showError("لا يوجد اتصال بالسيرفر — أعد تحميل الصفحة");
+    return;
+  }
   let parcel;
   if (pool.value.length) {
     parcel = pool.value.shift();
@@ -269,7 +276,11 @@ function remove(i) {
 function closeManifest() {
   if (!parcels.value.length) return;
   if (!isLive.value) {
-    // Demo mode — no backend, just show the outcome.
+    if (!DEMO_OK) {
+      warn("لا يوجد اتصال بالسيرفر", "أعد تحميل الصفحة قبل إقفال المانيفست");
+      return;
+    }
+    // Dev demo mode — no backend, just show the outcome.
     success("Shipment SH-000180 submitted", `${parcels.value.length} parcels handed to ${CARRIER}`);
     return;
   }

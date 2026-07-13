@@ -85,10 +85,18 @@ def shipments(limit=30):
 
 @frappe.whitelist()
 def generate_label(order):
-    """Placeholder for the carrier label call — real integration wires Cathedis.
-    Returns a fake AWB so the UI flow works end-to-end."""
-    # TODO: call Cathedis API; persist custom_awb + custom_label_url.
-    return {"awb": "LD" + frappe.generate_hash(length=9).upper()[:9], "status": "Label Generated"}
+    """Return the order's REAL AWB (created by the pick-list-submit automation).
+    Never fabricates one — a fake AWB that looks real is worse than an error;
+    use retry_awb to re-run the carrier automation when it's missing."""
+    raw = (order or "").strip()
+    stripped = raw.lstrip("#")
+    for cand in (raw, stripped, "#" + stripped):
+        if cand and frappe.db.exists("Sales Order", cand):
+            awb = frappe.db.get_value("Sales Order", cand, "custom_awb")
+            if awb:
+                return {"awb": awb, "status": "Label Generated"}
+            frappe.throw("No AWB yet for this order — use Retry AWB to re-run the carrier automation.")
+    frappe.throw("Unknown order.")
 
 
 @frappe.whitelist()
@@ -455,22 +463,27 @@ def manifest_scan(code):
 
 def _open_or_new_manifest():
     """Today's open manifest (draft Shipment), created from the last submitted one
-    on the first scan of the day so it inherits the Justyol to CATHEDIS config."""
-    draft = frappe.get_all("Shipment", filters={"docstatus": 0}, order_by="creation desc", limit=1)
-    if draft:
-        return frappe.get_doc("Shipment", draft[0].name)
-    template = frappe.get_all("Shipment", filters={"docstatus": 1}, order_by="creation desc", limit=1)
-    if not template:
-        frappe.throw("No previous Shipment to base the manifest on — create the first from the desk.")
-    sh = frappe.copy_doc(frappe.get_doc("Shipment", template[0].name))
-    sh.set("shipment_delivery_note", [])
-    sh.value_of_goods = 0
-    sh.pickup_date = nowdate()
-    for f in ("awb", "tracking_url", "carrier_service", "tracking_status", "custom_awb", "custom_tracking_number"):
-        if sh.meta.has_field(f):
-            sh.set(f, None)
-    sh.insert(ignore_permissions=True)
-    return sh
+    on the first scan of the day so it inherits the Justyol to CATHEDIS config.
+    Serialized by a named lock — two first-scans must not create two drafts."""
+    from logistics_portal.api.locks import named_lock
+
+    with named_lock("manifest"):
+        draft = frappe.get_all("Shipment", filters={"docstatus": 0}, order_by="creation desc", limit=1)
+        if draft:
+            return frappe.get_doc("Shipment", draft[0].name)
+        template = frappe.get_all("Shipment", filters={"docstatus": 1}, order_by="creation desc", limit=1)
+        if not template:
+            frappe.throw("No previous Shipment to base the manifest on — create the first from the desk.")
+        sh = frappe.copy_doc(frappe.get_doc("Shipment", template[0].name))
+        sh.set("shipment_delivery_note", [])
+        sh.value_of_goods = 0
+        sh.pickup_date = nowdate()
+        for f in ("awb", "tracking_url", "carrier_service", "tracking_status", "custom_awb", "custom_tracking_number"):
+            if sh.meta.has_field(f):
+                sh.set(f, None)
+        sh.insert(ignore_permissions=True)
+        frappe.db.commit()  # release the row before the lock drops
+        return sh
 
 
 @frappe.whitelist()
@@ -501,52 +514,59 @@ def close_manifest(parcels=None):
                 wanted.append(str(dn).strip())
         wanted = [w for w in dict.fromkeys(wanted) if w] or None
 
-    # An existing Draft Shipment (from the desk) takes precedence — submit it.
-    draft = frappe.get_all("Shipment", filters={"docstatus": 0},
-                           order_by="modified desc", limit=1)
-    if draft:
-        sh = frappe.get_doc("Shipment", draft[0].name)
-        if not sh.get("shipment_delivery_note"):
-            frappe.throw("The open manifest has no parcels to ship.")
-        if not sh.value_of_goods:
-            sh.value_of_goods = round(sum(
-                float(frappe.db.get_value("Delivery Note", r.delivery_note, "grand_total") or 0)
-                for r in sh.shipment_delivery_note), 2)
+    # Serialized: two dispatchers closing together must not put the same
+    # parcels on two submitted Shipments.
+    from logistics_portal.api.locks import named_lock
+
+    with named_lock("manifest", timeout=30):
+        # An existing Draft Shipment (from the desk) takes precedence — submit it.
+        draft = frappe.get_all("Shipment", filters={"docstatus": 0},
+                               order_by="modified desc", limit=1)
+        if draft:
+            sh = frappe.get_doc("Shipment", draft[0].name)
+            if not sh.get("shipment_delivery_note"):
+                frappe.throw("The open manifest has no parcels to ship.")
+            if not sh.value_of_goods:
+                sh.value_of_goods = round(sum(
+                    float(frappe.db.get_value("Delivery Note", r.delivery_note, "grand_total") or 0)
+                    for r in sh.shipment_delivery_note), 2)
+            sh.submit()
+            frappe.db.commit()
+            _bust_ship_caches()
+            return {"ok": True, "shipment": sh.name,
+                    "parcels": len(sh.shipment_delivery_note),
+                    "value": round(float(sh.value_of_goods or 0), 2)}
+
+        rows = _ready_parcels(wanted)
+        if not rows:
+            frappe.throw("No printed, ready-to-ship parcels to put on a manifest.")
+        value = round(sum(float(r.val or 0) for r in rows), 2)
+        if value <= 0:
+            frappe.throw("Manifest value is 0 — cannot submit.")
+
+        # Clone the last submitted Shipment to inherit the exact pickup/delivery/
+        # parcel configuration (Justyol → CATHEDIS), then swap in today's parcels.
+        template = frappe.get_all("Shipment", filters={"docstatus": 1},
+                                  order_by="creation desc", limit=1)
+        if not template:
+            frappe.throw("No previous Shipment to base the manifest on — create the "
+                         "first one from the desk, then the portal takes over.")
+        sh = frappe.copy_doc(frappe.get_doc("Shipment", template[0].name))
+        sh.set("shipment_delivery_note", [])
+        for r in rows:
+            sh.append("shipment_delivery_note",
+                      {"delivery_note": r.dn, "grand_total": r.val})
+        sh.value_of_goods = value
+        sh.pickup_date = nowdate()
+        for f in ("awb", "tracking_url", "carrier_service", "tracking_status",
+                  "custom_awb", "custom_tracking_number"):
+            if sh.meta.has_field(f):
+                sh.set(f, None)
+        sh.insert(ignore_permissions=True)
         sh.submit()
+        frappe.db.commit()
         _bust_ship_caches()
-        return {"ok": True, "shipment": sh.name,
-                "parcels": len(sh.shipment_delivery_note),
-                "value": round(float(sh.value_of_goods or 0), 2)}
-
-    rows = _ready_parcels(wanted)
-    if not rows:
-        frappe.throw("No printed, ready-to-ship parcels to put on a manifest.")
-    value = round(sum(float(r.val or 0) for r in rows), 2)
-    if value <= 0:
-        frappe.throw("Manifest value is 0 — cannot submit.")
-
-    # Clone the last submitted Shipment to inherit the exact pickup/delivery/
-    # parcel configuration (Justyol → CATHEDIS), then swap in today's parcels.
-    template = frappe.get_all("Shipment", filters={"docstatus": 1},
-                              order_by="creation desc", limit=1)
-    if not template:
-        frappe.throw("No previous Shipment to base the manifest on — create the "
-                     "first one from the desk, then the portal takes over.")
-    sh = frappe.copy_doc(frappe.get_doc("Shipment", template[0].name))
-    sh.set("shipment_delivery_note", [])
-    for r in rows:
-        sh.append("shipment_delivery_note",
-                  {"delivery_note": r.dn, "grand_total": r.val})
-    sh.value_of_goods = value
-    sh.pickup_date = nowdate()
-    for f in ("awb", "tracking_url", "carrier_service", "tracking_status",
-              "custom_awb", "custom_tracking_number"):
-        if sh.meta.has_field(f):
-            sh.set(f, None)
-    sh.insert(ignore_permissions=True)
-    sh.submit()
-    _bust_ship_caches()
-    return {"ok": True, "shipment": sh.name, "parcels": len(rows), "value": value}
+        return {"ok": True, "shipment": sh.name, "parcels": len(rows), "value": value}
 
 
 def _bust_ship_caches():
