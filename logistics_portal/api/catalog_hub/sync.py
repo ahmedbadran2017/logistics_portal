@@ -85,7 +85,7 @@ def enqueue_sync(limit=20000):
     from logistics_portal.api.auth import resolve_role
     if resolve_role(frappe.session.user) != "manager":
         frappe.throw("Only a manager can run the catalog sync.", frappe.PermissionError)
-    frappe.enqueue("logistics_portal.catalog_hub.sync._run_sync", queue="long",
+    frappe.enqueue("logistics_portal.api.catalog_hub.sync._run_sync", queue="long",
                    timeout=36000, job_name="catalog_shopify_status_sync",
                    limit=int(limit), dry_run=False)
     return {"queued": True}
