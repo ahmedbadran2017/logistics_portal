@@ -61,10 +61,16 @@ FLOOR_DAYS = 7
 
 
 @frappe.whitelist()
-def cockpit():
+def cockpit(date=None):
     """Live floor snapshot in the SPA's cockpit shape: {summary, pipeline,
-    leaderboard, atRisk}. Date-scoped to the recent floor window."""
+    leaderboard, atRisk}. The flow card is scoped to `date` (default today);
+    the funnel/leaderboard/SLA alerts are always the current state."""
     try:
+        from frappe.utils import getdate
+
+        day = str(getdate(date)) if date else nowdate()
+        is_today = day == nowdate()
+
         # Funnel = the Orders-board stage model (document-derived, cached 60s).
         counts, values, _tracks, attention = _board_summary()
         pipeline = [{"key": k, "count": int(counts.get(k, 0) or 0),
@@ -72,44 +78,73 @@ def cockpit():
         by = {p["key"]: p["count"] for p in pipeline}
 
         total = sum(p["count"] for p in pipeline)
-        orders_in = frappe.db.count(
-            "Sales Order", {"docstatus": 1, "transaction_date": [">=", add_days(nowdate(), -1)]}
-        )
+        # ── Flow, scoped to the selected day ──
+        orders_in = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabSales Order` WHERE docstatus=1 AND DATE(creation)=%s",
+            (day,))[0][0] or 0
+        printed = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabDelivery Note` WHERE docstatus=1 AND DATE(creation)=%s",
+            (day,))[0][0] or 0
+        # Shipped that day = parcels on that day's submitted manifest(s) — real
+        # and historical, unlike status counts which keep moving after the day.
+        shipped_day = frappe.db.sql(
+            """SELECT COUNT(*) FROM `tabShipment Delivery Note` sdn
+               JOIN `tabShipment` sh ON sh.name = sdn.parent
+               WHERE sh.docstatus = 1 AND DATE(sh.pickup_date) = %s""",
+            (day,))[0][0] or 0
+        if is_today:
+            to_ship = by.get("to_pick", 0) + by.get("picking", 0) + by.get("prepared", 0) + by.get("ready", 0)
+            shipped = int(shipped_day) or by.get("shipped", 0)
+        else:
+            # For a past day: how many of that day's orders never went out.
+            to_ship = frappe.db.sql(
+                """SELECT COUNT(*) FROM `tabSales Order`
+                   WHERE docstatus=1 AND DATE(creation)=%s
+                     AND COALESCE(custom_logistics_status,'') NOT IN
+                         ('Shipped','In transit','Delivered','Returned')""",
+                (day,))[0][0] or 0
+            shipped = int(shipped_day)
 
-        # SLA-derived numbers: scoped to the recent window so historical archive
-        # never reads as "breached now".
+        # ── SLA alerts: recent window, OPEN only (a delivered parcel is not
+        # "needs attention now" even if it breached on the way). ──
         sla_since = add_days(nowdate(), -14)
-        breaches = frappe.db.count(
-            "Delivery Note", {"custom_sla_status": "Breached", "posting_date": [">=", sla_since]}
-        )
-        at_risk = frappe.db.count(
-            "Delivery Note", {"custom_sla_status": "At Risk", "posting_date": [">=", sla_since]}
-        )
+        breaches = frappe.db.sql(
+            """SELECT COUNT(*) FROM `tabDelivery Note`
+               WHERE custom_sla_status='Breached' AND posting_date >= %s
+                 AND COALESCE(custom_track_shipment_status,'') <> 'Delivered'""",
+            (sla_since,))[0][0] or 0
+        at_risk = frappe.db.sql(
+            """SELECT COUNT(*) FROM `tabDelivery Note`
+               WHERE custom_sla_status='At Risk' AND posting_date >= %s
+                 AND COALESCE(custom_track_shipment_status,'') <> 'Delivered'""",
+            (sla_since,))[0][0] or 0
         # In-transit is truest from carrier tracking on recent DNs (SO stage lags).
         in_transit = frappe.db.count(
             "Delivery Note",
             {"custom_track_shipment_status": ["in", ["In Transit", "Out For Delivery"]],
              "posting_date": [">=", sla_since]},
         ) or by.get("shipped", 0)
-        # Orders created today before the 14:00 cutoff (same-day ship window).
+        # Orders created that day before the 17:00 manifest cutoff.
         before_cutoff = frappe.db.sql(
-            "SELECT COUNT(*) FROM `tabSales Order` WHERE docstatus=1 AND DATE(creation)=%s AND TIME(creation) < '14:00:00'",
-            (nowdate(),),
+            "SELECT COUNT(*) FROM `tabSales Order` WHERE docstatus=1 AND DATE(creation)=%s AND TIME(creation) < '17:00:00'",
+            (day,),
         )[0][0]
 
         summary = {
-            "ordersIn": orders_in,
-            "shipped": by.get("shipped", 0),
-            "printed": by.get("ready", 0),
-            "toShip": by.get("to_pick", 0) + by.get("picking", 0) + by.get("prepared", 0) + by.get("ready", 0),
+            "date": day,
+            "isToday": is_today,
+            "ordersIn": int(orders_in),
+            "shipped": int(shipped),
+            "printed": int(printed),
+            "toShip": int(to_ship),
             "inTransit": in_transit,
-            "breaches": breaches,
-            "atRisk": at_risk,
+            "breaches": int(breaches),
+            "atRisk": int(at_risk),
             "returns": by.get("to_return", 0) + by.get("returned", 0),
             "attention": sum(int(v or 0) for v in (attention or {}).values()),
             "totalOrders": total,
             "sameDayPct": _sla_hit_rate(sla_since),
-            "cutoff": "14:00",
+            "cutoff": "17:00",
             "beforeCutoff": int(before_cutoff or 0),
             "cutoffPct": round((before_cutoff or 0) * 100 / max(1, orders_in)),
         }
@@ -118,6 +153,37 @@ def cockpit():
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.cockpit")
         return {}
+
+
+@frappe.whitelist()
+def breached_list(limit=500):
+    """Open SLA problems (breached + at-risk, not yet delivered) for the
+    cockpit's 'Breached orders' panel and CSV export."""
+    try:
+        limit = min(max(int(limit or 500), 1), 2000)
+        rows = frappe.db.sql(
+            """SELECT dn.name AS dn, dn.customer_name AS customer,
+                      dn.custom_sla_status AS sla,
+                      COALESCE(dn.custom_track_shipment_status,'') AS track,
+                      dn.posting_date AS date, dn.custom_awb AS awb,
+                      COALESCE(so.custom_shipping_city, '') AS city,
+                      so.name AS so
+               FROM `tabDelivery Note` dn
+               LEFT JOIN `tabSales Order` so ON so.name = (
+                   SELECT dni.against_sales_order FROM `tabDelivery Note Item` dni
+                   WHERE dni.parent = dn.name AND dni.against_sales_order IS NOT NULL LIMIT 1)
+               WHERE dn.custom_sla_status IN ('Breached','At Risk')
+                 AND dn.posting_date >= %s
+                 AND COALESCE(dn.custom_track_shipment_status,'') <> 'Delivered'
+               ORDER BY FIELD(dn.custom_sla_status,'Breached','At Risk'), dn.posting_date ASC
+               LIMIT %s""",
+            (add_days(nowdate(), -14), limit), as_dict=True)
+        return [{"dn": r.dn, "order": r.so or "", "customer": r.customer or "",
+                 "city": r.city or "", "sla": r.sla, "track": r.track,
+                 "awb": r.awb or "", "date": str(r.date or "")} for r in rows]
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.breached_list")
+        return []
 
 
 @frappe.whitelist()

@@ -10,16 +10,24 @@
           </p>
         </div>
         <div class="flex items-center gap-2">
-          <button
-            class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
+          <label
+            class="relative inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors cursor-pointer"
           >
-            <Icon name="calendar" :size="15" /> Today
-          </button>
+            <Icon name="calendar" :size="15" /> {{ dateLabel }}
+            <input
+              type="date"
+              class="absolute inset-0 opacity-0 cursor-pointer"
+              :max="todayStr"
+              :value="selectedDate"
+              @change="onDateChange"
+            />
+          </label>
           <button
-            class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
+            class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors disabled:opacity-50"
+            :disabled="exporting"
             @click="onExport"
           >
-            <Icon name="file-text" :size="15" /> Export
+            <Icon name="file-text" :size="15" /> {{ exporting ? "…" : "Export" }}
           </button>
         </div>
       </div>
@@ -51,10 +59,62 @@
         <button
           v-if="needsAttention"
           class="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-[13px] font-semibold text-white bg-rose-600 hover:bg-rose-700 transition-colors"
+          @click="openBreached"
         >
           Breached orders <Icon name="chevron-right" :size="16" />
         </button>
       </div>
+
+      <!-- Breached orders panel -->
+      <Teleport to="body">
+        <div v-if="breachedOpen" class="fixed inset-0 z-50 flex justify-end">
+          <div class="absolute inset-0 bg-stone-900/30" @click="breachedOpen = false" />
+          <div class="relative w-full max-w-lg h-full bg-white shadow-2xl flex flex-col animate-fade-in">
+            <header class="px-5 py-4 border-b border-stone-100 flex items-center justify-between">
+              <div>
+                <h3 class="text-[15px] font-semibold text-stone-900">Open SLA problems</h3>
+                <p class="text-[12px] text-stone-500 mt-0.5">
+                  Breached & at-risk parcels not yet delivered · last 14 days
+                </p>
+              </div>
+              <button class="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center" @click="breachedOpen = false">
+                <Icon name="x" :size="16" />
+              </button>
+            </header>
+            <div class="flex-1 overflow-y-auto">
+              <div v-if="breachedLoading" class="p-8 text-center text-[13px] text-stone-400">Loading…</div>
+              <div v-else-if="!breachedRows.length" class="p-8 text-center text-[13px] text-stone-400">Nothing open. All clear.</div>
+              <button
+                v-for="r in breachedRows"
+                :key="r.dn"
+                class="w-full text-start px-5 py-3 border-b border-stone-50 hover:bg-stone-50 transition-colors"
+                @click="openBreachedOrder(r)"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-[13px] font-semibold text-stone-900 tabular-nums">{{ r.order || r.dn }}</span>
+                  <span
+                    class="px-2 h-5 inline-flex items-center rounded-full text-[10.5px] font-semibold"
+                    :class="r.sla === 'Breached' ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200' : 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'"
+                  >{{ r.sla }}</span>
+                </div>
+                <div class="flex items-center justify-between gap-3 mt-1">
+                  <span class="text-[12px] text-stone-500 truncate">{{ r.customer }} · {{ r.city }}</span>
+                  <span class="text-[11px] text-stone-400 whitespace-nowrap">{{ r.track || "—" }} · {{ r.date }}</span>
+                </div>
+              </button>
+            </div>
+            <footer class="px-5 py-3 border-t border-stone-100 flex items-center justify-between">
+              <span class="text-[12px] text-stone-500 tabular-nums">{{ breachedRows.length }} parcels</span>
+              <button
+                class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12.5px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50"
+                @click="onExport"
+              >
+                <Icon name="file-text" :size="14" /> Export CSV
+              </button>
+            </footer>
+          </div>
+        </div>
+      </Teleport>
 
       <!-- Today's flow -->
       <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
@@ -252,14 +312,25 @@ function cutoffDelta(cutoff = "14:00") {
 
 const isLive = ref(false);
 
-onMounted(async () => {
-  const live = await liveOr(null, () => api("performance.cockpit"));
+// ── Date scope ──────────────────────────────────────────────────────
+const todayStr = new Date().toISOString().slice(0, 10);
+const selectedDate = ref(todayStr);
+const dateLabel = computed(() => {
+  if (selectedDate.value === todayStr) return "Today";
+  const d = new Date(selectedDate.value + "T00:00:00");
+  const yest = new Date(); yest.setDate(yest.getDate() - 1);
+  if (selectedDate.value === yest.toISOString().slice(0, 10)) return "Yesterday";
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+});
+
+async function load() {
+  const live = await liveOr(null, () => api("performance.cockpit", { date: selectedDate.value }));
   if (live && live.summary) {
     isLive.value = true;
     cockpit.value = {
       ...DEMO_COCKPIT,
       ...live.summary,
-      pastCutoff: cutoffDelta(live.summary.cutoff || "14:00"),
+      pastCutoff: live.summary.isToday ? cutoffDelta(live.summary.cutoff || "17:00") : "—",
       // Real data only: drop the demo sparkline trends so nothing invented shows.
       sameDayTrend: [], breachTrend: [], atRiskTrend: [], transitTrend: [],
     };
@@ -270,7 +341,38 @@ onMounted(async () => {
       leaderboard.value = live.leaderboard;
     }
   }
-});
+}
+
+function onDateChange(e) {
+  const v = e.target.value;
+  if (!v || v === selectedDate.value) return;
+  selectedDate.value = v;
+  load();
+}
+
+onMounted(load);
+
+// ── Breached orders panel ───────────────────────────────────────────
+const breachedOpen = ref(false);
+const breachedLoading = ref(false);
+const breachedRows = ref([]);
+
+async function openBreached() {
+  breachedOpen.value = true;
+  if (breachedRows.value.length) return;
+  breachedLoading.value = true;
+  try {
+    breachedRows.value = (await api("performance.breached_list")) || [];
+  } finally {
+    breachedLoading.value = false;
+  }
+}
+
+function openBreachedOrder(r) {
+  if (!r.order) return;
+  breachedOpen.value = false;
+  _router.push({ name: "OrderDetail", params: { name: r.order.replace("#", "") } });
+}
 
 const needsAttention = computed(() => cockpit.value.breaches > 0);
 // Board stage keys (live funnel) — hex-toned + i18n'd + clickable → the board.
@@ -303,8 +405,31 @@ function barWidth(count) {
   return Math.max(6, (count / pipelineMax.value) * 100);
 }
 
-function onExport() {
-  success?.("Export queued");
+const exporting = ref(false);
+
+async function onExport() {
+  // Real export: the open breached/at-risk parcels as a CSV download.
+  exporting.value = true;
+  try {
+    const rows = breachedRows.value.length
+      ? breachedRows.value
+      : ((await api("performance.breached_list")) || []);
+    if (!breachedRows.value.length) breachedRows.value = rows;
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = [
+      ["order", "delivery_note", "awb", "customer", "city", "sla", "carrier_status", "date"].join(","),
+      ...rows.map((r) => [r.order, r.dn, r.awb, r.customer, r.city, r.sla, r.track, r.date].map(esc).join(",")),
+    ].join("\n");
+    const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `sla-problems-${todayStr}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    success?.(`Exported ${rows.length} parcels`);
+  } finally {
+    exporting.value = false;
+  }
 }
 
 const flowCells = computed(() => [
