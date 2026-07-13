@@ -55,6 +55,10 @@ def ensure_catalog_fields():
 _PLI_FIELDS = [
     {"fieldname": "custom_scanned_qty", "label": "Scanned Qty", "fieldtype": "Int",
      "default": "0", "read_only": 1, "no_copy": 1, "in_list_view": 0},
+    # Sorting-station progress: units of this line allocated to its order at
+    # the sort wall (independent of the shelf-side custom_scanned_qty).
+    {"fieldname": "custom_sorted_qty", "label": "Sorted Qty", "fieldtype": "Int",
+     "default": "0", "read_only": 1, "no_copy": 1, "in_list_view": 0},
 ]
 
 

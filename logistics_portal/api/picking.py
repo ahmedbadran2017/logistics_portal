@@ -1090,3 +1090,149 @@ def _linked_sales_order(pick_list):
 def _pick_list_for_order(order):
     name = order.lstrip("#")
     return frappe.db.get_value("Pick List Item", {"sales_order": name}, "parent")
+
+
+# ---------------------------------------------------------------------------
+# Sorting station (الفرز) — allocate a picked tote's items to their orders,
+# print each order's label the moment it completes. Bound to ONE pick list:
+# the tote in front of the sorter IS a pick list, so scans only match orders
+# on that list (never someone else's oldest order).
+# ---------------------------------------------------------------------------
+_SORT_ROLES = ("packer", "dispatcher", "manager")
+
+
+def _sort_gate():
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in _SORT_ROLES:
+        frappe.throw("Not authorized to sort.", frappe.PermissionError)
+
+
+@frappe.whitelist()
+def sorting_lists(days=2, limit=30):
+    """Pick lists awaiting sorting: submitted recently, with at least one
+    order still at Label Generated (= picked, AWB ready, label not printed).
+    Progress = orders already Label Printed / total orders on the list."""
+    _sort_gate()
+    days = min(max(int(days or 2), 1), 14)
+    limit = min(max(int(limit or 30), 1), 100)
+    rows = frappe.db.sql(
+        """SELECT pl.name,
+                  COALESCE(NULLIF(pl.custom_assigned_picker,''), pl.owner) AS picker,
+                  COUNT(DISTINCT pli.sales_order) AS orders,
+                  SUM(pli.qty) AS qty,
+                  COUNT(DISTINCT CASE WHEN so.custom_logistics_status = 'Label Printed'
+                                      THEN pli.sales_order END) AS printed,
+                  COUNT(DISTINCT CASE WHEN so.custom_logistics_status = 'Label Generated'
+                                      THEN pli.sales_order END) AS pending
+           FROM `tabPick List` pl
+           JOIN `tabPick List Item` pli ON pli.parent = pl.name
+           LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
+           WHERE pl.docstatus = 1 AND pl.creation >= DATE_SUB(NOW(), INTERVAL %s DAY)
+           GROUP BY pl.name
+           HAVING pending > 0
+           ORDER BY pl.creation DESC LIMIT %s""",
+        (days, limit), as_dict=True)
+    return [{"name": r.name, "picker": (r.picker or "").split("@")[0],
+             "orders": int(r.orders or 0), "qty": int(r.qty or 0),
+             "printed": int(r.printed or 0), "pending": int(r.pending or 0)}
+            for r in rows]
+
+
+@frappe.whitelist()
+def sorting_detail(pick_list):
+    """One pick list's sort wall: every order slot with its items (image,
+    real SKU, qty, sorted so far) and label state."""
+    _sort_gate()
+    if not frappe.db.exists("Pick List", pick_list):
+        frappe.throw("Unknown pick list.")
+    rows = frappe.db.sql(
+        """SELECT pli.sales_order AS so, pli.item_code, pli.qty,
+                  COALESCE(pli.custom_sorted_qty, 0) AS sorted_qty,
+                  COALESCE(NULLIF(pli.item_name,''), pli.item_code) AS item_name,
+                  it.custom_sku AS real_sku, it.image,
+                  s.customer_name AS customer, s.custom_logistics_status AS status,
+                  s.custom_label_url AS label_url, s.custom_shipping_city AS city,
+                  s.grand_total AS total
+           FROM `tabPick List Item` pli
+           LEFT JOIN `tabItem` it ON it.name = pli.item_code
+           LEFT JOIN `tabSales Order` s ON s.name = pli.sales_order
+           WHERE pli.parent = %s AND pli.sales_order IS NOT NULL
+           ORDER BY pli.sales_order, pli.idx""",
+        (pick_list,), as_dict=True)
+    orders = {}
+    for r in rows:
+        o = orders.setdefault(r.so, {
+            "order": r.so, "customer": r.customer or "", "city": r.city or "",
+            "status": r.status or "", "labelUrl": r.label_url or "",
+            "total": float(r.total or 0), "items": []})
+        o["items"].append({
+            "itemCode": r.item_code, "sku": r.real_sku or "", "name": r.item_name,
+            "qty": int(r.qty or 0), "sorted": int(r.sorted_qty or 0),
+            "image": r.image or ""})
+    out = list(orders.values())
+    for o in out:
+        o["qty"] = sum(i["qty"] for i in o["items"])
+        o["sorted"] = sum(i["sorted"] for i in o["items"])
+        o["done"] = o["status"] == "Label Printed" or (o["qty"] > 0 and o["sorted"] >= o["qty"])
+    out.sort(key=lambda o: (o["done"], o["order"]))
+    return {"pickList": pick_list, "orders": out}
+
+
+@frappe.whitelist()
+def sort_scan(pick_list, code):
+    """Allocate one scanned unit to an order ON THIS PICK LIST. Routing:
+    the not-yet-full line of that item whose order is CLOSEST to completion,
+    so orders finish (and labels print) as early as possible. When the scan
+    completes an order, its status flips to Label Printed and the label URL
+    is returned for immediate printing."""
+    _sort_gate()
+    if not frappe.db.exists("Pick List", pick_list):
+        return {"ok": False, "reason": "unknown_list"}
+    r = resolve_scan(code)
+    item_code = r.get("itemCode")
+    if not item_code:
+        return {"ok": False, "reason": "unknown_item", "code": (code or "").strip()}
+
+    rows = frappe.db.sql(
+        """SELECT pli.name, pli.sales_order AS so, pli.qty,
+                  COALESCE(pli.custom_sorted_qty,0) AS sorted_qty
+           FROM `tabPick List Item` pli
+           LEFT JOIN `tabSales Order` s ON s.name = pli.sales_order
+           WHERE pli.parent = %s AND pli.item_code = %s
+             AND pli.sales_order IS NOT NULL
+             AND COALESCE(s.custom_logistics_status,'') <> 'Label Printed'
+             AND COALESCE(pli.custom_sorted_qty,0) < pli.qty
+           ORDER BY pli.idx""",
+        (pick_list, item_code), as_dict=True)
+    if not rows:
+        on_list = frappe.db.exists(
+            "Pick List Item", {"parent": pick_list, "item_code": item_code})
+        return {"ok": False, "reason": "done" if on_list else "not_on_list",
+                "itemCode": item_code, "name": r.get("name"), "sku": r.get("sku")}
+
+    # Remaining units per candidate order → route to the order closest to done.
+    remaining = {}
+    for so in {x.so for x in rows}:
+        t = frappe.db.sql(
+            """SELECT SUM(qty) - SUM(COALESCE(custom_sorted_qty,0))
+               FROM `tabPick List Item` WHERE parent = %s AND sales_order = %s""",
+            (pick_list, so))[0][0]
+        remaining[so] = int(t or 0)
+    rows.sort(key=lambda x: remaining.get(x.so, 9999))
+    row = rows[0]
+
+    frappe.db.set_value("Pick List Item", row.name, "custom_sorted_qty",
+                        int(row.sorted_qty) + 1, update_modified=False)
+
+    left = remaining[row.so] - 1
+    result = {"ok": True, "order": row.so, "itemCode": item_code,
+              "sku": r.get("sku"), "name": r.get("name"),
+              "orderRemaining": max(0, left), "orderComplete": left <= 0}
+    if left <= 0:
+        so_doc = frappe.get_doc("Sales Order", row.so)
+        if (so_doc.custom_logistics_status or "") in ("Label Generated", "Picked", "Pending", ""):
+            so_doc.db_set("custom_logistics_status", "Label Printed")
+        result["labelUrl"] = so_doc.get("custom_label_url") or ""
+        frappe.cache().delete_value("lp_board_summary")
+    frappe.db.commit()
+    return result
