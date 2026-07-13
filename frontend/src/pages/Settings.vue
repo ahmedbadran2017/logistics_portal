@@ -96,21 +96,51 @@
         </li>
       </ul>
     </div>
+
+    <!-- Pickable warehouses (manager) -->
+    <div v-if="role === 'manager'" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-5">
+      <div class="flex items-center gap-2 mb-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">
+        <Icon name="warehouse" :size="15" /> Pickable warehouses
+      </div>
+      <p class="text-[11.5px] text-stone-500 mb-3">Which stock zones the pick engine and Orders board draw from. Turn a zone off to keep its stock out of picking (it will show as out of stock). Aisle bins are always pickable; transit/defective zones are always excluded.</p>
+      <div v-if="whLoading" class="text-[12px] text-stone-400 py-4">Loading zones…</div>
+      <ul v-else-if="zones.length" class="divide-y divide-stone-100">
+        <li v-for="z in zones" :key="z.name" class="flex items-center justify-between py-3 gap-3">
+          <div class="min-w-0">
+            <div class="text-[12.5px] font-medium text-stone-900 truncate">{{ z.short }}</div>
+            <div class="text-[11px] text-stone-500 tabular-nums">
+              {{ z.qty }} units · {{ z.items }} items<span v-if="z.locked" class="text-stone-400"> · always excluded</span>
+            </div>
+          </div>
+          <button
+            type="button" role="switch" :aria-checked="z.pickable" :disabled="z.locked || whSaving"
+            class="relative w-11 h-6 rounded-full transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+            :class="z.pickable ? 'bg-[var(--accent-600)]' : 'bg-stone-200'"
+            @click="toggleZone(z)"
+          >
+            <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform"
+                  :class="z.pickable ? 'translate-x-5' : 'translate-x-0'" />
+          </button>
+        </li>
+      </ul>
+      <div v-else class="text-[12px] text-stone-400 py-4">No configurable zones.</div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { useAuth } from "@/composables/useAuth";
 import { useTheme } from "@/composables/useTheme";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
+import { api, apiPost, liveOr } from "@/lib/resource";
 
 const { fullName, role, user, zone } = useAuth();
 const { theme, set } = useTheme();
 const { locale, setLocale } = useI18n();
-const { success } = useToast();
+const { success, warn } = useToast();
 
 const langs = [
   { code: "en", label: "EN" },
@@ -128,4 +158,33 @@ function toggle(n) {
   n.on = !n.on;
   success("Preference saved", `${n.label} ${n.on ? "on" : "off"}`);
 }
+
+// ── Pickable warehouses (manager) ────────────────────────────────────
+const zones = ref([]);
+const whLoading = ref(false);
+const whSaving = ref(false);
+
+async function loadWarehouses() {
+  if (role.value !== "manager") return;
+  whLoading.value = true;
+  const res = await liveOr(null, () => api("warehouses.warehouse_settings"));
+  zones.value = res && Array.isArray(res.zones) ? res.zones : [];
+  whLoading.value = false;
+}
+async function toggleZone(z) {
+  if (z.locked || whSaving.value) return;
+  z.pickable = !z.pickable;
+  const excluded = zones.value.filter((x) => !x.locked && !x.pickable).map((x) => x.name);
+  whSaving.value = true;
+  try {
+    await apiPost("warehouses.save_warehouse_settings", { excluded });
+    success("Pickable zones saved", `${z.short} ${z.pickable ? "included" : "excluded"}`);
+  } catch (e) {
+    z.pickable = !z.pickable; // revert on failure
+    warn("Couldn't save", String(e.message || e));
+  } finally {
+    whSaving.value = false;
+  }
+}
+onMounted(loadWarehouses);
 </script>

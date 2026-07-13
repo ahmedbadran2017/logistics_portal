@@ -469,18 +469,16 @@ def _row(r, **extra):
     }, **extra)
 
 
-# Locally-pickable stock: any "- JM" warehouse with qty (incl. Slow/Receiving/
-# Return zones — returned stock IS resold per ops), excluding Turkey/transit/
-# containers/defective/correcting/old. Patterns are params (no literal % in the
-# SQL) so this splices safely into queries that also carry %s args.
+# Locally-pickable stock: "- JM" warehouses with available qty, per the
+# configurable pickable-warehouse policy (structural families always excluded;
+# Return/Receiving/etc. zones toggled by a manager in Settings). Values are %s
+# params so this splices safely into queries that also carry %s args.
 def _pickable_bin_subquery():
+    from logistics_portal.api.warehouses import pickable_condition
+    cond, args = pickable_condition("b.warehouse")
     # Available to pick = actual - reserved (a reserved unit is spoken for).
     sql = ("SELECT DISTINCT item_code FROM `tabBin` b "
-           "WHERE (b.actual_qty - b.reserved_qty) > 0 "
-           "AND b.warehouse LIKE %s AND b.warehouse NOT LIKE %s "
-           "AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s "
-           "AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s")
-    args = ["% - JM", "Defective%", "Container%", "Air Freight%", "%Old%", "CORRECTING%"]
+           "WHERE (b.actual_qty - b.reserved_qty) > 0 AND " + cond)
     return sql, args
 
 

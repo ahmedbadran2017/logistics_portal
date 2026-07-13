@@ -553,19 +553,14 @@ def _resolve_bins(item_codes):
     (aisle-walkable), else any staging bin with stock, else None (OOS)."""
     if not item_codes:
         return {}
-    # Locally-pickable only: '- JM' warehouses (incl. Slow/Receiving/Return
-    # zones), excluding Turkey/transit/containers/defective/correcting/old — so
+    # Locally-pickable only, per the configurable pickable-warehouse policy — so
     # the engine's OOS detection matches the Orders board's Ready/Partial/OOS.
+    from logistics_portal.api.warehouses import pickable_condition
+    cond, wargs = pickable_condition("warehouse")
     rows = frappe.db.sql(
-        """SELECT item_code, warehouse, (actual_qty - reserved_qty) AS avail FROM `tabBin`
-           WHERE (actual_qty - reserved_qty) > 0 AND item_code IN %(items)s
-             AND warehouse LIKE %(w_jm)s
-             AND warehouse NOT LIKE %(w_def)s AND warehouse NOT LIKE %(w_cont)s
-             AND warehouse NOT LIKE %(w_air)s AND warehouse NOT LIKE %(w_old)s
-             AND warehouse NOT LIKE %(w_corr)s""",
-        {"items": tuple(item_codes), "w_jm": "% - JM", "w_def": "Defective%",
-         "w_cont": "Container%", "w_air": "Air Freight%", "w_old": "%Old%",
-         "w_corr": "CORRECTING%"}, as_dict=True)
+        "SELECT item_code, warehouse, (actual_qty - reserved_qty) AS avail FROM `tabBin` "
+        "WHERE (actual_qty - reserved_qty) > 0 AND item_code IN %s AND " + cond,
+        tuple([tuple(item_codes)] + wargs), as_dict=True)
     best = {}
     for r in rows:
         m = _SHELF_RE.match(r.warehouse or "")
