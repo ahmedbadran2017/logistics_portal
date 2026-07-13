@@ -24,8 +24,16 @@ def _detect():
     """Return a list of alert dicts. Extend with more checks over time."""
     alerts = []
 
-    # SLA breaches on Delivery Notes (systemic → managers).
-    breached = frappe.db.count("Delivery Note", {"custom_sla_status": "Breached"})
+    from frappe.utils import add_days, nowdate
+
+    # SLA breaches on Delivery Notes (systemic → managers). Open + recent only —
+    # unwindowed, this scanned all 100k DNs every 10 minutes and alerted on
+    # parcels delivered months ago.
+    breached = frappe.db.count("Delivery Note", {
+        "custom_sla_status": "Breached",
+        "posting_date": [">=", add_days(nowdate(), -14)],
+        "custom_track_shipment_status": ["not in", ["Delivered"]],
+    })
     if breached:
         alerts.append(
             {
@@ -38,7 +46,8 @@ def _detect():
 
     # Submitted Pick Lists missing a picker (data-quality → managers).
     unassigned = frappe.db.count(
-        "Pick List", {"custom_assigned_picker": ["in", ["", None]], "docstatus": 1}
+        "Pick List", {"custom_assigned_picker": ["in", ["", None]], "docstatus": 1,
+                      "creation": [">=", add_days(nowdate(), -7)]}
     )
     if unassigned:
         alerts.append(
@@ -53,18 +62,29 @@ def _detect():
 
 
 def _emit(alert):
-    """Write to Notification Log (audit trail) + push a realtime toast."""
+    """Write to Notification Log (audit trail) + push a realtime toast.
+    Dedup: skip if an identical unread alert already exists (the engine runs
+    every 10 minutes — without this it spammed a fresh row each tick). The
+    scheduler runs as Administrator, so the log rows target the real portal
+    managers, not the session user."""
+    from logistics_portal.api.auth import SEED_ROLES
+
     try:
-        frappe.get_doc(
-            {
-                "doctype": "Notification Log",
-                "subject": alert["title"],
-                "email_content": alert.get("detail", ""),
-                "type": "Alert",
-                "document_type": "Delivery Note",
-                "for_user": frappe.session.user,
-            }
-        ).insert(ignore_permissions=True)
+        if frappe.db.exists("Notification Log",
+                            {"subject": alert["title"], "read": 0}):
+            return
+        managers = [u for u, r in SEED_ROLES.items() if r == "manager"] or [frappe.session.user]
+        for user in managers:
+            frappe.get_doc(
+                {
+                    "doctype": "Notification Log",
+                    "subject": alert["title"],
+                    "email_content": alert.get("detail", ""),
+                    "type": "Alert",
+                    "document_type": "Delivery Note",
+                    "for_user": user,
+                }
+            ).insert(ignore_permissions=True)
     except Exception:
         pass
     frappe.publish_realtime("logistics_alert", alert)

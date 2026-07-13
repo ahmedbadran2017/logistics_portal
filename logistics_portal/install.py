@@ -16,6 +16,14 @@ INDEXES = [
     ("Delivery Note", ["custom_track_shipment_status"], "lp_dn_track_idx"),
     # SKU lookup scans 151k Items by custom_sku — index it.
     ("Item", ["custom_sku"], "lp_item_sku_idx"),
+    # Cockpit breach counts / breached_list / the 10-min audit engine all
+    # filter DNs by SLA status within a posting window.
+    ("Delivery Note", ["custom_sla_status", "posting_date"], "lp_dn_sla_idx"),
+    # manifest_scan / ready-parcels NOT-IN / shipped-stage rows join on the
+    # child table's delivery_note (parent is indexed by default; this isn't).
+    ("Shipment Delivery Note", ["delivery_note"], "lp_sdn_dn_idx"),
+    # Board counts + intake filter Confirmed orders by creation window.
+    ("Sales Order", ["custom_sales_status", "creation"], "lp_so_sales_creation_idx"),
 ]
 
 

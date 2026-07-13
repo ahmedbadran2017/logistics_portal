@@ -290,18 +290,27 @@ def exceptions(days=14, limit=50, offset=0):
 @frappe.whitelist()
 def carriers():
     """Carrier scorecard — Cathedis rates computed from live DN track status."""
+    import json as _json
+    cache = frappe.cache()
+    cached = cache.get_value("lp_carriers")
+    if cached:
+        try:
+            return _json.loads(cached)
+        except Exception:
+            pass
     try:
         counts = {}
         for r in frappe.db.sql(
             """SELECT custom_track_shipment_status AS s, COUNT(*) AS c FROM `tabDelivery Note`
                WHERE docstatus=1 AND custom_track_shipment_status IS NOT NULL AND custom_track_shipment_status!=''
+                 AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
                GROUP BY custom_track_shipment_status""", as_dict=True):
             counts[r.s] = int(r.c or 0)
         total = sum(counts.values()) or 1
         delivered = counts.get("Delivered", 0)
         exc = counts.get("Delivery Exception", 0) + counts.get("Failed Attempt", 0)
         active = counts.get("Out For Delivery", 0) + counts.get("In Transit", 0) + counts.get("Pending", 0)
-        return [
+        out = [
             {"name": "Cathedis", "code": "CTH", "active": True, "awbActive": active,
              "deliveryRate": round(delivered * 100.0 / total, 1),
              "exceptionRate": round(exc * 100.0 / total, 1),
@@ -309,6 +318,8 @@ def carriers():
             {"name": "Sendit", "code": "SND", "active": False, "awbActive": 0, "deliveryRate": 0, "exceptionRate": 0, "avgTransit": "—", "zones": "Casablanca · Rabat", "primary": False},
             {"name": "Ozonexpress", "code": "OZN", "active": False, "awbActive": 0, "deliveryRate": 0, "exceptionRate": 0, "avgTransit": "—", "zones": "National", "primary": False},
         ]
+        cache.set_value("lp_carriers", _json.dumps(out), expires_in_sec=300)
+        return out
     except Exception:
         return []
 
@@ -398,6 +409,7 @@ _READY_PARCEL_SQL = """
     JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
     JOIN `tabSales Order` so ON so.name = dni.against_sales_order
     WHERE dn.docstatus = 1
+      AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
       AND so.custom_logistics_status = 'Label Printed'
       AND COALESCE(dn.custom_awb, '') != ''
       AND dn.grand_total > 0

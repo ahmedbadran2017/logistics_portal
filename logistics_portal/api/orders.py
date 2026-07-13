@@ -80,7 +80,7 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
             cache.set_value("lp_board_summary", _json.dumps({
                 "counts": counts, "values": values,
                 "tracks": shipped_tracks, "attention": attention,
-            }), expires_in_sec=300)
+            }), expires_in_sec=60)
 
         facet_key = f"lp_board_cities:{stage}:{track or ''}"
         cached_facet = cache.get_value(facet_key)
@@ -154,7 +154,8 @@ def _board_total(stage, track, q=None, city=None, dates=None, pick_names=None):
         joins = addr + """ LEFT JOIN (SELECT dni.against_sales_order so_name,
                 MAX(d.custom_return_shipment) ret
             FROM `tabDelivery Note Item` dni JOIN `tabDelivery Note` d ON d.name=dni.parent
-            WHERE d.docstatus=1 GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name"""
+            WHERE d.docstatus=1 AND d.posting_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+                       GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name"""
         where = f"{base} AND so.custom_logistics_status='Returned' AND so.creation >= %s {cond}"
         args = [dw]
     else:
@@ -275,7 +276,8 @@ def _board_counts():
            FROM `tabSales Order` so
            LEFT JOIN (SELECT dni.against_sales_order so_name, MAX(d.custom_return_shipment) ret
                       FROM `tabDelivery Note Item` dni JOIN `tabDelivery Note` d ON d.name=dni.parent
-                      WHERE d.docstatus=1 GROUP BY dni.against_sales_order) dn
+                      WHERE d.docstatus=1 AND d.posting_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+                       GROUP BY dni.against_sales_order) dn
              ON dn.so_name = so.name
            WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
              AND so.custom_logistics_status='Returned' AND so.creation >= %s""",
@@ -434,12 +436,24 @@ def _done_counts(dates):
 
 
 def _intake_today():
-    from frappe.utils import nowdate
+    """Confirmed orders that arrived today. Sargable range (DATE(creation)=%s
+    can't use the creation index → full 240k scan) + 60s cache, because the
+    Orders board polls this every 120s per open client all day."""
+    import json as _json
+    cache = frappe.cache()
+    cached = cache.get_value("lp_intake_today")
+    if cached is not None:
+        try:
+            return int(_json.loads(cached))
+        except Exception:
+            pass
     try:
-        return int(frappe.db.sql(
+        n = int(frappe.db.sql(
             """SELECT COUNT(*) FROM `tabSales Order`
-               WHERE docstatus=1 AND custom_sales_status='Confirmed' AND DATE(creation)=%s""",
-            (nowdate(),))[0][0] or 0)
+               WHERE docstatus=1 AND custom_sales_status='Confirmed'
+                 AND creation >= CURDATE()""")[0][0] or 0)
+        cache.set_value("lp_intake_today", _json.dumps(n), expires_in_sec=60)
+        return n
     except Exception:
         return 0
 
@@ -855,7 +869,8 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
             LEFT JOIN (SELECT dni.against_sales_order so_name, MAX(d.custom_return_shipment) ret,
                               MAX(d.name) dn
                        FROM `tabDelivery Note Item` dni JOIN `tabDelivery Note` d ON d.name=dni.parent
-                       WHERE d.docstatus=1 GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name
+                       WHERE d.docstatus=1 AND d.posting_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+                       GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Returned' AND so.creation >= %s {cond} {qc} {cc} {dc}
             ORDER BY {_order_by(sort, 'so.modified ASC')} LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
@@ -908,28 +923,45 @@ def list(scope="floor", picker=None, limit=60):  # noqa: A001 — public RPC nam
     # list(...) as a constructor anywhere in this file — use [*iterable].
     """Recent orders in the SPA's ORDERS shape (Pipeline + Picker queue).
     scope='queue' narrows to pick-ready stages; `picker` filters to that user's
-    assigned pick lists."""
-    limit = int(limit)
+    assigned pick lists (in SQL, BEFORE the limit — the old post-LIMIT filter
+    silently shrank results). Pick meta comes from one LEFT JOIN instead of a
+    per-row query (was N+1 = up to 60 extra queries per call)."""
+    limit = min(max(int(limit or 60), 1), 200)
     statuses = (
         ["Pending", "Picked"] if scope == "queue"
         else ["Pending", "Picked", "In transit", "Received", "Label Generated", "Label Printed", "Shipped"]
     )
     try:
-        rows = frappe.get_all(
-            "Sales Order",
-            filters={"docstatus": 1, "custom_logistics_status": ["in", statuses]},
-            fields=[
-                "name", "customer_name", "grand_total", "custom_channel",
-                "custom_logistics_status", "custom_items_count", "custom_awb", "creation",
-            ],
-            order_by="modified desc",
-            limit=limit,
-        )
+        ph = ", ".join(["%s"] * len(statuses))
+        args = [*statuses]
+        picker_cond = ""
+        if picker:
+            picker_cond = "AND pl.picker = %s"
+            args.append(picker)
+        args.append(limit)
+        rows = frappe.db.sql(
+            f"""SELECT so.name, so.customer_name, so.grand_total, so.custom_channel,
+                       so.custom_logistics_status, so.custom_items_count,
+                       so.custom_awb, so.creation,
+                       pl.picker AS pl_picker, pl.bin AS pl_bin
+                FROM `tabSales Order` so
+                LEFT JOIN (SELECT pli.sales_order,
+                                  MAX(p.custom_assigned_picker) AS picker,
+                                  MAX(pli.warehouse) AS bin
+                           FROM `tabPick List Item` pli
+                           JOIN `tabPick List` p ON p.name = pli.parent
+                           WHERE p.docstatus < 2
+                             AND p.creation >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+                           GROUP BY pli.sales_order) pl ON pl.sales_order = so.name
+                WHERE so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
+                  AND so.custom_logistics_status IN ({ph})
+                  AND so.creation >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+                  {picker_cond}
+                ORDER BY so.modified DESC LIMIT %s""",
+            tuple(args), as_dict=True)
         out = []
         for r in rows:
-            pl = _pick_meta(r.name)
-            if picker and pl.get("picker_email") != picker:
-                continue
+            pl = {"picker_id": _PICKER_ID.get(r.pl_picker), "bin": r.pl_bin}
             out.append({
                 "no": r.name,
                 "customer": r.customer_name,

@@ -19,7 +19,8 @@ def board(tab="awaiting", days=30, q="", limit=30, offset=0):
                             MAX(d.custom_return_shipment) ret, MAX(d.name) dn_name
                         FROM `tabDelivery Note Item` dni
                         JOIN `tabDelivery Note` d ON d.name = dni.parent
-                        WHERE d.docstatus = 1 GROUP BY dni.against_sales_order) dn
+                        WHERE d.docstatus = 1 AND d.posting_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+                        GROUP BY dni.against_sales_order) dn
                      ON dn.so_name = so.name"""
         addr_join = """LEFT JOIN `tabAddress` addr
                      ON addr.name = COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address)"""

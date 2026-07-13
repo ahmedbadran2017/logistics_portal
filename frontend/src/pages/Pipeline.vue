@@ -1102,7 +1102,7 @@ onMounted(() => {
   const qStage = String(route.query.stage || "");
   const valid = qStage === "attention" || stages.some((s) => s.key === qStage);
   load(valid ? qStage : "to_pick");
-  timer = setInterval(() => { tick.value++; }, 5000);
+  timer = setInterval(() => { tick.value++; }, 30000);
   // Silent refresh — skipped while the dispatcher has a selection in hand.
   refreshTimer = setInterval(() => {
     if (!selected.value.size && !loading.value && document.visibilityState === "visible") {

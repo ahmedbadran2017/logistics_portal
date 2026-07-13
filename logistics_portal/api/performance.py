@@ -80,18 +80,18 @@ def cockpit(date=None):
         total = sum(p["count"] for p in pipeline)
         # ── Flow, scoped to the selected day ──
         orders_in = frappe.db.sql(
-            "SELECT COUNT(*) FROM `tabSales Order` WHERE docstatus=1 AND DATE(creation)=%s",
-            (day,))[0][0] or 0
+            "SELECT COUNT(*) FROM `tabSales Order` WHERE docstatus=1 AND creation >= %s AND creation < %s + INTERVAL 1 DAY",
+            (day, day))[0][0] or 0
         printed = frappe.db.sql(
-            "SELECT COUNT(*) FROM `tabDelivery Note` WHERE docstatus=1 AND DATE(creation)=%s",
-            (day,))[0][0] or 0
+            "SELECT COUNT(*) FROM `tabDelivery Note` WHERE docstatus=1 AND creation >= %s AND creation < %s + INTERVAL 1 DAY",
+            (day, day))[0][0] or 0
         # Shipped that day = parcels on that day's submitted manifest(s) — real
         # and historical, unlike status counts which keep moving after the day.
         shipped_day = frappe.db.sql(
             """SELECT COUNT(*) FROM `tabShipment Delivery Note` sdn
                JOIN `tabShipment` sh ON sh.name = sdn.parent
-               WHERE sh.docstatus = 1 AND DATE(sh.pickup_date) = %s""",
-            (day,))[0][0] or 0
+               WHERE sh.docstatus = 1 AND sh.pickup_date >= %s AND sh.pickup_date < %s + INTERVAL 1 DAY""",
+            (day, day))[0][0] or 0
         if is_today:
             to_ship = by.get("to_pick", 0) + by.get("picking", 0) + by.get("prepared", 0) + by.get("ready", 0)
             shipped = int(shipped_day) or by.get("shipped", 0)
@@ -99,10 +99,10 @@ def cockpit(date=None):
             # For a past day: how many of that day's orders never went out.
             to_ship = frappe.db.sql(
                 """SELECT COUNT(*) FROM `tabSales Order`
-                   WHERE docstatus=1 AND DATE(creation)=%s
+                   WHERE docstatus=1 AND creation >= %s AND creation < %s + INTERVAL 1 DAY
                      AND COALESCE(custom_logistics_status,'') NOT IN
                          ('Shipped','In transit','Delivered','Returned')""",
-                (day,))[0][0] or 0
+                (day, day))[0][0] or 0
             shipped = int(shipped_day)
 
         # ── SLA alerts: recent window, OPEN only (a delivered parcel is not
@@ -126,8 +126,8 @@ def cockpit(date=None):
         ) or by.get("shipped", 0)
         # Orders created that day before the 17:00 manifest cutoff.
         before_cutoff = frappe.db.sql(
-            "SELECT COUNT(*) FROM `tabSales Order` WHERE docstatus=1 AND DATE(creation)=%s AND TIME(creation) < '17:00:00'",
-            (day,),
+            "SELECT COUNT(*) FROM `tabSales Order` WHERE docstatus=1 AND creation >= %s AND creation < CONCAT(%s, ' 17:00:00')",
+            (day, day),
         )[0][0]
 
         summary = {
@@ -205,7 +205,7 @@ def floor():
             """
             SELECT HOUR(creation) AS h, COUNT(*) AS c
             FROM `tabSales Order`
-            WHERE DATE(creation) = %s AND docstatus = 1
+            WHERE creation >= %s AND creation < %s + INTERVAL 1 DAY AND docstatus = 1
             GROUP BY HOUR(creation) ORDER BY h
             """,
             (today,), as_dict=True,
@@ -218,19 +218,19 @@ def floor():
         picked = frappe.db.sql(
             """SELECT COUNT(DISTINCT pli.sales_order) FROM `tabPick List` pl
                JOIN `tabPick List Item` pli ON pli.parent = pl.name
-               WHERE pl.docstatus = 1 AND DATE(pl.creation) = %s""",
-            (today,))[0][0] or 0
+               WHERE pl.docstatus = 1 AND pl.creation >= %s AND pl.creation < %s + INTERVAL 1 DAY""",
+            (today, today))[0][0] or 0
         labeled = frappe.db.sql(
-            "SELECT COUNT(*) FROM `tabDelivery Note` WHERE docstatus = 1 AND DATE(creation) = %s",
-            (today,))[0][0] or 0
+            "SELECT COUNT(*) FROM `tabDelivery Note` WHERE docstatus = 1 AND creation >= %s AND creation < %s + INTERVAL 1 DAY",
+            (today, today))[0][0] or 0
         printed = frappe.db.sql(
             """SELECT COUNT(*) FROM `tabSales Order`
-               WHERE custom_logistics_status = 'Label Printed' AND DATE(modified) = %s""",
-            (today,))[0][0] or 0
+               WHERE custom_logistics_status = 'Label Printed' AND modified >= %s AND modified < %s + INTERVAL 1 DAY""",
+            (today, today))[0][0] or 0
         shipped = frappe.db.sql(
             """SELECT COUNT(*) FROM `tabSales Order`
-               WHERE custom_logistics_status = 'Shipped' AND DATE(modified) = %s""",
-            (today,))[0][0] or 0
+               WHERE custom_logistics_status = 'Shipped' AND modified >= %s AND modified < %s + INTERVAL 1 DAY""",
+            (today, today))[0][0] or 0
         packed = int(printed) + int(shipped)
 
         now = now_datetime()
@@ -326,7 +326,17 @@ def _leaderboard(limit=8):
               arrived. Carrier SLA is NOT attributed to pickers — delivery
               failures are the carrier's, not the floor's.
     Picker = custom_assigned_picker, falling back to owner (pickers create
-    their own PLs; the autopilot sets the assignment)."""
+    their own PLs; the autopilot sets the assignment).
+    Cached 300s — it re-aggregates 30 days of PL⨝PLI⨝SO and runs on every
+    cockpit AND team load."""
+    import json as _json
+    cache = frappe.cache()
+    cached = cache.get_value("lp_leaderboard")
+    if cached:
+        try:
+            return _json.loads(cached)[: int(limit)]
+        except Exception:
+            pass
     since = add_days(nowdate(), -30)
     rows = frappe.db.sql(
         """
@@ -347,10 +357,16 @@ def _leaderboard(limit=8):
         (since, limit),
         as_dict=True,
     )
+    emails = [r.picker for r in rows]
+    names = {}
+    if emails:
+        for u in frappe.get_all("User", filters={"name": ["in", emails]},
+                                fields=["name", "full_name"]):
+            names[u.name] = u.full_name
     out = []
     for i, r in enumerate(rows):
         pid = EMAIL_TO_ID.get(r.picker)
-        name = frappe.db.get_value("User", r.picker, "full_name")
+        name = names.get(r.picker)
         if not name:
             # Never surface a raw email — prettify the local part.
             name = (r.picker or "").split("@")[0].capitalize()
@@ -367,4 +383,5 @@ def _leaderboard(limit=8):
             "trend": [],
             "target": 40,
         })
+    cache.set_value("lp_leaderboard", _json.dumps(out), expires_in_sec=300)
     return out
