@@ -236,22 +236,30 @@
           </div>
         </div>
         <div class="p-4">
+          <!-- scan-to-pick (PDA): scan each item's SKU to confirm the grab -->
+          <div v-if="view === 'walk' && scanMode" class="mb-3">
+            <ScanInput ref="pickScanner" placeholder="Scan item SKU / barcode" @scan="onScanPick" />
+            <div class="mt-1.5 flex items-center justify-between text-[11.5px]">
+              <span class="text-stone-500 tabular-nums">{{ scanTotal.done }}/{{ scanTotal.total }} {{ t('pl.scanned') }}</span>
+              <span v-if="scanTotal.total > 0 && scanTotal.done >= scanTotal.total" class="font-semibold text-emerald-600">{{ t('pl.scanAllDone') }} ✓</span>
+            </div>
+          </div>
           <!-- walk — one stop per (bin, product), whatever the order count -->
           <ol v-if="view === 'walk'" class="relative">
             <li v-for="(s, i) in walkStops" :key="s.key" class="relative flex gap-3.5 pb-3 last:pb-0">
-              <span v-if="i !== walkStops.length - 1" class="absolute top-9 w-px" :class="s.picked ? 'bg-emerald-200' : 'bg-stone-200'" style="left:15px" />
-              <span class="relative z-10 w-[31px] h-[31px] rounded-lg flex items-center justify-center text-[12px] font-bold flex-shrink-0" :class="s.picked ? 'bg-emerald-500 text-white' : s.partial ? 'bg-amber-500 text-white' : 'bg-white ring-1 ring-stone-300 text-stone-500'">
-                <Icon v-if="s.picked" name="check-circle" :size="15" />
+              <span v-if="i !== walkStops.length - 1" class="absolute top-9 w-px" :class="stopDone(s) ? 'bg-emerald-200' : 'bg-stone-200'" style="left:15px" />
+              <span class="relative z-10 w-[31px] h-[31px] rounded-lg flex items-center justify-center text-[12px] font-bold flex-shrink-0" :class="stopDone(s) ? 'bg-emerald-500 text-white' : s.partial ? 'bg-amber-500 text-white' : 'bg-white ring-1 ring-stone-300 text-stone-500'">
+                <Icon v-if="stopDone(s)" name="check-circle" :size="15" />
                 <svg v-else-if="s.partial" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
                 <template v-else>{{ i + 1 }}</template>
               </span>
-              <div class="min-w-0 flex-1 rounded-xl ring-1 p-3" :class="s.picked ? 'ring-emerald-200 bg-emerald-50/40' : s.partial ? 'ring-amber-200 bg-amber-50/40' : 'ring-stone-200 bg-white'">
+              <div class="min-w-0 flex-1 rounded-xl ring-1 p-3" :class="stopDone(s) ? 'ring-emerald-200 bg-emerald-50/40' : s.partial ? 'ring-amber-200 bg-amber-50/40' : 'ring-stone-200 bg-white'">
                 <div class="flex items-center justify-between gap-2">
                   <div class="flex items-center gap-2">
                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-900 text-white text-[12px] font-bold font-mono"><Icon name="map-pin" :size="11" />{{ s.bin }}</span>
                     <span v-if="isNewAisleStop(i)" class="text-[10px] font-medium text-[var(--accent-700)] bg-[var(--accent-50)] rounded px-1.5 py-0.5">{{ binZone(s.bin).replace(" - JM", "") }}</span>
                   </div>
-                  <span class="text-[15px] font-bold tabular-nums" :class="s.partial ? 'text-amber-600' : 'text-stone-900'">{{ s.pickedQty }}/{{ s.qty }} <span class="text-[12px] font-semibold text-stone-400">{{ t('pl.grab') }}</span></span>
+                  <span class="text-[15px] font-bold tabular-nums" :class="stopDone(s) ? 'text-emerald-600' : s.partial ? 'text-amber-600' : 'text-stone-900'">{{ scannedFor(s) }}/{{ s.qty }} <span class="text-[12px] font-semibold text-stone-400">{{ t('pl.grab') }}</span></span>
                 </div>
                 <div class="flex gap-3 mt-2">
                   <img v-if="s.image" :src="s.image" alt="" loading="lazy" @error="onImgError"
@@ -696,6 +704,7 @@ import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
 import { useI18n } from "@/composables/useI18n";
 import { useSkuLink } from "@/composables/useSkuLink";
+import ScanInput from "@/components/ui/ScanInput.vue";
 
 const { success, warn } = useToast();
 const openSku = useSkuLink();
@@ -1052,6 +1061,7 @@ async function openDetail(p) {
   detail.value = p;
   liveDetail.value = null;
   liveAwbUrl.value = "";
+  scanned.value = {};
   confirmSubmit.value = confirmCancel.value = false;
   if (isLiveData.value) {
     const [d] = await Promise.all([
@@ -1167,6 +1177,43 @@ const walkStops = computed(() => {
 });
 const isNewAisleStop = (i) =>
   i === 0 || aisle(walkStops.value[i].bin) !== aisle(walkStops.value[i - 1].bin);
+
+// ── Scan-to-pick (PDA): scan each item's SKU to confirm the grab ──────
+const pickScanner = ref(null);
+const scanned = ref({}); // stop.key -> units scanned this session
+const scanMode = computed(() =>
+  liveDetail.value && ["draft", "open"].includes(liveDetail.value.status));
+const scannedFor = (s) => Math.max(scanned.value[s.key] || 0, s.pickedQty || 0);
+const stopDone = (s) => s.qty > 0 && scannedFor(s) >= s.qty;
+const scanTotal = computed(() => {
+  let done = 0, total = 0;
+  walkStops.value.forEach((s) => { done += Math.min(scannedFor(s), s.qty); total += s.qty; });
+  return { done, total };
+});
+async function onScanPick(raw) {
+  const code = String(raw || "").trim();
+  if (!code) return;
+  const lc = code.toLowerCase();
+  const hit = (s) => [s.realSku, s.sku].some((v) => v && String(v).toLowerCase() === lc);
+  let stop = walkStops.value.find((s) => !stopDone(s) && hit(s));
+  if (!stop) {
+    // barcode / item_code alias — resolve on the server, then match by item_code
+    const r = await liveOr(null, () => api("picking.resolve_scan", { code }));
+    if (r && r.itemCode) {
+      const rc = String(r.itemCode).toLowerCase();
+      const rs = (r.sku || "").toLowerCase();
+      stop = walkStops.value.find((s) => !stopDone(s) &&
+        (String(s.sku).toLowerCase() === rc || (rs && String(s.realSku || "").toLowerCase() === rs)));
+    }
+  }
+  if (!stop) {
+    const known = walkStops.value.some((s) => hit(s));
+    pickScanner.value?.showError(known ? t("pl.scanDone1") : t("pl.scanNotList"));
+    return;
+  }
+  scanned.value = { ...scanned.value, [stop.key]: (scanned.value[stop.key] || 0) + 1 };
+  pickScanner.value?.showSuccess(`✓ ${scannedFor(stop)}/${stop.qty} · ${stop.name}`.slice(0, 58));
+}
 // ERPNext's root item group ("All Item Groups") means the item is simply
 // uncategorised — showing it as a chip is noise, so drop it (and blanks).
 const grpClean = (g) => (g && g !== "All Item Groups" ? g : "");

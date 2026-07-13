@@ -227,6 +227,7 @@ export default {
     dOrders: "orders", dLines: "lines", dUnits: "units", dShipped: "shipped",
     lifecycle: "Pick list lifecycle", lcCreated: "Created", lcPicked: "Picked & submitted", lcShipped: "Shipped",
     walk: "Walk path", bySku: "By SKU", byOrder: "By order", optimized: "Optimized by bin",
+    scanned: "scanned", scanAllDone: "All items scanned", scanDone1: "Already scanned", scanNotList: "Not on this list",
     grab: "to grab", splitsTo: "{n} orders — grab all here", stopsCount: "{s} stops · {u} units",
     sbBtn: "Suggest batches", sbTitle: "Suggested pick batches",
     sbSub: "{n} orders in the pool · {b} batched · {o} out of stock",

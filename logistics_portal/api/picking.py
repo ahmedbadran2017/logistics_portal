@@ -111,6 +111,30 @@ def pick_items(order):
 
 
 @frappe.whitelist()
+def resolve_scan(code):
+    """Map a scanned code to an item. The PDA reads the label, which carries the
+    SKU (or a barcode alias of it) — item_code (the Shopify variant id) is never
+    on a label. Priority: exact custom_sku → Item Barcode → item_code.
+    Returns {itemCode, sku, name} or {} if nothing matches."""
+    code = (code or "").strip()
+    if not code:
+        return {}
+    it = frappe.db.get_value(
+        "Item", {"custom_sku": code}, ["name", "custom_sku", "item_name"], as_dict=True)
+    if not it:
+        parent = frappe.db.get_value("Item Barcode", {"barcode": code}, "parent")
+        if parent:
+            it = frappe.db.get_value(
+                "Item", parent, ["name", "custom_sku", "item_name"], as_dict=True)
+    if not it and frappe.db.exists("Item", code):
+        it = frappe.db.get_value(
+            "Item", code, ["name", "custom_sku", "item_name"], as_dict=True)
+    if not it:
+        return {}
+    return {"itemCode": it.name, "sku": it.custom_sku or "", "name": it.item_name or ""}
+
+
+@frappe.whitelist()
 def complete_pick(order):
     """Mark the order Picked once all items are scanned. Only the assigned picker
     (or a logistics manager) may complete a pick."""
