@@ -208,3 +208,130 @@ def process(return_shipment, outcome, reason, notes=None):
         "content": f"Processed: {outcome} — {reason}. {notes or ''}",
     }).insert()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Shipment-return receiving (استلام المرتجع) — the stage where refused parcels
+# come BACK from the carrier. Wraps the existing codx_erp Return Shipment
+# engine (scan_awb / scan_sku / on_submit→sales returns into Return Zone - JM)
+# so the whole session runs from the portal instead of the desk.
+# ---------------------------------------------------------------------------
+_CODX = "codx_erp.codx_erp.doctype.return_shipment.return_shipment"
+
+
+def _recv_gate():
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("returns", "manager"):
+        frappe.throw("Not authorized to receive returns.", frappe.PermissionError)
+
+
+def _batch_state(name):
+    """The receiving screen's full state: parcels grouped by AWB + totals."""
+    doc = frappe.get_doc("Return Shipment", name)
+    parcels, order = {}, []
+    for it in doc.items:
+        key = it.awb or it.delivery_note
+        if key not in parcels:
+            order.append(key)
+            parcels[key] = {"awb": it.awb or "", "dn": it.delivery_note or "",
+                            "items": [], "ordered": 0, "actual": 0}
+        p = parcels[key]
+        p["items"].append({
+            "sku": it.sku or it.item_code or "", "name": it.item_name or it.item_code or "",
+            "ordered": int(it.ordered_qty or 0), "actual": int(it.actual_qty or 0),
+            "complete": bool(it.is_complete)})
+        p["ordered"] += int(it.ordered_qty or 0)
+        p["actual"] += int(it.actual_qty or 0)
+    out = []
+    for key in reversed(order):  # newest scan first
+        p = parcels[key]
+        p["done"] = p["ordered"] > 0 and p["actual"] >= p["ordered"]
+        out.append(p)
+    return {
+        "batch": doc.name, "status": doc.status or "Draft",
+        "docstatus": int(doc.docstatus),
+        "parcels": out,
+        "orders": int(doc.total_orders or 0),
+        "ordered": int(doc.total_ordered_qty or 0),
+        "actual": int(doc.total_actual_qty or 0),
+        "missing": int(doc.total_missing_qty or 0),
+        "pct": round(float(doc.return_percentage or 0), 1),
+    }
+
+
+@frappe.whitelist()
+def open_batch():
+    """Today's open receiving batch — resume the draft if one exists, else
+    start a new Return Shipment (same doc the desk flow used)."""
+    _recv_gate()
+    draft = frappe.get_all("Return Shipment", filters={"docstatus": 0},
+                           order_by="creation desc", limit=1)
+    if draft:
+        return _batch_state(draft[0].name)
+    company = frappe.defaults.get_global_default("company") \
+        or frappe.db.get_value("Company", {}, "name")
+    doc = frappe.get_doc({
+        "doctype": "Return Shipment", "company": company,
+        "posting_date": frappe.utils.nowdate(), "shipping_company": "cathedis",
+    }).insert(ignore_permissions=True)
+    frappe.db.commit()
+    return _batch_state(doc.name)
+
+
+@frappe.whitelist()
+def receive_scan(batch, code):
+    """One scan, auto-detected: an AWB pulls the parcel's items into the batch
+    (single-piece parcels auto-complete); anything else is treated as a SKU
+    and bumps the matching line's received qty."""
+    _recv_gate()
+    code = (code or "").strip()
+    if not code:
+        return {"ok": False, "reason": "empty"}
+    if not frappe.db.exists("Return Shipment", batch):
+        return {"ok": False, "reason": "unknown_batch"}
+
+    # Cross-batch duplicate guard (codx only checks within the same doc).
+    dup = frappe.db.sql(
+        """SELECT rs.name FROM `tabReturn Shipment Item` rsi
+           JOIN `tabReturn Shipment` rs ON rs.name = rsi.parent
+           WHERE rsi.awb = %s AND rs.docstatus < 2 AND rs.name != %s LIMIT 1""",
+        (code, batch))
+    if dup:
+        return {"ok": False, "reason": "in_other_batch", "batch": dup[0][0], "code": code}
+
+    # AWB first: does a delivery note carry this code?
+    dn = frappe.get_attr(_CODX + ".find_delivery_note_by_awb")(code)
+    if dn:
+        res = frappe.get_attr(_CODX + ".scan_awb")(batch, code)
+        frappe.db.commit()
+        if not res.get("success"):
+            return {"ok": False, "reason": "awb_rejected", "message": res.get("message") or ""}
+        return {"ok": True, "kind": "awb", "dn": res.get("delivery_note") or "",
+                "single": bool(res.get("is_single_item_order")),
+                "state": _batch_state(batch)}
+
+    # Otherwise: a SKU/barcode being verified out of an opened parcel.
+    res = frappe.get_attr(_CODX + ".scan_sku")(batch, code)
+    frappe.db.commit()
+    if not res.get("success"):
+        return {"ok": False, "reason": "unknown", "message": res.get("message") or "", "code": code}
+    return {"ok": True, "kind": "sku", "sku": res.get("sku") or code,
+            "actual": int(res.get("actual_qty") or 0),
+            "ordered": int(res.get("ordered_qty") or 0),
+            "allComplete": bool(res.get("all_complete")),
+            "state": _batch_state(batch)}
+
+
+@frappe.whitelist()
+def close_batch(batch):
+    """Submit the receiving batch: codx on_submit creates the sales returns
+    (stock re-enters Return Zone - JM, one return DN per parcel)."""
+    _recv_gate()
+    doc = frappe.get_doc("Return Shipment", batch)
+    if doc.docstatus != 0:
+        frappe.throw("This batch is already closed.")
+    doc.submit()
+    frappe.db.commit()
+    state = _batch_state(batch)
+    state["salesReturns"] = len((doc.sales_returns_created or "").splitlines())
+    return state
