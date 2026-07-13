@@ -248,7 +248,8 @@ def pick_list_detail(name):
             """SELECT pli.item_code AS sku, COALESCE(NULLIF(pli.item_name,''), pli.item_code) AS name,
                       pli.warehouse AS bin, pli.qty, pli.picked_qty, pli.uom,
                       pli.sales_order AS so, so.customer_name AS customer,
-                      so.custom_awb AS awb, it.item_group AS grp, it.image
+                      so.custom_awb AS awb, it.item_group AS grp, it.image,
+                      it.custom_sku AS real_sku
                FROM `tabPick List Item` pli
                LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
                LEFT JOIN `tabItem` it ON it.name = pli.item_code
@@ -275,7 +276,8 @@ def pick_list_detail(name):
             "purpose": pl.purpose or "Delivery",
             "orders": orders,
             "lines": [{
-                "sku": l.sku, "name": l.name, "bin": l.bin or "—", "uom": l.uom or "",
+                "sku": l.sku, "realSku": l.real_sku or "", "name": l.name,
+                "bin": l.bin or "—", "uom": l.uom or "",
                 "qty": int(l.qty or 0), "pickedQty": int(l.picked_qty or 0),
                 "so": l.so or "", "customer": l.customer or "", "grp": l.grp or "",
                 "image": l.image or "",

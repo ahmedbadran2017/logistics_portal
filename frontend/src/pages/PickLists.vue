@@ -253,12 +253,18 @@
                   </div>
                   <span class="text-[15px] font-bold tabular-nums" :class="s.partial ? 'text-amber-600' : 'text-stone-900'">{{ s.pickedQty }}/{{ s.qty }} <span class="text-[12px] font-semibold text-stone-400">{{ t('pl.grab') }}</span></span>
                 </div>
-                <div class="text-[13.5px] font-medium text-stone-900 mt-2">{{ s.name }}</div>
-                <div class="text-[11.5px] text-stone-500 flex items-center gap-2 mt-1 flex-wrap">
-                  <span class="font-mono">{{ s.sku }}</span>
-                  <span class="text-stone-300">·</span>
-                  <span v-if="s.orders.length === 1" class="truncate">{{ s.orders[0].so }} · {{ s.orders[0].customer }}</span>
-                  <span v-else class="font-semibold text-[var(--accent-700)]">{{ t('pl.splitsTo').replace('{n}', s.orders.length) }}</span>
+                <div class="flex gap-3 mt-2">
+                  <img v-if="s.image" :src="s.image" alt="" loading="lazy" @error="onImgError"
+                       class="w-14 h-14 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[13.5px] font-medium text-stone-900">{{ s.name }}</div>
+                    <div class="flex items-center gap-2 mt-1 flex-wrap">
+                      <span class="inline-flex items-center gap-1 text-[12px] font-bold font-mono text-stone-800 bg-stone-100 rounded px-1.5 py-0.5">SKU {{ s.realSku || s.sku }}</span>
+                      <span v-if="s.orders.length === 1" class="text-[11.5px] text-stone-500 truncate">{{ s.orders[0].so }} · {{ s.orders[0].customer }}</span>
+                      <span v-else class="text-[11.5px] font-semibold text-[var(--accent-700)]">{{ t('pl.splitsTo').replace('{n}', s.orders.length) }}</span>
+                    </div>
+                    <div v-if="s.realSku && s.sku !== s.realSku" class="font-mono text-[10px] text-stone-400 mt-0.5">⌗ {{ s.sku }}</div>
+                  </div>
                 </div>
                 <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   <span v-if="grpClean(s.grp)" class="text-[10px] font-medium text-stone-500 bg-stone-100 rounded px-1.5 py-0.5">{{ s.grp }}</span>
@@ -282,8 +288,18 @@
                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-900 text-white text-[12px] font-bold font-mono"><Icon name="map-pin" :size="11" />{{ l.bin }}</span>
                 <span class="text-[15px] font-bold text-[var(--accent-700)] tabular-nums">{{ l.qtyTot }}× batch-pick</span>
               </div>
-              <div class="text-[13.5px] font-medium text-stone-900 mt-2">{{ l.name }}</div>
-              <div class="text-[11.5px] text-stone-500 mt-1"><span class="font-mono">{{ l.sku }}</span> · {{ t('pl.splitsTo').replace('{n}', l.orders.length) }}</div>
+              <div class="flex gap-3 mt-2">
+                <img v-if="l.image" :src="l.image" alt="" loading="lazy" @error="onImgError"
+                     class="w-14 h-14 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
+                <div class="min-w-0 flex-1">
+                  <div class="text-[13.5px] font-medium text-stone-900">{{ l.name }}</div>
+                  <div class="flex items-center gap-2 mt-1 flex-wrap">
+                    <span class="inline-flex items-center gap-1 text-[12px] font-bold font-mono text-stone-800 bg-stone-100 rounded px-1.5 py-0.5">SKU {{ l.realSku || l.sku }}</span>
+                    <span class="text-[11.5px] text-stone-500">{{ t('pl.splitsTo').replace('{n}', l.orders.length) }}</span>
+                  </div>
+                  <div v-if="l.realSku && l.sku !== l.realSku" class="font-mono text-[10px] text-stone-400 mt-0.5">⌗ {{ l.sku }}</div>
+                </div>
+              </div>
               <div v-if="l.orders.length > 1" class="mt-2 pt-2 border-t border-stone-100 flex flex-wrap gap-1 max-h-24 overflow-y-auto">
                 <span v-for="(so, j) in l.orders" :key="j" class="text-[10.5px] font-mono text-stone-600 bg-stone-50 ring-1 ring-stone-200/70 rounded px-1.5 py-0.5">{{ so }}</span>
               </div>
@@ -1132,8 +1148,8 @@ const walkStops = computed(() => {
     const key = `${l.bin}|||${l.sku}`;
     let s = m.get(key);
     if (!s) {
-      s = { key, bin: l.bin, sku: l.sku, name: l.name, grp: l.grp, uom: l.uom,
-            serial: l.serial, batch: l.batch, image: l.image,
+      s = { key, bin: l.bin, sku: l.sku, realSku: l.realSku, name: l.name,
+            grp: l.grp, uom: l.uom, serial: l.serial, batch: l.batch, image: l.image,
             qty: 0, pickedQty: 0, orders: [] };
       m.set(key, s);
     }
@@ -1152,6 +1168,8 @@ const isNewAisleStop = (i) =>
 // ERPNext's root item group ("All Item Groups") means the item is simply
 // uncategorised — showing it as a chip is noise, so drop it (and blanks).
 const grpClean = (g) => (g && g !== "All Item Groups" ? g : "");
+// Hide a broken product image (dead Shopify CDN url) instead of a broken icon.
+function onImgError(e) { if (e && e.target) e.target.style.display = "none"; }
 
 const lifecycleSteps = [
   { label: "Created", icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>` },
