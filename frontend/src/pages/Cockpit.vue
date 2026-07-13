@@ -241,7 +241,10 @@
         >
           <header class="flex items-center justify-between gap-3 px-4 py-3 border-b border-stone-100">
             <h3 class="text-[13.5px] font-semibold text-stone-900 truncate">Team leaderboard</h3>
-            <button class="text-[11.5px] font-semibold text-[var(--accent-700)]">View all</button>
+            <button
+              class="text-[11.5px] font-semibold text-[var(--accent-700)] hover:underline"
+              @click="_router.push({ name: 'Team' })"
+            >View all</button>
           </header>
           <div class="p-2">
             <div
@@ -256,18 +259,18 @@
               >{{ p.rank }}</span>
               <div
                 class="rounded-lg flex items-center justify-center font-semibold flex-shrink-0 ring-1 ring-black/[0.04]"
-                :style="avatarStyle(person(p.id).name, 30)"
-              >{{ getInitial(person(p.id).name) }}</div>
+                :style="avatarStyle(pickerName(p), 30)"
+              >{{ getInitial(pickerName(p)) }}</div>
               <div class="min-w-0 flex-1 leading-tight">
                 <div class="text-[12.5px] font-medium text-stone-900 truncate flex items-center gap-1">
-                  {{ person(p.id).short }}<span v-if="i === 0" class="text-[10px]">⭐</span>
+                  {{ pickerShort(p) }}<span v-if="i === 0" class="text-[10px]">⭐</span>
                 </div>
                 <div class="text-[10.5px] text-stone-500 tabular-nums">{{ p.picks }} orders · {{ p.avg }}</div>
               </div>
               <Sparkline :data="p.trend" :width="48" :height="18" stroke="#ef4444" />
-              <div class="text-end w-[40px]">
+              <div class="text-end w-[52px]">
                 <div class="text-[12.5px] font-semibold text-stone-900 tabular-nums">{{ p.sla }}%</div>
-                <div class="text-[9.5px] text-stone-400 uppercase tracking-wide">SLA</div>
+                <div class="text-[9.5px] text-stone-400 uppercase tracking-wide">Same-day</div>
               </div>
             </div>
           </div>
@@ -400,6 +403,11 @@ const pipelineTotal = computed(() => pipeline.value.reduce((a, p) => a + p.count
 const pipelineMax = computed(() => Math.max(...pipeline.value.map((p) => p.count), 1));
 
 const person = (id) => byId(id);
+// Prefer the backend-provided display name (real User.full_name or a
+// prettified email) over the static demo TEAM map, which shows raw emails
+// for anyone it doesn't know.
+const pickerName = (p) => p.name || person(p.id).name;
+const pickerShort = (p) => p.short || person(p.id).short;
 
 function barWidth(count) {
   return Math.max(6, (count / pipelineMax.value) * 100);

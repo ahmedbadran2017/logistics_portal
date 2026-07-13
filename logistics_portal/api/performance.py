@@ -318,15 +318,31 @@ def _at_risk(limit=8):
 
 
 def _leaderboard(limit=8):
+    """Per-picker, last 30 days, all real:
+      picks = distinct ORDERS on their submitted pick lists (not PL count —
+              PLs are multi-order batches)
+      avg   = orders per active day
+      sla   = same-day pick rate: % of their orders picked the day the order
+              arrived. Carrier SLA is NOT attributed to pickers — delivery
+              failures are the carrier's, not the floor's.
+    Picker = custom_assigned_picker, falling back to owner (pickers create
+    their own PLs; the autopilot sets the assignment)."""
     since = add_days(nowdate(), -30)
     rows = frappe.db.sql(
         """
-        SELECT custom_assigned_picker AS picker, COUNT(*) AS picks
-        FROM `tabPick List`
-        WHERE custom_assigned_picker IS NOT NULL AND custom_assigned_picker != ''
-          AND modified >= %s
-        GROUP BY custom_assigned_picker
-        ORDER BY picks DESC LIMIT %s
+        SELECT COALESCE(NULLIF(pl.custom_assigned_picker,''), pl.owner) AS picker,
+               COUNT(DISTINCT pli.sales_order) AS orders,
+               COUNT(DISTINCT DATE(pl.creation)) AS days,
+               COUNT(DISTINCT CASE WHEN DATE(pl.creation) = DATE(so.creation)
+                                   THEN pli.sales_order END) AS sameday
+        FROM `tabPick List` pl
+        JOIN `tabPick List Item` pli ON pli.parent = pl.name
+        LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
+        WHERE pl.docstatus = 1 AND pl.creation >= %s
+          AND COALESCE(NULLIF(pl.custom_assigned_picker,''), pl.owner)
+              NOT IN ('Administrator', 'Guest')
+        GROUP BY picker
+        ORDER BY orders DESC LIMIT %s
         """,
         (since, limit),
         as_dict=True,
@@ -334,13 +350,19 @@ def _leaderboard(limit=8):
     out = []
     for i, r in enumerate(rows):
         pid = EMAIL_TO_ID.get(r.picker)
-        name = frappe.db.get_value("User", r.picker, "full_name") or r.picker
+        name = frappe.db.get_value("User", r.picker, "full_name")
+        if not name:
+            # Never surface a raw email — prettify the local part.
+            name = (r.picker or "").split("@")[0].capitalize()
+        orders = int(r.orders or 0)
+        days = max(1, int(r.days or 1))
         out.append({
             "id": pid or r.picker,
             "name": name,
-            "picks": int(r.picks or 0),
-            "avg": "—",
-            "sla": 0,          # populated once the SLA engine runs
+            "short": name.split(" ")[0],
+            "picks": orders,
+            "avg": f"{round(orders / days)}/day",
+            "sla": round(int(r.sameday or 0) * 100 / max(1, orders)),
             "rank": i + 1,
             "trend": [],
             "target": 40,

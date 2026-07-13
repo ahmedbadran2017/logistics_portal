@@ -15,14 +15,14 @@
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
         <div class="flex items-center gap-2">
           <span class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center flex-shrink-0"><Icon name="shield-alert" :size="15" /></span>
-          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">Team SLA avg</span>
+          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">Team same-day avg</span>
         </div>
         <div class="mt-2 text-[24px] font-semibold text-stone-900 tabular-nums leading-none">{{ teamSla }}<span class="text-[13px] font-medium text-stone-400">%</span></div>
       </div>
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
         <div class="flex items-center gap-2">
           <span class="w-8 h-8 rounded-lg bg-[var(--accent-50)] text-[var(--accent-700)] flex items-center justify-center flex-shrink-0"><Icon name="package" :size="15" /></span>
-          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">Total picks today</span>
+          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">Orders picked (30d)</span>
         </div>
         <div class="mt-2 text-[24px] font-semibold text-stone-900 tabular-nums leading-none">{{ totalPicks }}</div>
       </div>
@@ -51,9 +51,9 @@
               <th class="text-start px-4 py-2.5 w-12">#</th>
               <th class="text-start px-4 py-2.5">Member</th>
               <th class="text-start px-4 py-2.5">Role</th>
-              <th class="text-end px-4 py-2.5">Picks</th>
-              <th class="text-end px-4 py-2.5 hidden lg:table-cell">Avg time</th>
-              <th class="text-end px-4 py-2.5">SLA</th>
+              <th class="text-end px-4 py-2.5">Orders</th>
+              <th class="text-end px-4 py-2.5 hidden lg:table-cell">Pace</th>
+              <th class="text-end px-4 py-2.5">Same-day</th>
               <th class="text-start px-4 py-2.5 hidden lg:table-cell">7-day</th>
               <th class="text-end px-4 py-2.5 hidden sm:table-cell">Target</th>
             </tr>
@@ -74,7 +74,7 @@
                 </div>
               </td>
               <td class="px-4 py-3 text-[12px] text-stone-600 capitalize whitespace-nowrap">{{ row.role }}</td>
-              <td class="px-4 py-3 text-end text-[12.5px] font-semibold text-stone-900 tabular-nums">{{ row.picks }} <span class="text-[10px] font-normal text-stone-400">picks</span></td>
+              <td class="px-4 py-3 text-end text-[12.5px] font-semibold text-stone-900 tabular-nums">{{ row.picks }} <span class="text-[10px] font-normal text-stone-400">orders</span></td>
               <td class="px-4 py-3 text-end text-[12px] text-stone-600 font-mono tabular-nums hidden lg:table-cell">{{ row.avg }}</td>
               <td class="px-4 py-3 text-end">
                 <span class="text-[12.5px] font-semibold tabular-nums" :class="slaColor(row.sla)">{{ row.sla }}%</span>
@@ -105,7 +105,7 @@
                 :style="{ background: row.rank === 1 ? '#f59e0b' : '#6366f1' }">{{ initials(row.name) }}</span>
           <div class="flex-1 min-w-0">
             <div class="text-[13.5px] font-semibold truncate" :class="row.rank === 1 ? 'text-amber-700' : 'text-stone-900'">{{ row.name }}</div>
-            <div class="text-[11.5px] text-stone-500 capitalize">{{ row.role }} · {{ row.picks }} picks · <span class="font-mono">{{ row.avg }}</span></div>
+            <div class="text-[11.5px] text-stone-500 capitalize">{{ row.role }} · {{ row.picks }} orders · <span class="font-mono">{{ row.avg }}</span></div>
           </div>
           <span class="text-[13px] font-semibold tabular-nums" :class="slaColor(row.sla)">{{ row.sla }}%</span>
         </div>
@@ -133,17 +133,17 @@ const board = ref(DEMO_LEADERBOARD);
 onMounted(async () => {
   const live = await liveOr(null, () => api("performance.team"));
   if (live && live.leaderboard && live.leaderboard.length) {
-    board.value = live.leaderboard.map((r) => ({
-      ...r,
-      trend: r.trend && r.trend.length ? r.trend : (DEMO_LEADERBOARD.find((d) => d.id === r.id)?.trend || []),
-    }));
+    // Real rows only — never borrow demo sparklines for live people.
+    board.value = live.leaderboard;
   }
 });
 
 const ranked = computed(() =>
   [...board.value]
     .sort((a, b) => a.rank - b.rank)
-    .map((m) => ({ ...m, name: byId(m.id).name, role: byId(m.id).role || "picker" }))
+    // Prefer the backend display name (User.full_name / prettified email);
+    // the static byId map shows raw emails for anyone it doesn't know.
+    .map((m) => ({ ...m, name: m.name || byId(m.id).name, role: byId(m.id).role || "picker" }))
 );
 
 const teamSla = computed(() =>
@@ -159,7 +159,7 @@ function trendUp(trend) {
   return trend[trend.length - 1] >= trend[0];
 }
 function slaColor(sla) {
-  return sla >= 90 ? "text-emerald-600" : sla >= 85 ? "text-amber-600" : "text-rose-600";
+  return sla >= 50 ? "text-emerald-600" : sla >= 30 ? "text-amber-600" : "text-rose-600";
 }
 function initials(name) {
   if (!name) return "?";
