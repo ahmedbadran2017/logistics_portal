@@ -199,8 +199,8 @@
         <div class="bg-stone-50 rounded-xl px-3 py-2.5"><div class="text-[22px] font-semibold tabular-nums leading-none text-[var(--accent-700)]">{{ estTime }}m</div><div class="text-[11px] text-stone-500 mt-1.5">Est. time</div></div>
       </div>
       <div class="mt-4">
-        <div class="flex items-center justify-between text-[11px] mb-1"><span class="text-stone-500 tabular-nums">{{ doneCount }} / {{ lines.length }} {{ t("pl.scanned") }}</span><span class="font-semibold tabular-nums text-emerald-600">{{ Math.round(doneCount / lines.length * 100) }}%</span></div>
-        <div class="h-2 rounded-full bg-stone-100 overflow-hidden"><div class="h-full rounded-full" :class="detail.errors ? 'bg-rose-500' : 'bg-emerald-500'" :style="{ width: (doneCount / lines.length * 100) + '%' }" /></div>
+        <div class="flex items-center justify-between text-[11px] mb-1"><span class="text-stone-500 tabular-nums">{{ scanTotal.done }} / {{ scanTotal.total }} {{ t("pl.scanned") }}</span><span class="font-semibold tabular-nums text-emerald-600">{{ scanPct }}%</span></div>
+        <div class="h-2 rounded-full bg-stone-100 overflow-hidden"><div class="h-full rounded-full" :class="detail.errors ? 'bg-rose-500' : 'bg-emerald-500'" :style="{ width: scanPct + '%' }" /></div>
       </div>
     </div>
 
@@ -1194,6 +1194,7 @@ const scanTotal = computed(() => {
   walkStops.value.forEach((s) => { done += Math.min(scannedFor(s), s.qty); total += s.qty; });
   return { done, total };
 });
+const scanPct = computed(() => (scanTotal.value.total ? Math.round(scanTotal.value.done / scanTotal.value.total * 100) : 0));
 async function onScanPick(raw) {
   const code = String(raw || "").trim();
   if (!code || !liveDetail.value) return;
