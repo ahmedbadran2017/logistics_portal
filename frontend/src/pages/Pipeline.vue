@@ -1,71 +1,77 @@
 <template>
   <div class="p-5 sm:p-6 space-y-5 max-w-[1500px] mx-auto animate-fade-in">
-    <!-- Title -->
-    <div class="flex items-start justify-between gap-4 flex-wrap">
-      <div>
-        <h1 class="text-[22px] font-semibold text-stone-900 tracking-[-0.01em]">{{ t("ordersPg.title") }}</h1>
-        <p class="text-[13px] text-stone-500 mt-0.5 flex items-center gap-1.5">
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          {{ t("ordersPg.subtitle") }} · {{ WAREHOUSE }}
-          <span v-if="intakeToday > 0" class="inline-flex items-center gap-1 ms-1 text-[11.5px] font-semibold text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200/60 rounded-md px-1.5 py-0.5">
+    <!-- Title row: title + intake badge on the start, toolbar on the end,
+         all on ONE baseline. The long subtitle lives on its own line below
+         so it never pushes the toolbar down. -->
+    <div>
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <h1 class="text-[22px] font-semibold text-stone-900 tracking-[-0.01em] whitespace-nowrap">{{ t("ordersPg.title") }}</h1>
+          <span v-if="intakeToday > 0" class="inline-flex items-center gap-1 text-[11.5px] font-semibold text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200/60 rounded-md px-1.5 py-0.5 whitespace-nowrap">
             <Icon name="arrow-down" :size="11" /> {{ intakeToday }} {{ t("ordersPg.intakeToday") }}
           </span>
-        </p>
-      </div>
-      <div class="flex items-center gap-2 flex-wrap">
-        <div class="relative">
-          <Icon name="search" :size="14" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-start:.65rem" />
-          <input
-            v-model="q"
-            :placeholder="t('ordersPg.searchPh')"
-            class="h-9 w-[230px] max-w-full max-sm:w-[170px] ps-8 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[13px] text-stone-900 placeholder:text-stone-400 focus:ring-2 focus:outline-none transition"
-            style="--tw-ring-color: var(--accent-400)"
-            @input="onSearch"
-          />
-          <button v-if="q" class="absolute top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600" style="inset-inline-end:.5rem"
-                  @click="q=''; onSearch()">
-            <Icon name="x" :size="13" />
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <div class="relative">
+            <Icon name="search" :size="14" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-start:.65rem" />
+            <input
+              v-model="q"
+              :placeholder="t('ordersPg.searchPh')"
+              class="h-9 w-[210px] max-w-full max-sm:w-[160px] ps-8 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[13px] text-stone-900 placeholder:text-stone-400 focus:ring-2 focus:outline-none transition"
+              style="--tw-ring-color: var(--accent-400)"
+              @input="onSearch"
+            />
+            <button v-if="q" class="absolute top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600" style="inset-inline-end:.5rem"
+                    @click="q=''; onSearch()">
+              <Icon name="x" :size="13" />
+            </button>
+          </div>
+          <div class="relative">
+            <select
+              v-model="dateRange"
+              class="h-9 ps-3 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] text-stone-600 appearance-none cursor-pointer focus:outline-none"
+              @change="load(activeStage, activeTrack)"
+            >
+              <option value="">{{ t("ordersPg.allDates") }}</option>
+              <option value="today">{{ t("ordersPg.today") }}</option>
+              <option value="yesterday">{{ t("ordersPg.yesterday") }}</option>
+              <option value="this_week">{{ t("ordersPg.thisWeek") }}</option>
+              <option value="this_month">{{ t("ordersPg.thisMonth") }}</option>
+              <option value="7d">{{ t("ordersPg.last7") }}</option>
+              <option value="30d">{{ t("ordersPg.last30") }}</option>
+            </select>
+            <Icon name="chevron-down" :size="13" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-end:.6rem" />
+          </div>
+          <button
+            v-if="activeStage === 'to_pick' && mode === 'live'"
+            class="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-[13px] font-semibold text-white transition-all hover:brightness-110 hover:-translate-y-px shadow-[0_4px_14px_-4px_rgba(196,73,42,0.5)]"
+            style="background: var(--accent-600)"
+            @click="sbModal && sbModal.open()"
+          >
+            <Icon name="package" :size="14" /> {{ t("pl.sbBtn") }}
+          </button>
+          <button
+            class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
+            :class="exporting ? 'opacity-60 pointer-events-none' : ''"
+            @click="exportCsv"
+          >
+            <Icon name="file-text" :size="14" /> {{ exporting ? t("ordersPg.exporting") : t("ordersPg.csv") }}
+          </button>
+          <button
+            class="inline-flex items-center justify-center h-9 w-9 rounded-lg text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
+            :class="loading ? 'opacity-60 pointer-events-none' : ''"
+            :title="t('common.refresh')"
+            :aria-label="t('common.refresh')"
+            @click="load(activeStage, activeTrack)"
+          >
+            <Icon name="refresh-cw" :size="14" :class="loading ? 'animate-spin' : ''" />
           </button>
         </div>
-        <div class="relative">
-          <select
-            v-model="dateRange"
-            class="h-9 ps-3 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] text-stone-600 appearance-none cursor-pointer focus:outline-none"
-            @change="load(activeStage, activeTrack)"
-          >
-            <option value="">{{ t("ordersPg.allDates") }}</option>
-            <option value="today">{{ t("ordersPg.today") }}</option>
-            <option value="yesterday">{{ t("ordersPg.yesterday") }}</option>
-            <option value="this_week">{{ t("ordersPg.thisWeek") }}</option>
-            <option value="this_month">{{ t("ordersPg.thisMonth") }}</option>
-            <option value="7d">{{ t("ordersPg.last7") }}</option>
-            <option value="30d">{{ t("ordersPg.last30") }}</option>
-          </select>
-          <Icon name="chevron-down" :size="13" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-end:.6rem" />
-        </div>
-        <button
-          v-if="activeStage === 'to_pick' && mode === 'live'"
-          class="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-[13px] font-semibold text-white transition-all hover:brightness-110 hover:-translate-y-px shadow-[0_4px_14px_-4px_rgba(196,73,42,0.5)]"
-          style="background: var(--accent-600)"
-          @click="sbModal && sbModal.open()"
-        >
-          <Icon name="package" :size="14" /> {{ t("pl.sbBtn") }}
-        </button>
-        <button
-          class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
-          :class="exporting ? 'opacity-60 pointer-events-none' : ''"
-          @click="exportCsv"
-        >
-          <Icon name="file-text" :size="14" /> {{ exporting ? t("ordersPg.exporting") : t("ordersPg.csv") }}
-        </button>
-        <button
-          class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
-          :class="loading ? 'opacity-60 pointer-events-none' : ''"
-          @click="load(activeStage, activeTrack)"
-        >
-          <Icon name="refresh-cw" :size="14" :class="loading ? 'animate-spin' : ''" /> {{ t("common.refresh") }}
-        </button>
       </div>
+      <p class="text-[13px] text-stone-500 mt-1 flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        {{ t("ordersPg.subtitle") }} · {{ WAREHOUSE }}
+      </p>
     </div>
 
     <!-- Attention bar -->
