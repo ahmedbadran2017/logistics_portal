@@ -259,7 +259,7 @@
                   <div class="min-w-0 flex-1">
                     <div class="text-[13.5px] font-medium text-stone-900">{{ s.name }}</div>
                     <div class="flex items-center gap-2 mt-1 flex-wrap">
-                      <span class="inline-flex items-center gap-1 text-[12px] font-bold font-mono text-stone-800 bg-stone-100 rounded px-1.5 py-0.5">SKU {{ s.realSku || s.sku }}</span>
+                      <button class="inline-flex items-center gap-1 text-[12px] font-bold font-mono text-[var(--accent-700)] bg-[var(--accent-50)] ring-1 ring-[var(--accent-200)]/50 rounded px-1.5 py-0.5 hover:bg-[var(--accent-100)]" title="Open SKU lookup" @click.stop="openSku(s.realSku || s.sku)">SKU {{ s.realSku || s.sku }}</button>
                       <span v-if="s.orders.length === 1" class="text-[11.5px] text-stone-500 truncate">{{ s.orders[0].so }} · {{ s.orders[0].customer }}</span>
                       <span v-else class="text-[11.5px] font-semibold text-[var(--accent-700)]">{{ t('pl.splitsTo').replace('{n}', s.orders.length) }}</span>
                     </div>
@@ -294,7 +294,7 @@
                 <div class="min-w-0 flex-1">
                   <div class="text-[13.5px] font-medium text-stone-900">{{ l.name }}</div>
                   <div class="flex items-center gap-2 mt-1 flex-wrap">
-                    <span class="inline-flex items-center gap-1 text-[12px] font-bold font-mono text-stone-800 bg-stone-100 rounded px-1.5 py-0.5">SKU {{ l.realSku || l.sku }}</span>
+                    <button class="inline-flex items-center gap-1 text-[12px] font-bold font-mono text-[var(--accent-700)] bg-[var(--accent-50)] ring-1 ring-[var(--accent-200)]/50 rounded px-1.5 py-0.5 hover:bg-[var(--accent-100)]" title="Open SKU lookup" @click.stop="openSku(l.realSku || l.sku)">SKU {{ l.realSku || l.sku }}</button>
                     <span class="text-[11.5px] text-stone-500">{{ t('pl.splitsTo').replace('{n}', l.orders.length) }}</span>
                   </div>
                   <div v-if="l.realSku && l.sku !== l.realSku" class="font-mono text-[10px] text-stone-400 mt-0.5">⌗ {{ l.sku }}</div>
@@ -695,8 +695,10 @@ import { PICKLISTS as DEMO_PICKLISTS, TEAM, WAREHOUSE, byId } from "@/lib/handof
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
 import { useI18n } from "@/composables/useI18n";
+import { useSkuLink } from "@/composables/useSkuLink";
 
 const { success, warn } = useToast();
+const openSku = useSkuLink();
 const { t } = useI18n();
 
 // ── local data (from data.jsx) ─────────────────────────────────────────

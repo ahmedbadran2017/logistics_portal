@@ -1055,7 +1055,7 @@ def detail(name):
     # Line items with the product image (97% of items carry one).
     items = frappe.db.sql(
         """SELECT soi.item_code sku, soi.item_name name, soi.qty, soi.rate price,
-                  soi.amount line, soi.warehouse bin, i.image
+                  soi.amount line, soi.warehouse bin, i.image, i.custom_sku real_sku
            FROM `tabSales Order Item` soi
            LEFT JOIN `tabItem` i ON i.name = soi.item_code
            WHERE soi.parent = %s ORDER BY soi.idx""",

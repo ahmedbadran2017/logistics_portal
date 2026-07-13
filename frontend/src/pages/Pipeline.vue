@@ -565,7 +565,9 @@
                   </span>
                   <div class="min-w-0 flex-1">
                     <div class="text-[12px] font-medium text-stone-900 truncate">{{ it.name }}</div>
-                    <div class="font-mono text-[10px] text-stone-400">{{ it.sku }} · ×{{ it.qty }}</div>
+                    <button class="font-mono text-[10.5px] text-[var(--accent-700)] hover:underline text-start" :title="t('ordersPg.skuLookupRow')" @click.stop="openSkuLookup(it.real_sku || it.sku)">
+                      SKU {{ it.real_sku || it.sku }} · ×{{ it.qty }}
+                    </button>
                   </div>
                   <span class="font-mono text-[12px] font-semibold text-stone-800 tabular-nums">{{ fmtMAD(it.line) }}</span>
                 </div>

@@ -89,7 +89,9 @@
                     </span>
                     <div class="min-w-0">
                       <div class="text-[12.5px] font-medium text-stone-900 truncate max-w-[200px]">{{ it.name }}</div>
-                      <div class="font-mono text-[10.5px] text-stone-400">{{ it.sku }}</div>
+                      <button class="font-mono text-[10.5px] text-[var(--accent-700)] hover:underline text-start" title="Open SKU lookup" @click="openSku(it.realSku || it.sku)">
+                        SKU {{ it.realSku || it.sku }}
+                      </button>
                     </div>
                   </div>
                 </td>
@@ -324,6 +326,7 @@ import {
 } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
+import { useSkuLink } from "@/composables/useSkuLink";
 
 const { t } = useI18n();
 
@@ -356,6 +359,7 @@ const props = defineProps({
 });
 
 const router = useRouter();
+const openSku = useSkuLink();
 function goBack() {
   if (window.history.length > 1) router.back();
   else router.push({ name: "Queue" });
@@ -394,7 +398,7 @@ onMounted(async () => {
     liveOrder.value = live;
     if (Array.isArray(live.items) && live.items.length) {
       liveItems.value = live.items.map((it) => ({
-        sku: it.sku, name: it.name || it.sku, bin: it.bin || "—",
+        sku: it.sku, realSku: it.real_sku || "", name: it.name || it.sku, bin: it.bin || "—",
         qty: it.qty || 1, price: it.price || 0, line: it.line || 0,
         image: it.image || "",
       }));
