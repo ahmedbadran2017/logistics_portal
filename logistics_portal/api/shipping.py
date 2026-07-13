@@ -104,8 +104,14 @@ def retry_awb(order):
     if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
         frappe.throw("Only a dispatcher or manager can regenerate an AWB.",
                      frappe.PermissionError)
-    name = (order or "").lstrip("#").strip()
-    if not frappe.db.exists("Sales Order", name):
+    raw = (order or "").strip()
+    stripped = raw.lstrip("#")
+    name = None
+    for cand in (raw, stripped, "#" + stripped):
+        if cand and frappe.db.exists("Sales Order", cand):
+            name = cand
+            break
+    if not name:
         frappe.throw("Unknown order.")
     if frappe.db.get_value("Sales Order", name, "custom_awb"):
         return {"ok": True, "already": True,

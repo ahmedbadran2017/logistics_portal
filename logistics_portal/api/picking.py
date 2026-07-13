@@ -32,6 +32,24 @@ def sync_pick_progress(doc, method=None):
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _resolve_order_name(order):
+    """Return the real Sales Order name for a scanned/typed reference.
+
+    Production SO names carry the '#' as part of the name (e.g. '#248774'),
+    alongside plain series names (J-001317, SAL-ORD-...). We must not blindly
+    strip '#' — try the raw value, the stripped value, and the '#'-prefixed
+    value, and return whichever actually exists."""
+    raw = (order or "").strip()
+    stripped = raw.lstrip("#")
+    for cand in (raw, stripped, "#" + stripped):
+        if cand and frappe.db.exists("Sales Order", cand):
+            return cand
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Whitelisted API
 # ---------------------------------------------------------------------------
 @frappe.whitelist()
@@ -235,8 +253,8 @@ def mark_packed(order):
     from logistics_portal.api.auth import resolve_role
     if resolve_role(frappe.session.user) not in ("packer", "dispatcher", "manager"):
         frappe.throw("Not authorized to pack.", frappe.PermissionError)
-    name = (order or "").lstrip("#").strip()
-    if not frappe.db.exists("Sales Order", name):
+    name = _resolve_order_name(order)
+    if not name:
         frappe.throw("Unknown order.")
     st = frappe.db.get_value("Sales Order", name, "custom_logistics_status")
     if st in ("Label Generated", "Picked", "In transit", "Received"):
@@ -251,8 +269,8 @@ def complete_pick(order):
     (or a logistics manager) may complete a pick."""
     from logistics_portal.api.auth import resolve_role
 
-    name = (order or "").lstrip("#")
-    if not frappe.db.exists("Sales Order", name):
+    name = _resolve_order_name(order)
+    if not name:
         frappe.throw("Unknown order.")
 
     user = frappe.session.user
