@@ -122,8 +122,19 @@ def cockpit():
 
 @frappe.whitelist()
 def floor():
-    """Andon floor board: real hourly order intake today + headline counts."""
+    """Andon floor board — every number real, from today's documents:
+      Picking  = distinct orders on Pick Lists submitted today
+      Labeling = Delivery Notes created today (DN creation == label/AWB moment)
+      Packing  = orders that reached Label Printed today (incl. those already
+                 Shipped since packing precedes the manifest the same day)
+      Shipping = orders whose status is Shipped as of today
+    Rates are per hour elapsed since the 8:00 floor start; the bottleneck is
+    the station furthest below target. Cutoff counts down to the 17:00
+    manifest hand-off."""
     try:
+        from frappe.utils import now_datetime
+
+        today = nowdate()
         rows = frappe.db.sql(
             """
             SELECT HOUR(creation) AS h, COUNT(*) AS c
@@ -131,24 +142,58 @@ def floor():
             WHERE DATE(creation) = %s AND docstatus = 1
             GROUP BY HOUR(creation) ORDER BY h
             """,
-            (nowdate(),), as_dict=True,
+            (today,), as_dict=True,
         )
         by_hour = {int(r.h): int(r.c) for r in rows}
         # 8:00 → 20:00 window like the design
         hours = [{"h": h, "count": by_hour.get(h, 0)} for h in range(8, 21)]
         total_today = sum(by_hour.values())
-        picked_today = frappe.db.count(
-            "Pick List", {"docstatus": 1, "modified": [">=", nowdate()]}
-        )
-        shipped_today = frappe.db.count(
-            "Sales Order", {"docstatus": 1, "custom_logistics_status": "Shipped", "modified": [">=", nowdate()]}
-        )
+
+        picked = frappe.db.sql(
+            """SELECT COUNT(DISTINCT pli.sales_order) FROM `tabPick List` pl
+               JOIN `tabPick List Item` pli ON pli.parent = pl.name
+               WHERE pl.docstatus = 1 AND DATE(pl.creation) = %s""",
+            (today,))[0][0] or 0
+        labeled = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabDelivery Note` WHERE docstatus = 1 AND DATE(creation) = %s",
+            (today,))[0][0] or 0
+        printed = frappe.db.sql(
+            """SELECT COUNT(*) FROM `tabSales Order`
+               WHERE custom_logistics_status = 'Label Printed' AND DATE(modified) = %s""",
+            (today,))[0][0] or 0
+        shipped = frappe.db.sql(
+            """SELECT COUNT(*) FROM `tabSales Order`
+               WHERE custom_logistics_status = 'Shipped' AND DATE(modified) = %s""",
+            (today,))[0][0] or 0
+        packed = int(printed) + int(shipped)
+
+        now = now_datetime()
+        elapsed = max(1.0, (now.hour + now.minute / 60.0) - 8)  # floor opens 8:00
+        target = int(frappe.db.get_default("lp_floor_target") or 40)
+
+        def station(name, count):
+            rate = round(count / elapsed, 1)
+            return {"name": name, "rate": rate, "target": target, "count": int(count),
+                    "status": "ok" if rate >= target * 0.85 else "warn"}
+
+        stations = [
+            station("Picking", picked), station("Packing", packed),
+            station("Labeling", labeled), station("Shipping", shipped),
+        ]
+        bottleneck = min(stations, key=lambda s: s["rate"] / (s["target"] or 1))
+        cutoff_min = max(0, 17 * 60 - (now.hour * 60 + now.minute))  # 17:00 manifest
+
         return {
             "hours": hours,
             "ordersToday": total_today,
-            "pickedToday": picked_today,
-            "shippedToday": shipped_today,
-            "perHour": round(total_today / max(1, len([h for h in by_hour if by_hour[h]])), 1),
+            "pickedToday": int(picked),
+            "packedToday": packed,
+            "shippedToday": int(shipped),
+            "perHour": round(total_today / elapsed, 1),
+            "target": target,
+            "stations": stations,
+            "bottleneck": bottleneck["name"],
+            "cutoffMin": cutoff_min,
         }
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.floor")

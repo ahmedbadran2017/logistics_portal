@@ -118,31 +118,34 @@ import Icon from "@/components/ui/Icon.vue";
 import { WAREHOUSE, CITY } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
 
-// ── Andon board snapshot (demo fallback — `performance.floor` overwrites) ──
-const DEMO_ANDON = {
-  ordersPerHour: 73, target: 80, packedToday: 412, shippedToday: 389, cutoffMin: 156,
-  hourly: [38, 44, 52, 61, 58, 67, 73],
+// ── Andon board snapshot (skeleton until `performance.floor` loads) ──
+const EMPTY_ANDON = {
+  ordersPerHour: 0, target: 40, packedToday: 0, shippedToday: 0, cutoffMin: 0,
+  hourly: [0, 0, 0, 0, 0, 0, 0],
   stations: [
-    { name: "Picking", rate: 78, target: 80, status: "ok" },
-    { name: "Packing", rate: 61, target: 75, status: "warn" },
-    { name: "Labeling", rate: 84, target: 80, status: "ok" },
-    { name: "Shipping", rate: 70, target: 75, status: "ok" },
+    { name: "Picking", rate: 0, target: 40, status: "ok" },
+    { name: "Packing", rate: 0, target: 40, status: "ok" },
+    { name: "Labeling", rate: 0, target: 40, status: "ok" },
+    { name: "Shipping", rate: 0, target: 40, status: "ok" },
   ],
-  laggingZone: "Cosmetic zone - JM",
+  bottleneck: "—",
 };
 
-const ANDON = ref({ ...DEMO_ANDON });
+const ANDON = ref({ ...EMPTY_ANDON });
 
 onMounted(async () => {
   const live = await liveOr(null, () => api("performance.floor"));
   if (live && Array.isArray(live.hours)) {
     ANDON.value = {
-      ...ANDON.value, // stations / target / laggingZone stay demo
-      ordersPerHour: live.perHour != null ? Number(live.perHour) : ANDON.value.ordersPerHour,
-      packedToday: live.pickedToday != null ? Number(live.pickedToday) : ANDON.value.packedToday,
-      shippedToday: live.shippedToday != null ? Number(live.shippedToday) : ANDON.value.shippedToday,
-      ordersToday: live.ordersToday != null ? Number(live.ordersToday) : ANDON.value.ordersToday,
-      hourly: live.hours.length ? live.hours.map((x) => Number(x.count) || 0) : ANDON.value.hourly,
+      ordersPerHour: Number(live.perHour) || 0,
+      target: Number(live.target) || 40,
+      packedToday: Number(live.packedToday) || 0,
+      shippedToday: Number(live.shippedToday) || 0,
+      ordersToday: Number(live.ordersToday) || 0,
+      cutoffMin: Number(live.cutoffMin) || 0,
+      hourly: live.hours.length ? live.hours.map((x) => Number(x.count) || 0) : EMPTY_ANDON.hourly,
+      stations: Array.isArray(live.stations) && live.stations.length ? live.stations : EMPTY_ANDON.stations,
+      bottleneck: live.bottleneck || "—",
     };
   }
 });
@@ -150,11 +153,17 @@ onMounted(async () => {
 const pace = computed(() => ANDON.value.ordersPerHour / (ANDON.value.target || 1));
 const hourlyMax = computed(() => Math.max(...ANDON.value.hourly, 1));
 
+const cutoffLabel = computed(() => {
+  const m = ANDON.value.cutoffMin || 0;
+  if (m <= 0) return "Closed";
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+});
+
 const kpis = computed(() => [
   { label: "Packed today", icon: "tag", tone: "text-stone-500 bg-stone-100", value: ANDON.value.packedToday },
   { label: "Shipped today", icon: "send", tone: "text-cyan-600 bg-cyan-50", value: ANDON.value.shippedToday },
-  { label: "Cutoff in", icon: "clock", tone: "text-violet-600 bg-violet-50", value: "2h 36m" },
-  { label: "Lagging zone", icon: "alert-circle", tone: "text-amber-600 bg-amber-50", value: ANDON.value.laggingZone.replace(" zone - JM", "").replace(" - JM", "") },
+  { label: "Cutoff in", icon: "clock", tone: "text-violet-600 bg-violet-50", value: cutoffLabel.value },
+  { label: "Bottleneck", icon: "alert-circle", tone: "text-amber-600 bg-amber-50", value: ANDON.value.bottleneck },
 ]);
 
 // ── Inline CountUp (ported from primitives.jsx) ─────────────────────
