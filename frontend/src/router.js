@@ -46,7 +46,6 @@ const routes = [
       { path: "alerts", name: "Alerts", component: () => import("@/pages/Alerts.vue") },
 
       // Fulfillment
-      { path: "waves", name: "Waves", component: () => import("@/pages/Waves.vue") },
       { path: "picklists", name: "PickLists", component: () => import("@/pages/PickLists.vue") },
       { path: "pack", name: "PackStation", component: () => import("@/pages/PackStation.vue") },
       { path: "routes", name: "Routes", component: () => import("@/pages/Routes.vue") },

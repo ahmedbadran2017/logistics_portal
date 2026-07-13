@@ -27,7 +27,6 @@ export const ROLE_CONFIG = {
         items: [
           { to: "Pipeline", label: "nav.orders", icon: "shopping-bag" },
           { to: "Consolidation", label: "nav.consolidation", icon: "git-merge" },
-          { to: "Waves", label: "nav.waves", icon: "layers" },
           { to: "PickLists", label: "nav.picklists", icon: "package" },
           { to: "PackStation", label: "nav.pack", icon: "tag" },
           { to: "Shipments", label: "nav.shipments", icon: "truck" },
@@ -69,7 +68,6 @@ export const ROLE_CONFIG = {
           { to: "Assign", label: "nav.assign", icon: "layout-grid" },
           { to: "Pipeline", label: "nav.orders", icon: "shopping-bag" },
           { to: "PickLists", label: "nav.picklists", icon: "package" },
-          { to: "Waves", label: "nav.waves", icon: "layers" },
         ],
       },
       {

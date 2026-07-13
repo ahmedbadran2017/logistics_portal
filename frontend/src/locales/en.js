@@ -31,7 +31,6 @@ export default {
     sla: "SLA",
     alerts: "Alerts",
     orders: "Orders",
-    waves: "Waves",
     consolidation: "Consolidation",
     picklists: "Pick Lists",
     pack: "Pack Station",

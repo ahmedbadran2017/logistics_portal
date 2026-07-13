@@ -31,7 +31,6 @@ export default {
     sla: "اتفاقية الخدمة",
     alerts: "التنبيهات",
     orders: "الطلبات",
-    waves: "الموجات",
     consolidation: "دمج الأوردرات",
     picklists: "قوائم الانتقاء",
     pack: "محطة التغليف",
