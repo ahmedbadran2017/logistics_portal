@@ -224,49 +224,25 @@
       <div v-else class="text-center text-[12px] text-emerald-600 py-6">{{ t('ordersPg.blNoData') }}</div>
     </div>
 
-    <!-- Same-customer consolidation (Phase 1) — ship a customer's multiple
-         orders together; each keeps its own AWB + COD (no carrier change). -->
-    <div v-if="activeStage === 'to_pick' && mode === 'live' && pickTab === 'ready' && consol.length"
-         class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
-      <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
-        <Icon name="users" :size="14" class="text-violet-500" />
-        <span class="text-[12px] font-semibold text-stone-900">{{ t('ordersPg.consolTitle') }}</span>
-        <span class="text-[11px] text-stone-400 hidden sm:inline">{{ t('ordersPg.consolHint') }}</span>
-        <span class="ms-auto inline-flex items-center gap-1 text-[11px] font-semibold text-violet-700 bg-violet-50 ring-1 ring-violet-200/60 rounded-md px-2 py-0.5 tabular-nums">
-          {{ consol.length }} · {{ consolParcels }} {{ t('ordersPg.consolParcels') }}
-        </span>
-      </div>
-      <div class="divide-y divide-stone-100">
-        <div v-for="g in consol" :key="g.key" class="flex items-center gap-3 px-4 py-2.5">
-          <div class="min-w-0 flex-1">
-            <div class="text-[12.5px] font-medium text-stone-900 truncate">
-              {{ g.customer }}
-              <span class="text-[11px] font-normal text-stone-400 ms-1" dir="ltr">{{ g.phone }}</span>
-            </div>
-            <div class="text-[11px] text-stone-400 truncate flex items-center gap-1.5">
-              <span class="font-mono">{{ g.orders.map(o => o.no).join('  ·  ') }}</span>
-              <span v-if="g.city" class="capitalize">· {{ g.city }}</span>
-              <span v-if="!g.sameAddress" class="text-amber-600 font-medium inline-flex items-center gap-0.5">
-                <Icon name="alert-triangle" :size="10" /> {{ t('ordersPg.consolDiffAddr') }}
-              </span>
-            </div>
-          </div>
-          <span class="text-[11.5px] font-bold text-violet-700 bg-violet-50 ring-1 ring-violet-200/50 rounded-md px-2 py-0.5 tabular-nums flex-shrink-0">
-            {{ g.count }} {{ t('ordersPg.blOrders') }}
-          </span>
-          <span class="text-[11.5px] text-stone-500 tabular-nums w-[86px] text-end flex-shrink-0 hidden sm:block">{{ fmtMAD(g.mad) }} MAD</span>
-          <button
-            class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12px] font-semibold text-white shadow-sm disabled:opacity-50 flex-shrink-0 transition-opacity"
-            style="background: var(--accent-600)"
-            :disabled="consolBusy === g.key"
-            @click="shipTogether(g)"
-          >
-            <Icon name="layers" :size="13" />
-            {{ consolBusy === g.key ? t('ordersPg.creating') : t('ordersPg.consolShip') }}
-          </button>
-        </div>
-      </div>
-    </div>
+    <!-- Same-customer clusters live on their own page now (confirmation-team
+         review → merge into ONE order). This is just the pointer. -->
+    <button
+      v-if="activeStage === 'to_pick' && mode === 'live' && pickTab === 'ready' && consol.length"
+      class="w-full bg-white rounded-xl ring-1 ring-violet-200/70 px-4 py-3 flex items-center gap-3 text-start hover:ring-violet-300 hover:shadow-sm transition-all"
+      @click="$router.push({ name: 'Consolidation' })"
+    >
+      <span class="w-9 h-9 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center flex-shrink-0">
+        <Icon name="git-merge" :size="17" />
+      </span>
+      <span class="min-w-0 flex-1">
+        <span class="block text-[13px] font-semibold text-stone-900">{{ t('ordersPg.consolTitle') }}</span>
+        <span class="block text-[11.5px] text-stone-500 truncate">{{ t('ordersPg.consolHint') }}</span>
+      </span>
+      <span class="inline-flex items-center gap-1 text-[11.5px] font-semibold text-violet-700 bg-violet-50 ring-1 ring-violet-200/60 rounded-md px-2 py-0.5 tabular-nums flex-shrink-0">
+        {{ consol.length }} · {{ consolParcels }} {{ t('ordersPg.consolParcels') }}
+      </span>
+      <Icon name="chevron-right" :size="15" class="text-stone-400 rtl:rotate-180 flex-shrink-0" />
+    </button>
 
     <!-- City filter -->
     <div v-if="cities.length" class="flex items-center gap-2 flex-wrap">
@@ -783,7 +759,6 @@ const blockedFor = ref(null);  // blocking SKU whose orders are being shown
 const blockedOrders = ref([]);
 const blockedLoading = ref(false);
 const consol = ref([]);        // same-customer clusters awaiting pick (Phase 1)
-const consolBusy = ref("");    // group key currently being shipped-together
 const awbBusy = ref("");       // order no whose AWB is being regenerated
 const skuModal = ref(null);
 function openSkuLookup(query = "") { skuModal.value?.openWith(query); }
@@ -1071,28 +1046,10 @@ async function createPL() {
   }
 }
 
-// ── Phase 1 consolidation: pick a same-customer cluster into ONE list ──
-// so their parcels leave together (each keeps its own AWB + COD — safe).
+// ── Consolidation moved to its own page (confirmation-team review) ──
+// The Orders board only shows the count-pointer banner.
 const consolParcels = computed(() =>
   consol.value.reduce((a, g) => a + Math.max(0, (g.count || 0) - 1), 0));
-async function shipTogether(g) {
-  consolBusy.value = g.key;
-  try {
-    const res = await apiPost("picking.create_pick_list_from_orders", {
-      orders: g.orders.map((o) => o.no),
-    });
-    const nSkip = (res.skipped || []).length;
-    success(
-      t("ordersPg.consolDone").replace("{n}", res.orders).replace("{c}", g.customer),
-      `${res.pl}` + (nSkip ? ` · ${nSkip} ${t("ordersPg.consolSkipped")}` : ""),
-    );
-    load("to_pick");
-  } catch (e) {
-    warn(t("ordersPg.consolFail"), String(e.message || e));
-  } finally {
-    consolBusy.value = "";
-  }
-}
 
 // Regenerate a stuck order's AWB (no_awb attention) — re-runs the same carrier
 // automation the system runs on pick-list submit; skips orders already done.

@@ -26,6 +26,7 @@ export const ROLE_CONFIG = {
         section: "nav.fulfillment",
         items: [
           { to: "Pipeline", label: "nav.orders", icon: "shopping-bag" },
+          { to: "Consolidation", label: "nav.consolidation", icon: "git-merge" },
           { to: "Waves", label: "nav.waves", icon: "layers" },
           { to: "PickLists", label: "nav.picklists", icon: "package" },
           { to: "PackStation", label: "nav.pack", icon: "tag" },

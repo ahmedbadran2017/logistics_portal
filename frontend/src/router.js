@@ -27,6 +27,8 @@ const routes = [
       { path: "assign", name: "Assign", component: () => import("@/pages/Assign.vue") },
       { path: "combined", name: "Combined", component: () => import("@/pages/Combined.vue") },
       { path: "pipeline", name: "Pipeline", component: () => import("@/pages/Pipeline.vue") },
+      // Confirmation-team review: same-customer clusters → one merged order.
+      { path: "consolidation", name: "Consolidation", component: () => import("@/pages/Consolidation.vue") },
       { path: "team", name: "Team", component: () => import("@/pages/Team.vue") },
 
       // Returns

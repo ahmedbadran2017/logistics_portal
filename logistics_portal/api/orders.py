@@ -1166,3 +1166,98 @@ def detail(name):
         "shipped_at": so.get("custom_shipped_at"),
         "delivered_at": so.get("custom_delivered_at"),
     }
+
+
+@frappe.whitelist()
+def merge_orders(orders):
+    """Confirmation-team merge: combine a same-customer cluster into ONE new
+    Sales Order so logistics receives a single order (one AWB, one COD = the
+    sum of the originals). The originals are cancelled and marked Duplicated.
+    Only safe before logistics touches them — any pick list, AWB or payment
+    blocks the merge. Manager only (moves to the confirmation role later)."""
+    import json as _json
+    from logistics_portal.api.auth import resolve_role
+
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Only a manager can merge orders.", frappe.PermissionError)
+    if isinstance(orders, str):
+        orders = _json.loads(orders)
+    names = [str(o).strip() for o in (orders or []) if str(o).strip()]
+    if len(names) < 2:
+        frappe.throw("Select at least two orders to merge.")
+
+    docs = []
+    for name in names:
+        if not frappe.db.exists("Sales Order", name):
+            frappe.throw(f"Unknown order: {name}")
+        so = frappe.get_doc("Sales Order", name)
+        if so.docstatus != 1:
+            frappe.throw(f"{name} is not submitted.")
+        if (so.custom_sales_status or "") != "Confirmed":
+            frappe.throw(f"{name} is not Confirmed ({so.custom_sales_status or 'no status'}).")
+        if (so.get("custom_logistics_status") or "Pending") != "Pending":
+            frappe.throw(f"{name} already moved to logistics "
+                         f"({so.custom_logistics_status}) — too late to merge.")
+        if so.get("custom_awb"):
+            frappe.throw(f"{name} already has an AWB — too late to merge.")
+        docs.append(so)
+
+    if len({d.customer for d in docs}) > 1:
+        frappe.throw("These orders belong to different customers.")
+    phones = {_norm_phone(d.get("custom_customer_phone") or d.get("custom_shipping_phone") or "")
+              for d in docs}
+    phones.discard("")
+    if len(phones) > 1:
+        frappe.throw("These orders have different phone numbers — merge them from the desk if it's really one person.")
+
+    on_pl = frappe.db.sql(
+        """SELECT pli.sales_order, pli.parent FROM `tabPick List Item` pli
+           JOIN `tabPick List` p ON p.name = pli.parent
+           WHERE p.docstatus < 2 AND pli.sales_order IN %s LIMIT 1""",
+        (tuple(names),))
+    if on_pl:
+        frappe.throw(f"{on_pl[0][0]} is already on pick list {on_pl[0][1]} — cancel it first.")
+    paid = frappe.db.sql(
+        """SELECT reference_name FROM `tabPayment Entry Reference` per
+           JOIN `tabPayment Entry` pe ON pe.name = per.parent
+           WHERE pe.docstatus = 1 AND per.reference_doctype = 'Sales Order'
+             AND per.reference_name IN %s LIMIT 1""",
+        (tuple(names),))
+    if paid:
+        frappe.throw(f"{paid[0][0]} already has a payment against it — merge from the desk.")
+
+    # New order = a copy of the OLDEST one (keeps customer, address, phone,
+    # city, taxes) + every other order's items appended.
+    docs.sort(key=lambda d: d.creation)
+    base = frappe.copy_doc(docs[0])
+    for extra in docs[1:]:
+        for it in extra.items:
+            base.append("items", {
+                "item_code": it.item_code, "item_name": it.item_name,
+                "qty": it.qty, "rate": it.rate, "uom": it.uom,
+                "warehouse": it.warehouse,
+                "delivery_date": it.delivery_date or base.delivery_date,
+            })
+    base.custom_sales_status = "Confirmed"
+    for f in ("custom_logistics_status",):
+        if base.meta.has_field(f):
+            base.set(f, "Pending")
+    for f in ("custom_awb", "custom_label_url", "custom_tracking_number"):
+        if base.meta.has_field(f):
+            base.set(f, None)
+    base.flags.ignore_permissions = True
+    base.insert(ignore_permissions=True)
+    base.submit()
+    base.add_comment("Comment", "Merged from " + ", ".join(names))
+
+    for d in docs:
+        d.flags.ignore_permissions = True
+        d.add_comment("Comment", f"Merged into {base.name}")
+        d.cancel()
+        d.db_set("custom_sales_status", "Duplicated", update_modified=False)
+
+    for k in ("lp_board_summary", "lp_consolidation", "lp_pick_avail"):
+        frappe.cache().delete_value(k)
+    frappe.db.commit()
+    return {"ok": True, "order": base.name, "total": float(base.grand_total or 0),
+            "items": len(base.items), "cancelled": names}
