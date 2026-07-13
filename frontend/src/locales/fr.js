@@ -150,6 +150,10 @@ export default {
     done: "Liste soumise",
     submitFail: "Échec de l'envoi",
     loadFail: "Impossible de charger la liste",
+    shortPick: "Article absent du rayon",
+    shortConfirm: "Appuyez encore pour retirer cette COMMANDE de la liste",
+    shortDone: "Commande retirée — dispatcher notifié",
+    shortFail: "Échec du signalement",
   },
   mani: {
     onManifest: "Sur le manifeste · dernier ajout",

@@ -70,9 +70,19 @@ _PLI_FIELDS = [
 ]
 
 
+_SO_SHORT_FIELDS = [
+    # Set when a picker reports the item physically missing (short pick):
+    # batching skips the order for 24h so it doesn't bounce straight back
+    # onto the next pick list while the shelf is still empty.
+    {"fieldname": "custom_short_picked_at", "label": "Short Picked At",
+     "fieldtype": "Datetime", "read_only": 1, "no_copy": 1, "hidden": 1},
+]
+
+
 def ensure_pick_fields():
     try:
         from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
-        create_custom_fields({"Pick List Item": _PLI_FIELDS}, ignore_validate=True)
+        create_custom_fields({"Pick List Item": _PLI_FIELDS,
+                              "Sales Order": _SO_SHORT_FIELDS}, ignore_validate=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_pick_fields")

@@ -56,12 +56,22 @@
             <div class="text-[13px] font-medium text-stone-900 truncate">{{ l.name }}</div>
             <div class="font-mono text-[11px] text-stone-500">{{ l.realSku || l.sku }}</div>
           </div>
-          <div class="text-end flex-shrink-0">
+          <div class="text-end flex-shrink-0 flex items-center gap-2">
             <span class="text-[16px] font-bold tabular-nums"
                   :class="l.scannedQty >= l.qty ? 'text-emerald-600' : 'text-stone-900'">
               {{ l.scannedQty }}/{{ l.qty }}
             </span>
-            <Icon v-if="l.scannedQty >= l.qty" name="check-circle" :size="16" class="text-emerald-500 ms-1 inline" />
+            <Icon v-if="l.scannedQty >= l.qty" name="check-circle" :size="16" class="text-emerald-500" />
+            <!-- Short pick: item physically missing → pull its ORDER off the list -->
+            <button
+              v-else
+              class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+              :class="shortConfirm === lineKey(l) ? 'bg-rose-600 text-white' : 'bg-stone-100 text-stone-400'"
+              :title="t('pickm.shortPick')"
+              @click="onShortPick(l)"
+            >
+              <Icon name="alert-triangle" :size="14" />
+            </button>
           </div>
         </div>
       </div>
@@ -173,6 +183,38 @@ async function finish() {
     warn(t("pickm.submitFail"), String(e.message || e));
   } finally {
     submitting.value = false;
+  }
+}
+
+// ── Short pick: two taps (arm → confirm) pulls the line's ORDER off the
+// list and back to the problem pool; the picker keeps the rest.
+const shortConfirm = ref("");
+let shortTimer = null;
+
+function lineKey(l) { return l.sku + "|" + l.so; }
+
+async function onShortPick(l) {
+  const key = lineKey(l);
+  if (shortConfirm.value !== key) {
+    shortConfirm.value = key;
+    clearTimeout(shortTimer);
+    shortTimer = setTimeout(() => { shortConfirm.value = ""; }, 4000);
+    scanner.value?.showError(t("pickm.shortConfirm"));
+    return;
+  }
+  shortConfirm.value = "";
+  try {
+    const res = await apiPost("picking.report_short_pick", {
+      pick_list: props.id, order: l.so, item_code: l.sku,
+    });
+    // Drop every line of that order locally.
+    lines.value = lines.value.filter((x) => x.so !== l.so);
+    success(t("pickm.shortDone"), `${res.order} · ${res.removedLines} ${t("queue.lines")}`);
+    if (res.plDeleted || !lines.value.length) router.push({ name: "Queue" });
+  } catch (e) {
+    warn(t("pickm.shortFail"), String(e.message || e));
+  } finally {
+    scanner.value?.refocus();
   }
 }
 

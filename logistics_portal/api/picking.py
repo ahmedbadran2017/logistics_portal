@@ -480,6 +480,16 @@ def _pick_gate(name):
         return f"already in the flow ({so.custom_logistics_status})"
     if frappe.db.exists("Pick List Item", {"sales_order": name, "docstatus": ["<", 2]}):
         return "already on a pick list"
+    # Short-picked recently = the shelf is physically empty even if Bin says
+    # otherwise — don't bounce it straight onto the next list.
+    spa = frappe.db.get_value("Sales Order", name, "custom_short_picked_at")         if frappe.get_meta("Sales Order").has_field("custom_short_picked_at") else None
+    if spa:
+        from frappe.utils import time_diff_in_seconds, now_datetime
+        try:
+            if time_diff_in_seconds(now_datetime(), spa) < 24 * 3600:
+                return "short-picked recently (shelf empty)"
+        except Exception:
+            pass
     return None
 
 
@@ -1259,3 +1269,72 @@ def sort_scan(pick_list, code):
         frappe.cache().delete_value("lp_board_summary")
     frappe.db.commit()
     return result
+
+
+@frappe.whitelist()
+def report_short_pick(pick_list, order, item_code=None):
+    """The picker can't find an item on the shelf. Chosen ops flow: pull that
+    ORDER off the draft pick list (back to the problem pool, cool-down 24h so
+    batching doesn't bounce it right back), notify the dispatchers, and let
+    the picker keep working the rest of the list. Assigned picker / owner /
+    manager only."""
+    from logistics_portal.api.auth import SEED_ROLES, resolve_role
+
+    if not frappe.db.exists("Pick List", pick_list):
+        frappe.throw("Unknown pick list.")
+    pl = frappe.get_doc("Pick List", pick_list)
+    user, role = frappe.session.user, resolve_role(frappe.session.user)
+    if role != "manager" and user not in (pl.get("custom_assigned_picker"), pl.owner):
+        frappe.throw("You are not the picker for this list.", frappe.PermissionError)
+    if pl.docstatus != 0:
+        frappe.throw("This pick list is already submitted.")
+
+    so_name = (order or "").strip()
+    rows = [r for r in (pl.get("locations") or []) if r.sales_order == so_name]
+    if not rows:
+        frappe.throw("That order isn't on this pick list.")
+
+    keep = [r for r in pl.get("locations") if r.sales_order != so_name]
+    deleted = False
+    if keep:
+        pl.set("locations", keep)
+        pl.flags.ignore_permissions = True
+        pl.save(ignore_permissions=True)
+    else:
+        # Last order on the list — the whole draft goes.
+        frappe.delete_doc("Pick List", pick_list, force=1, ignore_permissions=True)
+        deleted = True
+
+    # Cool-down + audit trail on the order.
+    so = frappe.get_doc("Sales Order", so_name)
+    if so.meta.has_field("custom_short_picked_at"):
+        so.db_set("custom_short_picked_at", frappe.utils.now_datetime(),
+                  update_modified=False)
+    what = f" ({item_code})" if item_code else ""
+    so.add_comment("Comment",
+                   f"Short pick: item{what} not found on the shelf by {user} — "
+                   f"pulled off {pick_list}, back to the pool for 24h.")
+
+    # Tell the dispatchers something physical is wrong.
+    dispatchers = [u for u, r in SEED_ROLES.items() if r in ("dispatcher", "manager")]
+    for d in dispatchers:
+        try:
+            frappe.get_doc({
+                "doctype": "Notification Log",
+                "subject": f"Short pick: {so_name}",
+                "email_content": f"{user} couldn't find item{what} on the shelf. "
+                                 f"Order pulled off {pick_list}.",
+                "type": "Alert", "document_type": "Sales Order",
+                "document_name": so_name, "for_user": d,
+            }).insert(ignore_permissions=True)
+        except Exception:
+            pass
+    frappe.publish_realtime("logistics_alert", {
+        "severity": "warning", "title": f"Short pick: {so_name}",
+        "detail": f"Item{what} missing on shelf — order back to the pool."})
+
+    for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    frappe.db.commit()
+    return {"ok": True, "order": so_name, "removedLines": len(rows),
+            "plDeleted": deleted}

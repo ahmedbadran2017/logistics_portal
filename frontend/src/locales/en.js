@@ -150,6 +150,10 @@ export default {
     done: "Pick list submitted",
     submitFail: "Couldn't submit",
     loadFail: "Couldn't load the pick list",
+    shortPick: "Item not on the shelf",
+    shortConfirm: "Tap the warning again to pull this ORDER off the list",
+    shortDone: "Order pulled — dispatcher notified",
+    shortFail: "Couldn't report the short pick",
   },
   mani: {
     onManifest: "On manifest · last added",
