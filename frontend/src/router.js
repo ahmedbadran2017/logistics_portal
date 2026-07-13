@@ -34,6 +34,7 @@ const routes = [
       // Returns
       { path: "returns", name: "Returns", component: () => import("@/pages/Returns.vue") },
       { path: "returns/receive", name: "ReturnReceiving", component: () => import("@/pages/ReturnReceiving.vue") },
+      { path: "returns/restock", name: "RestockZone", component: () => import("@/pages/RestockZone.vue") },
 
       // Manager
       { path: "cockpit", name: "Cockpit", component: () => import("@/pages/Cockpit.vue") },

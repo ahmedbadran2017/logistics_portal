@@ -336,3 +336,130 @@ def close_batch(batch):
     state = _batch_state(batch)
     state["salesReturns"] = len((doc.sales_returns_created or "").splitlines())
     return state
+
+
+# ---------------------------------------------------------------------------
+# Return-Zone restock (إعادة التخزين) — the step AFTER receiving: inspect each
+# returned piece and either put it back on a sellable shelf (Material Transfer
+# to a pickable warehouse) or park it as defective (Returns Adjustment). This
+# is what un-strands the stock sitting in Return Zone - JM.
+# ---------------------------------------------------------------------------
+RETURN_ZONE = "Return Zone - JM"
+ADJUST_WH = "Returns Adjustment - JM"
+
+
+@frappe.whitelist()
+def restock_summary(limit=30):
+    """What's sitting in the Return Zone right now: totals + the most valuable
+    items first, plus the list of valid shelf targets for the move dropdown."""
+    _recv_gate()
+    limit = min(max(int(limit or 30), 1), 100)
+    tot = frappe.db.sql(
+        """SELECT COUNT(DISTINCT item_code), COALESCE(SUM(actual_qty),0),
+                  COALESCE(SUM(stock_value),0)
+           FROM `tabBin` WHERE warehouse = %s AND actual_qty > 0""",
+        (RETURN_ZONE,))[0]
+    rows = frappe.db.sql(
+        """SELECT b.item_code, b.actual_qty AS qty, b.stock_value AS value,
+                  it.custom_sku AS sku,
+                  COALESCE(NULLIF(it.item_name,''), b.item_code) AS name, it.image
+           FROM `tabBin` b
+           LEFT JOIN `tabItem` it ON it.name = b.item_code
+           WHERE b.warehouse = %s AND b.actual_qty > 0
+           ORDER BY b.stock_value DESC LIMIT %s""",
+        (RETURN_ZONE, limit), as_dict=True)
+
+    from logistics_portal.api.warehouses import excluded_zones, pickable_condition
+    cond, args = pickable_condition("name")
+    excluded = set(excluded_zones()) | {RETURN_ZONE, ADJUST_WH}
+    targets = [w[0] for w in frappe.db.sql(
+        f"SELECT name FROM `tabWarehouse` WHERE is_group = 0 AND {cond} ORDER BY name",
+        tuple(args)) if w[0] not in excluded]
+
+    return {
+        "items": int(tot[0] or 0), "qty": int(tot[1] or 0),
+        "value": round(float(tot[2] or 0)),
+        "rows": [{"itemCode": r.item_code, "sku": r.sku or "", "name": r.name,
+                  "qty": int(r.qty or 0), "value": round(float(r.value or 0)),
+                  "image": r.image or ""} for r in rows],
+        "targets": targets,
+        "adjustWh": ADJUST_WH,
+    }
+
+
+@frappe.whitelist()
+def restock_scan(code):
+    """Resolve a scanned returned piece: its Return-Zone qty and where its
+    siblings live (best shelf suggestions, by existing stock)."""
+    _recv_gate()
+    from logistics_portal.api.picking import resolve_scan
+    r = resolve_scan(code)
+    item_code = r.get("itemCode")
+    if not item_code:
+        return {"ok": False, "reason": "unknown_item", "code": (code or "").strip()}
+    in_zone = int(frappe.db.get_value(
+        "Bin", {"warehouse": RETURN_ZONE, "item_code": item_code}, "actual_qty") or 0)
+    if in_zone <= 0:
+        return {"ok": False, "reason": "not_in_zone", "itemCode": item_code,
+                "name": r.get("name"), "sku": r.get("sku")}
+    from logistics_portal.api.warehouses import pickable_condition
+    cond, args = pickable_condition("b.warehouse")
+    suggestions = frappe.db.sql(
+        f"""SELECT b.warehouse, b.actual_qty AS qty FROM `tabBin` b
+            WHERE b.item_code = %s AND b.actual_qty > 0 AND {cond}
+              AND b.warehouse NOT IN (%s, %s)
+            ORDER BY b.actual_qty DESC LIMIT 3""",
+        tuple([item_code, *args, RETURN_ZONE, ADJUST_WH]), as_dict=True)
+    image = frappe.db.get_value("Item", item_code, "image") or ""
+    return {"ok": True, "itemCode": item_code, "sku": r.get("sku") or "",
+            "name": r.get("name") or item_code, "image": image,
+            "inZone": in_zone,
+            "suggestions": [{"warehouse": s.warehouse, "qty": int(s.qty or 0)}
+                            for s in suggestions]}
+
+
+@frappe.whitelist()
+def restock_move(item_code, qty, target=None, disposition="restock"):
+    """Move inspected pieces out of the Return Zone: 'restock' → the chosen
+    shelf warehouse (sellable again); 'defective' → Returns Adjustment. One
+    submitted Material Transfer per action — fully auditable stock ledger."""
+    _recv_gate()
+    qty = int(qty or 0)
+    if qty <= 0:
+        frappe.throw("Quantity must be at least 1.")
+    if not frappe.db.exists("Item", item_code):
+        frappe.throw("Unknown item.")
+    available = int(frappe.db.get_value(
+        "Bin", {"warehouse": RETURN_ZONE, "item_code": item_code}, "actual_qty") or 0)
+    if qty > available:
+        frappe.throw(f"Only {available} in the Return Zone.")
+
+    if disposition == "defective":
+        target = ADJUST_WH
+    else:
+        if not target or not frappe.db.exists("Warehouse", target):
+            frappe.throw("Pick a target shelf.")
+        if target in (RETURN_ZONE,):
+            frappe.throw("Target can't be the Return Zone itself.")
+
+    company = frappe.defaults.get_global_default("company") \
+        or frappe.db.get_value("Warehouse", RETURN_ZONE, "company")
+    se = frappe.get_doc({
+        "doctype": "Stock Entry",
+        "stock_entry_type": "Material Transfer",
+        "company": company,
+        "items": [{
+            "item_code": item_code, "qty": qty,
+            "s_warehouse": RETURN_ZONE, "t_warehouse": target,
+        }],
+    })
+    se.flags.ignore_permissions = True
+    se.insert(ignore_permissions=True)
+    se.submit()
+    frappe.db.commit()
+    # Stock moved — availability and OOS buckets changed.
+    for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    return {"ok": True, "entry": se.name, "itemCode": item_code, "qty": qty,
+            "target": target, "disposition": disposition,
+            "remaining": max(0, available - qty)}
