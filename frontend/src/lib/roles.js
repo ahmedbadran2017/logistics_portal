@@ -102,13 +102,15 @@ export const ROLE_CONFIG = {
     ],
   },
   packer: {
-    home: "LabelQueue",
+    // Home = the sorting station: that's where the packer's real work starts
+    // (scan tote → allocate → print). LabelQueue stays as the reprint queue.
+    home: "PackStation",
     nav: [
       {
         section: "nav.operations",
         items: [
-          { to: "LabelQueue", label: "nav.label", icon: "printer" },
           { to: "PackStation", label: "nav.pack", icon: "tag" },
+          { to: "LabelQueue", label: "nav.label", icon: "printer" },
           { to: "Manifest", label: "nav.manifest", icon: "package-check" },
           { to: "Shipments", label: "nav.shipments", icon: "truck" },
           { to: "Carriers", label: "nav.carriers", icon: "send" },

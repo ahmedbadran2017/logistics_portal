@@ -43,7 +43,7 @@
         <!-- added parcels -->
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
           <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold text-stone-700 flex items-center justify-between">
-            <span>On manifest · last added</span>
+            <span>{{ t("mani.onManifest") }}</span>
             <span class="text-stone-400 tabular-nums">{{ parcels.length }} on manifest</span>
           </div>
           <div class="divide-y divide-stone-100 max-h-[420px] overflow-y-auto">
@@ -82,7 +82,7 @@
 
         <!-- recent manifests -->
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
-          <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold text-stone-700">Recent manifests</div>
+          <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold text-stone-700">{{ t("mani.recent") }}</div>
           <div class="divide-y divide-stone-100">
             <div
               v-for="m in RECENT_MANIFESTS"
@@ -108,7 +108,7 @@
         >
           <div class="flex items-center gap-2" :class="cutoffUrgent ? 'text-rose-700' : 'text-amber-700'">
             <Icon name="clock" :size="16" />
-            <span class="text-[12px] font-semibold uppercase tracking-wide">Cutoff in</span>
+            <span class="text-[12px] font-semibold uppercase tracking-wide">{{ t("mani.cutoffIn") }}</span>
           </div>
           <div
             class="text-[34px] font-bold tabular-nums mt-1.5 leading-none"
@@ -160,7 +160,7 @@
         </p>
         <div class="flex items-center justify-end gap-2 mt-4">
           <button class="h-9 px-4 rounded-lg text-[13px] font-medium text-stone-600 hover:bg-stone-100"
-                  :disabled="closing" @click="confirmClose = false">Keep open</button>
+                  :disabled="closing" @click="confirmClose = false">{{ t("mani.keepOpen") }}</button>
           <button class="h-9 px-4 rounded-lg text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
                   :disabled="closing" @click="doClose">
             {{ closing ? "Closing…" : "Close & submit" }}
@@ -181,8 +181,10 @@ import {
 } from "@/lib/handoffData.js";
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
+import { useI18n } from "@/composables/useI18n";
 
 const { success, warn } = useToast();
+const { t } = useI18n();
 
 // Closing the manifest is a real submit: it hands the parcels to the carrier,
 // flips every order to Shipped and drafts their invoices — so it's confirmed.
@@ -230,14 +232,14 @@ async function onScan(code) {
   if (isLive.value) {
     if (!c) return;
     if (parcels.value.some((p) => (p.awb || "").toLowerCase() === c.toLowerCase())) {
-      scanner.value?.showError("Already on this manifest"); return;
+      scanner.value?.showError(t("mani.already")); return;
     }
     const res = await liveOr(null, () => apiPost("shipping.manifest_scan", { code: c }));
     if (!res || !res.ok) {
       scanner.value?.showError(
-        res && res.reason === "already" ? "Already on a shipment"
-          : res && res.reason === "not_ready" ? "Not printed / ready yet"
-            : "Unknown AWB");
+        res && res.reason === "already" ? t("mani.alreadyShip")
+          : res && res.reason === "not_ready" ? t("mani.notReady")
+            : t("mani.unknownAwb"));
       return;
     }
     parcels.value.unshift({ dn: res.dn, awb: res.awb, order: res.order,

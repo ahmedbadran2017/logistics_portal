@@ -1,11 +1,14 @@
 <template>
-  <!-- ── Mobile-role stage: iPhone-style device frame ────────────── -->
+  <!-- ── Mobile-role shell: full viewport, no fake device chrome.
+       On a real 375px PDA every pixel counts — the old fixed-390px iPhone
+       frame overflowed the screen and burned ~15% of the height. On a wide
+       desktop screen the app column is centered and capped at 480px. ──── -->
   <div
     v-if="mobileRole"
-    class="min-h-screen bg-gradient-to-br from-stone-100 to-stone-200 flex items-center justify-center p-4 relative"
+    class="h-screen bg-stone-100 flex flex-col items-center relative overflow-hidden"
   >
-    <!-- Floating logo + role switcher, top-start -->
-    <div class="absolute top-4 z-10 flex items-center gap-3" style="inset-inline-start:1rem">
+    <!-- Compact header: logo + role switcher -->
+    <div class="w-full max-w-[480px] flex items-center gap-3 px-3 py-2 bg-white border-b border-stone-200/70 relative z-10">
       <img :src="logoSrc" alt="Justyol" class="h-4" />
       <button
         type="button"
@@ -43,38 +46,26 @@
       </div>
     </div>
 
-    <!-- Phone frame -->
-    <div class="relative" style="width:390px;height:800px;max-height:calc(100vh - 2rem)">
-      <div class="absolute inset-0 rounded-[44px] bg-stone-900 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.45),0_0_0_2px_rgba(0,0,0,0.6)] p-[10px]">
-        <div class="relative w-full h-full rounded-[36px] overflow-hidden bg-stone-50">
-          <!-- status bar -->
-          <div class="absolute top-0 inset-x-0 h-11 z-20 flex items-end justify-between px-6 pb-1.5 text-[12px] font-semibold text-stone-900 pointer-events-none">
-            <span class="tabular-nums">9:41</span>
-            <div class="absolute left-1/2 -translate-x-1/2 top-2 w-[110px] h-[26px] bg-stone-900 rounded-full" />
-            <span class="flex items-center gap-1">
-              <Icon name="globe" :size="13" /><span class="tabular-nums">100%</span>
-            </span>
-          </div>
-          <!-- screen -->
-          <div class="absolute inset-0 pt-11 pb-[68px] overflow-y-auto overscroll-contain" style="scrollbar-width:none">
-            <router-view v-slot="{ Component }">
-              <component :is="Component" :key="$route.fullPath" />
-            </router-view>
-          </div>
-          <!-- bottom tab bar -->
-          <div class="absolute bottom-0 inset-x-0 h-[60px] bg-white/95 backdrop-blur-sm border-t border-stone-200/70 flex items-stretch">
-            <router-link
-              v-for="item in mobileNav"
-              :key="item.to"
-              :to="{ name: item.to }"
-              class="flex-1 flex flex-col items-center justify-center gap-1 transition-colors"
-              :class="route.name === item.to ? 'text-[var(--accent-600)]' : 'text-stone-400'"
-            >
-              <Icon :name="item.icon" :size="21" />
-              <span class="text-[10px] font-medium">{{ t(item.label) }}</span>
-            </router-link>
-          </div>
-        </div>
+    <!-- App column: full remaining height -->
+    <div class="w-full max-w-[480px] flex-1 flex flex-col min-h-0 bg-stone-50 relative">
+      <div class="flex-1 overflow-y-auto overscroll-contain pb-[64px]" style="scrollbar-width:none">
+        <router-view v-slot="{ Component }">
+          <component :is="Component" :key="$route.fullPath" />
+        </router-view>
+      </div>
+      <!-- bottom tab bar -->
+      <div class="absolute bottom-0 inset-x-0 h-[60px] bg-white/95 backdrop-blur-sm border-t border-stone-200/70 flex items-stretch"
+           style="padding-bottom:env(safe-area-inset-bottom)">
+        <router-link
+          v-for="item in mobileNav"
+          :key="item.to"
+          :to="{ name: item.to }"
+          class="flex-1 flex flex-col items-center justify-center gap-1 transition-colors"
+          :class="route.name === item.to ? 'text-[var(--accent-600)]' : 'text-stone-400'"
+        >
+          <Icon :name="item.icon" :size="21" />
+          <span class="text-[10px] font-medium">{{ t(item.label) }}</span>
+        </router-link>
       </div>
     </div>
   </div>

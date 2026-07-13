@@ -13,9 +13,6 @@
                 @click="autoBalance">
           <Icon name="zap" :size="16" /> Auto-balance
         </button>
-        <button class="inline-flex items-center gap-1.5 px-3 h-9 rounded-lg ring-1 ring-stone-200 bg-white text-[13px] font-medium text-stone-700 hover:bg-stone-50 transition-colors">
-          <Icon name="layers" :size="16" /> Combined Pick
-        </button>
         <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-stone-100 text-stone-600 text-[11.5px] font-medium">
           <span class="w-1.5 h-1.5 rounded-full bg-stone-400" />
           {{ unassigned.length }} unassigned
@@ -184,9 +181,9 @@ import { useToast } from "@/composables/useToast";
 import {
   ORDERS, TEAM, byId, fmtMAD, STAGE, SLA, STAGE_LABEL, SLA_LABEL, getInitial,
 } from "@/lib/handoffData.js";
-import { api, liveOr } from "@/lib/resource";
+import { api, apiPost, liveOr } from "@/lib/resource";
 
-const { success, info } = useToast();
+const { success, info, warn } = useToast();
 
 const capacity = 12;
 
@@ -212,6 +209,7 @@ onMounted(async () => {
       const demo = DEMO_PICKERS.find((d) => d.id === p.id) || {};
       return {
         id: p.id,
+        email: p.email || "",
         name: p.name || demo.name || p.id,
         short: demo.short || p.name || p.id,
         top: demo.top || false,
@@ -238,6 +236,7 @@ const assignTo = ref("");
 
 // orderNo -> pickerId (dispatcher assignments made this session)
 const assign = reactive({});
+const assigning = ref(false);
 
 // seed base loads from orders already in-flight for each picker (demo fallback);
 // live picker loads (when present) take precedence via loadFor().
@@ -323,26 +322,66 @@ function clearSelection() {
   selected.value = new Set();
   assignTo.value = "";
 }
-function doAssign(pid) {
-  if (!pid || selected.value.size === 0) return;
-  const n = selected.value.size;
-  selected.value.forEach((no) => { assign[no] = pid; });
-  success("Assigned", `${n} order${n > 1 ? "s" : ""} → ${byId(pid).short}`);
-  clearSelection();
+async function doAssign(pid) {
+  if (!pid || selected.value.size === 0 || assigning.value) return;
+  const picker = pickers.value.find((x) => x.id === pid);
+  const orderNos = [...selected.value];
+  assigning.value = true;
+  try {
+    // REAL assignment: one draft Pick List for the batch, assigned to the picker.
+    // It lands in their my_queue immediately.
+    const res = await apiPost("picking.create_pick_list_from_orders", {
+      orders: orderNos,
+      picker: picker?.email || undefined,
+    });
+    orderNos.forEach((no) => { assign[no] = pid; });
+    const nSkip = (res.skipped || []).length;
+    success(
+      `${res.orders} assigned → ${picker?.short || pid}`,
+      `${res.pl}` + (nSkip ? ` · ${nSkip} skipped` : ""),
+    );
+    clearSelection();
+  } catch (e) {
+    warn("Couldn't assign", String(e.message || e));
+  } finally {
+    assigning.value = false;
+  }
 }
-function autoBalance() {
+async function autoBalance() {
   const pool = unassigned.value;
   if (pool.length === 0) {
     info("Auto-balance", "No unassigned orders to balance.");
     return;
   }
+  if (assigning.value) return;
+  // Allocate to the least-loaded pickers, then persist ONE pick list per picker.
   const live = {};
-  pickers.value.forEach((p) => { live[p.id] = loadFor(p.id); });
+  const chunks = {};
+  pickers.value.forEach((p) => { live[p.id] = loadFor(p.id); chunks[p.id] = []; });
   pool.forEach((o) => {
     const pid = pickers.value.slice().sort((x, y) => live[x.id] - live[y.id])[0].id;
-    assign[o.no] = pid;
+    chunks[pid].push(o.no);
     live[pid]++;
   });
+  assigning.value = true;
+  try {
+    let made = 0;
+    for (const p of pickers.value) {
+      if (!chunks[p.id].length) continue;
+      const res = await apiPost("picking.create_pick_list_from_orders", {
+        orders: chunks[p.id],
+        picker: p.email || undefined,
+      });
+      chunks[p.id].forEach((no) => { assign[no] = p.id; });
+      made += 1;
+      info(`${p.short || p.id} ← ${res.orders} orders`, res.pl);
+    }
+    success("Auto-balance done", `${made} pick lists created`);
+  } catch (e) {
+    warn("Auto-balance stopped", String(e.message || e));
+  } finally {
+    assigning.value = false;
+  }
   info("Auto-balance", `${pool.length} orders balanced across ${pickers.value.length} pickers`);
   clearSelection();
 }

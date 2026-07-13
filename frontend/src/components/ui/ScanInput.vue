@@ -10,6 +10,7 @@
         ref="field"
         v-model="value"
         :placeholder="placeholder"
+        :inputmode="softKeyboard ? 'text' : 'none'"
         class="w-full bg-transparent py-5 ps-14 pe-4 text-lg font-semibold text-content
                placeholder:text-content-4 focus:outline-none"
         autocomplete="off"
@@ -17,6 +18,16 @@
         spellcheck="false"
         @keydown.enter.prevent="submit"
       />
+      <button
+        type="button"
+        class="absolute top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center text-content-3 hover:text-content"
+        style="inset-inline-end:.6rem"
+        :title="softKeyboard ? 'Scanner mode' : 'Keyboard'"
+        tabindex="-1"
+        @click.prevent="softKeyboard = !softKeyboard; refocus()"
+      >
+        <Icon name="edit" :size="15" />
+      </button>
     </div>
     <div class="mt-2 min-h-[20px] text-sm font-medium flex items-center gap-1.5" :style="{ color: feedbackHex }">
       <Icon v-if="feedback" :name="feedbackIcon" :size="16" />
@@ -26,7 +37,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import Icon from "./Icon.vue";
 
 const props = defineProps({
@@ -39,6 +50,31 @@ const field = ref(null);
 const value = ref("");
 const state = ref("idle"); // idle | success | error | duplicate
 const feedback = ref("");
+// PDA default: hardware wedge types the code, so suppress the soft keyboard
+// (inputmode="none"); the pencil button re-enables it for manual entry.
+const softKeyboard = ref(false);
+
+// Warehouse-standard focus recovery: an incidental tap anywhere kills focus
+// silently and the next wedge scan types into the void. Any printable key
+// pressed while no editable element has focus is routed back to this input.
+function captureKeys(e) {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const el = document.activeElement;
+  if (el === field.value) return;
+  const editable = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA"
+    || el.tagName === "SELECT" || el.isContentEditable);
+  if (editable) return;
+  if (e.key === "Enter") {
+    // A scan finished while we were unfocused — submit whatever buffered.
+    if (value.value.trim()) { e.preventDefault(); submit(); }
+    return;
+  }
+  if (e.key.length === 1) {
+    value.value += e.key;
+    e.preventDefault();
+    refocus();
+  }
+}
 
 const stateBorder = computed(() => ({
   "border-border": state.value === "idle",
@@ -99,6 +135,10 @@ function vibrate(p) {
   if (navigator.vibrate) navigator.vibrate(p);
 }
 
-onMounted(() => props.autofocus && refocus());
+onMounted(() => {
+  if (props.autofocus) refocus();
+  document.addEventListener("keydown", captureKeys, true);
+});
+onBeforeUnmount(() => document.removeEventListener("keydown", captureKeys, true));
 defineExpose({ showSuccess, showError, refocus });
 </script>

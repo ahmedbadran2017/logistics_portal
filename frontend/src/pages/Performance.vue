@@ -75,7 +75,7 @@
     </div>
 
     <!-- Personal bests -->
-    <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-5">
+    <div v-if="bests.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-5">
       <div class="flex items-center gap-2 mb-3 text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">
         <Icon name="sparkles" :size="15" class="text-amber-500" /> Personal bests
       </div>
@@ -88,7 +88,7 @@
     </div>
 
     <!-- Recent activity -->
-    <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-5">
+    <div v-if="recent.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-5">
       <div class="flex items-center gap-2 mb-3 text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">
         <Icon name="list-checks" :size="15" /> Recent picks
       </div>
@@ -113,28 +113,35 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
-import { LEADERBOARD as DEMO_LEADERBOARD, byId } from "@/lib/handoffData";
+import { useAuth } from "@/composables/useAuth";
 import { api, liveOr } from "@/lib/resource";
 
-const ME_ID = "marouane";
-const person = byId(ME_ID);
-const board = ref(DEMO_LEADERBOARD);
+// Real identity: the logged-in user, matched against the live leaderboard by
+// email-derived id or raw email (the old hardcoded "marouane" showed everyone
+// the same person's stats).
+const { user, fullName } = useAuth();
+const board = ref([]);
+const myStats = ref(null);
 
 onMounted(async () => {
-  const live = await liveOr(null, () => api("performance.team"));
-  if (live && live.leaderboard && live.leaderboard.length) {
-    board.value = live.leaderboard.map((r) => ({
-      ...r,
-      trend: r.trend && r.trend.length ? r.trend : (DEMO_LEADERBOARD.find((d) => d.id === r.id)?.trend || []),
-    }));
-  }
+  const [live, mine] = await Promise.all([
+    liveOr(null, () => api("performance.team")),
+    api("performance.me").catch(() => null),
+  ]);
+  if (live && live.leaderboard && live.leaderboard.length) board.value = live.leaderboard;
+  myStats.value = mine;
 });
 
-const me = computed(
-  () => board.value.find((m) => m.id === ME_ID) || { picks: 0, avg: "—", sla: 0, rank: 0, trend: [0], target: 40 }
-);
+const me = computed(() => {
+  const email = user.value || "";
+  const localPart = email.split("@")[0].toLowerCase();
+  return board.value.find((m) =>
+    m.id === email || String(m.id).toLowerCase() === localPart
+    || (m.name || "").toLowerCase() === (fullName.value || "").toLowerCase())
+    || { picks: myStats.value?.todayCount || 0, avg: "—", sla: 0, rank: 0, trend: [0], target: 40 };
+});
 
-const firstName = computed(() => (person.name || "there").split(/\s+/)[0]);
+const firstName = computed(() => (fullName.value || "").split(/\s+/)[0] || "");
 
 const pct = computed(() => Math.min(100, Math.round((me.value.picks / (me.value.target || 1)) * 100)));
 const hitTarget = computed(() => me.value.picks >= me.value.target);
@@ -157,19 +164,8 @@ const sparkCoords = computed(() => {
 });
 const sparkPoints = computed(() => sparkCoords.value.map((p) => `${p.x},${p.y}`).join(" "));
 
-// Personal bests + recent activity (fabricated, plausible)
-const bests = [
-  { label: "Best day", value: "38 picks" },
-  { label: "Fastest pick", value: "1m32s" },
-  { label: "Best SLA", value: "97%" },
-  { label: "Longest streak", value: "9 days" },
-];
-
-const recent = [
-  { order: "#242629", customer: "Sara Razine", time: "16:42" },
-  { order: "#242633", customer: "Amal Mourid", time: "16:31" },
-  { order: "J-000117", customer: "Rahma", time: "16:19" },
-  { order: "#242624", customer: "Widad Widad", time: "16:04" },
-  { order: "#242232", customer: "Hiba Hiba", time: "15:51" },
-];
+// Personal bests / recent picks: no real history endpoint yet — show nothing
+// rather than fabricated numbers. (Backed by performance.me once it grows.)
+const bests = [];
+const recent = [];
 </script>

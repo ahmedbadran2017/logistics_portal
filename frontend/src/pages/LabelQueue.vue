@@ -100,8 +100,7 @@
               <div class="text-stone-400 mb-0.5">Ship to</div>
               <div class="text-stone-800 leading-snug text-[11.5px]">
                 {{ sel?.customer }}<br />
-                Rue 12, Résidence Al Amal<br />
-                Quartier Maârif, {{ CITY }} · Maroc
+                {{ sel?.city || "—" }} · Maroc
               </div>
             </div>
             <div class="flex items-center justify-between pt-1.5">
@@ -133,7 +132,7 @@
 import { ref, computed, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { LABEL_QUEUE as DEMO_LABEL_QUEUE, CHANNELS, SLA, SLA_LABEL, CARRIER, WAREHOUSE, CITY, fmtMAD } from "@/lib/handoffData.js";
-import { api, liveOr } from "@/lib/resource";
+import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
 
 const { success, warn } = useToast();
@@ -153,10 +152,8 @@ onMounted(async () => {
 const sel = computed(() => rows.value.find((r) => r.order === preview.value));
 const pending = computed(() => rows.value.filter((r) => !r.printed).length);
 
-const awb = computed(() => {
-  const digits = parseInt((sel.value?.order || "").replace(/\D/g, "")) || 0;
-  return "LD007758" + String(300 + (digits % 600)).padStart(3, "0");
-});
+// The REAL carrier AWB from the backend — em-dash when it doesn't exist yet.
+const awb = computed(() => sel.value?.awb || "—");
 
 // faux barcode bars — deterministic so they don't jitter between renders
 const barcode = Array.from({ length: 42 }, (_, i) => ({
@@ -176,13 +173,37 @@ function channelChip(key) {
   return map[tone] || map.slate;
 }
 
-function print(order) {
+async function print(order) {
   const row = rows.value.find((r) => r.order === order);
-  if (row) row.printed = true;
-  warn("عرض تجريبي — لم يتم توليد AWB", "استخدم محطة الفرز للطباعة الحقيقية");
+  if (!row) return;
+  if (!row.labelUrl) {
+    warn("لا توجد بوليصة لهذا الأوردر بعد", "استخدم Retry AWB من لوحة الطلبات");
+    return;
+  }
+  printLabel(row.labelUrl);
+  try {
+    await apiPost("shipping.mark_labels_printed", { orders: [order] });
+    row.printed = true;
+  } catch (e) {
+    warn("لم يتم تحديث الحالة", String(e.message || e));
+  }
 }
 
 function printAll() {
-  rows.value.filter((r) => !r.printed).forEach((r) => print(r.order));
+  // Thermal printing is one dialog at a time — open the next unprinted label.
+  const next = rows.value.find((r) => !r.printed && r.labelUrl);
+  if (next) { preview.value = next.order; print(next.order); }
+  else warn("لا توجد بوالص جاهزة للطباعة");
+}
+
+// Same hidden-iframe thermal print used by the sorting station.
+function printLabel(url) {
+  if (!url) return;
+  try {
+    let f = document.getElementById("lp-print-frame");
+    if (!f) { f = document.createElement("iframe"); f.id = "lp-print-frame"; f.style.display = "none"; document.body.appendChild(f); }
+    f.onload = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { window.open(url, "_blank"); } };
+    f.src = url;
+  } catch (e) { window.open(url, "_blank"); }
 }
 </script>

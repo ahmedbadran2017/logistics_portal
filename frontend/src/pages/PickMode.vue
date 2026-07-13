@@ -1,192 +1,181 @@
 <template>
-  <div class="min-h-full bg-white flex flex-col">
-    <!-- Success state -->
-    <div
-      v-if="complete"
-      class="flex-1 flex flex-col items-center justify-center text-center px-8 py-16 bg-gradient-to-b from-emerald-50 to-white"
-    >
-      <div class="w-24 h-24 rounded-full bg-emerald-500 text-white flex items-center justify-center mb-5 shadow-[0_12px_40px_-8px_rgba(16,185,129,0.5)]">
-        <Icon name="check" :size="48" />
-      </div>
-      <div class="text-[22px] font-bold text-stone-900">Nice work 🎉</div>
-      <div class="text-[14px] text-stone-600 mt-1">{{ orderNo }} · {{ order?.customer }}</div>
-      <button
-        class="mt-8 h-13 px-6 py-3.5 rounded-2xl bg-stone-900 text-white text-[15px] font-semibold active:scale-[0.98] transition-transform"
-        @click="nextOrder"
-      >
-        Next order
-      </button>
-    </div>
-
-    <template v-else>
-      <!-- header -->
-      <div class="px-4 pt-3 pb-3 border-b border-stone-100 flex items-center gap-3 sticky top-0 bg-white z-10">
-        <button
-          class="w-9 h-9 rounded-full hover:bg-stone-100 flex items-center justify-center text-stone-600"
-          @click="$router.back()"
-        >
-          <Icon name="chevron-left" :size="18" />
+  <div class="min-h-full bg-stone-50 flex flex-col">
+    <!-- Header -->
+    <div class="px-4 pt-3 pb-2.5 bg-white border-b border-stone-200/70 sticky top-0 z-10">
+      <div class="flex items-center gap-2.5">
+        <button class="w-8 h-8 rounded-lg bg-stone-100 flex items-center justify-center flex-shrink-0" @click="goBack">
+          <Icon name="chevron-left" :size="16" class="rtl:rotate-180" />
         </button>
-        <div class="flex-1 min-w-0">
-          <div class="font-mono text-[14px] font-bold text-stone-900 truncate">{{ orderNo }}</div>
-          <div class="text-[11.5px] text-stone-500 truncate">{{ order?.customer || "Order" }}</div>
+        <div class="min-w-0 flex-1">
+          <div class="font-mono text-[14px] font-bold text-stone-900 truncate">{{ id }}</div>
+          <div class="text-[11px] text-stone-500">{{ t("pickm.scanned") }} {{ done }}/{{ total }} · {{ pct }}%</div>
         </div>
-        <span
-          v-if="order"
-          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold ring-1 whitespace-nowrap"
-          :class="[SLA[order.sla].txt, SLA[order.sla].bg, SLA[order.sla].ring]"
-        >
-          <span class="w-1.5 h-1.5 rounded-full" :class="SLA[order.sla].dot" />
-          {{ SLA_LABEL[order.sla] }}
+        <span class="text-[12px] font-bold tabular-nums px-2 py-1 rounded-lg"
+              :class="allDone ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-700'">
+          {{ done }}/{{ total }}
         </span>
       </div>
-
-      <!-- progress -->
-      <div class="px-4 py-3">
-        <div class="flex items-center justify-between mb-1.5">
-          <span class="text-[12px] font-medium text-stone-500 whitespace-nowrap">{{ scannedCount }} / {{ items.length }} scanned</span>
-          <span class="text-[12px] font-semibold text-emerald-600">{{ progress }}%</span>
-        </div>
-        <div class="h-2 rounded-full bg-stone-100 overflow-hidden">
-          <div class="h-full bg-emerald-500 rounded-full transition-all duration-300" :style="{ width: progress + '%' }" />
-        </div>
+      <div class="h-1.5 rounded-full bg-stone-100 overflow-hidden mt-2">
+        <div class="h-full rounded-full transition-all duration-300"
+             :class="allDone ? 'bg-emerald-500' : 'bg-[var(--accent-500)]'"
+             :style="{ width: pct + '%' }" />
       </div>
+    </div>
 
-      <!-- current item hero -->
-      <div v-if="current" class="px-4 pb-1">
-        <div class="rounded-2xl ring-1 ring-stone-900 bg-white p-4 shadow-[0_4px_16px_-6px_rgba(0,0,0,0.12)]">
-          <div class="text-[10px] font-semibold text-stone-400 uppercase tracking-wide mb-1">Current item</div>
-          <div class="flex items-center justify-between gap-3">
-            <div class="min-w-0">
-              <div class="text-[15px] font-semibold text-stone-900 truncate">{{ current.name }}</div>
-              <div class="text-[12px] text-stone-500 mt-1 flex items-center gap-2 flex-wrap">
-                <span class="font-mono">{{ current.sku }}</span>
-                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 font-mono font-medium whitespace-nowrap">
-                  <Icon name="map-pin" :size="10" />{{ current.bin }}
-                </span>
-              </div>
-            </div>
-            <div class="text-[18px] font-bold text-stone-900 tabular-nums leading-none flex-shrink-0">×{{ current.qty }}</div>
-          </div>
+    <!-- Scanner -->
+    <div class="px-4 py-3 bg-white border-b border-stone-200/70 sticky top-[74px] z-10">
+      <ScanInput ref="scanner" :placeholder="t('pickm.scanPh')" @scan="onScan" />
+    </div>
+
+    <!-- Loading -->
+    <div v-if="loading" class="p-4 space-y-2.5">
+      <div v-for="n in 4" :key="n" class="h-[72px] rounded-2xl ring-1 ring-stone-200/60 bg-white animate-pulse" />
+    </div>
+
+    <!-- Walk stops: lines grouped by bin, in walk order -->
+    <div v-else class="flex-1 px-4 py-3 space-y-3 pb-28">
+      <div v-for="stop in stops" :key="stop.bin" class="space-y-1.5">
+        <div class="flex items-center gap-2 px-1">
+          <Icon name="map-pin" :size="12" class="text-stone-400" />
+          <span class="text-[11px] font-bold uppercase tracking-[0.05em] text-stone-500">{{ stop.bin }}</span>
+          <span class="text-[10.5px] text-stone-400 tabular-nums ms-auto">{{ stop.done }}/{{ stop.qty }}</span>
         </div>
-      </div>
-
-      <!-- scan input -->
-      <div class="px-4 pt-3">
-        <ScanInput ref="scanner" placeholder="Scan item barcode" @scan="onScan" />
-      </div>
-
-      <!-- remaining checklist -->
-      <div class="px-4 space-y-2.5 flex-1">
         <div
-          v-for="it in items"
-          :key="it.sku"
-          class="rounded-2xl ring-1 p-3.5 transition-all"
-          :class="it.scanned ? 'ring-emerald-200 bg-emerald-50/50' : it === current ? 'ring-stone-300 bg-white' : 'ring-stone-200 bg-white opacity-60'"
+          v-for="l in stop.lines"
+          :key="l.sku + l.so"
+          class="bg-white rounded-2xl ring-1 p-3 flex items-center gap-3 transition-all"
+          :class="flash === l.sku ? 'ring-2 ring-[var(--accent-500)] shadow-md'
+            : l.scannedQty >= l.qty ? 'ring-emerald-200 bg-emerald-50/40' : 'ring-stone-200/70'"
         >
-          <div class="flex items-center gap-3">
-            <div
-              class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-              :class="it.scanned ? 'bg-emerald-500 text-white' : 'bg-stone-100 text-stone-400'"
-            >
-              <Icon :name="it.scanned ? 'check' : 'package'" :size="it.scanned ? 22 : 20" />
-            </div>
-            <div class="min-w-0 flex-1">
-              <div class="text-[13.5px] font-medium text-stone-900 truncate">{{ it.name }}</div>
-              <div class="text-[11.5px] text-stone-500 mt-0.5 flex items-center gap-2">
-                <span class="font-mono">{{ it.sku }}</span>
-                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 font-mono font-medium whitespace-nowrap">
-                  <Icon name="map-pin" :size="10" />{{ it.bin }}
-                </span>
-              </div>
-            </div>
-            <div class="text-[15px] font-bold text-stone-900 tabular-nums leading-none flex-shrink-0">×{{ it.qty }}</div>
+          <img v-if="l.image" :src="l.image" alt="" loading="lazy" @error="hideImg"
+               class="w-12 h-12 rounded-xl object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
+          <span v-else class="w-12 h-12 rounded-xl bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center flex-shrink-0 text-stone-400">
+            <Icon name="package" :size="16" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <div class="text-[13px] font-medium text-stone-900 truncate">{{ l.name }}</div>
+            <div class="font-mono text-[11px] text-stone-500">{{ l.realSku || l.sku }}</div>
+          </div>
+          <div class="text-end flex-shrink-0">
+            <span class="text-[16px] font-bold tabular-nums"
+                  :class="l.scannedQty >= l.qty ? 'text-emerald-600' : 'text-stone-900'">
+              {{ l.scannedQty }}/{{ l.qty }}
+            </span>
+            <Icon v-if="l.scannedQty >= l.qty" name="check-circle" :size="16" class="text-emerald-500 ms-1 inline" />
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- action dock -->
-      <div class="sticky bottom-0 bg-white border-t border-stone-100 p-4 pt-3 space-y-2.5">
-        <div v-if="allScanned" class="flex items-center justify-center gap-2 text-[13px] font-semibold text-emerald-600">
-          <Icon name="check-circle" :size="18" /> All items scanned
-        </div>
-        <div class="flex gap-2.5">
-          <button
-            class="flex-1 h-12 rounded-2xl ring-1 ring-stone-200 text-stone-700 text-[13.5px] font-semibold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform"
-            @click="reportIssue"
-          >
-            <Icon name="alert-triangle" :size="16" /> Report issue
-          </button>
-          <button
-            class="flex-1 h-12 rounded-2xl text-white text-[13.5px] font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-[0.98]"
-            :class="allScanned ? 'bg-emerald-500' : 'bg-stone-300 cursor-not-allowed'"
-            :disabled="!allScanned"
-            @click="completePick"
-          >
-            <Icon name="check" :size="16" /> Complete Pick
-          </button>
-        </div>
+    <!-- Finish dock -->
+    <div v-if="!loading" class="fixed bottom-[64px] inset-x-0 px-4 pb-2 z-10">
+      <div class="max-w-[480px] mx-auto">
+        <button
+          class="w-full h-12 rounded-2xl text-[15px] font-semibold text-white flex items-center justify-center gap-2 shadow-lg transition-colors disabled:opacity-50"
+          :class="allDone ? 'bg-emerald-600 active:bg-emerald-700' : 'bg-stone-300'"
+          :disabled="!allDone || submitting"
+          @click="finish"
+        >
+          <Icon name="check-circle" :size="18" />
+          {{ submitting ? t("pickm.submitting") : t("pickm.finish") }}
+        </button>
       </div>
-    </template>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import ScanInput from "@/components/ui/ScanInput.vue";
-import { ORDERS, PICK_ITEMS, SLA, SLA_LABEL, byId } from "@/lib/handoffData";
-import { api, liveOr } from "@/lib/resource";
+import { api, apiPost } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
+import { useToast } from "@/composables/useToast";
 
-const props = defineProps({ id: String });
+const props = defineProps({ id: { type: String, required: true } });
 const router = useRouter();
+const { t } = useI18n();
+const { success, warn } = useToast();
 
-const orderNo = computed(() => (props.id?.startsWith("SAL-ORD") ? props.id : "#" + props.id));
-const order = computed(
-  () => ORDERS.find((o) => o.no === orderNo.value || o.no.replace("#", "") === props.id) || null
-);
-
-// Build the line-item list for this order from PICK_ITEMS.
-const count = Math.min(order.value?.items || 1, PICK_ITEMS.length) || 1;
-const items = ref(PICK_ITEMS.slice(0, count).map((it) => ({ ...it, scanned: false })));
-
-const complete = ref(false);
 const scanner = ref(null);
+const lines = ref([]);
+const loading = ref(true);
+const submitting = ref(false);
+const flash = ref("");
 
-// Live-or-demo: overwrite the demo line items with the real pick items for
-// this order once the app is installed. In preview api() fails → keep demo.
 onMounted(async () => {
-  const orderId = order.value?.no || props.id;
-  const live = await liveOr(null, () => api("picking.pick_items", { order: orderId }));
-  if (live && live.length) {
-    items.value = live.map((it) => ({ ...it, scanned: false }));
+  try {
+    const d = await api("picking.pick_list_detail", { name: props.id });
+    lines.value = d?.lines || [];
+  } catch (e) {
+    warn(t("pickm.loadFail"), String(e.message || e));
+  } finally {
+    loading.value = false;
   }
+  scanner.value?.refocus();
 });
 
-const current = computed(() => items.value.find((i) => !i.scanned) || null);
-const scannedCount = computed(() => items.value.filter((i) => i.scanned).length);
-const allScanned = computed(() => items.value.length > 0 && items.value.every((i) => i.scanned));
-const progress = computed(() =>
-  items.value.length ? Math.round((scannedCount.value / items.value.length) * 100) : 0
-);
+// Walk stops: group by bin, preserve backend walk order.
+const stops = computed(() => {
+  const by = new Map();
+  for (const l of lines.value) {
+    const bin = l.bin || "—";
+    if (!by.has(bin)) by.set(bin, { bin, lines: [], qty: 0, done: 0 });
+    const s = by.get(bin);
+    s.lines.push(l);
+    s.qty += l.qty;
+    s.done += Math.min(l.scannedQty, l.qty);
+  }
+  return [...by.values()];
+});
+const total = computed(() => lines.value.reduce((a, l) => a + l.qty, 0));
+const done = computed(() => lines.value.reduce((a, l) => a + Math.min(l.scannedQty, l.qty), 0));
+const pct = computed(() => (total.value ? Math.round(done.value / total.value * 100) : 0));
+const allDone = computed(() => total.value > 0 && done.value >= total.value);
 
-function onScan(code) {
-  const c = code.toLowerCase();
-  const exact = items.value.find((i) => !i.scanned && i.sku.toLowerCase() === c);
-  const target = exact || current.value;
-  if (!target) return scanner.value.showError("✗ Nothing left to scan");
-  if (target.scanned) return scanner.value.showError("Already scanned");
-  target.scanned = true;
-  scanner.value.showSuccess(`✓ Scanned (${scannedCount.value}/${items.value.length})`);
+async function onScan(code) {
+  const c = String(code || "").trim();
+  if (!c) return;
+  let res;
+  try {
+    res = await apiPost("picking.scan_pick", { pick_list: props.id, code: c });
+  } catch (e) {
+    scanner.value?.showError(String(e.message || e));
+    return;
+  }
+  if (!res.ok) {
+    scanner.value?.showError(
+      res.reason === "done" ? t("pickm.lineDone")
+        : res.reason === "not_on_list" ? t("pickm.notOnList")
+          : t("pickm.unknown"));
+    return;
+  }
+  // Reflect the backend truth locally.
+  const l = lines.value.find((x) => x.sku === res.itemCode && x.scannedQty < x.qty)
+    || lines.value.find((x) => x.sku === res.itemCode);
+  if (l) {
+    l.scannedQty = Math.min(l.scannedQty + 1, l.qty);
+    flash.value = l.sku;
+    setTimeout(() => { if (flash.value === l.sku) flash.value = ""; }, 800);
+  }
+  scanner.value?.showSuccess(`${res.name || res.itemCode} · ${res.totalScanned}/${res.totalQty}`);
+  if (res.totalScanned >= res.totalQty) success(t("pickm.allScanned"), props.id);
 }
-function reportIssue() {
-  scanner.value?.showError("Issue reported — dispatcher notified");
+
+async function finish() {
+  submitting.value = true;
+  try {
+    const res = await apiPost("picking.submit_pick_list", { name: props.id });
+    success(t("pickm.done"), res?.awb ? `AWB ${res.awb}` : props.id);
+    router.push({ name: "Queue" });
+  } catch (e) {
+    warn(t("pickm.submitFail"), String(e.message || e));
+  } finally {
+    submitting.value = false;
+  }
 }
-function completePick() {
-  complete.value = true;
-}
-function nextOrder() {
-  router.push({ name: "Queue" });
-}
+
+function goBack() { router.push({ name: "Queue" }); }
+function hideImg(e) { if (e && e.target) e.target.style.display = "none"; }
 </script>

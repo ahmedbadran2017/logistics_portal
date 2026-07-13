@@ -24,22 +24,29 @@ def capture_packer(doc, method=None):
 def label_queue(limit=50):
     """Orders picked/ready-to-label, in the SPA's LABEL_QUEUE shape."""
     try:
+        limit = min(max(int(limit or 50), 1), 200)
         rows = frappe.get_all(
             "Sales Order",
-            filters={"custom_logistics_status": ["in", ["Picked", "Received", "Label Generated"]], "docstatus": 1},
+            filters={"custom_logistics_status": ["in", ["Picked", "Received", "Label Generated"]],
+                     "docstatus": 1, "custom_sales_status": "Confirmed",
+                     "creation": [">=", frappe.utils.add_days(frappe.utils.nowdate(), -14)]},
             fields=[
                 "name", "customer_name", "custom_channel", "custom_items_count",
                 "grand_total", "custom_awb", "custom_logistics_status",
+                "custom_label_url", "custom_shipping_city",
             ],
             order_by="modified desc",
-            limit=int(limit),
+            limit=limit,
         )
         return [{
             "order": r.name,
             "customer": r.customer_name,
             "channel": (r.custom_channel or "manual").lower() or "manual",
             "parcels": r.custom_items_count or 1,
-            "value": r.grand_total or 0,
+            "value": float(r.grand_total or 0),
+            "awb": r.custom_awb or "",
+            "labelUrl": r.custom_label_url or "",
+            "city": r.custom_shipping_city or "",
             "printed": r.custom_logistics_status in ("Label Generated", "Label Printed"),
             "sla": "ontrack",
         } for r in rows]
