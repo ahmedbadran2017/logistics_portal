@@ -1162,11 +1162,12 @@ const walkStops = computed(() => {
     if (!s) {
       s = { key, bin: l.bin, sku: l.sku, realSku: l.realSku, name: l.name,
             grp: l.grp, uom: l.uom, serial: l.serial, batch: l.batch, image: l.image,
-            qty: 0, pickedQty: 0, orders: [] };
+            qty: 0, pickedQty: 0, scannedQty: 0, orders: [] };
       m.set(key, s);
     }
     s.qty += l.qty || 0;
     s.pickedQty += l.pickedQty || 0;
+    s.scannedQty += l.scannedQty || 0;
     if (l.so) s.orders.push({ so: l.so, customer: l.customer, qty: l.qty || 1 });
   });
   return [...m.values()].map((s) => ({
@@ -1183,7 +1184,10 @@ const pickScanner = ref(null);
 const scanned = ref({}); // stop.key -> units scanned this session
 const scanMode = computed(() =>
   liveDetail.value && ["draft", "open"].includes(liveDetail.value.status));
-const scannedFor = (s) => Math.max(scanned.value[s.key] || 0, s.pickedQty || 0);
+const scannedFor = (s) => {
+  const v = scanned.value[s.key];
+  return Math.max(v != null ? v : (s.scannedQty || 0), s.pickedQty || 0);
+};
 const stopDone = (s) => s.qty > 0 && scannedFor(s) >= s.qty;
 const scanTotal = computed(() => {
   let done = 0, total = 0;
@@ -1192,27 +1196,18 @@ const scanTotal = computed(() => {
 });
 async function onScanPick(raw) {
   const code = String(raw || "").trim();
-  if (!code) return;
-  const lc = code.toLowerCase();
-  const hit = (s) => [s.realSku, s.sku].some((v) => v && String(v).toLowerCase() === lc);
-  let stop = walkStops.value.find((s) => !stopDone(s) && hit(s));
-  if (!stop) {
-    // barcode / item_code alias — resolve on the server, then match by item_code
-    const r = await liveOr(null, () => api("picking.resolve_scan", { code }));
-    if (r && r.itemCode) {
-      const rc = String(r.itemCode).toLowerCase();
-      const rs = (r.sku || "").toLowerCase();
-      stop = walkStops.value.find((s) => !stopDone(s) &&
-        (String(s.sku).toLowerCase() === rc || (rs && String(s.realSku || "").toLowerCase() === rs)));
-    }
-  }
-  if (!stop) {
-    const known = walkStops.value.some((s) => hit(s));
-    pickScanner.value?.showError(known ? t("pl.scanDone1") : t("pl.scanNotList"));
+  if (!code || !liveDetail.value) return;
+  // Server resolves the scan (SKU/barcode/item_code), matches a line, and
+  // persists custom_scanned_qty so progress survives a reload.
+  const res = await liveOr(null, () =>
+    apiPost("picking.scan_pick", { pick_list: liveDetail.value.no, code }));
+  if (!res || !res.ok) {
+    pickScanner.value?.showError(res && res.reason === "done" ? t("pl.scanDone1") : t("pl.scanNotList"));
     return;
   }
-  scanned.value = { ...scanned.value, [stop.key]: (scanned.value[stop.key] || 0) + 1 };
-  pickScanner.value?.showSuccess(`✓ ${scannedFor(stop)}/${stop.qty} · ${stop.name}`.slice(0, 58));
+  const stop = walkStops.value.find((s) => String(s.sku) === String(res.itemCode));
+  if (stop) scanned.value = { ...scanned.value, [stop.key]: res.itemScanned };
+  pickScanner.value?.showSuccess(`✓ ${res.itemScanned}/${res.itemQty} · ${res.name || ""}`.slice(0, 58));
 }
 // ERPNext's root item group ("All Item Groups") means the item is simply
 // uncategorised — showing it as a chip is noise, so drop it (and blanks).

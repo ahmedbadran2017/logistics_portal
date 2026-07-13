@@ -135,6 +135,49 @@ def resolve_scan(code):
 
 
 @frappe.whitelist()
+def scan_pick(pick_list, code):
+    """Record one unit of a scanned item as picked on a draft pick list. The scan
+    (SKU/barcode/item_code) is resolved to an item, then the first not-yet-full
+    line of that item on the list gets its custom_scanned_qty bumped. Persisted
+    so progress survives a reload. Assigned picker / owner / manager only.
+    Returns {ok, itemCode, sku, name, itemScanned, itemQty, totalScanned,
+    totalQty} or {ok: False, reason}."""
+    from logistics_portal.api.auth import resolve_role
+    if not frappe.db.exists("Pick List", pick_list):
+        return {"ok": False, "reason": "unknown_list"}
+    pl = frappe.db.get_value("Pick List", pick_list,
+                             ["custom_assigned_picker", "owner", "docstatus"], as_dict=True)
+    user, role = frappe.session.user, resolve_role(frappe.session.user)
+    if role != "manager" and user not in (pl.custom_assigned_picker, pl.owner):
+        frappe.throw("You are not the picker for this list.", frappe.PermissionError)
+
+    r = resolve_scan(code)
+    item_code = r.get("itemCode")
+    if not item_code:
+        return {"ok": False, "reason": "unknown_item"}
+    row = frappe.db.sql(
+        """SELECT name, qty, COALESCE(custom_scanned_qty,0) sc FROM `tabPick List Item`
+           WHERE parent=%s AND item_code=%s AND COALESCE(custom_scanned_qty,0) < qty
+           ORDER BY idx LIMIT 1""", (pick_list, item_code), as_dict=True)
+    if not row:
+        on = frappe.db.exists("Pick List Item", {"parent": pick_list, "item_code": item_code})
+        return {"ok": False, "reason": "done" if on else "not_on_list",
+                "itemCode": item_code, "name": r.get("name")}
+    frappe.db.set_value("Pick List Item", row[0].name,
+                        "custom_scanned_qty", int(row[0].sc) + 1, update_modified=False)
+    it = frappe.db.sql(
+        """SELECT SUM(qty) q, SUM(COALESCE(custom_scanned_qty,0)) s FROM `tabPick List Item`
+           WHERE parent=%s AND item_code=%s""", (pick_list, item_code), as_dict=True)[0]
+    tot = frappe.db.sql(
+        """SELECT SUM(qty) q, SUM(COALESCE(custom_scanned_qty,0)) s FROM `tabPick List Item`
+           WHERE parent=%s""", (pick_list,), as_dict=True)[0]
+    frappe.db.commit()
+    return {"ok": True, "itemCode": item_code, "sku": r.get("sku"), "name": r.get("name"),
+            "itemScanned": int(it.s or 0), "itemQty": int(it.q or 0),
+            "totalScanned": int(tot.s or 0), "totalQty": int(tot.q or 0)}
+
+
+@frappe.whitelist()
 def complete_pick(order):
     """Mark the order Picked once all items are scanned. Only the assigned picker
     (or a logistics manager) may complete a pick."""
@@ -270,7 +313,8 @@ def pick_list_detail(name):
 
         lines = frappe.db.sql(
             """SELECT pli.item_code AS sku, COALESCE(NULLIF(pli.item_name,''), pli.item_code) AS name,
-                      pli.warehouse AS bin, pli.qty, pli.picked_qty, pli.uom,
+                      pli.warehouse AS bin, pli.qty, pli.picked_qty,
+                      COALESCE(pli.custom_scanned_qty,0) AS scanned_qty, pli.uom,
                       pli.sales_order AS so, so.customer_name AS customer,
                       so.custom_awb AS awb, it.item_group AS grp, it.image,
                       it.custom_sku AS real_sku
@@ -303,6 +347,7 @@ def pick_list_detail(name):
                 "sku": l.sku, "realSku": l.real_sku or "", "name": l.name,
                 "bin": l.bin or "—", "uom": l.uom or "",
                 "qty": int(l.qty or 0), "pickedQty": int(l.picked_qty or 0),
+                "scannedQty": int(l.scanned_qty or 0),
                 "so": l.so or "", "customer": l.customer or "", "grp": l.grp or "",
                 "image": l.image or "",
             } for l in lines],

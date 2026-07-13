@@ -46,6 +46,7 @@ doc_events = {
 after_migrate = [
     "logistics_portal.install.ensure_indexes",
     "logistics_portal.install.ensure_catalog_fields",
+    "logistics_portal.install.ensure_pick_fields",
 ]
 
 scheduler_events = {
