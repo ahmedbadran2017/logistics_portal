@@ -128,6 +128,7 @@ export default {
     missing: "Manquant",
     stuckOos: "bloqués en rupture", blockingTitle: "Réapprovisionner en priorité — bloque le plus de commandes",
     blOrders: "commandes", blStuck: "bloqués", blOldest: "plus ancien", blDays: "{n}j", blNoData: "Rien de bloqué 🎉",
+    blSeeOrders: "Voir les commandes en attente", blStuckOn: "commandes en attente de cet article", blNoOrders: "Aucune commande en attente de cet article",
     consolTitle: "Même client, plusieurs commandes", consolHint: "Préparez-les ensemble pour un seul départ",
     consolParcels: "colis en trop", consolShip: "Expédier ensemble", consolDiffAddr: "adresse différente",
     consolDone: "{n} commandes pour {c} sur une liste", consolSkipped: "ignorées", consolFail: "Impossible de regrouper ces commandes",

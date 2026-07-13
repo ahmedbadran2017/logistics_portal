@@ -204,9 +204,9 @@
             <div class="font-mono text-[10.5px] text-stone-400 truncate">{{ b.sku }}</div>
           </div>
           <div class="flex items-center gap-2 flex-shrink-0">
-            <span class="inline-flex items-center gap-1 text-[11.5px] font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200/60 rounded-md px-2 py-0.5 tabular-nums">
+            <button class="inline-flex items-center gap-1 text-[11.5px] font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200/60 rounded-md px-2 py-0.5 tabular-nums hover:bg-rose-100 transition-colors" :title="t('ordersPg.blSeeOrders')" @click.stop="showBlockingOrders(b)">
               {{ b.orders }} {{ t('ordersPg.blOrders') }}
-            </span>
+            </button>
             <span class="text-[11.5px] text-stone-500 tabular-nums w-[92px] text-end">{{ fmtMAD(b.mad) }} MAD</span>
             <span class="text-[11px] tabular-nums w-[52px] text-end font-semibold"
                   :style="{ color: b.age > 7 ? '#e11d48' : b.age > 3 ? '#d97706' : '#78716c' }">
@@ -523,6 +523,32 @@
     <SuggestBatchesModal ref="sbModal" @created="load('to_pick')" />
     <SkuLookupModal ref="skuModal" />
 
+    <!-- Orders blocked by an out-of-stock SKU (restock worklist click) -->
+    <div v-if="blockedFor" class="fixed inset-0 z-[160] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div class="absolute inset-0 bg-stone-900/40 animate-fade-in" @click="blockedFor = null" />
+      <div class="relative w-full max-w-[520px] bg-white rounded-2xl shadow-[0_24px_64px_-16px_rgba(0,0,0,0.3)] animate-scale-in overflow-hidden flex flex-col max-h-[80vh]">
+        <header class="flex items-start justify-between gap-3 px-5 py-3.5 border-b border-stone-100">
+          <div class="min-w-0">
+            <div class="text-[14px] font-semibold text-stone-900 truncate">{{ blockedFor.name }}</div>
+            <div class="font-mono text-[11px] text-stone-400">{{ blockedFor.sku }} · {{ t('ordersPg.blStuckOn') }}</div>
+          </div>
+          <button class="text-stone-400 hover:text-stone-700 flex-shrink-0" @click="blockedFor = null"><Icon name="x" :size="18" /></button>
+        </header>
+        <div class="overflow-y-auto p-2">
+          <div v-if="blockedLoading" class="text-center text-[12.5px] text-stone-400 py-8">…</div>
+          <div v-else-if="!blockedOrders.length" class="text-center text-[12.5px] text-stone-400 py-8">{{ t('ordersPg.blNoOrders') }}</div>
+          <button v-for="o in blockedOrders" :key="o.no" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-stone-50 text-start" @click="openBlockedOrder(o.no)">
+            <div class="min-w-0 flex-1">
+              <div class="font-mono text-[12.5px] font-semibold text-stone-900">{{ o.no }}</div>
+              <div class="text-[11.5px] text-stone-500 truncate">{{ o.customer }}<span v-if="o.city" class="capitalize"> · {{ o.city }}</span></div>
+            </div>
+            <span class="text-[12px] font-semibold text-stone-700 tabular-nums flex-shrink-0">{{ fmtMAD(o.total) }} MAD</span>
+            <Icon name="chevron-right" :size="14" class="text-stone-300 flip-rtl flex-shrink-0" />
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Quick-view drawer -->
     <transition name="qv">
       <div v-if="drawerRow" class="fixed inset-0 z-[90]">
@@ -747,11 +773,28 @@ const attention = ref({});
 const intakeToday = ref(0);
 const pickStuck = ref({});
 const blocking = ref([]);
+const blockedFor = ref(null);  // blocking SKU whose orders are being shown
+const blockedOrders = ref([]);
+const blockedLoading = ref(false);
 const consol = ref([]);        // same-customer clusters awaiting pick (Phase 1)
 const consolBusy = ref("");    // group key currently being shipped-together
 const awbBusy = ref("");       // order no whose AWB is being regenerated
 const skuModal = ref(null);
 function openSkuLookup(query = "") { skuModal.value?.openWith(query); }
+
+// Show the To-Pick orders held up by a blocking (out-of-stock) SKU.
+async function showBlockingOrders(b) {
+  blockedFor.value = b;
+  blockedOrders.value = [];
+  blockedLoading.value = true;
+  const res = await liveOr(null, () => api("orders.blocking_orders", { sku: b.sku }));
+  blockedOrders.value = Array.isArray(res) ? res : [];
+  blockedLoading.value = false;
+}
+function openBlockedOrder(no) {
+  blockedFor.value = null;
+  router.push({ name: "OrderDetail", params: { name: String(no).replace('#', '') } });
+}
 const rows = ref([]);
 const activeStage = ref("to_pick");
 const activeTrack = ref("");

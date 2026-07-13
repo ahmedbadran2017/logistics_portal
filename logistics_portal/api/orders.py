@@ -573,6 +573,51 @@ def _pick_availability():
     return out
 
 
+@frappe.whitelist()
+def blocking_orders(sku, limit=60):
+    """The To-Pick orders held up by one out-of-stock item — powers the
+    'N orders' click on the restock worklist. `sku` is the item_code.
+    Returns [{no, customer, total, ageMins, city}] newest first."""
+    from frappe.utils import time_diff_in_seconds, now_datetime
+    sku = (sku or "").strip()
+    if not sku:
+        return []
+    w = _win(BOARD_WINDOW_DAYS)
+    try:
+        rows = frappe.db.sql(
+            """SELECT so.name AS no, so.customer_name AS customer,
+                      so.grand_total AS total, so.creation,
+                      COALESCE(NULLIF(so.custom_shipping_city,''), addr.city) AS city
+               FROM `tabSales Order` so
+               JOIN `tabSales Order Item` soi ON soi.parent = so.name
+               LEFT JOIN `tabAddress` addr
+                 ON addr.name = COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address)
+               LEFT JOIN (SELECT pli.sales_order FROM `tabPick List Item` pli
+                          JOIN `tabPick List` p ON p.name=pli.parent
+                          WHERE p.docstatus < 2 GROUP BY pli.sales_order) pl ON pl.sales_order = so.name
+               WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
+                 AND so.custom_logistics_status='Pending' AND pl.sales_order IS NULL
+                 AND so.creation >= %s AND soi.item_code = %s
+               GROUP BY so.name
+               ORDER BY so.creation DESC
+               LIMIT %s""",
+            (w, sku, min(int(limit), 200)), as_dict=True)
+        now = now_datetime()
+        out = []
+        for r in rows:
+            try:
+                age = max(0, int(time_diff_in_seconds(now, r.creation) // 60))
+            except Exception:
+                age = 0
+            out.append({"no": r.no, "customer": r.customer or "",
+                        "total": float(r.total or 0), "ageMins": age,
+                        "city": (r.city or "") if len(r.city or "") <= 28 else ""})
+        return out
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.blocking_orders")
+        return []
+
+
 def _sku_rescue(miss_by_order):
     """False-OOS finder: for orders stuck out of stock, spot missing items whose
     SKU (custom_sku) has a NET-positive sibling item_code — i.e. the product IS
