@@ -299,15 +299,24 @@ def open_batch():
     staleBatches (close & post, or explicitly resume) — never as 'today'."""
     _recv_gate()
     stale = _stale_batches()
+    # The Return Zone warehouse's company (Justyol Morocco) — the site default
+    # is Maslak LTD, whose missing Stock Adjustment Account breaks the posting.
+    company = frappe.db.get_value("Warehouse", RETURN_ZONE, "company") \
+        or frappe.defaults.get_global_default("company")
     draft = frappe.get_all(
         "Return Shipment",
         filters={"docstatus": 0, "posting_date": frappe.utils.nowdate()},
+        fields=["name", "company", "total_orders"],
         order_by="creation desc", limit=1)
+    if draft and draft[0].company != company and not int(draft[0].total_orders or 0):
+        # Self-heal: an empty draft created under the wrong company (earlier
+        # bug) would fail at close — replace it.
+        frappe.delete_doc("Return Shipment", draft[0].name, ignore_permissions=True)
+        frappe.db.commit()
+        draft = None
     if draft:
         st = _batch_state(draft[0].name)
     else:
-        company = frappe.defaults.get_global_default("company") \
-            or frappe.db.get_value("Company", {}, "name")
         doc = frappe.get_doc({
             "doctype": "Return Shipment", "company": company,
             "posting_date": frappe.utils.nowdate(), "shipping_company": "cathedis",
@@ -519,8 +528,12 @@ def restock_move(item_code, qty, target=None, disposition="restock"):
         if not ok:
             frappe.throw(f"{target} is not a valid restock shelf.")
 
-    company = frappe.defaults.get_global_default("company") \
-        or frappe.db.get_value("Warehouse", RETURN_ZONE, "company")
+    # The WAREHOUSE's company, not the site default: the global default is
+    # Maslak LTD (no Stock Adjustment Account) while every JM warehouse belongs
+    # to Justyol Morocco — the wrong order made every move throw
+    # "set default Stock Adjustment Account for company Maslak LTD".
+    company = frappe.db.get_value("Warehouse", RETURN_ZONE, "company") \
+        or frappe.defaults.get_global_default("company")
     se = frappe.get_doc({
         "doctype": "Stock Entry",
         "stock_entry_type": "Material Transfer",
