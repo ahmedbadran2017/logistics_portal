@@ -259,3 +259,110 @@ def _recent_moves(limit=12):
 def recent_moves(limit=12):
     _gate()
     return {"rows": _recent_moves(min(max(int(limit or 12), 1), 50))}
+
+
+# ── Goods In (Material Receipt) ─────────────────────────────────────────────
+# The desk flow this replaces: 925 Material Receipts in 6 months, avg 6 lines
+# × 22 units, targets = Receiving Zone mostly but also SLOW / shelves. Rates
+# are never typed by the floor — ERPNext auto-fills the item valuation, and
+# zero-valuation items pass with allow_zero_valuation_rate (both observed on
+# the desk entries).
+
+RECEIVING_WH = "Receiving Zone - JM"
+
+
+@frappe.whitelist()
+def receive_lookup(code):
+    """Resolve a scanned piece for the goods-in session: identity only —
+    qty is counted on the floor, value is ERPNext's job."""
+    _gate()
+    from logistics_portal.api.picking import resolve_scan
+    r = resolve_scan(code)
+    item_code = r.get("itemCode")
+    if not item_code:
+        return {"ok": False, "reason": "unknown_item", "code": (code or "").strip()}
+    image = frappe.db.get_value("Item", item_code, "image") or ""
+    return {"ok": True, "itemCode": item_code, "sku": r.get("sku") or "",
+            "name": r.get("name") or item_code, "image": image}
+
+
+@frappe.whitelist()
+def post_receipt(items=None, target=None, note=None):
+    """One submitted Material Receipt for the whole session.
+    items = [{item_code, qty}], target = a movable JM warehouse."""
+    _gate()
+    import json as _json
+    if isinstance(items, str):
+        items = _json.loads(items)
+    items = items or []
+    if not items:
+        frappe.throw("Scan at least one item.")
+    if len(items) > 300:
+        frappe.throw("Too many lines for one receipt — post and start a new one.")
+    target = (target or "").strip() or RECEIVING_WH
+    cond, args = _movable_condition("name")
+    ok = frappe.db.sql(
+        f"""SELECT 1 FROM `tabWarehouse` WHERE name = %s
+            AND is_group = 0 AND disabled = 0 AND {cond}""",
+        tuple([target, *args]))
+    if not ok:
+        frappe.throw(f"{target} is not a valid receiving bin.")
+
+    lines, total = [], 0
+    for it in items:
+        code = (it.get("item_code") or "").strip()
+        qty = int(it.get("qty") or 0)
+        if not code or qty <= 0:
+            continue
+        if not frappe.db.exists("Item", code):
+            frappe.throw(f"Unknown item: {code}")
+        # Rate stays empty on purpose: ERPNext fills the item valuation, and
+        # allow_zero_valuation_rate lets first-ever receipts through at 0.
+        lines.append({"item_code": code, "qty": qty, "t_warehouse": target,
+                      "allow_zero_valuation_rate": 1})
+        total += qty
+    if not lines:
+        frappe.throw("Scan at least one item.")
+
+    company = frappe.db.get_value("Warehouse", target, "company") \
+        or frappe.defaults.get_global_default("company")
+    note = (note or "").strip()
+    se = frappe.get_doc({
+        "doctype": "Stock Entry",
+        "stock_entry_type": "Material Receipt",
+        "company": company,
+        "remarks": f"Portal goods-in by {frappe.session.user}"
+                   + (f" — {note}" if note else ""),
+        "items": lines,
+    })
+    se.flags.ignore_permissions = True
+    se.insert(ignore_permissions=True)
+    se.submit()
+    frappe.db.commit()
+    for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    return {"ok": True, "entry": se.name, "lines": len(lines), "units": total,
+            "target": target}
+
+
+@frappe.whitelist()
+def recent_receipts(limit=10):
+    """Last goods-in entries (7 days) — one row per receipt, with totals."""
+    _gate()
+    limit = min(max(int(limit or 10), 1), 50)
+    rows = frappe.db.sql(
+        """SELECT se.name, se.owner, se.creation, se.remarks,
+                  COUNT(*) AS ln, ROUND(SUM(sed.qty)) AS units,
+                  MAX(sed.t_warehouse) AS target
+           FROM `tabStock Entry` se
+           JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
+           WHERE se.purpose = 'Material Receipt' AND se.docstatus = 1
+             AND se.creation >= CURDATE() - INTERVAL 7 DAY
+           GROUP BY se.name, se.owner, se.creation, se.remarks
+           ORDER BY se.creation DESC LIMIT %s""", (limit,), as_dict=True)
+    return {"rows": [{
+        "entry": r.name, "owner": r.owner or "", "time": str(r.creation)[5:16],
+        "lines": int(r.ln or 0), "units": int(r.units or 0),
+        "target": r.target or "",
+        "viaPortal": bool((r.remarks or "").startswith("Portal")),
+    } for r in rows]}

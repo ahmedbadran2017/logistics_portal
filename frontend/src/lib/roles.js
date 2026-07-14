@@ -42,6 +42,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "Warehouse", label: "nav.warehouse", icon: "warehouse" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
+          { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
           { to: "Inventory", label: "nav.stock", icon: "boxes" },
           { to: "SkuLookup", label: "nav.skuLookup", icon: "search" },
           { to: "CatalogHub", label: "nav.catalogHub", icon: "refresh-cw" },
@@ -72,6 +73,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "Warehouse", label: "nav.warehouse", icon: "warehouse" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
+          { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
           { to: "Inventory", label: "nav.stock", icon: "boxes" },
           { to: "SkuLookup", label: "nav.skuLookup", icon: "search" },
         ],
@@ -131,6 +133,7 @@ export const ROLE_CONFIG = {
           { to: "ReturnReceiving", label: "nav.receiving", icon: "package-check" },
           { to: "RestockZone", label: "nav.restock", icon: "boxes" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
+          { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
           { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
         ],
       },
