@@ -145,6 +145,25 @@
         </div>
       </div>
 
+      <!-- Invite someone who has no ERPNext account yet — no desk needed -->
+      <div class="px-4 py-2.5 border-b border-stone-100 bg-stone-50/60 flex items-center gap-2 flex-wrap">
+        <Icon name="plus" :size="13" class="text-stone-400 flex-shrink-0" />
+        <input v-model="invName" placeholder="Full name"
+               class="h-8 w-[150px] ps-3 pe-3 text-[12.5px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none" />
+        <input v-model="invEmail" placeholder="email@…" type="email"
+               class="h-8 w-[200px] ps-3 pe-3 text-[12.5px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none" />
+        <select v-model="invRole" class="role-select">
+          <option v-for="r in mgmt?.roles || ['manager', 'dispatcher', 'picker', 'packer', 'returns']"
+                  :key="r" :value="r" class="capitalize">{{ r }}</option>
+        </select>
+        <button
+          class="h-8 px-3 rounded-lg text-[12px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-50"
+          :disabled="inviteBusy || !/^\S+@\S+\.\S+$/.test(invEmail)"
+          @click="invite"
+        >{{ inviteBusy ? "Inviting…" : "Invite" }}</button>
+        <span class="text-[10.5px] text-stone-400">Creates the user + sends a welcome email to set a password.</span>
+      </div>
+
       <div v-if="mgmtLoading" class="p-3 space-y-2">
         <div v-for="n in 5" :key="n" class="h-[46px] rounded-lg bg-stone-50 ring-1 ring-stone-200/60 animate-pulse" />
       </div>
@@ -230,6 +249,29 @@ function onMemberSearch() {
       if (r && Array.isArray(r.members)) mgmt.value = { ...mgmt.value, ...r };
     } catch (_) {}
   }, 350);
+}
+
+// Invite a brand-new user (creates the ERPNext account + portal role).
+const invName = ref("");
+const invEmail = ref("");
+const invRole = ref("picker");
+const inviteBusy = ref(false);
+async function invite() {
+  inviteBusy.value = true;
+  try {
+    const res = await apiPost("auth.invite_member", {
+      email: invEmail.value, full_name: invName.value, role: invRole.value,
+    });
+    success(res.existing ? "Role assigned" : "Invited — welcome email sent",
+            `${res.user} · ${res.role}`);
+    invName.value = "";
+    invEmail.value = "";
+    await loadMgmt();
+  } catch (e) {
+    warn("Couldn't invite", String(e.message || e));
+  } finally {
+    inviteBusy.value = false;
+  }
 }
 
 async function setRole(user, role) {

@@ -548,13 +548,68 @@ def manifest_scan(code):
             "manifestValue": round(float(sh.value_of_goods or 0), 2)}
 
 
+_TPL_KEY = "lp_manifest_template"
+_TPL_SYS_KEYS = {"name", "owner", "creation", "modified", "modified_by", "docstatus",
+                 "idx", "parent", "parentfield", "parenttype", "amended_from",
+                 "__islocal", "__unsaved"}
+
+
+def _save_manifest_template(sh):
+    """Snapshot the header of a successfully-submitted Cathedis manifest.
+    Kills the portal's last desk dependency here: if every submitted Shipment
+    is ever cancelled or amended, the next manifest rebuilds from this
+    snapshot instead of demanding 'create the first from the desk'."""
+    try:
+        d = {k: v for k, v in sh.as_dict().items() if k not in _TPL_SYS_KEYS}
+        d.pop("shipment_delivery_note", None)
+        for f in ("awb", "tracking_url", "carrier_service", "tracking_status",
+                  "custom_awb", "custom_tracking_number", "status"):
+            d.pop(f, None)
+        d["value_of_goods"] = 0
+        for ct, rows in list(d.items()):
+            if isinstance(rows, list):
+                d[ct] = [{k: v for k, v in r.items() if k not in _TPL_SYS_KEYS}
+                         for r in rows if isinstance(r, dict)]
+        frappe.db.set_default(_TPL_KEY, frappe.as_json(d))
+    except Exception:
+        # A failed snapshot must never break a manifest close.
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.manifest_template")
+
+
+def _new_manifest_shell():
+    """An empty Cathedis manifest inheriting the Justyol → CATHEDIS config:
+    cloned from the last submitted one, or rebuilt from the stored template."""
+    template = frappe.get_all(
+        "Shipment",
+        filters={"docstatus": 1, "delivery_customer": "CATHEDIS"},
+        order_by="creation desc", limit=1)
+    if template:
+        sh = frappe.copy_doc(frappe.get_doc("Shipment", template[0].name))
+    else:
+        raw = frappe.db.get_default(_TPL_KEY)
+        if not raw:
+            frappe.throw("No previous Cathedis Shipment and no stored template yet — "
+                         "close one manifest to seed it.")
+        import json as _json
+        data = _json.loads(raw)
+        data["doctype"] = "Shipment"
+        sh = frappe.get_doc(data)
+    sh.set("shipment_delivery_note", [])
+    sh.value_of_goods = 0
+    sh.pickup_date = nowdate()
+    for f in ("awb", "tracking_url", "carrier_service", "tracking_status", "custom_awb", "custom_tracking_number"):
+        if sh.meta.has_field(f):
+            sh.set(f, None)
+    return sh
+
+
 def _open_or_new_manifest():
-    """TODAY's open Cathedis manifest (draft Shipment dated today), created from
-    the last submitted Cathedis one on the first scan of the day so it inherits
-    the Justyol → CATHEDIS config. Stale drafts from previous days and China
-    import drafts are deliberately IGNORED — before this filter existed, a scan
-    could resurrect a months-old draft (or an import container) and close_manifest
-    would happily submit it. Serialized by a named lock."""
+    """TODAY's open Cathedis manifest (draft Shipment dated today), created
+    fresh on the first scan of the day so it inherits the Justyol → CATHEDIS
+    config. Stale drafts from previous days and China import drafts are
+    deliberately IGNORED — before this filter existed, a scan could resurrect
+    a months-old draft (or an import container) and close_manifest would
+    happily submit it. Serialized by a named lock."""
     from logistics_portal.api.locks import named_lock
 
     with named_lock("manifest"):
@@ -565,19 +620,7 @@ def _open_or_new_manifest():
             order_by="creation desc", limit=1)
         if draft:
             return frappe.get_doc("Shipment", draft[0].name)
-        template = frappe.get_all(
-            "Shipment",
-            filters={"docstatus": 1, "delivery_customer": "CATHEDIS"},
-            order_by="creation desc", limit=1)
-        if not template:
-            frappe.throw("No previous Cathedis Shipment to base the manifest on — create the first from the desk.")
-        sh = frappe.copy_doc(frappe.get_doc("Shipment", template[0].name))
-        sh.set("shipment_delivery_note", [])
-        sh.value_of_goods = 0
-        sh.pickup_date = nowdate()
-        for f in ("awb", "tracking_url", "carrier_service", "tracking_status", "custom_awb", "custom_tracking_number"):
-            if sh.meta.has_field(f):
-                sh.set(f, None)
+        sh = _new_manifest_shell()
         sh.insert(ignore_permissions=True)
         frappe.db.commit()  # release the row before the lock drops
         return sh
@@ -664,6 +707,7 @@ def close_manifest(parcels=None):
                 sh.save(ignore_permissions=True)
             sh.submit()
             frappe.db.commit()
+            _save_manifest_template(sh)
             _bust_ship_caches()
             return {"ok": True, "shipment": sh.name,
                     "parcels": len(sh.shipment_delivery_note),
@@ -677,28 +721,17 @@ def close_manifest(parcels=None):
         if value <= 0:
             frappe.throw("Manifest value is 0 — cannot submit.")
 
-        # Clone the last submitted CATHEDIS Shipment to inherit the exact pickup/
-        # delivery config (Justyol → CATHEDIS), then swap in today's parcels.
-        template = frappe.get_all("Shipment",
-                                  filters={"docstatus": 1, "delivery_customer": "CATHEDIS"},
-                                  order_by="creation desc", limit=1)
-        if not template:
-            frappe.throw("No previous Shipment to base the manifest on — create the "
-                         "first one from the desk, then the portal takes over.")
-        sh = frappe.copy_doc(frappe.get_doc("Shipment", template[0].name))
-        sh.set("shipment_delivery_note", [])
+        # Fresh shell (last submitted Cathedis Shipment, or the stored
+        # template) with today's parcels swapped in.
+        sh = _new_manifest_shell()
         for r in rows:
             sh.append("shipment_delivery_note",
                       {"delivery_note": r.dn, "grand_total": r.val})
         sh.value_of_goods = value
-        sh.pickup_date = nowdate()
-        for f in ("awb", "tracking_url", "carrier_service", "tracking_status",
-                  "custom_awb", "custom_tracking_number"):
-            if sh.meta.has_field(f):
-                sh.set(f, None)
         sh.insert(ignore_permissions=True)
         sh.submit()
         frappe.db.commit()
+        _save_manifest_template(sh)
         _bust_ship_caches()
         return {"ok": True, "shipment": sh.name, "parcels": len(rows), "value": value}
 
@@ -817,3 +850,117 @@ def handle_exception(dn, action, note=None):
                     + (f" Note: {note}" if note else ""))
     frappe.db.commit()
     return {"ok": True, "dn": dn, "action": action}
+
+
+@frappe.whitelist()
+def manifest_sheet(name=None):
+    """The driver's handover sheet: every parcel on the manifest with AWB,
+    customer, city and COD amount, plus signature-ready totals. Defaults to
+    today's open manifest; pass a Shipment name for a closed one."""
+    from logistics_portal.api.auth import resolve_role
+    if not resolve_role(frappe.session.user):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    if name:
+        if not frappe.db.exists("Shipment", name):
+            frappe.throw("Unknown shipment.")
+        sh = frappe.get_doc("Shipment", name)
+    else:
+        draft = frappe.get_all(
+            "Shipment",
+            filters={"docstatus": 0, "delivery_customer": "CATHEDIS",
+                     "pickup_date": nowdate()},
+            order_by="modified desc", limit=1)
+        if not draft:
+            frappe.throw("No open manifest today.")
+        sh = frappe.get_doc("Shipment", draft[0].name)
+
+    rows = frappe.db.sql(
+        """SELECT sdn.delivery_note AS dn, d.grand_total AS cod,
+                  so.name AS so_name, so.custom_awb AS awb,
+                  COALESCE(NULLIF(so.customer_name,''), d.customer) AS customer,
+                  COALESCE(NULLIF(so.custom_customer_phone,''),
+                           so.custom_shipping_phone) AS phone,
+                  so.custom_shipping_city AS city
+           FROM `tabShipment Delivery Note` sdn
+           JOIN `tabDelivery Note` d ON d.name = sdn.delivery_note
+           LEFT JOIN (SELECT dni.parent AS p, MAX(dni.against_sales_order) AS so_n
+                      FROM `tabDelivery Note Item` dni GROUP BY dni.parent) m
+                ON m.p = d.name
+           LEFT JOIN `tabSales Order` so ON so.name = m.so_n
+           WHERE sdn.parent = %s ORDER BY sdn.idx""",
+        (sh.name,), as_dict=True)
+    out = [{
+        "dn": r.dn, "order": r.so_name or "", "awb": r.awb or "",
+        "customer": r.customer or "", "phone": r.phone or "",
+        "city": (r.city or "").strip().title(),
+        "cod": round(float(r.cod or 0), 2),
+    } for r in rows]
+    return {
+        "shipment": sh.name,
+        "date": str(sh.pickup_date or "")[:10],
+        "status": "submitted" if sh.docstatus == 1 else "draft",
+        "carrier": sh.delivery_customer or "CATHEDIS",
+        "count": len(out),
+        "codTotal": round(sum(r["cod"] for r in out), 2),
+        "rows": out,
+    }
+
+
+@frappe.whitelist()
+def cancel_parcel(dn, reason=None):
+    """Cancel a labelled parcel that never left the building (customer
+    cancelled after the AWB was printed). Blocked once the parcel is with the
+    carrier — that's a return/exception, not a cancellation. Manager only."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Only a manager can cancel a parcel.", frappe.PermissionError)
+    if not frappe.db.exists("Delivery Note", dn):
+        frappe.throw("Unknown parcel.")
+    doc = frappe.get_doc("Delivery Note", dn)
+    if doc.docstatus == 2:
+        frappe.throw("Already cancelled.")
+    if doc.docstatus != 1:
+        frappe.throw("Not a submitted parcel.")
+    track = (doc.get("custom_track_shipment_status") or "")
+    if track in ("Delivered", "Received"):
+        frappe.throw("This parcel was delivered — process it as a return instead.")
+    on_manifest = frappe.db.sql(
+        """SELECT s.name FROM `tabShipment Delivery Note` sdn
+           JOIN `tabShipment` s ON s.name = sdn.parent
+           WHERE sdn.delivery_note = %s AND s.docstatus = 1 LIMIT 1""", (dn,))
+    if on_manifest:
+        frappe.throw(f"Already handed to the carrier on {on_manifest[0][0]} — "
+                     "use Exceptions / returns instead.")
+
+    # If it sits on today's OPEN manifest, pull it off before cancelling.
+    draft = frappe.get_all(
+        "Shipment",
+        filters={"docstatus": 0, "delivery_customer": "CATHEDIS",
+                 "pickup_date": nowdate()},
+        order_by="modified desc", limit=1)
+    if draft:
+        sh = frappe.get_doc("Shipment", draft[0].name)
+        keep = [r for r in (sh.get("shipment_delivery_note") or [])
+                if r.delivery_note != dn]
+        if len(keep) != len(sh.get("shipment_delivery_note") or []):
+            sh.set("shipment_delivery_note", keep)
+            sh.value_of_goods = round(sum(float(r.grand_total or 0) for r in keep), 2)
+            sh.save(ignore_permissions=True)
+
+    reason = (reason or "").strip()
+    doc.add_comment("Comment",
+                    f"Parcel cancelled from the portal by {frappe.session.user}."
+                    + (f" Reason: {reason}" if reason else ""))
+    doc.flags.ignore_permissions = True
+    doc.cancel()
+
+    order = frappe.db.get_value(
+        "Delivery Note Item", {"parent": dn}, "against_sales_order")
+    if order:
+        so = frappe.get_doc("Sales Order", order)
+        so.add_comment("Comment",
+                       f"Parcel {dn} cancelled from the portal."
+                       + (f" Reason: {reason}" if reason else ""))
+    frappe.db.commit()
+    _bust_ship_caches()
+    return {"ok": True, "dn": dn, "order": order or ""}

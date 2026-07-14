@@ -167,6 +167,9 @@ export default {
     shortFail: "Échec du signalement",
   },
   mani: {
+    print: "Imprimer la feuille chauffeur",
+    printFail: "Impossible de générer la feuille",
+    printBlocked: "Popup bloquée — autorisez les popups pour imprimer",
     onManifest: "Sur le manifeste · dernier ajout",
     recent: "Manifestes récents",
     cutoffIn: "Cutoff dans",
@@ -283,6 +286,8 @@ export default {
     loadFail: "Échec du chargement",
   },
   consol: {
+    forceBtn: "Fusionner quand même — vérifié",
+    forceTitle: "Téléphones différents — confirmez que c'est la même personne",
     title: "Consolidation",
     subtitle: "Clients avec plusieurs commandes — vérifiez puis fusionnez en UNE commande prête pour la logistique.",
     items: "articles",
@@ -416,6 +421,11 @@ export default {
     footnote: "Le statut est synchronisé depuis Cathedis sur le bon de livraison — la fenêtre écarte l’historique périmé.",
   },
   exc: {
+    cancelParcel: "Annuler le colis",
+    cancelSure: "Confirmer",
+    cancelled: "Colis annulé",
+    cancelFail: "Échec de l'annulation",
+    cancelHint: "Annule le bon de livraison — uniquement pour les colis jamais partis",
     title: "Centre d’exceptions",
     subtitleLive: "Blocages transporteur · colis expédiés sur les {n} derniers jours",
     subtitleDemo: "Une seule file pour tous les blocages du cycle",
@@ -433,6 +443,8 @@ export default {
     openPlain: "Ouverts", critical: "Critiques",
   },
   shp: {
+    printSheet: "Imprimer la feuille",
+    printFail: "Impossible de générer la feuille",
     title: "Expéditions", back: "Expéditions",
     openErp: "Ouvrir dans l’ERP", openErpNext: "Ouvrir dans ERPNext", todaysManifest: "Manifeste du jour",
     weekCount: "Expéditions cette semaine", parcelsToday: "Colis aujourd’hui", avgValue: "Valeur moyenne", carrier: "Transporteur",

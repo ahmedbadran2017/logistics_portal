@@ -279,10 +279,6 @@
               <div class="text-[12px] text-stone-500 mt-0.5">{{ t("ret.batch") }} · {{ activeBatch.date }} · {{ ownerShort(activeBatch.owner) }}</div>
             </div>
             <div class="flex items-center gap-1.5">
-              <a :href="'/app/return-shipment/' + encodeURIComponent(activeBatch.no)" target="_blank"
-                 class="inline-flex items-center gap-1 px-2.5 h-8 text-[11.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300">
-                {{ t("ret.openErp") }}
-              </a>
               <button class="w-8 h-8 rounded-lg flex items-center justify-center text-stone-500 hover:bg-stone-100" @click="activeBatch = null">
                 <Icon name="x" :size="17" />
               </button>

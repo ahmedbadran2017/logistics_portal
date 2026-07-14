@@ -98,7 +98,8 @@
               @click="doMerge(g)"
             >
               <Icon name="check" :size="14" />
-              {{ busy === g.key ? t("consol.merging") : t("consol.confirmYes") }}
+              {{ busy === g.key ? t("consol.merging")
+                 : forceKey === g.key ? t("consol.forceBtn") : t("consol.confirmYes") }}
             </button>
             <button
               class="h-9 px-3 rounded-lg text-[13px] font-medium text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50"
@@ -184,10 +185,22 @@ async function load() {
 }
 onMounted(load);
 
+const forceKey = ref("");
 async function doMerge(g) {
   busy.value = g.key;
   try {
-    const res = await apiPost("orders.merge_orders", { orders: g.orders.map((o) => o.no) });
+    const res = await apiPost("orders.merge_orders", {
+      orders: g.orders.map((o) => o.no),
+      force: forceKey.value === g.key ? 1 : 0,
+    });
+    // Different phone numbers: the server defers to an explicit manager
+    // confirmation instead of punting to the desk.
+    if (res && res.needsForce) {
+      forceKey.value = g.key;
+      warn(t("consol.forceTitle"), (res.phones || []).join("  /  "));
+      return;
+    }
+    forceKey.value = "";
     merged.value.unshift(res);
     groups.value = groups.value.filter((x) => x.key !== g.key);
     confirming.value = "";

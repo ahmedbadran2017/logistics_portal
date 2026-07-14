@@ -167,3 +167,38 @@ def set_floor_target(value):
     frappe.db.set_default("lp_floor_target", v)
     frappe.cache().delete_value("lp_leaderboard")
     return {"ok": True, "target": v}
+
+
+@frappe.whitelist()
+def invite_member(email, full_name=None, role="picker"):
+    """Create the ERPNext User FROM THE PORTAL (welcome email lets them set a
+    password) and assign their portal role in one step — onboarding without
+    the desk. If the user already exists, just assigns the role."""
+    _require_manager()
+    from frappe.utils import validate_email_address
+    email = (email or "").strip().lower()
+    validate_email_address(email, throw=True)
+    role = (role or "").strip().lower()
+    if role not in VALID_ROLES:
+        frappe.throw("Unknown role.")
+
+    if frappe.db.exists("User", email):
+        frappe.db.set_value("User", email, "custom_logistics_role", role,
+                            update_modified=False)
+        if not frappe.db.get_value("User", email, "enabled"):
+            frappe.db.set_value("User", email, "enabled", 1, update_modified=False)
+        frappe.db.commit()
+        return {"ok": True, "user": email, "role": role, "existing": True}
+
+    user = frappe.get_doc({
+        "doctype": "User",
+        "email": email,
+        "first_name": (full_name or email.split("@")[0]).strip() or email,
+        "user_type": "System User",
+        "send_welcome_email": 1,
+        "custom_logistics_role": role,
+    })
+    user.flags.ignore_permissions = True
+    user.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return {"ok": True, "user": email, "role": role, "existing": False}

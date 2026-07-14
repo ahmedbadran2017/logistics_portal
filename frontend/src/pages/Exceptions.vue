@@ -120,6 +120,12 @@
                     :title="t('exc.actReshipHint')" @click="doReship(e)">
               <Icon name="send" :size="12" />{{ t('exc.actReship') }}
             </button>
+            <button v-if="isManager && e.dn" class="triage-btn hover:bg-rose-50"
+                    :class="armedCancel === e.id ? 'text-white bg-rose-600 ring-rose-600' : 'text-rose-700 ring-rose-200'"
+                    :disabled="busy === e.id"
+                    :title="t('exc.cancelHint')" @click="doCancel(e)">
+              <Icon name="x" :size="12" />{{ armedCancel === e.id ? t('exc.cancelSure') : t('exc.cancelParcel') }}
+            </button>
           </template>
           <span v-else-if="isLive && e.action"
                 class="inline-flex items-center gap-1 px-2 h-7 rounded-md text-[11px] font-semibold ring-1 text-stone-600 bg-stone-50 ring-stone-200">
@@ -164,10 +170,13 @@ import { useToast } from "@/composables/useToast";
 import { byId } from "@/lib/handoffData";
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
+import { useAuth } from "@/composables/useAuth";
 
 const router = useRouter();
 const { success, warn } = useToast();
 const { t } = useI18n();
+const { role } = useAuth();
+const isManager = computed(() => role.value === "manager");
 
 // ── local data (not exported from handoffData) ─────────────────────
 const EXCEPTIONS = [
@@ -296,6 +305,29 @@ async function triage(e, action) {
     success(t("exc.triaged"), `${e.id} · ${action}`);
   } catch (err) {
     warn(t("exc.triageFail"), String(err.message || err));
+  } finally {
+    busy.value = "";
+  }
+}
+
+// Cancel a labelled parcel that never left (manager, two-tap). The server
+// blocks anything already handed to Cathedis or delivered.
+const armedCancel = ref("");
+async function doCancel(e) {
+  if (armedCancel.value !== e.id) {
+    armedCancel.value = e.id;
+    setTimeout(() => { if (armedCancel.value === e.id) armedCancel.value = ""; }, 4000);
+    return;
+  }
+  armedCancel.value = "";
+  busy.value = e.id;
+  try {
+    await apiPost("shipping.cancel_parcel", { dn: e.dn, reason: e.label || "Cancelled from Exceptions" });
+    rows.value = rows.value.filter((x) => x.id !== e.id);
+    total.value = Math.max(0, total.value - 1);
+    success(t("exc.cancelled"), e.id);
+  } catch (err) {
+    warn(t("exc.cancelFail"), String(err.message || err));
   } finally {
     busy.value = "";
   }

@@ -154,6 +154,13 @@
             </div>
           </div>
           <button
+            class="inline-flex items-center justify-center gap-1.5 w-full h-9 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors disabled:opacity-40"
+            :disabled="!parcels.length || printing"
+            @click="printSheet"
+          >
+            <Icon name="printer" :size="15" /> {{ printing ? "…" : t('mani.print') }}
+          </button>
+          <button
             class="inline-flex items-center justify-center gap-1.5 w-full h-11 rounded-lg text-[14px] font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             :disabled="!parcels.length || closing"
             @click="closeManifest"
@@ -201,6 +208,7 @@ import Icon from "@/components/ui/Icon.vue";
 import ScanInput from "@/components/ui/ScanInput.vue";
 import { SLA, SLA_LABEL, CARRIER, fmtMAD } from "@/lib/handoffData.js";
 import { api, apiPost, liveOr } from "@/lib/resource";
+import { printManifestSheet } from "@/lib/manifestPrint";
 import { useToast } from "@/composables/useToast";
 import { useI18n } from "@/composables/useI18n";
 
@@ -211,6 +219,20 @@ const { t } = useI18n();
 // flips every order to Shipped and drafts their invoices — so it's confirmed.
 const closing = ref(false);
 const confirmClose = ref(false);
+const printing = ref(false);
+
+// Driver handover sheet — printable list of today's manifest with signatures.
+async function printSheet() {
+  printing.value = true;
+  try {
+    const sheet = await api("shipping.manifest_sheet");
+    if (!printManifestSheet(sheet)) warn(t("mani.printBlocked"), "");
+  } catch (e) {
+    warn(t("mani.printFail"), String(e.message || e));
+  } finally {
+    printing.value = false;
+  }
+}
 
 // Live-or-demo refs (same names as the demo consts so the template keeps working).
 const MANIFEST = ref({ no: "—", pickupDate: "", window: "" });

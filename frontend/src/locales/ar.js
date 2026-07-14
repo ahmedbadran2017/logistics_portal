@@ -167,6 +167,9 @@ export default {
     shortFail: "تعذّر تسجيل النقص",
   },
   mani: {
+    print: "طباعة ورقة السواق",
+    printFail: "تعذّر تجهيز الورقة",
+    printBlocked: "المتصفح منع النافذة — اسمح بالنوافذ المنبثقة للطباعة",
     onManifest: "على المانيفست · آخر إضافة",
     recent: "مانيفستات سابقة",
     cutoffIn: "الوقت المتبقي",
@@ -283,6 +286,8 @@ export default {
     loadFail: "تعذّر التحميل",
   },
   consol: {
+    forceBtn: "ادمج على مسؤوليتي — اتأكدت",
+    forceTitle: "أرقام تليفون مختلفة — أكّد إنه نفس الشخص",
     title: "دمج الأوردرات",
     subtitle: "نفس العميل بأكتر من أوردر — راجِعهم وادمجهم في أوردر واحد يوصل للوجيستيك جاهز.",
     items: "صنف",
@@ -416,6 +421,11 @@ export default {
     footnote: "حالة التتبع تُزامَن من كاتيديس على إذن التسليم — النافذة الزمنية تستبعد السجل القديم.",
   },
   exc: {
+    cancelParcel: "إلغاء الطرد",
+    cancelSure: "تأكيد الإلغاء",
+    cancelled: "الطرد اتلغى",
+    cancelFail: "تعذّر الإلغاء",
+    cancelHint: "إلغاء بوليصة الشحن — فقط للطرود اللي ماخرجتش من المخزن",
     title: "مركز الاستثناءات",
     subtitleLive: "معوقات الناقل · طرود شُحنت في آخر {n} يومًا",
     subtitleDemo: "طابور واحد لكل معوقات الدورة",
@@ -433,6 +443,8 @@ export default {
     openPlain: "مفتوح", critical: "حرج",
   },
   shp: {
+    printSheet: "طباعة الورقة",
+    printFail: "تعذّر تجهيز الورقة",
     title: "الشحنات", back: "الشحنات",
     openErp: "فتح في ERP", openErpNext: "فتح في ERPNext", todaysManifest: "مانيفست اليوم",
     weekCount: "شحنات هذا الأسبوع", parcelsToday: "طرود اليوم", avgValue: "متوسط القيمة", carrier: "الناقل",

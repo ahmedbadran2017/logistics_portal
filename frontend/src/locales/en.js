@@ -167,6 +167,9 @@ export default {
     shortFail: "Couldn't report the short pick",
   },
   mani: {
+    print: "Print driver sheet",
+    printFail: "Couldn't build the sheet",
+    printBlocked: "Popup blocked — allow popups to print",
     onManifest: "On manifest · last added",
     recent: "Recent manifests",
     cutoffIn: "Cutoff in",
@@ -283,6 +286,8 @@ export default {
     loadFail: "Couldn't load",
   },
   consol: {
+    forceBtn: "Merge anyway — I checked",
+    forceTitle: "Different phone numbers — confirm it's one person",
     title: "Consolidation",
     subtitle: "Same-customer clusters — review, then merge into ONE order so logistics receives it ready.",
     items: "items",
@@ -416,6 +421,11 @@ export default {
     footnote: "Track status is synced from Cathedis onto the Delivery Note — the window keeps stale history out.",
   },
   exc: {
+    cancelParcel: "Cancel parcel",
+    cancelSure: "Confirm cancel",
+    cancelled: "Parcel cancelled",
+    cancelFail: "Couldn't cancel",
+    cancelHint: "Cancel the Delivery Note — only for parcels that never left the building",
     title: "Exception center",
     subtitleLive: "Carrier blockers · parcels shipped in the last {n} days",
     subtitleDemo: "One queue for every blocker across the cycle",
@@ -433,6 +443,8 @@ export default {
     openPlain: "Open", critical: "Critical",
   },
   shp: {
+    printSheet: "Print sheet",
+    printFail: "Couldn't build the sheet",
     title: "Shipments", back: "Shipments",
     openErp: "Open in ERP", openErpNext: "Open in ERPNext", todaysManifest: "Today's manifest",
     weekCount: "Shipments this week", parcelsToday: "Parcels today", avgValue: "Avg value", carrier: "Carrier",

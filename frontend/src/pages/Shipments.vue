@@ -29,10 +29,13 @@
               <div class="text-[12.5px] text-stone-600 mt-1">{{ detailSubtitle }}</div>
             </div>
           </div>
-          <a :href="'/app/shipment/' + encodeURIComponent(openSh.no)" target="_blank"
-             class="inline-flex items-center gap-1.5 px-3 h-9 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300">
-            {{ t("shp.openErpNext") }} <Icon name="arrow-right" :size="13" class="flip-rtl" />
-          </a>
+          <button
+            class="inline-flex items-center gap-1.5 px-3 h-9 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300 disabled:opacity-50"
+            :disabled="printingSheet"
+            @click="printDetailSheet"
+          >
+            <Icon name="printer" :size="13" /> {{ t("shp.printSheet") }}
+          </button>
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
@@ -162,9 +165,6 @@
           <p class="text-[12.5px] text-stone-500 mt-0.5">{{ CARRIER }} · {{ WAREHOUSE }}</p>
         </div>
         <div class="flex items-center gap-2">
-          <a href="/app/shipment" target="_blank" class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium text-stone-700 bg-white rounded-lg ring-1 ring-stone-200 hover:ring-stone-300 transition-colors whitespace-nowrap">
-            <Icon name="globe" :size="15" /> {{ t("shp.openErp") }}
-          </a>
           <button class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium text-white bg-stone-900 rounded-lg hover:bg-stone-800 transition-colors whitespace-nowrap"
                   @click="$router.push({ name: 'Manifest' })">
             <Icon name="plus" :size="15" /> {{ t("shp.todaysManifest") }}
@@ -278,7 +278,9 @@ import { ref, computed, onMounted, watch } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { CARRIER, WAREHOUSE, fmtMAD } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
+import { printManifestSheet } from "@/lib/manifestPrint";
 import { useI18n } from "@/composables/useI18n";
+import { useToast } from "@/composables/useToast";
 
 const { t } = useI18n();
 
@@ -373,6 +375,21 @@ const kpis = computed(() => [
 
 // selected shipment
 const openSh = computed(() => shipments.value.find((s) => s.no === open.value) || null);
+
+const { warn: warnToast } = useToast();
+const printingSheet = ref(false);
+async function printDetailSheet() {
+  if (!openSh.value || printingSheet.value) return;
+  printingSheet.value = true;
+  try {
+    const sheet = await api("shipping.manifest_sheet", { name: openSh.value.no });
+    printManifestSheet(sheet);
+  } catch (e) {
+    warnToast(t("shp.printFail"), String(e.message || e));
+  } finally {
+    printingSheet.value = false;
+  }
+}
 
 const detailStats = computed(() => {
   const s = openSh.value;

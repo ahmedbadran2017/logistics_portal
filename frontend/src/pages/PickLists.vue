@@ -181,7 +181,6 @@
             <!-- SUBMITTED: AWB ready -> print label -->
             <template v-else>
               <a v-if="liveAwbUrl" :href="liveAwbUrl" target="_blank" class="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-[13px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]"><Icon name="printer" :size="15" />{{ t("pl.printAwb") }}</a>
-              <a :href="'/app/pick-list/' + encodeURIComponent(detail.no)" target="_blank" class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50">{{ t("pl.openErp") }} <Icon name="arrow-right" :size="13" class="flip-rtl" /></a>
             </template>
           </template>
           <template v-else>

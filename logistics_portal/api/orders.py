@@ -1208,7 +1208,7 @@ def detail(name):
 
 
 @frappe.whitelist()
-def merge_orders(orders):
+def merge_orders(orders, force=0):
     """Confirmation-team merge: combine a same-customer cluster into ONE new
     Sales Order so logistics receives a single order (one AWB, one COD = the
     sum of the originals). The originals are cancelled and marked Duplicated.
@@ -1231,7 +1231,7 @@ def merge_orders(orders):
     from logistics_portal.api.locks import named_lock
 
     with named_lock("merge_orders", timeout=20):
-        return _do_merge(names)
+        return _do_merge(names, force=frappe.utils.cint(force))
 
 
 def _strip_external_identity(doc):
@@ -1249,7 +1249,7 @@ def _strip_external_identity(doc):
             doc.set(f, None)
 
 
-def _do_merge(names):
+def _do_merge(names, force=0):
     docs = []
     for name in names:
         if not frappe.db.exists("Sales Order", name):
@@ -1271,8 +1271,11 @@ def _do_merge(names):
     phones = {_norm_phone(d.get("custom_customer_phone") or d.get("custom_shipping_phone") or "")
               for d in docs}
     phones.discard("")
-    if len(phones) > 1:
-        frappe.throw("These orders have different phone numbers — merge them from the desk if it's really one person.")
+    if len(phones) > 1 and not force:
+        # Not a hard block anymore: the manager confirms it's really one
+        # person and re-calls with force=1 — no desk detour.
+        return {"ok": False, "needsForce": True, "reason": "phones",
+                "phones": sorted(phones)}
 
     on_pl = frappe.db.sql(
         """SELECT pli.sales_order, pli.parent FROM `tabPick List Item` pli
@@ -1288,7 +1291,8 @@ def _do_merge(names):
              AND per.reference_name IN %s LIMIT 1""",
         (tuple(names),))
     if paid:
-        frappe.throw(f"{paid[0][0]} already has a payment against it — merge from the desk.")
+        frappe.throw(f"{paid[0][0]} already has a payment against it — ask "
+                     "accounting to unlink the payment first, then merge.")
 
     # New order = a copy of the OLDEST one (keeps customer, address, phone,
     # city, taxes) + every other order's items appended.
