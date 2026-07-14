@@ -55,6 +55,58 @@ def _family_excluded(name):
 
 
 @frappe.whitelist()
+def floor_map():
+    """The REAL floor: every JM warehouse holding stock, rolled up into
+    physical families — named zones as-is, lettered pick aisles grouped per
+    rack letter, AG-*/BAB-* racks as one block each. No fabricated capacities
+    or owners; share bars are relative to the biggest group."""
+    groups = frappe.db.sql(
+        """SELECT grp,
+                  COUNT(DISTINCT item_code) AS skus,
+                  COUNT(DISTINCT wh) AS bins,
+                  ROUND(SUM(qty)) AS units,
+                  ROUND(SUM(val)) AS value
+           FROM (
+             SELECT b.item_code, b.actual_qty AS qty,
+                    b.actual_qty * b.valuation_rate AS val, b.warehouse AS wh,
+                    CASE
+                      WHEN TRIM(REPLACE(b.warehouse, ' - JM', ''))
+                           REGEXP '^[A-Za-z][0-9]{1,2}[A-Za-z]?[.]?$'
+                        THEN CONCAT('Aisles ', UPPER(LEFT(TRIM(REPLACE(b.warehouse, ' - JM', '')), 1)))
+                      WHEN UPPER(b.warehouse) LIKE 'AG-%%' THEN 'AG racks'
+                      WHEN UPPER(b.warehouse) LIKE 'BAB-%%' THEN 'BAB racks'
+                      ELSE TRIM(REPLACE(b.warehouse, ' - JM', ''))
+                    END AS grp
+             FROM `tabBin` b
+             WHERE b.warehouse LIKE '%% - JM' AND b.actual_qty > 0
+           ) t
+           GROUP BY grp
+           ORDER BY units DESC""", as_dict=True)
+    tot = frappe.db.sql(
+        """SELECT COUNT(DISTINCT b.item_code), ROUND(SUM(b.actual_qty)),
+                  ROUND(SUM(b.actual_qty * b.valuation_rate))
+           FROM `tabBin` b
+           WHERE b.warehouse LIKE '%% - JM' AND b.actual_qty > 0""")[0]
+    excluded = set(excluded_zones())
+    out = []
+    for g in groups:
+        name_jm = f"{g.grp} - JM"
+        out.append({
+            "key": g.grp, "label": g.grp,
+            "aisleGroup": g.grp.startswith("Aisles ") or g.grp in ("AG racks", "BAB racks"),
+            "bins": int(g.bins or 0), "skus": int(g.skus or 0),
+            "units": int(g.units or 0), "value": int(g.value or 0),
+            "offPick": name_jm in excluded or _family_excluded(name_jm),
+        })
+    return {
+        "groups": out,
+        "skus": int(tot[0] or 0), "units": int(tot[1] or 0),
+        "value": int(tot[2] or 0),
+        "offCount": sum(1 for g in out if g["offPick"]),
+    }
+
+
+@frappe.whitelist()
 def warehouse_settings():
     """Manager: the configurable pick ZONES (named, non-aisle JM warehouses that
     hold stock) and whether each is currently pickable. Aisle bins are always
