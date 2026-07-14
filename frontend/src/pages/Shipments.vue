@@ -119,8 +119,11 @@
         </div>
       </div>
 
-      <!-- KPI strip -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+      <!-- KPI strip (skeleton while the live call is in flight) -->
+      <div v-if="loading" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <div v-for="n in 4" :key="n" class="h-[86px] bg-stone-50 rounded-xl ring-1 ring-stone-200/60 animate-pulse" />
+      </div>
+      <div v-else class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <div v-for="k in kpis" :key="k.label" class="bg-white rounded-xl ring-1 ring-stone-200/70 px-4 py-3.5">
           <div class="flex items-center gap-1.5 text-[11.5px] font-medium text-stone-500">
             <span class="w-6 h-6 rounded-lg flex items-center justify-center" :class="k.tone">
@@ -172,7 +175,14 @@
                 <th class="text-start px-4 py-2.5">{{ t("shp.thStatus") }}</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-stone-100">
+            <tbody v-if="loading">
+              <tr v-for="n in 7" :key="n" class="border-b border-stone-100">
+                <td v-for="c in 7" :key="c" class="px-4 py-3">
+                  <div class="h-3.5 rounded bg-stone-100 animate-pulse" :style="{ width: c === 1 ? '72px' : '55%' }" />
+                </td>
+              </tr>
+            </tbody>
+            <tbody v-else class="divide-y divide-stone-100">
               <tr
                 v-for="s in shown"
                 :key="s.no"
@@ -202,7 +212,7 @@
             </tbody>
           </table>
         </div>
-        <div v-if="shown.length === 0" class="text-center text-[12.5px] text-stone-400 py-12">
+        <div v-if="!loading && shown.length === 0" class="text-center text-[12.5px] text-stone-400 py-12">
           {{ t("shp.noMatch") }}
         </div>
       </div>
@@ -213,7 +223,7 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
-import { SHIPMENTS as DEMO_SHIPMENTS, CARRIER, WAREHOUSE, fmtMAD } from "@/lib/handoffData";
+import { CARRIER, WAREHOUSE, fmtMAD } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 
@@ -223,13 +233,17 @@ const q = ref("");
 const filter = ref("all");
 const open = ref(null);
 
-// Live-or-demo shipments. `shipping.shipments` fills this once installed;
-// falls back to the demo seed in local preview / on error.
+// Live only — skeleton while loading, honest empty state after. No demo.
 const shipments = ref([]);
+const loading = ref(true);
 
 onMounted(async () => {
-  const live = await liveOr(null, () => api("shipping.shipments", { limit: 30 }));
-  if (live && live.length) shipments.value = live;
+  try {
+    const live = await liveOr(null, () => api("shipping.shipments", { limit: 30 }));
+    if (Array.isArray(live) && live.length) shipments.value = live;
+  } finally {
+    loading.value = false;
+  }
 });
 
 // Real statuses only — Booked/Completed never occur on this site's Shipments

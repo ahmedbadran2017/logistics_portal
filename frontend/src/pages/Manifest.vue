@@ -68,7 +68,10 @@
             <span class="text-stone-400 tabular-nums">{{ parcels.length }} on manifest</span>
           </div>
           <div class="divide-y divide-stone-100 max-h-[420px] overflow-y-auto">
-            <div v-if="!parcels.length" class="px-4 py-10 text-center text-[12.5px] text-stone-400">
+            <div v-if="manifestLoading" class="p-3 space-y-2">
+              <div v-for="n in 5" :key="n" class="h-[46px] rounded-lg bg-stone-50 ring-1 ring-stone-200/60 animate-pulse" />
+            </div>
+            <div v-else-if="!parcels.length" class="px-4 py-10 text-center text-[12.5px] text-stone-400">
               <Icon name="scan-barcode" :size="26" class="mx-auto mb-2 opacity-60" />
               Scan a parcel or AWB above to start building today's {{ CARRIER }} handover.
             </div>
@@ -196,10 +199,7 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import ScanInput from "@/components/ui/ScanInput.vue";
-import {
-  MANIFEST as DEMO_MANIFEST, RECENT_MANIFESTS as DEMO_RECENT_MANIFESTS, PARCELS, SLA, SLA_LABEL,
-  CARRIER, CUTOFF as DEMO_CUTOFF, fmtMAD,
-} from "@/lib/handoffData.js";
+import { SLA, SLA_LABEL, CARRIER, fmtMAD } from "@/lib/handoffData.js";
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
 import { useI18n } from "@/composables/useI18n";
@@ -219,6 +219,7 @@ const CUTOFF = ref("17:00");
 
 const scanner = ref(null);
 const isLive = ref(false);
+const manifestLoading = ref(true);
 const parcels = ref([]);
 const readyCount = ref(0); // ready-to-ship parcels waiting to be scanned onto the manifest
 const pool = ref([]);
@@ -343,11 +344,13 @@ async function doClose() {
 }
 
 async function loadManifest() {
-  // Live-or-demo: today's manifest from `shipping.today_manifest`.
+  // Live only: today's manifest from `shipping.today_manifest`. No demo.
+  manifestLoading.value = true;
   const live = await liveOr(null, () => api("shipping.today_manifest"));
+  manifestLoading.value = false;
   if (live && live.no) {
     isLive.value = true;
-    MANIFEST.value = { ...DEMO_MANIFEST, ...live };
+    MANIFEST.value = { window: "09:00 – 17:00", ...live };
     if (live.cutoff) CUTOFF.value = live.cutoff;
     // Scan-built manifest: the parcels are the ones already scanned onto today's
     // draft Shipment (resumed on reload); readyCount is what's still to scan.
