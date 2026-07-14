@@ -948,11 +948,14 @@ def cancel_parcel(dn, reason=None):
             sh.save(ignore_permissions=True)
 
     reason = (reason or "").strip()
+    # Cancel FIRST, comment after: add_comment bumps `modified` on the row and
+    # a subsequent cancel() on the stale in-memory copy raises
+    # TimestampMismatchError (same bug hit in merge_orders).
+    doc.flags.ignore_permissions = True
+    doc.cancel()
     doc.add_comment("Comment",
                     f"Parcel cancelled from the portal by {frappe.session.user}."
                     + (f" Reason: {reason}" if reason else ""))
-    doc.flags.ignore_permissions = True
-    doc.cancel()
 
     order = frappe.db.get_value(
         "Delivery Note Item", {"parent": dn}, "against_sales_order")

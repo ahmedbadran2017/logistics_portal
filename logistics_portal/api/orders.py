@@ -1320,10 +1320,14 @@ def _do_merge(names, force=0):
     base.add_comment("Comment", "Merged from " + ", ".join(names))
 
     for d in docs:
-        d.flags.ignore_permissions = True
-        d.add_comment("Comment", f"Merged into {base.name}")
-        d.cancel()
-        d.db_set("custom_sales_status", "Duplicated", update_modified=False)
+        # add_comment bumps `modified` on the DB row, so cancelling the copy
+        # we loaded earlier raises TimestampMismatchError ("Document has been
+        # modified after you have opened it"). Cancel a FRESH copy, comment last.
+        fresh = frappe.get_doc("Sales Order", d.name)
+        fresh.flags.ignore_permissions = True
+        fresh.cancel()
+        fresh.add_comment("Comment", f"Merged into {base.name}")
+        fresh.db_set("custom_sales_status", "Duplicated", update_modified=False)
 
     for k in ("lp_board_summary", "lp_consolidation", "lp_pick_avail"):
         frappe.cache().delete_value(k)
