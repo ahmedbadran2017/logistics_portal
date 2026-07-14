@@ -1,1 +1,3 @@
 # Frappe and ERPNext are provided by the bench environment.
+# LLM daily digest (Audit page Layer B) — install with: bench pip install anthropic
+anthropic

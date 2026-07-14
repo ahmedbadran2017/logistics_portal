@@ -67,11 +67,154 @@ def _emit(alert):
     frappe.publish_realtime("logistics_alert", alert)
 
 
+# ---------------------------------------------------------------------------
+# Layer B — LLM daily digest. Reads the Anthropic key from site_config
+# (`anthropic_api_key`, the same key the JoyAgent uses). The key never leaves
+# the server and is never returned by any endpoint.
+# ---------------------------------------------------------------------------
+DIGEST_KEY = "lp_daily_digest"
+
+DIGEST_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "detail": {"type": "string"},
+                    "sev": {"type": "string", "enum": ["act", "watch", "good"]},
+                },
+                "required": ["title", "detail", "sev"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["summary", "items"],
+    "additionalProperties": False,
+}
+
+
+def _llm_status():
+    """(ok, reason) — is the LLM layer usable on this server?"""
+    if not frappe.conf.get("anthropic_api_key"):
+        return False, "no_key"
+    try:
+        import anthropic  # noqa: F401
+    except ImportError:
+        # bench pip install anthropic && bench restart
+        return False, "sdk_missing"
+    return True, None
+
+
+def _digest_payload():
+    """Compact JSON snapshot the model reasons over — scalars + the radar,
+    a few KB at most. Every source is optional so one broken board can't
+    kill the digest."""
+    payload = {"date": nowdate(), "warehouse": "Justyol Morocco", "carrier": "Cathedis"}
+    try:
+        radar = problem_radar()
+        payload["openProblems"] = [
+            {k: f.get(k) for k in ("key", "sev", "count", "value", "title") if f.get(k) is not None}
+            for f in radar.get("findings", [])
+        ]
+    except Exception:
+        payload["openProblems"] = []
+    try:
+        from logistics_portal.api.performance import cockpit
+        c = cockpit(nowdate()) or {}
+        payload["today"] = {k: v for k, v in c.items() if isinstance(v, (int, float, str))}
+    except Exception:
+        pass
+    try:
+        from logistics_portal.api.sla import board
+        b = board(days=14) or {}
+        payload["sla14d"] = {k: v for k, v in b.items() if isinstance(v, (int, float))}
+    except Exception:
+        pass
+    return payload
+
+
+def _run_digest():
+    """Call Claude over the snapshot and persist the digest. Raises on failure."""
+    import json as _json
+    import anthropic
+
+    payload = _digest_payload()
+    system = (
+        "أنت مدير عمليات لوجستية خبير في مستودع تجارة إلكترونية بالدفع عند الاستلام في المغرب "
+        "(شركة الشحن Cathedis). ستستلم لقطة JSON بأرقام اليوم والمشاكل المفتوحة في المستودع. "
+        "اكتب الخلاصة اليومية للمدير: ملخص من جملة أو جملتين، ثم 3 إلى 6 ملاحظات مرتبة بالأهمية. "
+        "كل ملاحظة: عنوان قصير وتفصيل عملي يقول ماذا يفعل الفريق غدًا صباحًا ولماذا. "
+        "sev: act = تحرك الآن، watch = راقب، good = تحسن يستحق الإشادة. "
+        "حلّل الأنماط ولا تتهم أشخاصًا بالاسم، ولا تخترع أرقامًا غير موجودة في اللقطة."
+    )
+    client = anthropic.Anthropic(api_key=frappe.conf.get("anthropic_api_key"))
+    resp = client.messages.create(
+        model="claude-opus-4-8",
+        max_tokens=2048,
+        thinking={"type": "adaptive"},
+        system=system,
+        output_config={"format": {"type": "json_schema", "schema": DIGEST_SCHEMA}},
+        messages=[{"role": "user", "content": _json.dumps(payload, ensure_ascii=False)}],
+    )
+    text = next(b.text for b in resp.content if b.type == "text")
+    data = _json.loads(text)
+    data["generatedAt"] = str(frappe.utils.now_datetime())[:19]
+    data["model"] = resp.model
+    frappe.db.set_default(DIGEST_KEY, _json.dumps(data, ensure_ascii=False))
+    frappe.db.commit()
+    return data
+
+
 def generate_daily_digest():
-    """Placeholder for the end-of-shift LLM reviewer. Writes a Logistics Audit
-    Note the manager reads. Wire to an LLM once the doctype is installed."""
-    # TODO: read the day's data + Layer-A events, call the LLM, store observations.
-    return {"ok": True}
+    """Scheduled (daily_long): end-of-shift LLM digest for the manager.
+    Silently no-ops when the key or SDK is missing — the Audit page shows
+    the setup hint instead."""
+    ok, reason = _llm_status()
+    if not ok:
+        return {"ok": False, "reason": reason}
+    try:
+        _run_digest()
+        return {"ok": True}
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.generate_daily_digest")
+        return {"ok": False, "reason": "error"}
+
+
+@frappe.whitelist()
+def daily_insights():
+    """Audit page Layer B: the stored digest + whether the layer is usable."""
+    import json as _json
+
+    ok, reason = _llm_status()
+    digest = None
+    raw = frappe.db.get_default(DIGEST_KEY)
+    if raw:
+        try:
+            digest = _json.loads(raw)
+        except Exception:
+            digest = None
+    return {"configured": ok, "reason": reason, "digest": digest}
+
+
+@frappe.whitelist()
+def run_daily_digest():
+    """Manager button: generate the digest now (synchronous, ~20-40s)."""
+    from logistics_portal.api.auth import resolve_role
+
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Only a manager can generate the digest.", frappe.PermissionError)
+    ok, reason = _llm_status()
+    if not ok:
+        return {"configured": False, "reason": reason, "digest": None}
+    try:
+        return {"configured": True, "reason": None, "digest": _run_digest()}
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.run_daily_digest")
+        frappe.throw("Digest generation failed — check the Error Log.")
 
 
 @frappe.whitelist()

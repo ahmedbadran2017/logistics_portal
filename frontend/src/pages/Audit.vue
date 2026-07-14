@@ -86,6 +86,64 @@
         </div>
       </section>
 
+      <!-- Right column: AI digest + alert history -->
+      <div class="space-y-4">
+      <!-- Layer B: LLM daily digest -->
+      <section class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+        <header class="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
+          <h3 class="text-[13.5px] font-semibold text-stone-900 flex items-center gap-1.5">
+            <Icon name="sparkles" :size="14" class="text-violet-500" /> AI daily digest
+          </h3>
+          <button
+            v-if="ai.configured"
+            class="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-[11.5px] font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 transition-colors"
+            :class="aiBusy ? 'opacity-60 pointer-events-none' : ''"
+            @click="genDigest"
+          >
+            <Icon name="refresh-cw" :size="11" :class="aiBusy ? 'animate-spin' : ''" />
+            {{ aiBusy ? "Thinking…" : "Generate now" }}
+          </button>
+        </header>
+
+        <div v-if="aiLoading" class="p-4 space-y-2">
+          <div v-for="n in 3" :key="n" class="h-[56px] rounded-xl ring-1 ring-stone-200/60 bg-stone-50 animate-pulse" />
+        </div>
+
+        <div v-else-if="!ai.configured" class="p-5 text-[12.5px] text-stone-500 leading-relaxed">
+          <template v-if="ai.reason === 'sdk_missing'">
+            Key found on the server — install the SDK to activate:
+            <code class="block mt-2 px-2.5 py-1.5 rounded-lg bg-stone-100 text-stone-700 text-[11.5px] font-mono" dir="ltr">bench pip install anthropic &amp;&amp; bench restart</code>
+          </template>
+          <template v-else>
+            Add <code class="px-1 rounded bg-stone-100 text-[11.5px] font-mono">anthropic_api_key</code> to site_config to activate the daily digest.
+          </template>
+        </div>
+
+        <div v-else-if="!ai.digest" class="p-5 text-center">
+          <p class="text-[12.5px] text-stone-500">No digest yet — it generates automatically at end of day.</p>
+          <button class="mt-3 h-8 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-violet-600 hover:bg-violet-700"
+                  :class="aiBusy ? 'opacity-60 pointer-events-none' : ''" @click="genDigest">
+            {{ aiBusy ? "Thinking…" : "Generate the first one" }}
+          </button>
+        </div>
+
+        <div v-else>
+          <p class="px-4 pt-3.5 pb-1 text-[12.5px] text-stone-700 leading-relaxed" dir="auto">{{ ai.digest.summary }}</p>
+          <div class="divide-y divide-stone-100">
+            <div v-for="(it, i) in ai.digest.items" :key="i" class="flex items-start gap-2.5 px-4 py-3">
+              <span class="mt-1.5 w-2 h-2 rounded-full flex-shrink-0" :style="{ background: aiSevHex(it.sev) }" />
+              <div class="min-w-0" dir="auto">
+                <div class="text-[12.5px] font-semibold text-stone-900 leading-snug">{{ it.title }}</div>
+                <p class="text-[11.5px] text-stone-500 mt-0.5 leading-relaxed">{{ it.detail }}</p>
+              </div>
+            </div>
+          </div>
+          <div class="px-4 py-2.5 border-t border-stone-100 text-[10.5px] text-stone-400" dir="ltr">
+            {{ ai.digest.generatedAt }} · {{ ai.digest.model }}
+          </div>
+        </div>
+      </section>
+
       <!-- Alert history (what the engine notified about) -->
       <section class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <header class="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
@@ -105,6 +163,7 @@
           </div>
         </div>
       </section>
+      </div>
     </div>
   </div>
 </template>
@@ -114,13 +173,42 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { WAREHOUSE } from "@/lib/handoffData";
-import { api } from "@/lib/resource";
+import { api, apiPost } from "@/lib/resource";
 
 const router = useRouter();
 
 const radar = ref(null);
 const alerts = ref([]);
 const loading = ref(true);
+
+// ── Layer B: LLM daily digest ────────────────────────────────────────
+const ai = ref({ configured: false, reason: null, digest: null });
+const aiLoading = ref(true);
+const aiBusy = ref(false);
+
+async function loadAI() {
+  try {
+    const r = await api("audit.daily_insights");
+    if (r && typeof r === "object") ai.value = r;
+  } catch (_) { /* panel shows setup hint */ } finally {
+    aiLoading.value = false;
+  }
+}
+onMounted(loadAI);
+
+async function genDigest() {
+  if (aiBusy.value) return;
+  aiBusy.value = true;
+  try {
+    const r = await apiPost("audit.run_daily_digest");
+    if (r && typeof r === "object") ai.value = r;
+  } catch (_) { /* server logged it */ } finally {
+    aiBusy.value = false;
+  }
+}
+
+const AI_SEV = { act: "#e11d48", watch: "#d97706", good: "#059669" };
+const aiSevHex = (s) => AI_SEV[s] || "#a8a29e";
 
 async function load() {
   loading.value = true;
