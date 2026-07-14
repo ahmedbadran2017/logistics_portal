@@ -208,7 +208,7 @@ def floor():
             WHERE creation >= %s AND creation < %s + INTERVAL 1 DAY AND docstatus = 1
             GROUP BY HOUR(creation) ORDER BY h
             """,
-            (today,), as_dict=True,
+            (today, today), as_dict=True,
         )
         by_hour = {int(r.h): int(r.c) for r in rows}
         # 8:00 → 20:00 window like the design
