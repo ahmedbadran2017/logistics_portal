@@ -35,7 +35,7 @@
                 <button v-for="c in [30, 40, 50]" :key="c"
                         class="px-2 h-6 text-[11.5px] font-semibold rounded-md transition-colors"
                         :class="capSel === c ? 'bg-stone-900 text-white' : 'text-stone-500 hover:text-stone-800'"
-                        @click="capSel = c; openSuggest()">{{ c }}</button>
+                        @click="capSel = c; loadSuggest()">{{ c }}</button>
               </div>
             </div>
             <span class="text-[11px] text-stone-400">{{ t("pl.sbPickHint") }}</span>
@@ -177,21 +177,41 @@ function toggleBatch(key) {
   s.has(key) ? s.delete(key) : s.add(key);
   picked.value = s;
 }
+// Per-open cache: switching batch size 30/40/50 back and forth must not
+// re-run the engine — each cap is fetched once per open (the server caches
+// 45s on top of this for the reopen case).
+let capCache = {};
+
 async function openSuggest() {
-  suggest.value = { loading: true, data: null };
+  capCache = {};
+  await loadSuggest(true);
+}
+
+function applyResult(res) {
+  suggest.value = { loading: false, data: res };
+  // Pre-select only what one run may create (server caps: 20 batches / 200
+  // orders) — the tail stays visible but unchecked.
+  selectTop();
+  for (const b of res.batches) pickerFor.value[b.key] = "";
+}
+
+async function loadSuggest(freshOpen = false) {
+  const cap = capSel.value;
   picked.value = new Set();
   pickerFor.value = {};
-  const [res, pk] = await Promise.all([
-    liveOr(null, () => api("picking.suggest_batches", { cap_orders: capSel.value })),
-    liveOr(null, () => api("picking.pickers")),
-  ]);
-  if (Array.isArray(pk)) sbPickers.value = pk.filter((p) => p.email);
+  if (capCache[cap]) {
+    applyResult(capCache[cap]);
+    return;
+  }
+  suggest.value = { loading: true, data: null };
+  const calls = [liveOr(null, () => api("picking.suggest_batches", { cap_orders: cap }))];
+  const needPickers = freshOpen || !sbPickers.value.length;
+  if (needPickers) calls.push(liveOr(null, () => api("picking.pickers")));
+  const [res, pk] = await Promise.all(calls);
+  if (needPickers && Array.isArray(pk)) sbPickers.value = pk.filter((p) => p.email);
   if (res && Array.isArray(res.batches)) {
-    suggest.value = { loading: false, data: res };
-    // Pre-select only what one run may create (server caps: 20 batches / 200
-    // orders) — the tail stays visible but unchecked.
-    selectTop();
-    for (const b of res.batches) pickerFor.value[b.key] = "";
+    capCache[cap] = res;
+    applyResult(res);
   } else {
     suggest.value = null;
     warn("Couldn't load suggestions", "Backend unreachable or engine not deployed yet.");

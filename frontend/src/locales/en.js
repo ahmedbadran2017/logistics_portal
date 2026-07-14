@@ -460,6 +460,12 @@ export default {
     rService: "Service", rWindow: "Window", rPickup: "Pickup", rDeliveryTo: "Delivery to",
   },
   pl: {
+    emptyDrafts: "{n} draft pick lists hold ZERO items — leftovers of stripped inserts. They block nothing but bury the real lists.",
+    cleanupBtn: "Delete {n} empty drafts",
+    cleanupSure: "Sure? Tap again",
+    cleaning: "Deleting…",
+    cleanedToast: "{n} empty drafts deleted",
+    cleanupFail: "Couldn't clean up",
     title: "Pick lists", subtitle: "{n} pick lists · last {d} days",
     searchPh: "Search PL, order, picker…", fromBoard: "Create from Orders board",
     fAll: "All", fDraft: "Draft", fOpen: "Picked · to ship", fShipped: "Shipped", fPartial: "Partial", fCancelled: "Cancelled",

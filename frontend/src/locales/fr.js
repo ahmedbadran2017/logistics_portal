@@ -460,6 +460,12 @@ export default {
     rService: "Service", rWindow: "Créneau", rPickup: "Enlèvement", rDeliveryTo: "Livraison à",
   },
   pl: {
+    emptyDrafts: "{n} brouillons de listes sans AUCUN article — résidus d'insertions vidées. Ils ne bloquent rien mais noient les vraies listes.",
+    cleanupBtn: "Supprimer {n} brouillons vides",
+    cleanupSure: "Sûr ? Retapez",
+    cleaning: "Suppression…",
+    cleanedToast: "{n} brouillons vides supprimés",
+    cleanupFail: "Échec du nettoyage",
     title: "Pick lists", subtitle: "{n} pick lists · {d} derniers jours",
     searchPh: "Rechercher PL, commande, préparateur…", fromBoard: "Créer depuis le tableau Commandes",
     fAll: "Tout", fDraft: "Brouillon", fOpen: "Préparée · à expédier", fShipped: "Expédiée", fPartial: "Partielle", fCancelled: "Annulée",

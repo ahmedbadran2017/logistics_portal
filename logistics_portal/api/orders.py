@@ -1331,6 +1331,7 @@ def _do_merge(names, force=0):
 
     for k in ("lp_board_summary", "lp_consolidation", "lp_pick_avail"):
         frappe.cache().delete_value(k)
+    frappe.cache().delete_keys("lp_suggest")
     frappe.db.commit()
     return {"ok": True, "order": base.name, "total": float(base.grand_total or 0),
             "items": len(base.items), "cancelled": names}

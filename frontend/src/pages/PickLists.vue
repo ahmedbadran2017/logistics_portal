@@ -480,6 +480,19 @@
             </button>
           </div>
         </div>
+        <!-- itemless drafts (runaway leftovers) — one-tap cleanup -->
+        <div v-if="ap.emptyDrafts > 0" class="mt-4 flex items-center gap-3 rounded-xl bg-amber-50 ring-1 ring-amber-200 px-3 py-2.5">
+          <Icon name="alert-triangle" :size="15" class="text-amber-600 flex-shrink-0" />
+          <span class="text-[12.5px] text-amber-800 flex-1">
+            {{ t("pl.emptyDrafts").replace("{n}", ap.emptyDrafts) }}
+          </span>
+          <button
+            class="h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors"
+            :class="armedCleanup ? 'text-white bg-rose-600' : 'text-rose-700 bg-white ring-1 ring-rose-200 hover:bg-rose-50'"
+            :disabled="cleanupBusy"
+            @click="doCleanup"
+          >{{ cleanupBusy ? t("pl.cleaning") : armedCleanup ? t("pl.cleanupSure") : t("pl.cleanupBtn").replace("{n}", ap.emptyDrafts) }}</button>
+        </div>
         <div v-if="ap.runs.length" class="mt-4">
           <div class="text-[11px] font-semibold uppercase tracking-wide text-stone-400 mb-2">{{ t("pl.apLog") }}</div>
           <div class="space-y-1">
@@ -838,11 +851,35 @@ const sbModal = ref(null);
 const sbPickers = ref([]);
 
 // ── Live autopilot card state (was lost in a refactor — restored + wired) ──
-const ap = ref({ enabled: false, runs: [] });
+const ap = ref({ enabled: false, runs: [], emptyDrafts: 0 });
 const apBusy = ref(false);
 async function apRefresh() {
   const s = await liveOr(null, () => api("picking.autopilot_status"));
-  if (s) ap.value = { enabled: !!s.enabled, runs: Array.isArray(s.runs) ? s.runs : [] };
+  if (s) ap.value = { enabled: !!s.enabled, runs: Array.isArray(s.runs) ? s.runs : [],
+                      emptyDrafts: Number(s.emptyDrafts || 0) };
+}
+
+// Bulk-delete itemless draft pick lists (two-tap).
+const armedCleanup = ref(false);
+const cleanupBusy = ref(false);
+async function doCleanup() {
+  if (!armedCleanup.value) {
+    armedCleanup.value = true;
+    setTimeout(() => { armedCleanup.value = false; }, 4000);
+    return;
+  }
+  armedCleanup.value = false;
+  cleanupBusy.value = true;
+  try {
+    const r = await apiPost("picking.cleanup_empty_drafts");
+    success(t("pl.cleanedToast").replace("{n}", r.deleted));
+    await apRefresh();
+    load();
+  } catch (e) {
+    warn(t("pl.cleanupFail"), String(e.message || e));
+  } finally {
+    cleanupBusy.value = false;
+  }
 }
 async function apToggle() {
   apBusy.value = true;

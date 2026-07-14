@@ -460,6 +460,12 @@ export default {
     rService: "الخدمة", rWindow: "النافذة", rPickup: "الالتقاط", rDeliveryTo: "التسليم إلى",
   },
   pl: {
+    emptyDrafts: "{n} مسودة انتقاء فيها صفر أصناف — بقايا إدخالات اتشالت سطورها. مش بتحجز حاجة لكنها بتدفن القوايم الحقيقية.",
+    cleanupBtn: "حذف {n} مسودة فاضية",
+    cleanupSure: "متأكد؟ اضغط تاني",
+    cleaning: "جارٍ الحذف…",
+    cleanedToast: "اتحذفت {n} مسودة فاضية",
+    cleanupFail: "تعذّر التنظيف",
     title: "قوائم التجهيز", subtitle: "{n} قائمة · آخر {d} أيام",
     searchPh: "بحث: قائمة · طلب · مجهِّز…", fromBoard: "إنشاء من لوحة الطلبات",
     fAll: "الكل", fDraft: "مسودة", fOpen: "جُهّزت · للشحن", fShipped: "شُحنت", fPartial: "جزئية", fCancelled: "ملغاة",

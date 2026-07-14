@@ -285,6 +285,7 @@ def complete_pick(order):
     # Picked → out of the to-pick pool; refresh the board / availability / clusters.
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_keys("lp_suggest")
     frappe.cache().delete_value("lp_consolidation")
     return {"ok": True}
 
@@ -530,6 +531,7 @@ def create_pick_list_from_orders(orders, picker=None):
     result = _build_pick_list(orders, picker)
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_keys("lp_suggest")
     frappe.cache().delete_value("lp_consolidation")
     return result
 
@@ -590,6 +592,13 @@ def _insert_one(sos, picker=None):
     if not pl.get("locations"):
         raise frappe.ValidationError("nothing pickable")
     pl.insert()
+    # The controller (set_item_locations) re-resolves stock on save and strips
+    # lines whose stock is locked elsewhere. A stripped-EMPTY pick list must
+    # not survive — 602 of them piled up in one day when the autopilot kept
+    # re-batching orders whose stock sat on earlier drafts.
+    if not pl.get("locations"):
+        raise frappe.ValidationError(
+            "nothing pickable — stock is locked by other open pick lists")
     return {"pl": pl.name, "orders": len({l.sales_order for l in pl.locations}),
             "items": len(pl.locations)}
 
@@ -687,6 +696,7 @@ def submit_pick_list(name):
     pl.submit()
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_keys("lp_suggest")
     frappe.cache().delete_value("lp_consolidation")
     dn = frappe.db.sql(
         """SELECT MAX(dni.parent) FROM `tabDelivery Note Item` dni
@@ -742,8 +752,46 @@ def cancel_pick_list(name, reason=None):
     frappe.delete_doc("Pick List", name, ignore_permissions=False)
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_keys("lp_suggest")
     frappe.cache().delete_value("lp_consolidation")
     return {"ok": True}
+
+
+def _empty_draft_names(limit=2000):
+    """Draft pick lists with zero item rows — pure noise, safe to delete."""
+    return [r[0] for r in frappe.db.sql(
+        """SELECT pl.name FROM `tabPick List` pl
+           WHERE pl.docstatus = 0
+             AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
+                             WHERE pli.parent = pl.name)
+           ORDER BY pl.creation LIMIT %s""", (limit,))]
+
+
+@frappe.whitelist()
+def cleanup_empty_drafts():
+    """Bulk-delete draft pick lists that hold NO items (the stripped-empty
+    drafts the 2026-07-14 autopilot runaway produced). They lock nothing and
+    list nothing — deleting them is pure cleanup. Dispatcher/manager."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Only a dispatcher or manager can clean up.", frappe.PermissionError)
+    names = _empty_draft_names()
+    deleted = 0
+    for name in names:
+        try:
+            frappe.delete_doc("Pick List", name, ignore_permissions=True,
+                              delete_permanently=False)
+            deleted += 1
+            if deleted % 200 == 0:
+                frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+    frappe.db.commit()
+    frappe.cache().delete_value("lp_board_summary")
+    frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_keys("lp_suggest")
+    return {"ok": True, "deleted": deleted,
+            "remaining": len(_empty_draft_names(10))}
 
 
 @frappe.whitelist()
@@ -812,15 +860,35 @@ def _resolve_bins(item_codes):
         "SELECT item_code, warehouse, (actual_qty - reserved_qty) AS avail FROM `tabBin` "
         "WHERE (actual_qty - reserved_qty) > 0 AND item_code IN %s AND " + cond,
         tuple([tuple(item_codes)] + wargs), as_dict=True)
+
+    # Qty already claimed by OPEN DRAFT pick lists is NOT free — ERPNext's
+    # set_item_locations subtracts it on save, so ignoring it here made the
+    # engine suggest orders whose stock was locked by earlier drafts; those
+    # inserts came back stripped-empty and the autopilot re-batched the same
+    # orders every 15 minutes (the 602-empty-drafts runaway of 2026-07-14).
+    locked = {}
+    for r in frappe.db.sql(
+            """SELECT pli.item_code, pli.warehouse,
+                      SUM(GREATEST(pli.qty - pli.picked_qty, 0)) AS q
+               FROM `tabPick List Item` pli
+               JOIN `tabPick List` p ON p.name = pli.parent
+               WHERE p.docstatus = 0 AND pli.item_code IN %s
+               GROUP BY pli.item_code, pli.warehouse""",
+            (tuple(item_codes),), as_dict=True):
+        locked[(r.item_code, r.warehouse)] = float(r.q or 0)
+
     best = {}
     for r in rows:
+        avail = float(r.avail or 0) - locked.get((r.item_code, r.warehouse), 0)
+        if avail <= 0:
+            continue
         m = _SHELF_RE.match(r.warehouse or "")
         cand = {
             "bin": r.warehouse,
             "shelf": bool(m),
             "aisle": m.group(1) if m else "STG",
             "walk": (m.group(1), int(m.group(2)), m.group(3)) if m else ("~", 0, ""),
-            "qty": float(r.avail or 0),
+            "qty": avail,
         }
         cur = best.get(r.item_code)
         # prefer shelf over staging; within the same class prefer more stock
@@ -854,10 +922,22 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
         cap_orders = min(max(int(cap_orders or 40), 5), 50)
         cap_units = min(max(int(cap_units or cap_orders * 2), 10), 120)
         min_mono = min(max(int(min_mono or 8), 4), 20)
+        max_batches = min(max(int(max_batches or 40), 10), 100)
         # Same-product batches are one shelf grab — pulling 100 of the same SKU is
         # as easy as 10, so they get a much higher cap than mixed walks.
         cap_mono = min(max(cap_orders * 2, 80), 120)
 
+        # Short cache: the modal re-runs this on every open and every batch-size
+        # tap; the pool only changes when pick lists / orders change (those
+        # paths bust it) — and 45s covers everything else.
+        cache_key = f"lp_suggest:{cap_orders}:{cap_units}:{min_mono}:{max_batches}"
+        cached = frappe.cache().get_value(cache_key)
+        if cached:
+            return cached
+
+        # NOT EXISTS instead of a LEFT JOIN on a derived DISTINCT table: the
+        # derived table full-scanned every Pick List row on each call (455ms on
+        # production); the correlated probe uses lp_pli_so_idx (58ms, same rows).
         rows = frappe.db.sql(
             """SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
                       so.creation, soi.item_code,
@@ -865,12 +945,12 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
                       GREATEST(soi.qty - soi.delivered_qty, 0) AS qty
                FROM `tabSales Order` so
                JOIN `tabSales Order Item` soi ON soi.parent = so.name
-               LEFT JOIN (SELECT DISTINCT pli.sales_order FROM `tabPick List Item` pli
-                          JOIN `tabPick List` p ON p.name = pli.parent
-                          WHERE p.docstatus < 2) pl ON pl.sales_order = so.name
                WHERE so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
-                 AND so.custom_logistics_status = 'Pending' AND pl.sales_order IS NULL
+                 AND so.custom_logistics_status = 'Pending'
                  AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+                 AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
+                                 JOIN `tabPick List` p ON p.name = pli.parent
+                                 WHERE pli.sales_order = so.name AND p.docstatus < 2)
                ORDER BY so.creation""",
             as_dict=True)
 
@@ -993,12 +1073,11 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
         # deep backlog (200+ batches) freezes the browser if sent whole. The
         # rest is summarized — it resurfaces on the next open, highest priority
         # first.
-        max_batches = min(max(int(max_batches or 40), 10), 100)
         total_batches = len(batches)
         batched_all = sum(len(b["orders"]) for b in batches)
         batches = batches[:max_batches]
 
-        return {
+        result = {
             "batches": batches, "oos": oos,
             "moreBatches": max(0, total_batches - len(batches)),
             "moreOrders": batched_all - sum(len(b["orders"]) for b in batches),
@@ -1006,6 +1085,8 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
             "params": {"cap_orders": cap_orders, "cap_units": cap_units, "min_mono": min_mono},
             "serverNow": str(_now)[:19],
         }
+        frappe.cache().set_value(cache_key, result, expires_in_sec=45)
+        return result
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.suggest_batches")
         return {}
@@ -1043,6 +1124,7 @@ def create_batches(batches):
                             "orders": len(b.get("orders") or [])})
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_keys("lp_suggest")
     frappe.cache().delete_value("lp_consolidation")
     return {"results": results,
             "created": sum(1 for r in results if r.get("ok")),
@@ -1083,6 +1165,9 @@ def autopilot_status():
         "enabled": frappe.db.get_default(_AP_ENABLED) == "1",
         "schedule": "*/15",
         "runs": _ap_runs()[:10],
+        # Surfaced so the UI can offer one-tap cleanup when a runaway (or a
+        # desk mishap) leaves itemless drafts behind.
+        "emptyDrafts": len(_empty_draft_names(2000)),
     }
 
 
@@ -1130,6 +1215,18 @@ def _autopilot_core(trigger):
         _ap_record(entry)
         return entry
 
+    # Churn guard: creating MORE drafts while the floor sits on a pile of
+    # unworked ones just buries the pickers in paper (1,259 drafts piled up in
+    # one day before this guard). Auto runs wait until the backlog drains;
+    # manual "Run now" still works — that's an explicit human decision.
+    open_drafts = int(frappe.db.sql(
+        "SELECT COUNT(*) FROM `tabPick List` WHERE docstatus = 0")[0][0])
+    if trigger == "auto" and open_drafts >= 60:
+        entry.update({"note": f"skipped — {open_drafts} open drafts, floor hasn't caught up",
+                      "created": 0, "failed": 0, "orders": 0})
+        _ap_record(entry)
+        return entry
+
     batches = batches[:_AP_MAX_BATCHES]
 
     # least-loaded assignment (live open-PL load per known picker)
@@ -1153,6 +1250,7 @@ def _autopilot_core(trigger):
             details.append({"error": str(e)[:120], "kind": b["kind"], "orders": len(b["orders"])})
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_keys("lp_suggest")
     frappe.cache().delete_value("lp_consolidation")
 
     entry.update({"created": created, "failed": failed, "orders": placed, "details": details[:8]})
