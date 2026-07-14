@@ -128,7 +128,7 @@ import Icon from "@/components/ui/Icon.vue";
 import { LEADERBOARD as DEMO_LEADERBOARD, byId } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
 
-const board = ref(DEMO_LEADERBOARD);
+const board = ref([]);
 
 onMounted(async () => {
   const live = await liveOr(null, () => api("performance.team"));

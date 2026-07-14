@@ -107,13 +107,13 @@
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
-import { AUDIT as DEMO_AUDIT } from "@/lib/handoffData";
+
 import { api, liveOr } from "@/lib/resource";
 
 const router = useRouter();
 
 // Live-or-demo alert feed: `audit.recent_alerts` returns the same shape as AUDIT.
-const AUDIT = ref(DEMO_AUDIT);
+const AUDIT = ref([]);
 onMounted(async () => {
   const live = await liveOr(null, () => api("audit.recent_alerts"));
   if (Array.isArray(live) && live.length) AUDIT.value = live;

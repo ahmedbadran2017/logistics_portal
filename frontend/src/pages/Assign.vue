@@ -190,8 +190,8 @@ const capacity = 12;
 // Live-or-demo orders + pickers. Seed from handoff demo data; onMounted overwrites
 // with live `orders.list` (ORDERS shape) and `picking.pickers` ([{id,name,load,capacity}]).
 const DEMO_PICKERS = TEAM.filter((p) => p.role === "picker");
-const orders = ref(ORDERS);
-const pickers = ref(DEMO_PICKERS);
+const orders = ref([]);
+const pickers = ref([]);
 
 // Live load per picker (from picking.pickers). When set, overrides the derived
 // baseLoad so the kanban capacity bars reflect the backend.

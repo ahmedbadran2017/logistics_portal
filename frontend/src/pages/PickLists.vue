@@ -813,7 +813,7 @@ function autoPickGroups(strategy, cap2 = 12) {
 }
 
 // ── list state (server-driven when live · demo seed as fallback) ────────
-const rows = ref(DEMO_PICKLISTS.map((p) => ({ ...p })));
+const rows = ref([]);
 const sbModal = ref(null);
 const sbPickers = ref([]);
 

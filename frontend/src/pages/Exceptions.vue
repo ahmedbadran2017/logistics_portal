@@ -186,7 +186,7 @@ const EXC_KIND = {
   cod: { tone: "rose", icon: "dollar-sign" },
 };
 
-const rows = ref(EXCEPTIONS.map((e) => ({ ...e })));
+const rows = ref([]);
 const filter = ref("all");
 const kinds = computed(() => isLive.value ? ["all", "exception", "failed"] : ["all", "oos", "carrier", "shortpick", "return", "cod"]);
 

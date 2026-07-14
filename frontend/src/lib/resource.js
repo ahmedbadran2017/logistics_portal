@@ -55,32 +55,27 @@ export function apiPost(method, args = {}) {
 }
 
 /**
- * Live-or-demo: await a real API call and return its result when it yields
- * usable data; otherwise fall back to `demo` — but ONLY during development.
- * In production a backend hiccup or a genuinely empty queue must never be
- * papered over with plausible fake numbers: an empty live array is REAL data
- * (the queue IS empty), and an error returns the demo's empty shape so pages
- * keep rendering without inventing content.
+ * Await a live API call; on failure or empty result return the empty shape of
+ * `fallback` (array → [], object → null). NO demo substitution, ever — pages
+ * render skeletons while loading and honest empty/error states after. The
+ * first param is kept for its SHAPE only (legacy callers pass demo consts).
  */
-const DEMO_OK = import.meta.env.DEV;
-
-function emptyLike(demo) {
-  if (Array.isArray(demo)) return [];
-  return demo && typeof demo === "object" ? null : demo;
+function emptyLike(shape) {
+  if (Array.isArray(shape)) return [];
+  return shape && typeof shape === "object" ? null : shape;
 }
 
-export async function liveOr(demo, promiseOrFn) {
+export async function liveOr(fallback, promiseOrFn) {
   try {
     const p = typeof promiseOrFn === "function" ? promiseOrFn() : promiseOrFn;
     const res = await p;
-    if (res == null) return DEMO_OK ? demo : emptyLike(demo);
-    if (Array.isArray(res)) return res.length || !DEMO_OK ? res : demo;
-    if (typeof res === "object" && Object.keys(res).length === 0)
-      return DEMO_OK ? demo : emptyLike(demo);
+    if (res == null) return emptyLike(fallback);
+    if (typeof res === "object" && !Array.isArray(res) && Object.keys(res).length === 0)
+      return emptyLike(fallback);
     return res;
   } catch (e) {
     console.warn("liveOr: live call failed", e);
-    return DEMO_OK ? demo : emptyLike(demo);
+    return emptyLike(fallback);
   }
 }
 

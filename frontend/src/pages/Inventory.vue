@@ -136,13 +136,13 @@ import { api, liveOr } from "@/lib/resource";
 
 const { success } = useToast();
 
-const allItems = ref(DEMO_STOCK_ITEMS);
-const stats = ref(DEMO_STOCK_STATS);
+const allItems = ref([]);
+const stats = ref({ skus: 0, units: 0, value: 0, low: 0, out: 0 });
 
 const zone = ref(null);
 // Zone health panel: live from `inventory.zones` (same shape as the demo
 // RESTOCK); demo seed only in dev builds so the panel never shows fake zones.
-const zonesList = ref(import.meta.env.DEV ? RESTOCK : []);
+const zonesList = ref([]);
 const items = computed(() => (zone.value ? allItems.value.filter((i) => i.zone === zone.value) : allItems.value));
 
 onMounted(async () => {

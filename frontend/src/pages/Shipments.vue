@@ -225,7 +225,7 @@ const open = ref(null);
 
 // Live-or-demo shipments. `shipping.shipments` fills this once installed;
 // falls back to the demo seed in local preview / on error.
-const shipments = ref(DEMO_SHIPMENTS);
+const shipments = ref([]);
 
 onMounted(async () => {
   const live = await liveOr(null, () => api("shipping.shipments", { limit: 30 }));

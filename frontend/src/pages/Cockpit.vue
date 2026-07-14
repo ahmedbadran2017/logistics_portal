@@ -32,6 +32,20 @@
         </div>
       </div>
 
+      <!-- Skeleton until the live snapshot arrives — never demo numbers -->
+      <template v-if="loading && !isLive">
+        <div class="h-[88px] rounded-2xl ring-1 ring-stone-200/60 bg-white animate-pulse" />
+        <div class="h-[180px] rounded-2xl ring-1 ring-stone-200/60 bg-white animate-pulse" />
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div v-for="n in 4" :key="n" class="h-[110px] rounded-xl ring-1 ring-stone-200/60 bg-white animate-pulse" />
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4">
+          <div class="h-[360px] rounded-xl ring-1 ring-stone-200/60 bg-white animate-pulse" />
+          <div class="h-[360px] rounded-xl ring-1 ring-stone-200/60 bg-white animate-pulse" />
+        </div>
+      </template>
+
+      <template v-else>
       <!-- Needs attention band -->
       <div
         class="rounded-2xl p-5 ring-1 flex items-center gap-4"
@@ -64,6 +78,8 @@
           Breached orders <Icon name="chevron-right" :size="16" />
         </button>
       </div>
+
+      </template>
 
       <!-- Breached orders panel -->
       <Teleport to="body">
@@ -123,10 +139,12 @@
             <span class="text-[13px] font-semibold text-stone-900">Today's flow</span>
             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
           </div>
-          <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl ring-1 bg-rose-50 ring-rose-200">
-            <Icon name="clock" :size="14" class="text-rose-500" />
-            <span class="text-[11.5px] text-stone-500">Past cutoff</span>
-            <span class="text-[14px] font-bold tabular-nums text-rose-600">{{ cockpit.pastCutoff }}</span>
+          <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl ring-1"
+               :class="cockpit.cutoffLate ? 'bg-rose-50 ring-rose-200' : 'bg-emerald-50 ring-emerald-200'">
+            <Icon name="clock" :size="14" :class="cockpit.cutoffLate ? 'text-rose-500' : 'text-emerald-600'" />
+            <span class="text-[11.5px] text-stone-500">{{ cockpit.cutoffLate ? 'Past cutoff' : 'To cutoff' }}</span>
+            <span class="text-[14px] font-bold tabular-nums"
+                  :class="cockpit.cutoffLate ? 'text-rose-600' : 'text-emerald-700'">{{ cockpit.pastCutoff }}</span>
             <span class="text-[11px] text-stone-400">· {{ cockpit.cutoff }}</span>
           </div>
         </div>
@@ -284,8 +302,7 @@
 import { ref, computed, h, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import {
-  STAGE, STAGE_LABEL, PIPELINE as DEMO_PIPELINE, LEADERBOARD as DEMO_LEADERBOARD, COCKPIT as DEMO_COCKPIT,
-  byId, fmtMAD, getInitial, WAREHOUSE, CITY,
+  STAGE, STAGE_LABEL, byId, fmtMAD, getInitial, WAREHOUSE, CITY,
 } from "@/lib/handoffData.js";
 import { api, liveOr } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -294,12 +311,19 @@ import { useToast } from "@/composables/useToast";
 
 const { success } = useToast();
 
-// Live-or-demo data. `performance.cockpit` fills these once the app is installed;
-// missing fields (e.g. sparkline trends) keep their demo values so nothing breaks.
-const cockpit = ref(DEMO_COCKPIT);
+// NO demo data: skeletons render until `performance.cockpit` resolves, then
+// real numbers (or honest zeros) — never plausible fake ones.
+const EMPTY_COCKPIT = {
+  ordersIn: 0, shipped: 0, printed: 0, toShip: 0, inTransit: 0, breaches: 0,
+  atRisk: 0, returns: 0, attention: 0, totalOrders: 0, sameDayPct: 0,
+  cutoff: "17:00", beforeCutoff: 0, cutoffPct: 0, pastCutoff: "—",
+  sameDayTrend: [], breachTrend: [], atRiskTrend: [], transitTrend: [],
+};
+const cockpit = ref({ ...EMPTY_COCKPIT });
 const { t } = useI18n();
-const pipeline = ref(DEMO_PIPELINE);
-const leaderboard = ref(DEMO_LEADERBOARD);
+const pipeline = ref([]);
+const leaderboard = ref([]);
+const loading = ref(true);
 
 // Live time-vs-cutoff, computed client-side so it's always current.
 function cutoffDelta(cutoff = "14:00") {
@@ -310,7 +334,7 @@ function cutoffDelta(cutoff = "14:00") {
   const hh = String(Math.floor(diff / 3600)).padStart(2, "0");
   const mm = String(Math.floor((diff % 3600) / 60)).padStart(2, "0");
   const ss = String(Math.floor(diff % 60)).padStart(2, "0");
-  return (now > cut ? "+" : "−") + `${hh}:${mm}:${ss}`;
+  return { late: now > cut, text: `${hh}:${mm}:${ss}` };
 }
 
 const isLive = ref(false);
@@ -327,23 +351,23 @@ const dateLabel = computed(() => {
 });
 
 async function load() {
+  loading.value = true;
   const live = await liveOr(null, () => api("performance.cockpit", { date: selectedDate.value }));
   if (live && live.summary) {
     isLive.value = true;
+    const delta = live.summary.isToday
+      ? cutoffDelta(live.summary.cutoff || "17:00") : null;
     cockpit.value = {
-      ...DEMO_COCKPIT,
+      ...EMPTY_COCKPIT,
       ...live.summary,
-      pastCutoff: live.summary.isToday ? cutoffDelta(live.summary.cutoff || "17:00") : "—",
-      // Real data only: drop the demo sparkline trends so nothing invented shows.
+      pastCutoff: delta ? delta.text : "—",
+      cutoffLate: !!(delta && delta.late),
       sameDayTrend: [], breachTrend: [], atRiskTrend: [], transitTrend: [],
     };
-    if (live.pipeline && live.pipeline.length) pipeline.value = live.pipeline;
-    if (live.leaderboard && live.leaderboard.length) {
-      // Keep live rows as-is; empty trend renders a flat placeholder line
-      // instead of borrowing a fake demo sparkline.
-      leaderboard.value = live.leaderboard;
-    }
+    pipeline.value = live.pipeline || [];
+    leaderboard.value = live.leaderboard || [];
   }
+  loading.value = false;
 }
 
 function onDateChange(e) {

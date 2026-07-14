@@ -137,9 +137,9 @@ import { useToast } from "@/composables/useToast";
 
 const { success, warn } = useToast();
 
-const labelRows = ref(DEMO_LABEL_QUEUE.map((r) => ({ ...r })));
+const labelRows = ref([]);
 const rows = labelRows;
-const preview = ref(DEMO_LABEL_QUEUE[0].order);
+const preview = ref(null);
 
 onMounted(async () => {
   const live = await liveOr(null, () => api("shipping.label_queue", { limit: 50 }));

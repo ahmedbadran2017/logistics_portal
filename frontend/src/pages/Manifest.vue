@@ -192,19 +192,16 @@ const closing = ref(false);
 const confirmClose = ref(false);
 
 // Live-or-demo refs (same names as the demo consts so the template keeps working).
-const MANIFEST = ref({ ...DEMO_MANIFEST });
-const RECENT_MANIFESTS = ref(DEMO_RECENT_MANIFESTS);
-const CUTOFF = ref(DEMO_CUTOFF);
+const MANIFEST = ref({ no: "—", pickupDate: "", window: "" });
+const RECENT_MANIFESTS = ref([]);
+const CUTOFF = ref("17:00");
 
 const scanner = ref(null);
 const isLive = ref(false);
-// Demo seeding happens ONLY in dev builds — production must never show or
-// fabricate parcels that don't exist.
-const DEMO_OK = import.meta.env.DEV;
-const parcels = ref(DEMO_OK ? PARCELS.slice(0, 2).map((p) => ({ ...p })) : []);
+const parcels = ref([]);
 const readyCount = ref(0); // ready-to-ship parcels waiting to be scanned onto the manifest
-const pool = ref(DEMO_OK ? PARCELS.slice(2).map((p) => ({ ...p })) : []);
-const notLabeled = ref(DEMO_OK ? 3 : 0);
+const pool = ref([]);
+const notLabeled = ref(0);
 
 const totalValue = computed(() => parcels.value.reduce((s, p) => s + Number(p.value || 0), 0));
 
@@ -247,28 +244,8 @@ async function onScan(code) {
     scanner.value?.showSuccess(`✓ ${res.awb} · ${parcels.value.length}`);
     return;
   }
-  // Not live: NEVER invent a parcel in production — the backend is the truth.
-  if (!DEMO_OK) {
-    scanner.value?.showError("لا يوجد اتصال بالسيرفر — أعد تحميل الصفحة");
-    return;
-  }
-  let parcel;
-  if (pool.value.length) {
-    parcel = pool.value.shift();
-    parcel = { ...parcel, awb: code };
-  } else {
-    parcel = {
-      dn: "MAT-DN-2026-" + (77100 + parcels.value.length),
-      awb: code,
-      order: "#" + (242600 + parcels.value.length),
-      customer: "Scanned parcel",
-      value: 149,
-      sla: "ontrack",
-    };
-  }
-  parcels.value.unshift(parcel);
-  if (notLabeled.value > 0) notLabeled.value -= 1;
-  scanner.value?.showSuccess(`${parcel.dn} → ${MANIFEST.value.no}`);
+  // Not live = no backend session. Never invent a parcel — reload instead.
+  scanner.value?.showError("لا يوجد اتصال بالسيرفر — أعد تحميل الصفحة");
 }
 
 function remove(i) {
@@ -278,12 +255,7 @@ function remove(i) {
 function closeManifest() {
   if (!parcels.value.length) return;
   if (!isLive.value) {
-    if (!DEMO_OK) {
-      warn("لا يوجد اتصال بالسيرفر", "أعد تحميل الصفحة قبل إقفال المانيفست");
-      return;
-    }
-    // Dev demo mode — no backend, just show the outcome.
-    success("Shipment SH-000180 submitted", `${parcels.value.length} parcels handed to ${CARRIER}`);
+    warn("لا يوجد اتصال بالسيرفر", "أعد تحميل الصفحة قبل إقفال المانيفست");
     return;
   }
   confirmClose.value = true;

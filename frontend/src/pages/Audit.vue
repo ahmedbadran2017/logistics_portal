@@ -76,14 +76,14 @@
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
-import { AUDIT, WAREHOUSE } from "@/lib/handoffData";
+import { WAREHOUSE } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
 
 const router = useRouter();
 
 // Live-or-demo alerts (Layer A). Insights stay demo — LLM layer not live yet.
-const alerts = ref(AUDIT.filter((a) => a.kind === "alert"));
-const insights = computed(() => (import.meta.env.DEV ? AUDIT.filter((a) => a.kind === "note") : []));
+const alerts = ref([]);
+const insights = computed(() => []);
 
 onMounted(async () => {
   const live = await liveOr(null, () => api("audit.recent_alerts"));
