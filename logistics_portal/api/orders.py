@@ -1232,6 +1232,21 @@ def merge_orders(orders):
         return _do_merge(names)
 
 
+def _strip_external_identity(doc):
+    """A copied Sales Order must NOT inherit the source's external identity.
+    ecommerce_integrations hooks Sales Order autoname and names the doc from
+    `shopify_order_number` — a copy that keeps it collides with the original
+    (DuplicateEntryError → HTTP 409). `custom_youcan_order_id` carries a DB
+    unique index with the same effect. Clearing these lets naming fall back to
+    the SAL-ORD- series and keeps the Shopify/YouCan sync pointed at the
+    original order only (provenance lives in the comments)."""
+    for f in ("shopify_order_number", "shopify_order_id", "shopify_order_status",
+              "custom_youcan_order_id", "order_status_url", "fulfillment_status",
+              "financial_status"):
+        if doc.meta.has_field(f):
+            doc.set(f, None)
+
+
 def _do_merge(names):
     docs = []
     for name in names:
@@ -1277,6 +1292,7 @@ def _do_merge(names):
     # city, taxes) + every other order's items appended.
     docs.sort(key=lambda d: d.creation)
     base = frappe.copy_doc(docs[0])
+    _strip_external_identity(base)
     for extra in docs[1:]:
         for it in extra.items:
             base.append("items", {
@@ -1344,6 +1360,7 @@ def reship(order):
         frappe.throw("This order was already reshipped — check its comments.")
 
     new = frappe.copy_doc(so)
+    _strip_external_identity(new)
     new.custom_sales_status = "Confirmed"
     for f in ("custom_logistics_status",):
         if new.meta.has_field(f):

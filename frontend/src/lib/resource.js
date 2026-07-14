@@ -12,6 +12,24 @@ function csrf() {
   return window.csrf_token || (window.frappe_boot && window.frappe_boot.csrf_token) || "";
 }
 
+/** Build an Error carrying the server's human message (Frappe packs it into
+ *  `_server_messages` / `exception`), falling back to "method → status". */
+async function serverError(method, res) {
+  let msg = `${method} → ${res.status}`;
+  try {
+    const body = await res.json();
+    const sm = body._server_messages ? JSON.parse(body._server_messages) : null;
+    const first = sm && sm.length ? JSON.parse(sm[0]) : null;
+    if (first && first.message) {
+      msg = String(first.message).replace(/<[^>]+>/g, "").trim() || msg;
+    } else if (body.exception) {
+      // "frappe.exceptions.XError: the message" → keep the message part.
+      msg = String(body.exception).split(/Error:|Exception:/).pop().trim() || msg;
+    }
+  } catch (_) { /* keep the generic message */ }
+  return new Error(msg);
+}
+
 export async function call(method, args = {}) {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(args || {})) {
@@ -23,7 +41,7 @@ export async function call(method, args = {}) {
     method: "GET",
     headers: { "X-Requested-With": "XMLHttpRequest", Accept: "application/json" },
   });
-  if (!res.ok) throw new Error(`${method} → ${res.status}`);
+  if (!res.ok) throw await serverError(method, res);
   const data = await res.json();
   return data.message; // Frappe wraps the return value in `message`
 }
@@ -39,7 +57,7 @@ export async function post(method, args = {}) {
     },
     body: JSON.stringify(args),
   });
-  if (!res.ok) throw new Error(`${method} → ${res.status}`);
+  if (!res.ok) throw await serverError(method, res);
   const data = await res.json();
   return data.message;
 }
