@@ -113,8 +113,13 @@ def warehouse_settings():
     pickable and not listed; structural families show locked-off."""
     _require_manager()
     excluded = set(excluded_zones())
+    # NB: the SKU-count column is aliased item_count, NOT `items` — on a
+    # frappe._dict row `r.items` resolves to the dict METHOD, and int(method)
+    # raised TypeError on every call. That's why the Settings panel showed
+    # "No configurable zones" since day one.
     rows = frappe.db.sql(
-        """SELECT warehouse, ROUND(SUM(actual_qty)) qty, COUNT(DISTINCT item_code) items
+        """SELECT warehouse, ROUND(SUM(actual_qty)) qty,
+                  COUNT(DISTINCT item_code) item_count
            FROM `tabBin` WHERE warehouse LIKE %s
            GROUP BY warehouse HAVING qty <> 0""", ("% - JM",), as_dict=True)
     zones = []
@@ -125,10 +130,10 @@ def warehouse_settings():
             continue  # a shelf bin, always pickable — not a configurable zone
         if _family_excluded(name):
             zones.append({"name": name, "short": short.strip(), "qty": int(r.qty or 0),
-                          "items": int(r.items or 0), "pickable": False, "locked": True})
+                          "items": int(r.item_count or 0), "pickable": False, "locked": True})
         else:
             zones.append({"name": name, "short": short.strip(), "qty": int(r.qty or 0),
-                          "items": int(r.items or 0), "pickable": name not in excluded,
+                          "items": int(r.item_count or 0), "pickable": name not in excluded,
                           "locked": False})
     zones.sort(key=lambda z: (z["locked"], -z["qty"]))
     return {"zones": zones}
@@ -142,7 +147,10 @@ def save_warehouse_settings(excluded=None):
         excluded = json.loads(excluded)
     excluded = [str(x).strip() for x in (excluded or []) if str(x).strip()]
     frappe.db.set_default(_KEY, json.dumps(excluded))
-    for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
+    # The policy scopes EVERY stock view — bust every cache built on it so a
+    # toggle takes effect immediately across the portal, not after TTLs.
+    for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation",
+              "lp_sku_dupes", "lp_problem_radar"):
         frappe.cache().delete_value(k)
     return {"ok": True, "excluded": excluded}
 

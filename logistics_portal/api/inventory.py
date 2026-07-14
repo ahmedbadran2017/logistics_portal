@@ -171,10 +171,6 @@ def stats():
         return {}
 
 
-# Valid pickable JM warehouses (exclude transit/defective/containers/old/correcting).
-_SKU_WH_PATTERNS = ["% - JM", "Defective%", "Container%", "Air Freight%", "%Old%", "CORRECTING%"]
-
-
 @frappe.whitelist()
 def sku_duplicates(limit=60):
     """Merge-candidate report: **variant-level** SKUs (≤8 item codes, so the codes
@@ -188,9 +184,10 @@ def sku_duplicates(limit=60):
     cached = cache.get_value("lp_sku_dupes")
     if cached:
         return _json.loads(cached)[: min(int(limit), 200)]
-    wp = _SKU_WH_PATTERNS
-    jm = ("b.warehouse LIKE %s AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s "
-          "AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s")
+    # The manager-configured pickable policy — the same scope every other
+    # screen uses, so the Settings toggles govern this report too.
+    from logistics_portal.api.warehouses import pickable_condition
+    jm, wp = pickable_condition("b.warehouse")
     try:
         rows = frappe.db.sql(
             f"""SELECT it.custom_sku AS sku,
@@ -278,16 +275,15 @@ def sku_lookup(query, limit=80):
         codes = [it.code for it in items]
         binmap = {}
         if codes:
+            from logistics_portal.api.warehouses import pickable_condition
+            cond, wargs = pickable_condition("warehouse")
             cph = ", ".join(["%s"] * len(codes))
-            wp = _SKU_WH_PATTERNS
             for b in frappe.db.sql(
                 f"""SELECT item_code, warehouse,
                        ROUND(actual_qty - reserved_qty) AS net, ROUND(actual_qty) AS onhand
                     FROM `tabBin`
-                    WHERE item_code IN ({cph}) AND actual_qty <> 0
-                      AND warehouse LIKE %s AND warehouse NOT LIKE %s AND warehouse NOT LIKE %s
-                      AND warehouse NOT LIKE %s AND warehouse NOT LIKE %s AND warehouse NOT LIKE %s""",
-                tuple(codes) + tuple(wp), as_dict=True):
+                    WHERE item_code IN ({cph}) AND actual_qty <> 0 AND {cond}""",
+                tuple(codes) + tuple(wargs), as_dict=True):
                 binmap.setdefault(b.item_code, []).append(
                     {"bin": b.warehouse, "net": int(b.net or 0), "onHand": int(b.onhand or 0)})
 
