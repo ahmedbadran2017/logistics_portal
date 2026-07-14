@@ -8,6 +8,17 @@
         </h1>
         <p class="text-[12.5px] text-stone-500 mt-1">Leaderboard, load and momentum across the floor.</p>
       </div>
+      <!-- daily target control (drives the floor board pace + leaderboard) -->
+      <div v-if="mgmt" class="flex items-center gap-2 bg-white ring-1 ring-stone-200 rounded-lg px-3 h-9">
+        <span class="text-[11.5px] font-medium text-stone-500">Target / day</span>
+        <input v-model.number="targetEdit" type="number" min="1" max="500"
+               class="w-[56px] h-7 text-[13px] font-semibold text-stone-900 tabular-nums text-center bg-stone-50 rounded-md ring-1 ring-stone-200 outline-none focus:ring-stone-400" />
+        <button v-if="targetEdit !== mgmt.target"
+                class="h-7 px-2.5 rounded-md text-[11.5px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-50"
+                :disabled="savingTarget" @click="saveTarget">
+          {{ savingTarget ? "…" : "Save" }}
+        </button>
+      </div>
     </div>
 
     <!-- KPI strip -->
@@ -119,18 +130,137 @@
         </div>
       </div>
     </div>
+
+    <!-- ── Roles & access (manager control) ─────────────────────────── -->
+    <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+      <div class="px-4 py-3 border-b border-stone-100 flex items-center justify-between gap-2 flex-wrap">
+        <div>
+          <div class="text-[13.5px] font-semibold text-stone-900">Roles &amp; access</div>
+          <div class="text-[11.5px] text-stone-500">Who can use the portal, and as what — changes apply on their next page load.</div>
+        </div>
+        <div class="relative">
+          <Icon name="search" :size="13" class="absolute start-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
+          <input v-model="mq" placeholder="Add someone — name or email…" @input="onMemberSearch"
+                 class="h-8 w-[230px] ps-8 pe-3 text-[12.5px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none" />
+        </div>
+      </div>
+
+      <div v-if="mgmtLoading" class="p-3 space-y-2">
+        <div v-for="n in 5" :key="n" class="h-[46px] rounded-lg bg-stone-50 ring-1 ring-stone-200/60 animate-pulse" />
+      </div>
+
+      <div v-else-if="mgmt" class="divide-y divide-stone-100">
+        <!-- search matches: users without a role yet -->
+        <div v-for="m in mgmt.matches" :key="'m-' + m.user" class="flex items-center gap-3 px-4 py-2.5 bg-[var(--accent-50)]/30">
+          <span class="w-8 h-8 rounded-full grid place-items-center text-white text-[11px] font-semibold flex-shrink-0 bg-stone-400">{{ initials(m.name) }}</span>
+          <div class="min-w-0 flex-1">
+            <div class="text-[12.5px] font-semibold text-stone-900 truncate">{{ m.name }}</div>
+            <div class="text-[11px] text-stone-400 truncate">{{ m.user }}</div>
+          </div>
+          <select class="role-select" :disabled="savingRole === m.user" :value="''"
+                  @change="setRole(m.user, $event.target.value)">
+            <option value="" disabled>Grant role…</option>
+            <option v-for="r in mgmt.roles" :key="r" :value="r" class="capitalize">{{ r }}</option>
+          </select>
+        </div>
+
+        <!-- current roster -->
+        <div v-for="m in mgmt.members" :key="m.user" class="flex items-center gap-3 px-4 py-2.5">
+          <span class="w-8 h-8 rounded-full grid place-items-center text-white text-[11px] font-semibold flex-shrink-0"
+                :style="{ background: m.role ? '#6366f1' : '#a8a29e' }">{{ initials(m.name) }}</span>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[12.5px] font-semibold text-stone-900 truncate">{{ m.name }}</span>
+              <span v-if="m.source === 'seed'" class="text-[9.5px] font-semibold uppercase text-stone-400 bg-stone-100 rounded px-1 py-0.5" title="From the built-in seed map — set a role to make it explicit">seed</span>
+              <span v-else-if="m.source === 'blocked'" class="text-[9.5px] font-semibold uppercase text-rose-600 bg-rose-50 rounded px-1 py-0.5">blocked</span>
+            </div>
+            <div class="text-[11px] text-stone-400 truncate tabular-nums">
+              {{ m.user }}<template v-if="m.lastPick"> · last pick {{ m.lastPick }}</template>
+            </div>
+          </div>
+          <select class="role-select" :disabled="savingRole === m.user" :value="m.role"
+                  @change="setRole(m.user, $event.target.value)">
+            <option v-for="r in mgmt.roles" :key="r" :value="r" class="capitalize">{{ r }}</option>
+            <option value="">No access</option>
+          </select>
+        </div>
+
+        <div v-if="!mgmt.members.length && !mgmt.matches.length" class="text-center text-[12.5px] text-stone-400 py-10">—</div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
-import { LEADERBOARD as DEMO_LEADERBOARD, byId } from "@/lib/handoffData";
-import { api, liveOr } from "@/lib/resource";
+import { byId } from "@/lib/handoffData";
+import { api, apiPost, liveOr } from "@/lib/resource";
+import { useToast } from "@/composables/useToast";
 
+const { success, warn } = useToast();
 const board = ref([]);
 
+// ── Roles & access (manager control) ─────────────────────────────────
+const mgmt = ref(null);
+const mgmtLoading = ref(true);
+const mq = ref("");
+const savingRole = ref("");
+const targetEdit = ref(40);
+const savingTarget = ref(false);
+let mqTimer = null;
+
+async function loadMgmt() {
+  try {
+    const r = await api("auth.team_members", { q: mq.value });
+    if (r && Array.isArray(r.members)) {
+      mgmt.value = r;
+      targetEdit.value = r.target;
+    }
+  } catch (_) { /* non-managers just don't see the panel */ } finally {
+    mgmtLoading.value = false;
+  }
+}
+
+function onMemberSearch() {
+  clearTimeout(mqTimer);
+  mqTimer = setTimeout(async () => {
+    try {
+      const r = await api("auth.team_members", { q: mq.value });
+      if (r && Array.isArray(r.members)) mgmt.value = { ...mgmt.value, ...r };
+    } catch (_) {}
+  }, 350);
+}
+
+async function setRole(user, role) {
+  savingRole.value = user;
+  try {
+    await apiPost("auth.set_member_role", { user, role });
+    success(role ? `Role set: ${role}` : "Access removed", user);
+    mq.value = "";
+    await loadMgmt();
+  } catch (e) {
+    warn("Couldn't update role", String(e.message || e));
+  } finally {
+    savingRole.value = "";
+  }
+}
+
+async function saveTarget() {
+  savingTarget.value = true;
+  try {
+    const r = await apiPost("auth.set_floor_target", { value: targetEdit.value });
+    if (mgmt.value) mgmt.value.target = r.target;
+    success("Daily target updated", `${r.target} orders / person`);
+  } catch (e) {
+    warn("Couldn't save target", String(e.message || e));
+  } finally {
+    savingTarget.value = false;
+  }
+}
+
 onMounted(async () => {
+  loadMgmt();
   const live = await liveOr(null, () => api("performance.team"));
   if (live && live.leaderboard && live.leaderboard.length) {
     // Real rows only — never borrow demo sparklines for live people.
@@ -180,3 +310,20 @@ function sparkPoints(trend, w = 100, h = 28) {
     .join(" ");
 }
 </script>
+
+<style scoped>
+.role-select {
+  height: 30px;
+  padding-inline: 8px 24px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #44403c;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #e7e5e4;
+  appearance: auto;
+  cursor: pointer;
+  text-transform: capitalize;
+}
+.role-select:disabled { opacity: 0.5; }
+</style>

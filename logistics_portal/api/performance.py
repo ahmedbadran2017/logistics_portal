@@ -372,6 +372,7 @@ def _leaderboard(limit=8):
             name = (r.picker or "").split("@")[0].capitalize()
         orders = int(r.orders or 0)
         days = max(1, int(r.days or 1))
+        target = int(frappe.db.get_default("lp_floor_target") or 40)
         out.append({
             "id": pid or r.picker,
             "name": name,
@@ -381,7 +382,7 @@ def _leaderboard(limit=8):
             "sla": round(int(r.sameday or 0) * 100 / max(1, orders)),
             "rank": i + 1,
             "trend": [],
-            "target": 40,
+            "target": target,
         })
     cache.set_value("lp_leaderboard", _json.dumps(out), expires_in_sec=300)
     return out

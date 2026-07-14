@@ -25,8 +25,11 @@ def resolve_role(user):
     if not user or user == "Guest":
         return None
 
-    # 1) Explicit field (added by this app's fixtures).
+    # 1) Explicit field (added by this app's fixtures). "none" is an explicit
+    # block — it must beat the seed map, or a seeded person can't be removed.
     role = frappe.db.get_value("User", user, "custom_logistics_role")
+    if role == "none":
+        return None
     if role in VALID_ROLES:
         return role
 
@@ -76,3 +79,91 @@ def get_boot():
         "zone": resolve_zone(user),
         "csrf_token": csrf,
     }
+
+
+# ---------------------------------------------------------------------------
+# Team management — the manager controls WHO has WHICH portal role from the
+# Team page, instead of the hardcoded SEED_ROLES map. The explicit
+# User.custom_logistics_role always wins ("none" = explicitly blocked).
+# ---------------------------------------------------------------------------
+def _require_manager():
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Only a manager can manage the team.", frappe.PermissionError)
+
+
+@frappe.whitelist()
+def team_members(q=""):
+    """The portal roster (everyone with a role, and where the role comes from:
+    set / seed) + search matches over the remaining system users so the
+    manager can grant access. Includes each member's last submitted pick."""
+    _require_manager()
+    users = frappe.get_all(
+        "User", filters={"enabled": 1, "user_type": "System User"},
+        fields=["name", "full_name", "custom_logistics_role"],
+        limit_page_length=0)
+
+    last_pick = dict(frappe.db.sql(
+        """SELECT COALESCE(NULLIF(custom_assigned_picker, ''), owner), MAX(creation)
+           FROM `tabPick List` WHERE docstatus = 1
+           GROUP BY COALESCE(NULLIF(custom_assigned_picker, ''), owner)"""))
+
+    ql = (q or "").strip().lower()
+    members, matches = [], []
+    for u in users:
+        if u.name in ("Administrator", "Guest"):
+            continue
+        explicit = u.custom_logistics_role or ""
+        if explicit == "none":
+            role, source = "", "blocked"
+        elif explicit in VALID_ROLES:
+            role, source = explicit, "set"
+        elif u.name in SEED_ROLES:
+            role, source = SEED_ROLES[u.name], "seed"
+        else:
+            role, source = "", ""
+        row = {"user": u.name, "name": u.full_name or u.name,
+               "role": role, "source": source,
+               "lastPick": str(last_pick.get(u.name) or "")[:10]}
+        if role or source == "blocked":
+            members.append(row)
+        elif ql and (ql in u.name.lower() or ql in (u.full_name or "").lower()):
+            matches.append(row)
+
+    order = {"manager": 0, "dispatcher": 1, "picker": 2, "packer": 3, "returns": 4, "": 5}
+    members.sort(key=lambda r: (order.get(r["role"], 9), r["name"]))
+    return {"members": members, "matches": matches[:8],
+            "roles": sorted(VALID_ROLES),
+            "target": int(frappe.db.get_default("lp_floor_target") or 40)}
+
+
+@frappe.whitelist()
+def set_member_role(user, role=""):
+    """Assign / change / remove a portal role. Empty role = remove access
+    (stored as the explicit 'none' so it also overrides the seed map)."""
+    _require_manager()
+    role = (role or "").strip().lower()
+    if role and role not in VALID_ROLES:
+        frappe.throw("Unknown role.")
+    if not frappe.db.exists("User", user):
+        frappe.throw("Unknown user.")
+    if user == frappe.session.user and role != "manager":
+        frappe.throw("You can't remove your own manager role.")
+    frappe.db.set_value("User", user, "custom_logistics_role", role or "none",
+                        update_modified=False)
+    frappe.db.commit()
+    return {"ok": True, "user": user, "role": role}
+
+
+@frappe.whitelist()
+def set_floor_target(value):
+    """The daily per-person order target (floor board pace + leaderboard)."""
+    _require_manager()
+    try:
+        v = int(value)
+    except Exception:
+        frappe.throw("Target must be a number.")
+    if not (1 <= v <= 500):
+        frappe.throw("Target must be between 1 and 500.")
+    frappe.db.set_default("lp_floor_target", v)
+    frappe.cache().delete_value("lp_leaderboard")
+    return {"ok": True, "target": v}
