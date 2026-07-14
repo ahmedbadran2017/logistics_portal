@@ -351,6 +351,7 @@ export default {
     openErp: "Open in ERP", openErpNext: "Open in ERPNext", todaysManifest: "Today's manifest",
     weekCount: "Shipments this week", parcelsToday: "Parcels today", avgValue: "Avg value", carrier: "Carrier",
     lastManifest: "Last manifest", daysAgo: "d ago", fCancelled: "Cancelled",
+    parcelsOn: "Parcels on this manifest", pOrder: "Order", pCustomer: "Customer",
     searchPh: "Search shipment…",
     fAll: "All", fDraft: "Draft", fSubmitted: "Submitted", fBooked: "Booked", fCompleted: "Completed",
     thShipment: "Shipment", thDate: "Date", thAwb: "Master AWB", thParcels: "Parcels",

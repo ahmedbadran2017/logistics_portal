@@ -351,6 +351,7 @@ export default {
     openErp: "فتح في ERP", openErpNext: "فتح في ERPNext", todaysManifest: "مانيفست اليوم",
     weekCount: "شحنات هذا الأسبوع", parcelsToday: "طرود اليوم", avgValue: "متوسط القيمة", carrier: "الناقل",
     lastManifest: "آخر مانيفست", daysAgo: "يوم", fCancelled: "ملغاة",
+    parcelsOn: "طرود هذا المانيفست", pOrder: "الأوردر", pCustomer: "العميل",
     searchPh: "بحث عن شحنة…",
     fAll: "الكل", fDraft: "مسودة", fSubmitted: "معتمدة", fBooked: "محجوزة", fCompleted: "مكتملة",
     thShipment: "الشحنة", thDate: "التاريخ", thAwb: "البوليصة الرئيسية", thParcels: "الطرود",

@@ -109,6 +109,39 @@ def shipments(limit=30):
 
 
 @frappe.whitelist()
+def shipment_detail(name):
+    """One manifest, fully real: its parcels with per-parcel tracking state +
+    a status breakdown. The list row already carries the header numbers."""
+    try:
+        if not frappe.db.exists("Shipment", name):
+            return {}
+        rows = frappe.db.sql(
+            """SELECT sdn.delivery_note AS dn, dn.custom_awb AS awb,
+                      dn.customer_name AS customer, dn.grand_total AS value,
+                      dn.custom_track_shipment_status AS track,
+                      (SELECT dni.against_sales_order FROM `tabDelivery Note Item` dni
+                       WHERE dni.parent = dn.name AND dni.against_sales_order IS NOT NULL
+                       LIMIT 1) AS so
+               FROM `tabShipment Delivery Note` sdn
+               LEFT JOIN `tabDelivery Note` dn ON dn.name = sdn.delivery_note
+               WHERE sdn.parent = %s
+               ORDER BY sdn.idx
+               LIMIT 800""", (name,), as_dict=True)
+        breakdown, parcels = {}, []
+        for r in rows:
+            k = _TRACK_MAP.get(r.track or "", "pending")
+            breakdown[k] = breakdown.get(k, 0) + 1
+            parcels.append({"dn": r.dn, "awb": r.awb or "", "order": r.so or "",
+                            "customer": r.customer or "",
+                            "value": float(r.value or 0), "track": k})
+        return {"no": name, "parcels": parcels, "breakdown": breakdown,
+                "total": len(parcels)}
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.shipment_detail")
+        return {}
+
+
+@frappe.whitelist()
 def generate_label(order):
     """Return the order's REAL AWB (created by the pick-list-submit automation).
     Never fabricates one — a fake AWB that looks real is worse than an error;

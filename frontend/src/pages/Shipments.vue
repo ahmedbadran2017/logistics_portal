@@ -26,9 +26,7 @@
                   {{ openSh.status }}
                 </span>
               </div>
-              <div class="text-[12.5px] text-stone-600 mt-1">
-                {{ openSh.carrier }} · {{ openSh.service ?? '—' }} · {{ openSh.date }} · {{ openSh.window ?? '—' }}
-              </div>
+              <div class="text-[12.5px] text-stone-600 mt-1">{{ detailSubtitle }}</div>
             </div>
           </div>
           <a :href="'/app/shipment/' + encodeURIComponent(openSh.no)" target="_blank"
@@ -98,6 +96,61 @@
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- parcels on this manifest (live, with per-parcel tracking state) -->
+      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden mt-4">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center justify-between flex-wrap gap-2">
+          <span class="text-[13px] font-semibold text-stone-900">
+            {{ t("shp.parcelsOn") }}
+            <span v-if="detailData" class="text-stone-400 font-normal tabular-nums">· {{ detailData.total }}</span>
+          </span>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span
+              v-for="(c, k) in detailData?.breakdown || {}" :key="k"
+              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold ring-1 tabular-nums"
+              :class="trackPill(k)"
+            >{{ c }} {{ t(`track.${k}`) }}</span>
+          </div>
+        </div>
+
+        <div v-if="detailLoading" class="p-3 space-y-2">
+          <div v-for="n in 6" :key="n" class="h-[40px] rounded-lg bg-stone-50 ring-1 ring-stone-200/60 animate-pulse" />
+        </div>
+
+        <div v-else-if="detailData?.parcels?.length" class="overflow-x-auto max-h-[480px] overflow-y-auto">
+          <table class="w-full min-w-[680px]">
+            <thead>
+              <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100 sticky top-0 bg-white">
+                <th class="text-start px-4 py-2">DN</th>
+                <th class="text-start px-4 py-2">{{ t("shp.pOrder") }}</th>
+                <th class="text-start px-4 py-2">{{ t("shp.pCustomer") }}</th>
+                <th class="text-start px-4 py-2 hidden md:table-cell">AWB</th>
+                <th class="text-end px-4 py-2 hidden sm:table-cell">{{ t("shp.thValue") }}</th>
+                <th class="text-start px-4 py-2">{{ t("shp.thStatus") }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-stone-100">
+              <tr v-for="p in detailData.parcels" :key="p.dn">
+                <td class="px-4 py-2 font-mono text-[11.5px] text-stone-600 whitespace-nowrap">{{ p.dn }}</td>
+                <td class="px-4 py-2">
+                  <button v-if="p.order" class="font-mono text-[12px] font-semibold text-stone-900 hover:text-[var(--accent-700)]"
+                          @click="$router.push({ name: 'OrderDetail', params: { name: p.order.replace('#','') } })">{{ p.order }}</button>
+                  <span v-else class="text-stone-300">—</span>
+                </td>
+                <td class="px-4 py-2 text-[12px] text-stone-600 truncate max-w-[180px]">{{ p.customer || "—" }}</td>
+                <td class="px-4 py-2 font-mono text-[11px] text-stone-500 hidden md:table-cell">{{ p.awb || "—" }}</td>
+                <td class="px-4 py-2 text-end text-[12px] text-stone-600 tabular-nums hidden sm:table-cell">{{ fmtMAD(p.value) }}</td>
+                <td class="px-4 py-2">
+                  <span class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold ring-1 whitespace-nowrap"
+                        :class="trackPill(p.track)">{{ t(`track.${p.track}`) }}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-else class="text-center text-[12.5px] text-stone-400 py-10">—</div>
       </div>
     </template>
 
@@ -221,7 +274,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { CARRIER, WAREHOUSE, fmtMAD } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
@@ -342,15 +395,54 @@ const detailStats = computed(() => {
   ];
 });
 
+// Only rows that carry a value — Master AWB / Service are genuinely unused on
+// Cathedis manifests (3 of 170 in production), so blank rows read as missing
+// data instead of "this field doesn't apply here".
 const trackingRows = computed(() => {
   const s = openSh.value;
   if (!s) return [];
   return [
-    { k: t("shp.thAwb"), v: s.awb ?? "—" },
-    { k: t("shp.rService"), v: s.service ?? "—" },
-    { k: t("shp.rWindow"), v: s.window ?? "—" },
-    { k: t("shp.rPickup"), v: s.pickup ?? "—" },
-    { k: t("shp.rDeliveryTo"), v: s.deliveryTo ?? "—" },
-  ];
+    { k: t("shp.thAwb"), v: s.awb },
+    { k: t("shp.rService"), v: s.service },
+    { k: t("shp.rWindow"), v: s.window },
+    { k: t("shp.rPickup"), v: s.pickup },
+    { k: t("shp.rDeliveryTo"), v: s.deliveryTo },
+  ].filter((r) => r.v);
 });
+
+// "Cathedis · 2026-06-12 · 09:00 – 17:00" — empty parts (service…) drop out
+// instead of rendering as 'Cathedis · · date'.
+const detailSubtitle = computed(() => {
+  const s = openSh.value;
+  if (!s) return "";
+  return [s.carrier, s.service, s.date, s.window].filter(Boolean).join(" · ");
+});
+
+// ── per-shipment parcels (live detail fetch) ─────────────────────────
+const detailData = ref(null);
+const detailLoading = ref(false);
+
+watch(open, async (v) => {
+  detailData.value = null;
+  if (!v) return;
+  detailLoading.value = true;
+  try {
+    const d = await api("shipping.shipment_detail", { name: v });
+    if (d && d.no === v) detailData.value = d;
+  } catch (_) { /* panel shows the empty state */ } finally {
+    detailLoading.value = false;
+  }
+});
+
+const TRACK_PILL = {
+  delivered: "text-emerald-700 bg-emerald-50 ring-emerald-200",
+  intransit: "text-blue-700 bg-blue-50 ring-blue-200",
+  outfordelivery: "text-cyan-700 bg-cyan-50 ring-cyan-200",
+  pickedup: "text-stone-600 bg-stone-100 ring-stone-200",
+  pending: "text-amber-700 bg-amber-50 ring-amber-200",
+  exception: "text-rose-700 bg-rose-50 ring-rose-200",
+  failed: "text-rose-700 bg-rose-50 ring-rose-200",
+  return: "text-violet-700 bg-violet-50 ring-violet-200",
+};
+function trackPill(k) { return TRACK_PILL[k] || TRACK_PILL.pending; }
 </script>
