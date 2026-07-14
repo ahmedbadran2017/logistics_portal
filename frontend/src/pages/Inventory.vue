@@ -1,84 +1,91 @@
 <template>
-  <div class="p-5 sm:p-6 space-y-5 max-w-[1400px] mx-auto animate-fade-in">
+  <div class="p-5 sm:p-6 space-y-4 max-w-[1400px] mx-auto animate-fade-in">
     <div class="mb-1">
       <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">Stock levels</h1>
-      <p class="text-[12.5px] text-stone-500 mt-0.5">Live on-hand by SKU · zone · bin · {{ WAREHOUSE }}</p>
+      <p class="text-[12.5px] text-stone-500 mt-0.5">Sellable network · per SKU · live from Bins · {{ WAREHOUSE }}</p>
     </div>
 
     <!-- KPI row -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      <Kpi icon="boxes" tone="stone" label="SKUs tracked" :value="stats.skuCount" />
-      <Kpi icon="package" tone="violet" label="Total units" :value="fmtMAD(stats.totalUnits)" />
-      <Kpi icon="alert-circle" tone="amber" label="Low stock" :value="stats.lowSku" />
-      <Kpi icon="alert-triangle" tone="rose" label="Out of stock" :value="stats.outSku" />
+    <div v-if="statsLoading" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div v-for="n in 4" :key="n" class="h-[86px] bg-stone-50 rounded-xl ring-1 ring-stone-200/60 animate-pulse" />
+    </div>
+    <div v-else class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <Kpi icon="boxes" tone="stone" label="SKUs in stock" :value="num(stats.skuCount)" />
+      <Kpi icon="package" tone="violet" label="Sellable units" :value="num(stats.totalUnits)" />
+      <Kpi icon="alert-circle" tone="amber" :label="`Low stock (≤10)`" :value="num(stats.lowSku)" />
+      <Kpi icon="alert-triangle" tone="rose" label="Stranded SKUs" :value="num(stats.strandedSku)"
+           sub="0 sellable · stock stuck in returns/receiving" />
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-[1fr_1.6fr] gap-4">
-      <!-- Zone filter / health -->
-      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+    <div class="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4">
+      <!-- Zone filter (real physical families, same grouping as the Warehouse map) -->
+      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden h-fit">
         <div class="px-4 pt-4 pb-2">
           <div class="text-[13px] font-semibold text-stone-800">Zones</div>
-          <div class="text-[11.5px] text-stone-500">Filter stock by zone</div>
+          <div class="text-[11.5px] text-stone-500">Filter the sellable stock</div>
         </div>
-        <div class="p-2 space-y-0.5">
+        <div v-if="zonesLoading" class="p-2 space-y-1">
+          <div v-for="n in 6" :key="n" class="h-[44px] rounded-lg bg-stone-50 animate-pulse" />
+        </div>
+        <div v-else class="p-2 space-y-0.5 max-h-[560px] overflow-y-auto">
           <button
-            @click="zone = null"
-            class="w-full text-start rounded-lg px-3 py-2.5 transition-colors flex items-center justify-between"
-            :class="zone === null ? 'bg-[var(--accent-50)]/50 ring-1 ring-[var(--accent-200)]' : 'hover:bg-stone-50'"
+            class="w-full text-start rounded-lg px-3 py-2 transition-colors flex items-center justify-between"
+            :class="group === '' ? 'bg-[var(--accent-50)]/50 ring-1 ring-[var(--accent-200)]' : 'hover:bg-stone-50'"
+            @click="setGroup('')"
           >
             <span class="text-[12.5px] font-medium text-stone-900">All zones</span>
-            <span class="text-[11px] text-stone-500 tabular-nums">{{ allItems.length }} SKU</span>
+            <span class="text-[11px] text-stone-500 tabular-nums">{{ num(stats.skuCount) }} SKU</span>
           </button>
           <button
-            v-for="z in zonesList"
-            :key="z.zone"
-            @click="zone = zone === z.zone ? null : z.zone"
-            class="w-full text-start rounded-lg px-3 py-2.5 transition-colors"
-            :class="zone === z.zone ? 'bg-[var(--accent-50)]/50 ring-1 ring-[var(--accent-200)]' : 'hover:bg-stone-50'"
+            v-for="g in pickGroups" :key="g.key"
+            class="w-full text-start rounded-lg px-3 py-2 transition-colors"
+            :class="group === g.key ? 'bg-[var(--accent-50)]/50 ring-1 ring-[var(--accent-200)]' : 'hover:bg-stone-50'"
+            @click="setGroup(group === g.key ? '' : g.key)"
           >
-            <div class="flex items-center justify-between mb-1.5">
-              <span class="text-[12.5px] font-medium text-stone-900">{{ z.zone.replace(' - JM', '') }}</span>
-              <div class="flex items-center gap-1.5">
-                <Badge v-if="z.out > 0" tone="rose" dot>{{ z.out }} out</Badge>
-                <Badge v-if="z.low > 0" tone="amber" dot>{{ z.low }} low</Badge>
-                <Badge v-if="z.out === 0 && z.low === 0" tone="emerald" dot>Healthy</Badge>
-              </div>
+            <div class="flex items-center justify-between">
+              <span class="text-[12.5px] font-medium text-stone-900">{{ g.label }}</span>
+              <span class="text-[11px] text-stone-500 tabular-nums">{{ num(g.skus) }} SKU</span>
             </div>
-            <div class="flex items-center gap-2">
-              <div class="flex-1 h-1.5 rounded-full bg-stone-100 overflow-hidden">
-                <div
-                  class="h-full rounded-full"
-                  :class="z.fill >= 0.85 ? 'bg-emerald-500' : z.fill >= 0.7 ? 'bg-amber-500' : 'bg-rose-500'"
-                  :style="{ width: (z.fill * 100) + '%' }"
-                />
-              </div>
-              <span class="text-[11px] text-stone-500 tabular-nums w-[110px] text-end">{{ Math.round(z.fill * 100) }}% fill · {{ z.skus }} SKU</span>
+            <div class="text-[10.5px] text-stone-400 tabular-nums mt-0.5">
+              {{ num(g.units) }} units · {{ g.bins }} {{ g.bins === 1 ? "bin" : "bins" }}
             </div>
-            <div class="text-[10.5px] text-stone-400 mt-1 font-mono">{{ z.bins.join(' · ') }}</div>
           </button>
         </div>
       </div>
 
-      <!-- Stock levels table -->
+      <!-- Stock by SKU -->
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
-        <div class="flex items-center justify-between px-4 pt-4 pb-3">
+        <div class="flex items-center justify-between gap-2 px-4 pt-4 pb-3 flex-wrap">
           <div>
             <div class="text-[13px] font-semibold text-stone-800">Stock by SKU</div>
-            <div class="text-[11.5px] text-stone-500">{{ zone ? zone.replace(' - JM', '') : 'All zones' }}</div>
+            <div class="text-[11.5px] text-stone-500">{{ group || "All zones" }} · {{ num(total) }} SKUs</div>
           </div>
-          <button
-            @click="success('Restock task drafted', 'Material Transfer queued')"
-            class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-[var(--accent-600)] text-white text-[12px] font-medium hover:opacity-90 transition-opacity"
-          >
-            <Icon name="scan-barcode" :size="14" />Create restock task
-          </button>
+          <div class="flex items-center gap-2">
+            <div class="relative">
+              <Icon name="search" :size="13" class="absolute start-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
+              <input
+                v-model="q" placeholder="SKU · name…" @input="onSearch"
+                class="h-8 w-[190px] ps-8 pe-3 text-[12.5px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none"
+              />
+            </div>
+            <button
+              class="h-8 px-2.5 rounded-lg text-[11.5px] font-semibold ring-1 transition-colors whitespace-nowrap"
+              :class="state === 'low' ? 'bg-amber-500 text-white ring-amber-500' : 'text-amber-700 bg-amber-50 ring-amber-200 hover:bg-amber-100'"
+              @click="state = state === 'low' ? '' : 'low'; page = 1; load()"
+            >Low ≤10</button>
+          </div>
         </div>
-        <div class="overflow-x-auto">
-          <table class="w-full">
+
+        <div v-if="loading" class="p-3 space-y-2">
+          <div v-for="n in 8" :key="n" class="h-[46px] rounded-lg bg-stone-50 ring-1 ring-stone-200/60 animate-pulse" />
+        </div>
+
+        <div v-else class="overflow-x-auto">
+          <table class="w-full min-w-[680px]">
             <thead>
               <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
                 <th class="text-start px-4 py-2.5">SKU</th>
-                <th class="text-start px-4 py-2.5 hidden sm:table-cell">Bin</th>
+                <th class="text-start px-4 py-2.5 hidden sm:table-cell">Top bin</th>
                 <th class="text-end px-4 py-2.5">On hand</th>
                 <th class="text-end px-4 py-2.5 hidden md:table-cell">Reserved</th>
                 <th class="text-end px-4 py-2.5">Available</th>
@@ -87,34 +94,49 @@
               </tr>
             </thead>
             <tbody class="divide-y divide-stone-100">
-              <tr
-                v-for="it in items"
-                :key="it.sku"
-                :class="it.state === 'out' ? 'bg-rose-50/30' : ''"
-              >
+              <tr v-for="it in rows" :key="it.itemCode">
                 <td class="px-4 py-2.5">
-                  <div class="text-[12.5px] font-medium text-stone-900 truncate max-w-[180px]">{{ it.name }}</div>
-                  <div class="font-mono text-[10.5px] text-stone-400">{{ it.sku }} · {{ it.zone.replace(' - JM', '') }}</div>
+                  <div class="flex items-center gap-2.5">
+                    <img v-if="it.image" :src="it.image" alt="" loading="lazy" @error="hideImg"
+                         class="w-9 h-9 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
+                    <div class="min-w-0">
+                      <div class="text-[12.5px] font-medium text-stone-900 truncate max-w-[220px]">{{ it.name }}</div>
+                      <button class="font-mono text-[10.5px] text-[var(--accent-700)] hover:underline"
+                              @click="$router.push({ name: 'SkuLookup', query: { q: it.sku } })">{{ it.sku }}</button>
+                    </div>
+                  </div>
                 </td>
-                <td class="px-4 py-2.5 font-mono text-[11.5px] text-stone-500 hidden sm:table-cell">{{ it.bin }}</td>
-                <td class="px-4 py-2.5 text-end">
-                  <span
-                    class="text-[13px] font-semibold tabular-nums font-mono"
-                    :class="it.state === 'out' ? 'text-rose-600' : it.state === 'low' ? 'text-amber-600' : 'text-stone-800'"
-                  >{{ it.onHand }}</span>
-                  <div v-if="it.incoming" class="text-[10px] text-cyan-600 tabular-nums">+{{ it.incoming }} in</div>
+                <td class="px-4 py-2.5 hidden sm:table-cell">
+                  <span class="font-mono text-[11.5px] text-stone-600">{{ it.topBin }}</span>
+                  <span v-if="it.bins > 1" class="text-[10.5px] text-stone-400"> +{{ it.bins - 1 }}</span>
                 </td>
-                <td class="px-4 py-2.5 text-end text-[12.5px] text-stone-500 tabular-nums font-mono hidden md:table-cell">{{ it.reserved }}</td>
-                <td class="px-4 py-2.5 text-end text-[12.5px] text-stone-700 tabular-nums font-mono">{{ it.available }}</td>
-                <td class="px-4 py-2.5 text-end text-[12.5px] text-stone-600 tabular-nums font-mono hidden lg:table-cell">{{ fmtMAD(it.value) }}</td>
                 <td class="px-4 py-2.5 text-end">
-                  <Badge :tone="it.state === 'out' ? 'rose' : it.state === 'low' ? 'amber' : 'emerald'" dot>
-                    {{ it.state === 'ok' ? 'Healthy' : it.state === 'out' ? 'Out of stock' : 'Low stock' }}
+                  <span class="text-[13px] font-semibold tabular-nums font-mono"
+                        :class="it.state === 'low' ? 'text-amber-600' : 'text-stone-800'">{{ num(it.onHand) }}</span>
+                </td>
+                <td class="px-4 py-2.5 text-end text-[12.5px] text-stone-500 tabular-nums font-mono hidden md:table-cell">{{ num(it.reserved) }}</td>
+                <td class="px-4 py-2.5 text-end text-[12.5px] text-stone-700 tabular-nums font-mono">{{ num(it.available) }}</td>
+                <td class="px-4 py-2.5 text-end text-[12.5px] text-stone-600 tabular-nums font-mono hidden lg:table-cell">{{ num(it.value) }}</td>
+                <td class="px-4 py-2.5 text-end">
+                  <Badge :tone="it.state === 'low' ? 'amber' : 'emerald'" dot>
+                    {{ it.state === 'low' ? 'Low' : 'Healthy' }}
                   </Badge>
                 </td>
               </tr>
             </tbody>
           </table>
+          <div v-if="!rows.length" class="text-center text-[12.5px] text-stone-400 py-12">No SKUs match.</div>
+        </div>
+
+        <div v-if="total > pageSize" class="flex items-center justify-between px-4 py-2.5 border-t border-stone-100 bg-stone-50/50">
+          <span class="text-[11.5px] text-stone-500 tabular-nums">
+            {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, total) }} of {{ num(total) }}
+          </span>
+          <div class="flex items-center gap-1">
+            <button class="pager-btn" :disabled="page <= 1" @click="page--; load()"><Icon name="chevron-left" :size="13" class="flip-rtl" /></button>
+            <span class="text-[11.5px] text-stone-600 tabular-nums px-1.5">{{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span>
+            <button class="pager-btn" :disabled="page * pageSize >= total" @click="page++; load()"><Icon name="chevron-right" :size="13" class="flip-rtl" /></button>
+          </div>
         </div>
       </div>
     </div>
@@ -122,48 +144,75 @@
 </template>
 
 <script setup>
-import { ref, computed, h, onMounted } from "vue";
+import { computed, h, onMounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
-import { useToast } from "@/composables/useToast";
-import {
-  STOCK_ITEMS as DEMO_STOCK_ITEMS,
-  STOCK_STATS as DEMO_STOCK_STATS,
-  RESTOCK,
-  fmtMAD,
-  WAREHOUSE,
-} from "@/lib/handoffData.js";
-import { api, liveOr } from "@/lib/resource";
+import { WAREHOUSE } from "@/lib/handoffData.js";
+import { api } from "@/lib/resource";
 
-const { success } = useToast();
+// Honest rebuild: per-SKU sellable stock (pickable network — same scope as the
+// Orders board), searchable + paginated. The old page listed the top-60 raw
+// Bin rows over every warehouse ever created, with a zone list dominated by
+// legacy Morocco/V-Turkey/ERPNext and a fake 'Create restock task' button.
+const stats = ref({});
+const statsLoading = ref(true);
+const zones = ref([]);
+const zonesLoading = ref(true);
 
-const allItems = ref([]);
-const stats = ref({ skus: 0, units: 0, value: 0, low: 0, out: 0 });
+const rows = ref([]);
+const total = ref(0);
+const loading = ref(true);
+const pageSize = 30;
+const page = ref(1);
+const q = ref("");
+const state = ref("");
+const group = ref("");
+let searchTimer = null;
 
-const zone = ref(null);
-// Zone health panel: live from `inventory.zones` (same shape as the demo
-// RESTOCK); demo seed only in dev builds so the panel never shows fake zones.
-const zonesList = ref([]);
-const items = computed(() => (zone.value ? allItems.value.filter((i) => i.zone === zone.value) : allItems.value));
+async function load() {
+  loading.value = true;
+  try {
+    const r = await api("inventory.stock", {
+      limit: pageSize, offset: (page.value - 1) * pageSize,
+      q: q.value, state: state.value, group: group.value,
+    });
+    rows.value = Array.isArray(r?.rows) ? r.rows : [];
+    total.value = Number(r?.total || 0);
+  } catch (_) { rows.value = []; total.value = 0; } finally {
+    loading.value = false;
+  }
+}
+
+function onSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { page.value = 1; load(); }, 350);
+}
+function setGroup(g) { group.value = g; page.value = 1; load(); }
+
+// Zones panel = the same real families as the Warehouse floor map; off-pick
+// groups are excluded here (this page is the SELLABLE view — stranded stock
+// lives on the Restock/Warehouse screens).
+const pickGroups = computed(() => zones.value.filter((g) => !g.offPick));
 
 onMounted(async () => {
-  api("inventory.zones").then((z) => {
-    if (Array.isArray(z) && z.length) zonesList.value = z;
-  }).catch(() => {});
-  const live = await liveOr(null, () => api("inventory.stock", { limit: 60 }));
-  if (live && live.length) allItems.value = live;
-  const s = await liveOr(null, () => api("inventory.stats"));
-  if (s && Object.keys(s).length) stats.value = s;
+  load();
+  api("inventory.stats").then((s) => {
+    if (s && Object.keys(s).length) stats.value = s;
+  }).catch(() => {}).finally(() => (statsLoading.value = false));
+  api("warehouses.floor_map").then((m) => {
+    if (m && Array.isArray(m.groups)) zones.value = m.groups;
+  }).catch(() => {}).finally(() => (zonesLoading.value = false));
 });
 
-// ── Local presentational primitives (match handoff Tailwind) ────────────
+function num(v) { return Number(v || 0).toLocaleString("en-US", { maximumFractionDigits: 0 }); }
+function hideImg(e) { if (e && e.target) e.target.style.display = "none"; }
+
+// ── Local presentational primitives ─────────────────────────────────────
 const TONE = {
   stone: "bg-stone-100 text-stone-600", emerald: "bg-emerald-100 text-emerald-700",
   amber: "bg-amber-100 text-amber-700", rose: "bg-rose-100 text-rose-700",
-  violet: "bg-violet-100 text-violet-700", cyan: "bg-cyan-100 text-cyan-700",
+  violet: "bg-violet-100 text-violet-700",
 };
-const KPI_TONE = {
-  stone: "#a8a29e", violet: "#8b5cf6", amber: "#f59e0b", rose: "#f43f5e", emerald: "#10b981",
-};
+const KPI_TONE = { stone: "#a8a29e", violet: "#8b5cf6", amber: "#f59e0b", rose: "#f43f5e", emerald: "#10b981" };
 
 const Badge = (props, { slots }) =>
   h("span", { class: `inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10.5px] font-medium whitespace-nowrap ${TONE[props.tone] || TONE.stone}` }, [
@@ -180,6 +229,7 @@ const Kpi = (props) =>
       h(Icon, { name: props.icon, size: 15, class: "text-stone-400" }),
     ]),
     h("div", { class: "text-[22px] font-bold text-stone-900 tabular-nums leading-none" }, String(props.value)),
+    props.sub ? h("div", { class: "text-[10.5px] text-stone-400 mt-1.5" }, props.sub) : null,
   ]);
-Kpi.props = ["icon", "tone", "label", "value"];
+Kpi.props = ["icon", "tone", "label", "value", "sub"];
 </script>

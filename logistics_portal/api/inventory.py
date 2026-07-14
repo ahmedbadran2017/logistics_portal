@@ -5,44 +5,88 @@ import frappe
 LOW_THRESHOLD = 10  # units at/below which a SKU is "low" (until Item reorder levels are wired)
 
 
+def _grp_case(col="b.warehouse"):
+    """SQL expression mapping a warehouse to its physical family — the same
+    grouping the Warehouse floor map uses (named zones as-is, lettered aisles
+    per rack letter, AG/BAB racks as blocks)."""
+    return f"""CASE
+      WHEN TRIM(REPLACE({col}, ' - JM', '')) REGEXP '^[A-Za-z][0-9]{{1,2}}[A-Za-z]?[.]?$'
+        THEN CONCAT('Aisles ', UPPER(LEFT(TRIM(REPLACE({col}, ' - JM', '')), 1)))
+      WHEN UPPER({col}) LIKE 'AG-%%' THEN 'AG racks'
+      WHEN UPPER({col}) LIKE 'BAB-%%' THEN 'BAB racks'
+      ELSE TRIM(REPLACE({col}, ' - JM', ''))
+    END"""
+
+
 @frappe.whitelist()
-def stock(limit=60, warehouse_like="%JM%"):
-    """Stock-by-SKU in the SPA's STOCK_ITEMS shape, from `tabBin`."""
+def stock(limit=30, offset=0, q="", state="", group=""):
+    """Sellable stock PER SKU across the pickable network (the same scope the
+    Orders board's OOS split uses). The old version listed raw Bin rows over
+    every warehouse ever created — legacy Morocco/V-Turkey/ERPNext included —
+    with the same SKU repeating per bin and no search. Returns
+    {rows, total, limit, offset}."""
     try:
-        rows = frappe.db.sql(
-            """
-            SELECT b.item_code, i.item_name, b.warehouse,
-                   b.actual_qty, b.reserved_qty, b.projected_qty, b.valuation_rate
-            FROM `tabBin` b
+        from logistics_portal.api.warehouses import pickable_condition
+        cond, args = pickable_condition("b.warehouse")
+        limit = min(max(int(limit or 30), 1), 100)
+        offset = max(int(offset or 0), 0)
+
+        filters = [cond, "b.actual_qty > 0"]
+        vals = list(args)
+        if group:
+            filters.append(_grp_case() + " = %s")
+            vals.append(group)
+        if q:
+            like = f"%{str(q).strip()}%"
+            filters.append("(b.item_code LIKE %s OR i.custom_sku LIKE %s OR i.item_name LIKE %s)")
+            vals += [like, like, like]
+        having = f"HAVING SUM(b.actual_qty) <= {int(LOW_THRESHOLD)}" if state == "low" else ""
+        base = f"""FROM `tabBin` b
             LEFT JOIN `tabItem` i ON i.name = b.item_code
-            WHERE b.warehouse LIKE %s AND b.actual_qty IS NOT NULL
-            ORDER BY b.actual_qty DESC
-            LIMIT %s
-            """,
-            (warehouse_like, int(limit)),
-            as_dict=True,
-        )
+            WHERE {' AND '.join(filters)}"""
+
+        rows = frappe.db.sql(
+            f"""SELECT b.item_code,
+                       MAX(COALESCE(NULLIF(i.item_name, ''), b.item_code)) AS name,
+                       MAX(i.custom_sku) AS sku, MAX(i.image) AS image,
+                       ROUND(SUM(b.actual_qty)) AS on_hand,
+                       ROUND(SUM(b.reserved_qty)) AS reserved,
+                       ROUND(SUM(b.actual_qty * b.valuation_rate)) AS value,
+                       COUNT(*) AS bins,
+                       SUBSTRING_INDEX(GROUP_CONCAT(b.warehouse
+                           ORDER BY b.actual_qty DESC SEPARATOR '||'), '||', 1) AS top_bin
+                {base}
+                GROUP BY b.item_code
+                {having}
+                ORDER BY on_hand DESC
+                LIMIT %s OFFSET %s""",
+            tuple(vals + [limit, offset]), as_dict=True)
+        total = frappe.db.sql(
+            f"""SELECT COUNT(*) FROM (
+                    SELECT b.item_code {base} GROUP BY b.item_code {having}) t""",
+            tuple(vals))[0][0]
+
         out = []
         for r in rows:
-            on_hand = r.actual_qty or 0
-            reserved = r.reserved_qty or 0
-            state = "out" if on_hand <= 0 else ("low" if on_hand <= LOW_THRESHOLD else "ok")
+            on_hand = int(r.on_hand or 0)
+            reserved = int(r.reserved or 0)
             out.append({
-                "sku": r.item_code,
-                "name": r.item_name or r.item_code,
-                "zone": r.warehouse,
-                "bin": r.warehouse,
-                "onHand": int(on_hand),
-                "reserved": int(reserved),
-                "available": int((r.projected_qty if r.projected_qty is not None else on_hand - reserved)),
-                "reorder": 0,
-                "value": round((on_hand or 0) * (r.valuation_rate or 0)),
-                "state": state,
+                "itemCode": r.item_code,
+                "sku": r.sku or r.item_code,
+                "name": r.name,
+                "image": r.image or "",
+                "bins": int(r.bins or 0),
+                "topBin": (r.top_bin or "").replace(" - JM", ""),
+                "onHand": on_hand,
+                "reserved": reserved,
+                "available": on_hand - reserved,
+                "value": int(r.value or 0),
+                "state": "low" if on_hand <= LOW_THRESHOLD else "ok",
             })
-        return out
+        return {"rows": out, "total": int(total or 0), "limit": limit, "offset": offset}
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.inventory.stock")
-        return []
+        return {"rows": [], "total": 0, "limit": 30, "offset": 0}
 
 
 @frappe.whitelist()
@@ -75,35 +119,55 @@ def zones(warehouse_like="%JM%"):
 
 
 @frappe.whitelist()
-def stats(warehouse_like="%JM%"):
-    """Headline stock KPIs (STOCK_STATS shape)."""
+def stats():
+    """Headline stock KPIs, per SKU over the PICKABLE network. The old version
+    counted Bin rows over every warehouse ever created — 'Out of stock: 49,600'
+    was the number of zero-qty bin rows in history, not an ops number.
+
+    strandedSku is the number that matters here: SKUs with ZERO sellable stock
+    whose units are sitting in excluded zones (Return/Receiving/containers…) —
+    the false-OOS the catalog work keeps hitting."""
     try:
+        from logistics_portal.api.warehouses import pickable_condition
+        cond, args = pickable_condition("b.warehouse")
+
         row = frappe.db.sql(
-            """
-            SELECT COUNT(DISTINCT b.item_code) AS sku_count,
-                   ROUND(SUM(b.actual_qty)) AS total_units,
-                   ROUND(SUM(b.actual_qty * b.valuation_rate)) AS total_value,
-                   SUM(CASE WHEN b.actual_qty > 0 AND b.actual_qty <= %s THEN 1 ELSE 0 END) AS low_sku,
-                   SUM(CASE WHEN b.actual_qty <= 0 THEN 1 ELSE 0 END) AS out_sku,
-                   ROUND(SUM(b.reserved_qty)) AS reserved
-            FROM `tabBin` b
-            WHERE b.warehouse LIKE %s
-            """,
-            (LOW_THRESHOLD, warehouse_like),
-            as_dict=True,
-        )
-        s = row[0] if row else {}
+            f"""SELECT COUNT(*) AS sku_count,
+                       ROUND(SUM(t.units)) AS total_units,
+                       ROUND(SUM(t.value)) AS total_value,
+                       SUM(CASE WHEN t.units <= %s THEN 1 ELSE 0 END) AS low_sku,
+                       ROUND(SUM(t.reserved)) AS reserved
+                FROM (
+                    SELECT b.item_code, SUM(b.actual_qty) AS units,
+                           SUM(b.actual_qty * b.valuation_rate) AS value,
+                           SUM(b.reserved_qty) AS reserved
+                    FROM `tabBin` b
+                    WHERE {cond} AND b.actual_qty > 0
+                    GROUP BY b.item_code
+                ) t""",
+            tuple([LOW_THRESHOLD] + list(args)), as_dict=True)[0]
+
+        # Stock exists somewhere in JM, but ZERO of it is on a sellable shelf.
+        stranded = frappe.db.sql(
+            f"""SELECT COUNT(*) FROM (
+                    SELECT b.item_code
+                    FROM `tabBin` b
+                    WHERE b.warehouse LIKE '%% - JM' AND b.actual_qty > 0
+                    GROUP BY b.item_code
+                    HAVING SUM(CASE WHEN {cond} THEN b.actual_qty ELSE 0 END) <= 0
+                ) t""",
+            tuple(args))[0][0]
+
         return {
-            "skuCount": int(s.get("sku_count") or 0),
-            "totalUnits": int(s.get("total_units") or 0),
-            "totalValue": int(s.get("total_value") or 0),
-            "lowSku": int(s.get("low_sku") or 0),
-            "outSku": int(s.get("out_sku") or 0),
-            "deadSku": 0,
-            "reserved": int(s.get("reserved") or 0),
-            "turnover": 0,
+            "skuCount": int(row.sku_count or 0),
+            "totalUnits": int(row.total_units or 0),
+            "totalValue": int(row.total_value or 0),
+            "lowSku": int(row.low_sku or 0),
+            "strandedSku": int(stranded or 0),
+            "reserved": int(row.reserved or 0),
         }
     except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.inventory.stats")
         return {}
 
 
