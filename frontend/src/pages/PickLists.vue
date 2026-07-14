@@ -334,16 +334,37 @@
         </div>
       </div>
 
-      <!-- orders on this PL (live) / activity (demo) -->
-      <div v-if="liveDetail" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden h-fit">
-        <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t("pl.ordersOn") }}</div>
-        <div class="divide-y divide-stone-100">
-          <div v-for="o in liveDetail.orders" :key="o.so" class="flex items-center gap-2.5 px-4 py-2.5">
-            <button class="font-mono text-[12px] font-semibold text-stone-900 hover:text-[var(--accent-700)]" @click="$router.push({ name: 'OrderDetail', params: { name: o.so.replace('#','') } })">{{ o.so }}</button>
-            <span class="text-[12px] text-stone-600 flex-1 truncate">{{ o.customer }}</span>
-            <span v-if="o.awb" class="font-mono text-[10.5px] text-stone-500 bg-stone-100 ring-1 ring-stone-200/70 rounded px-1.5 py-0.5">{{ o.awb }}</span>
+      <!-- orders on this PL + activity (live) / activity (demo) -->
+      <div v-if="liveDetail" class="space-y-4 h-fit">
+        <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+          <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t("pl.ordersOn") }}</div>
+          <div class="divide-y divide-stone-100">
+            <div v-for="o in liveDetail.orders" :key="o.so" class="flex items-center gap-2.5 px-4 py-2.5">
+              <button class="font-mono text-[12px] font-semibold text-stone-900 hover:text-[var(--accent-700)]" @click="$router.push({ name: 'OrderDetail', params: { name: o.so.replace('#','') } })">{{ o.so }}</button>
+              <span class="text-[12px] text-stone-600 flex-1 truncate">{{ o.customer }}</span>
+              <span v-if="o.awb" class="font-mono text-[10.5px] text-stone-500 bg-stone-100 ring-1 ring-stone-200/70 rounded px-1.5 py-0.5">{{ o.awb }}</span>
+            </div>
+            <div v-if="!liveDetail.orders.length" class="text-center text-[12px] text-stone-400 py-8">—</div>
           </div>
-          <div v-if="!liveDetail.orders.length" class="text-center text-[12px] text-stone-400 py-8">—</div>
+        </div>
+
+        <!-- live activity timeline (creation → assignment → submit → notes) -->
+        <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+          <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t("pl.activity") }}</div>
+          <div class="p-4 space-y-3 max-h-[420px] overflow-y-auto">
+            <div v-for="(ev, i) in liveActivity" :key="i" class="flex items-start gap-2.5">
+              <span class="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5" :class="ev.cls">
+                <Icon :name="ev.icon" :size="13" />
+              </span>
+              <div class="min-w-0 flex-1">
+                <div class="text-[12.5px] text-stone-800 leading-snug">{{ ev.label }}</div>
+                <div class="text-[11px] text-stone-400 tabular-nums">
+                  <template v-if="ev.who">{{ ev.who }} · </template>{{ ev.at }}
+                </div>
+              </div>
+            </div>
+            <div v-if="!liveActivity.length" class="text-center text-[12px] text-stone-400 py-6">—</div>
+          </div>
         </div>
       </div>
       <div v-else class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
@@ -1250,6 +1271,30 @@ function tagIcon(s) {
 const statusPill = (pl) => (pl.pct >= 100 ? "text-emerald-700 bg-emerald-50 ring-emerald-200" : pl.pct > 0 ? "text-blue-700 bg-blue-50 ring-blue-200" : "text-amber-700 bg-amber-50 ring-amber-200");
 const statusPillDot = (pl) => (pl.pct >= 100 ? "bg-emerald-500" : pl.pct > 0 ? "bg-blue-500" : "bg-amber-500");
 const statusPillLabel = (pl) => liveDetail.value ? plStatusLabel(liveDetail.value.status) : (pl.pct >= 100 ? "Closed" : pl.pct > 0 ? "Picking" : "Pending");
+
+// Live activity timeline — structured events from pick_list_detail.activity;
+// labels are built here so they follow the UI language.
+const ACT_STYLE = {
+  created:   { icon: "plus",           cls: "bg-stone-100 text-stone-500" },
+  assigned:  { icon: "users",          cls: "bg-blue-50 text-blue-600" },
+  submitted: { icon: "check-circle",   cls: "bg-emerald-100 text-emerald-600" },
+  cancelled: { icon: "x",              cls: "bg-rose-100 text-rose-600" },
+  status:    { icon: "truck",          cls: "bg-violet-50 text-violet-600" },
+  note:      { icon: "message-circle", cls: "bg-amber-50 text-amber-600" },
+};
+const liveActivity = computed(() =>
+  (liveDetail.value?.activity || []).map((ev) => {
+    const s = ACT_STYLE[ev.k] || ACT_STYLE.note;
+    let label;
+    if (ev.k === "created") label = t("pl.actCreated");
+    else if (ev.k === "assigned") label = t("pl.actAssigned").replace("{p}", ev.x || "");
+    else if (ev.k === "submitted") label = t("pl.actSubmitted");
+    else if (ev.k === "cancelled") label = t("pl.actCancelled");
+    else if (ev.k === "status") label = t("pl.actStatus").replace("{s}", ev.x || "");
+    else label = ev.x || "";
+    return { who: ev.who || "", at: ev.at || "", label, icon: s.icon, cls: s.cls };
+  })
+);
 
 const detailActivity = computed(() => {
   const pl = detail.value;

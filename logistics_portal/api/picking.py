@@ -424,6 +424,7 @@ def pick_list_detail(name):
                   else "partial" if pl.custom_logistics_status == "Partially Shipped" else "open")
         return {
             "no": pl.name, "status": status,
+            "activity": _pick_list_activity(name, pl),
             "picker": pl.custom_assigned_picker or pl.owner or "",
             "created": str(pl.creation)[:16], "updated": str(pl.modified)[:16],
             "items": int(pl.custom_items_count or len(lines)),
@@ -443,6 +444,74 @@ def pick_list_detail(name):
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.pick_list_detail")
         return {}
+
+
+def _pick_list_activity(name, pl):
+    """Real timeline for the detail pane. Structured events (the SPA renders
+    the labels so they translate): created / assigned / submitted / cancelled /
+    status flips (mined from tabVersion) + free-text comments (short-pick
+    notes etc.). `who` is the bare username part of the email. Scan counters
+    are written with direct SQL (no Version rows), so per-scan noise never
+    lands here — progress lives on the bar."""
+    import json as _json
+    import re as _re
+
+    def who(email):
+        return (email or "").split("@")[0]
+
+    events = [{"k": "created", "who": who(pl.owner), "at": str(pl.creation)[:16]}]
+    try:
+        for v in frappe.get_all(
+                "Version",
+                filters={"ref_doctype": "Pick List", "docname": name},
+                fields=["owner", "creation", "data"],
+                order_by="creation asc", limit_page_length=100):
+            try:
+                changed = _json.loads(v.data or "{}").get("changed") or []
+            except Exception:
+                continue
+            at = str(v.creation)[:16]
+            for ch in changed:
+                f, _old, new = (list(ch) + [None, None, None])[:3]
+                if f == "custom_assigned_picker" and new:
+                    events.append({"k": "assigned", "x": who(new), "who": who(v.owner), "at": at})
+                elif f == "docstatus" and str(new) == "1":
+                    events.append({"k": "submitted", "who": who(v.owner), "at": at})
+                elif f == "docstatus" and str(new) == "2":
+                    events.append({"k": "cancelled", "who": who(v.owner), "at": at})
+                elif f == "custom_logistics_status" and new:
+                    events.append({"k": "status", "x": str(new), "who": who(v.owner), "at": at})
+    except Exception:
+        pass
+    # Submission via db_set/flags leaves no Version row — synthesize from facts.
+    if pl.docstatus >= 1 and not any(e["k"] == "submitted" for e in events):
+        events.append({"k": "submitted", "who": "", "at": str(pl.modified)[:16]})
+    try:
+        for c in frappe.get_all(
+                "Comment",
+                filters={"reference_doctype": "Pick List", "reference_name": name,
+                         "comment_type": "Comment"},
+                fields=["comment_email", "owner", "creation", "content"],
+                order_by="creation asc", limit_page_length=50):
+            text = _re.sub(r"<[^>]+>", " ", c.content or "")
+            # de-noise desk markdown links: [user@x.com](/app/user/...) -> user@x.com
+            text = _re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text).strip()
+            if not text:
+                continue
+            at = str(c.creation)[:16]
+            author = who(c.comment_email or c.owner)
+            # assign_picker writes "Assigned to <email>" — render it structured
+            # so the SPA translates it like the Version-sourced events.
+            m = _re.match(r"^Assigned to (\S+)$", text)
+            if m:
+                events.append({"k": "assigned", "x": who(m.group(1)),
+                               "who": author, "at": at})
+            else:
+                events.append({"k": "note", "x": text[:180], "who": author, "at": at})
+    except Exception:
+        pass
+    events.sort(key=lambda e: e["at"])
+    return events
 
 
 @frappe.whitelist()
@@ -638,7 +707,19 @@ def assign_picker(name, picker=None):
         frappe.throw("The assigned-picker field isn't installed.")
     if frappe.db.get_value("Pick List", name, "docstatus") != 0:
         frappe.throw("A picker can only be assigned while the pick list is a draft.")
-    frappe.db.set_value("Pick List", name, "custom_assigned_picker", (picker or "").strip() or None)
+    picker = (picker or "").strip() or None
+    frappe.db.set_value("Pick List", name, "custom_assigned_picker", picker)
+    # db_set leaves no Version row — record the assignment as a Comment so the
+    # detail timeline (and the desk) show who assigned whom, when.
+    if picker:
+        try:
+            frappe.get_doc({
+                "doctype": "Comment", "comment_type": "Comment",
+                "reference_doctype": "Pick List", "reference_name": name,
+                "content": f"Assigned to {picker}",
+            }).insert(ignore_permissions=True)
+        except Exception:
+            pass
     frappe.cache().delete_value("lp_board_summary")
     return {"ok": True, "picker": picker or ""}
 
