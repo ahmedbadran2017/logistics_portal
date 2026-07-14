@@ -3,7 +3,7 @@
     <!-- Title -->
     <div class="flex items-center justify-between gap-4 flex-wrap">
       <div>
-        <h1 class="text-[22px] font-semibold text-stone-900 tracking-[-0.01em]">Audit &amp; Insights</h1>
+        <h1 class="text-[22px] font-semibold text-stone-900 tracking-[-0.01em]">{{ t('px.aud.title') }}</h1>
         <p class="text-[13px] text-stone-500 mt-0.5">
           Problem radar — every known failure mode, scanned live · {{ WAREHOUSE }}
         </p>
@@ -41,7 +41,7 @@
       <!-- The radar: every open problem, click-through to the fixing screen -->
       <section class="xl:col-span-2 bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <header class="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
-          <h3 class="text-[13.5px] font-semibold text-stone-900">Problem radar</h3>
+          <h3 class="text-[13.5px] font-semibold text-stone-900">{{ t('px.aud.radar') }}</h3>
           <span class="text-[11px] text-stone-400">deterministic · windowed · cached 2 min</span>
         </header>
 
@@ -53,8 +53,8 @@
           <span class="inline-flex w-12 h-12 rounded-2xl items-center justify-center bg-emerald-50 text-emerald-500 mb-3">
             <Icon name="check-circle" :size="22" />
           </span>
-          <div class="text-[14.5px] font-semibold text-stone-900">Floor is clean</div>
-          <div class="text-[12.5px] text-stone-500 mt-1">No open problems in any category.</div>
+          <div class="text-[14.5px] font-semibold text-stone-900">{{ t('px.aud.clean') }}</div>
+          <div class="text-[12.5px] text-stone-500 mt-1">{{ t('px.aud.cleanSub') }}</div>
         </div>
 
         <div v-else-if="radar" class="divide-y divide-stone-100">
@@ -81,7 +81,7 @@
         </div>
 
         <div v-else class="p-8 text-center">
-          <div class="text-[13.5px] font-semibold text-stone-900">Couldn't scan</div>
+          <div class="text-[13.5px] font-semibold text-stone-900">{{ t('px.aud.scanFail') }}</div>
           <button class="mt-3 h-9 px-4 rounded-lg text-[13px] font-semibold text-white bg-stone-800" @click="load">Retry</button>
         </div>
       </section>
@@ -92,7 +92,7 @@
       <section class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <header class="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
           <h3 class="text-[13.5px] font-semibold text-stone-900 flex items-center gap-1.5">
-            <Icon name="sparkles" :size="14" class="text-violet-500" /> AI daily digest
+            <Icon name="sparkles" :size="14" class="text-violet-500" /> {{ t('px.aud.aiTitle') }}
           </h3>
           <button
             v-if="ai.configured"
@@ -174,6 +174,8 @@ import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { WAREHOUSE } from "@/lib/handoffData";
 import { api, apiPost } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
+const { t } = useI18n();
 
 const router = useRouter();
 

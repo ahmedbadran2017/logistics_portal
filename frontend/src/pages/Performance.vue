@@ -3,7 +3,7 @@
     <!-- Greeting -->
     <div>
       <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">Hi {{ firstName }} 👋</h1>
-      <p class="text-[12.5px] text-stone-500 mt-1">Here's how your day is going — you've got this.</p>
+      <p class="text-[12.5px] text-stone-500 mt-1">{{ t('px.perf.sub') }}</p>
     </div>
 
     <!-- Metric tiles -->
@@ -19,18 +19,18 @@
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
         <div class="flex items-center gap-2">
           <span class="w-8 h-8 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center flex-shrink-0"><Icon name="clock" :size="15" /></span>
-          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">Avg time</span>
+          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('px.perf.avgTime') }}</span>
         </div>
         <div class="mt-2 text-[22px] font-semibold text-stone-900 font-mono tabular-nums leading-none">{{ me.avg }}</div>
-        <div class="text-[10.5px] text-stone-400 mt-1">per pick</div>
+        <div class="text-[10.5px] text-stone-400 mt-1">{{ t('px.perf.perPick') }}</div>
       </div>
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
         <div class="flex items-center gap-2">
           <span class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0"><Icon name="check-circle" :size="15" /></span>
-          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">SLA hit-rate</span>
+          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('px.perf.slaRate') }}</span>
         </div>
         <div class="mt-2 text-[24px] font-semibold text-emerald-600 tabular-nums leading-none">{{ me.sla }}<span class="text-[13px] font-medium text-stone-400">%</span></div>
-        <div class="text-[10.5px] text-stone-400 mt-1">on time</div>
+        <div class="text-[10.5px] text-stone-400 mt-1">{{ t('px.perf.onTime') }}</div>
       </div>
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
         <div class="flex items-center gap-2">
@@ -38,14 +38,14 @@
           <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">Rank</span>
         </div>
         <div class="mt-2 text-[24px] font-semibold text-stone-900 tabular-nums leading-none">#{{ me.rank }}</div>
-        <div class="text-[10.5px] text-stone-400 mt-1">on the team</div>
+        <div class="text-[10.5px] text-stone-400 mt-1">{{ t('px.perf.onTeam') }}</div>
       </div>
     </div>
 
     <!-- Progress to target -->
     <div class="bg-gradient-to-br from-[var(--accent-50)] to-white rounded-xl ring-1 ring-[var(--accent-200)]/50 p-5">
       <div class="flex items-center justify-between mb-2">
-        <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">Daily target</span>
+        <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('px.perf.dailyTarget') }}</span>
         <span class="text-[12.5px] tabular-nums text-stone-600">{{ me.picks }} / {{ me.target }}</span>
       </div>
       <div class="h-3 rounded-full bg-white ring-1 ring-stone-200/70 overflow-hidden">
@@ -115,6 +115,8 @@ import { ref, computed, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { useAuth } from "@/composables/useAuth";
 import { api, liveOr } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
+const { t } = useI18n();
 
 // Real identity: the logged-in user, matched against the live leaderboard by
 // email-derived id or raw email (the old hardcoded "marouane" showed everyone

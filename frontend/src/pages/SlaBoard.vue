@@ -31,7 +31,7 @@
             <SlaRing :pct="data.onTimePct / 100" :size="84" :stroke="9" />
             <div>
               <div class="text-[28px] font-bold text-stone-900 tabular-nums leading-none">{{ data.onTimePct }}%</div>
-              <div class="text-[12px] text-stone-500 mt-1">Delivered on time</div>
+              <div class="text-[12px] text-stone-500 mt-1">{{ t('px.slb.onTime') }}</div>
               <div class="text-[11px] text-stone-400 mt-2 tabular-nums">
                 {{ data.counts.delivered }} on time · {{ data.counts.deliveredLate }} late
               </div>
@@ -58,8 +58,8 @@
         <section class="bg-white rounded-xl ring-1 ring-stone-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.03)] overflow-hidden">
           <header class="flex items-center justify-between gap-3 px-4 py-3 border-b border-stone-100">
             <div>
-              <h3 class="text-[13.5px] font-semibold text-stone-900">Open parcels · time to promise</h3>
-              <p class="text-[11.5px] text-stone-500 mt-0.5">Where every undelivered parcel stands against its expected date</p>
+              <h3 class="text-[13.5px] font-semibold text-stone-900">{{ t('px.slb.openParcels') }}</h3>
+              <p class="text-[11.5px] text-stone-500 mt-0.5">{{ t('px.slb.sub') }}</p>
             </div>
             <span class="text-[12px] text-stone-500 tabular-nums">{{ openTotal }} open</span>
           </header>
@@ -81,11 +81,11 @@
           <!-- Worst cities -->
           <section class="bg-white rounded-xl ring-1 ring-stone-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.03)] overflow-hidden">
             <header class="px-4 py-3 border-b border-stone-100">
-              <h3 class="text-[13.5px] font-semibold text-stone-900">Open breaches by city</h3>
+              <h3 class="text-[13.5px] font-semibold text-stone-900">{{ t('px.slb.byCity') }}</h3>
             </header>
             <div class="p-4 space-y-2.5">
               <div v-if="!data.cities.length" class="text-[12.5px] text-emerald-600 text-center py-6 flex items-center justify-center gap-1.5">
-                <Icon name="check-circle" :size="15" /> No open breaches
+                <Icon name="check-circle" :size="15" /> {{ t('px.slb.noBreach') }}
               </div>
               <div v-for="c in data.cities" :key="c.city" class="flex items-center gap-3">
                 <span class="text-[12.5px] font-medium text-stone-800 w-[110px] truncate capitalize">{{ c.city }}</span>
@@ -101,12 +101,12 @@
           <!-- Open breach list -->
           <section class="bg-white rounded-xl ring-1 ring-stone-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.03)] overflow-hidden">
             <header class="flex items-center justify-between px-4 py-3 border-b border-stone-100">
-              <h3 class="text-[13.5px] font-semibold text-stone-900">Oldest open breaches</h3>
+              <h3 class="text-[13.5px] font-semibold text-stone-900">{{ t('px.slb.oldest') }}</h3>
               <span class="text-[11.5px] text-stone-400 tabular-nums">{{ data.counts.breached }} total</span>
             </header>
             <div class="divide-y divide-stone-50">
               <div v-if="!data.breaches.length" class="text-[12.5px] text-emerald-600 text-center py-6 flex items-center justify-center gap-1.5">
-                <Icon name="check-circle" :size="15" /> All clear
+                <Icon name="check-circle" :size="15" /> {{ t('px.slb.allClear') }}
               </div>
               <button v-for="b in data.breaches" :key="b.dn"
                       class="w-full text-start px-4 py-2.5 flex items-center gap-3 hover:bg-stone-50 transition-colors"
@@ -135,6 +135,8 @@ import { computed, h, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { api } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
+const { t } = useI18n();
 
 const router = useRouter();
 const data = ref(null);

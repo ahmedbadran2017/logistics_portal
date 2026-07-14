@@ -2,8 +2,8 @@
   <div class="p-5 sm:p-6 space-y-5 max-w-[1400px] mx-auto animate-fade-in">
     <!-- head -->
     <div>
-      <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">Carrier scorecard</h1>
-      <p class="text-[12.5px] text-stone-500 mt-0.5">Live delivery performance · last 90 days</p>
+      <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">{{ t('px.car.title') }}</h1>
+      <p class="text-[12.5px] text-stone-500 mt-0.5">{{ t('px.car.sub') }}</p>
     </div>
 
     <!-- carrier comparison cards -->
@@ -36,19 +36,19 @@
         <div class="grid grid-cols-2 gap-2 mt-3">
           <div>
             <div class="text-[16px] font-semibold text-emerald-600 tabular-nums leading-none font-mono">{{ s.deliveryRate }}%</div>
-            <div class="text-[10px] text-stone-500 mt-1">Delivery rate</div>
+            <div class="text-[10px] text-stone-500 mt-1">{{ t('px.car.deliveryRate') }}</div>
           </div>
           <div>
             <div class="text-[16px] font-semibold text-stone-900 tabular-nums leading-none font-mono">{{ s.awbActive ?? "—" }}</div>
-            <div class="text-[10px] text-stone-500 mt-1">Active parcels</div>
+            <div class="text-[10px] text-stone-500 mt-1">{{ t('px.car.active') }}</div>
           </div>
           <div>
             <div class="text-[16px] font-semibold text-rose-500 tabular-nums leading-none font-mono">{{ s.exceptionRate }}%</div>
-            <div class="text-[10px] text-stone-500 mt-1">Exception rate</div>
+            <div class="text-[10px] text-stone-500 mt-1">{{ t('px.car.excRate') }}</div>
           </div>
           <div>
             <div class="text-[16px] font-semibold text-stone-900 tabular-nums leading-none font-mono">{{ s.avgTransit }}d</div>
-            <div class="text-[10px] text-stone-500 mt-1">Avg transit</div>
+            <div class="text-[10px] text-stone-500 mt-1">{{ t('px.car.avgTransit') }}</div>
           </div>
         </div>
       </button>
@@ -81,6 +81,8 @@
 import { ref, computed, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, liveOr } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
+const { t } = useI18n();
 
 // Carrier scorecard data (from design_handoff/logistics/data.jsx)
 const SCORES = [

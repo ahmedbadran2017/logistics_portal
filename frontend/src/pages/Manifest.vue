@@ -55,17 +55,17 @@
           class="rounded-lg bg-amber-50 ring-1 ring-amber-200/70 px-4 py-2.5 flex items-center gap-2 text-[12.5px] text-amber-800"
         >
           <Icon name="alert-triangle" :size="16" class="text-amber-500 flex-shrink-0" />
-          {{ notLabeled }} picked orders not yet labeled — label them before closing the manifest.
+          {{ t('px.mani.notLabeled').replace('{n}', notLabeled) }}
         </div>
 
         <!-- scan to add -->
-        <ScanInput ref="scanner" placeholder="Scan parcel / AWB to add to manifest" @scan="onScan" />
+        <ScanInput ref="scanner" :placeholder="t('px.mani.scanPh')" @scan="onScan" />
 
         <!-- added parcels -->
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
           <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold text-stone-700 flex items-center justify-between">
             <span>{{ t("mani.onManifest") }}</span>
-            <span class="text-stone-400 tabular-nums">{{ parcels.length }} on manifest</span>
+            <span class="text-stone-400 tabular-nums">{{ parcels.length }} · {{ t('px.mani.onCount') }}</span>
           </div>
           <div class="divide-y divide-stone-100 max-h-[420px] overflow-y-auto">
             <div v-if="manifestLoading" class="p-3 space-y-2">
@@ -73,7 +73,7 @@
             </div>
             <div v-else-if="!parcels.length" class="px-4 py-10 text-center text-[12.5px] text-stone-400">
               <Icon name="scan-barcode" :size="26" class="mx-auto mb-2 opacity-60" />
-              Scan a parcel or AWB above to start building today's {{ CARRIER }} handover.
+              {{ t('px.mani.emptyHint').replace('{c}', CARRIER) }}
             </div>
             <div
               v-for="(p, i) in parcels"
@@ -95,7 +95,7 @@
               <span class="text-[12px] font-semibold text-stone-800 tabular-nums">{{ fmtMAD(p.value) }}</span>
               <button
                 class="inline-flex items-center justify-center w-6 h-6 rounded-md text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                title="Remove"
+                :title="t('px.common.remove')"
                 @click="remove(i)"
               >
                 <Icon name="x" :size="15" />
@@ -165,7 +165,7 @@
             :disabled="!parcels.length || closing"
             @click="closeManifest"
           >
-            <Icon name="send" :size="16" /> {{ closing ? "Closing…" : "Close manifest & hand to carrier" }}
+            <Icon name="send" :size="16" /> {{ closing ? t('px.mani.closing') : t('px.mani.closeBtn') }}
           </button>
         </div>
       </div>
@@ -179,7 +179,7 @@
           <span class="inline-flex w-9 h-9 rounded-xl items-center justify-center bg-emerald-50 text-emerald-600">
             <Icon name="send" :size="18" />
           </span>
-          <h3 class="text-[15px] font-semibold text-stone-900">Close today's manifest?</h3>
+          <h3 class="text-[15px] font-semibold text-stone-900">{{ t('px.mani.confirmTitle') }}</h3>
         </div>
         <p class="text-[13px] text-stone-600 leading-relaxed">
           This submits the Shipment for <b class="tabular-nums">{{ parcels.length }}</b> parcels

@@ -1,7 +1,7 @@
 <template>
   <div class="p-5 sm:p-6 space-y-4 max-w-[1400px] mx-auto animate-fade-in">
     <div class="mb-1">
-      <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">Stock levels</h1>
+      <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">{{ t('px.inv.title') }}</h1>
       <p class="text-[12.5px] text-stone-500 mt-0.5">Sellable network · per SKU · live from Bins · {{ WAREHOUSE }}</p>
     </div>
 
@@ -22,7 +22,7 @@
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden h-fit">
         <div class="px-4 pt-4 pb-2">
           <div class="text-[13px] font-semibold text-stone-800">Zones</div>
-          <div class="text-[11.5px] text-stone-500">Filter the sellable stock</div>
+          <div class="text-[11.5px] text-stone-500">{{ t('px.inv.filterHint') }}</div>
         </div>
         <div v-if="zonesLoading" class="p-2 space-y-1">
           <div v-for="n in 6" :key="n" class="h-[44px] rounded-lg bg-stone-50 animate-pulse" />
@@ -57,14 +57,14 @@
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <div class="flex items-center justify-between gap-2 px-4 pt-4 pb-3 flex-wrap">
           <div>
-            <div class="text-[13px] font-semibold text-stone-800">Stock by SKU</div>
-            <div class="text-[11.5px] text-stone-500">{{ group || "All zones" }} · {{ num(total) }} SKUs</div>
+            <div class="text-[13px] font-semibold text-stone-800">{{ t('px.inv.bySku') }}</div>
+            <div class="text-[11.5px] text-stone-500">{{ group || t('px.inv.allZones') }} · {{ num(total) }} SKUs</div>
           </div>
           <div class="flex items-center gap-2">
             <div class="relative">
               <Icon name="search" :size="13" class="absolute start-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
               <input
-                v-model="q" placeholder="SKU · name…" @input="onSearch"
+                v-model="q" :placeholder="t('px.inv.searchPh')" @input="onSearch"
                 class="h-8 w-[190px] ps-8 pe-3 text-[12.5px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none"
               />
             </div>
@@ -85,8 +85,8 @@
             <thead>
               <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
                 <th class="text-start px-4 py-2.5">SKU</th>
-                <th class="text-start px-4 py-2.5 hidden sm:table-cell">Top bin</th>
-                <th class="text-end px-4 py-2.5">On hand</th>
+                <th class="text-start px-4 py-2.5 hidden sm:table-cell">{{ t('px.inv.topBin') }}</th>
+                <th class="text-end px-4 py-2.5">{{ t('px.inv.onHand') }}</th>
                 <th class="text-end px-4 py-2.5 hidden md:table-cell">Reserved</th>
                 <th class="text-end px-4 py-2.5">Available</th>
                 <th class="text-end px-4 py-2.5 hidden lg:table-cell">Value</th>
@@ -125,7 +125,7 @@
               </tr>
             </tbody>
           </table>
-          <div v-if="!rows.length" class="text-center text-[12.5px] text-stone-400 py-12">No SKUs match.</div>
+          <div v-if="!rows.length" class="text-center text-[12.5px] text-stone-400 py-12">{{ t('px.inv.noMatch') }}</div>
         </div>
 
         <div v-if="total > pageSize" class="flex items-center justify-between px-4 py-2.5 border-t border-stone-100 bg-stone-50/50">
@@ -148,6 +148,8 @@ import { computed, h, onMounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { WAREHOUSE } from "@/lib/handoffData.js";
 import { api } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
+const { t } = useI18n();
 
 // Honest rebuild: per-SKU sellable stock (pickable network — same scope as the
 // Orders board), searchable + paginated. The old page listed the top-60 raw

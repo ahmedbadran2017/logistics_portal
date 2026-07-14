@@ -4,7 +4,7 @@
       <!-- Title + actions -->
       <div class="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 class="text-[22px] font-semibold text-stone-900 tracking-[-0.01em]">Floor cockpit</h1>
+          <h1 class="text-[22px] font-semibold text-stone-900 tracking-[-0.01em]">{{ t('px.ckp.title') }}</h1>
           <p class="text-[13px] text-stone-500 mt-0.5">
             Live across the whole floor · {{ WAREHOUSE }}, {{ CITY }}
           </p>

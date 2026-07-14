@@ -4,7 +4,7 @@
       <!-- Title -->
       <div class="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 class="text-[22px] font-semibold text-stone-900 tracking-[-0.01em]">Floor board</h1>
+          <h1 class="text-[22px] font-semibold text-stone-900 tracking-[-0.01em]">{{ t('px.flb.title') }}</h1>
           <p class="text-[13px] text-stone-500 mt-0.5">
             Live throughput across every station · {{ WAREHOUSE }}, {{ CITY }}
           </p>
@@ -20,7 +20,7 @@
             : 'ring-amber-200 bg-gradient-to-br from-amber-50/60 to-white'"
         >
           <div class="flex items-center justify-between">
-            <span class="text-[12px] font-medium text-stone-500">Orders / hour</span>
+            <span class="text-[12px] font-medium text-stone-500">{{ t('px.flb.perHour') }}</span>
             <span
               class="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-full text-[11px] font-semibold ring-1"
               :class="pace >= 0.95
@@ -117,6 +117,8 @@ import { computed, h, ref, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { WAREHOUSE, CITY } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
+const { t } = useI18n();
 
 // ── Andon board snapshot (skeleton until `performance.floor` loads) ──
 const EMPTY_ANDON = {

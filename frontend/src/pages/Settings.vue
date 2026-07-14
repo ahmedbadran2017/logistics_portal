@@ -4,7 +4,7 @@
       <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em] flex items-center gap-2">
         <Icon name="settings" :size="20" class="text-[var(--accent-600)]" /> Settings
       </h1>
-      <p class="text-[12.5px] text-stone-500 mt-1">Manage your profile and preferences.</p>
+      <p class="text-[12.5px] text-stone-500 mt-1">{{ t('px.set.sub') }}</p>
     </div>
 
     <!-- Profile -->
@@ -109,7 +109,7 @@
           :disabled="opsSaving" @click="saveOps"
         >{{ opsSaving ? "Saving…" : "Save changes" }}</button>
       </div>
-      <p class="text-[11.5px] text-stone-500 mb-3">These drive the whole portal — the manifest countdown, the floor board pace, low-stock flags, the SLA promise and the short-pick cooldown.</p>
+      <p class="text-[11.5px] text-stone-500 mb-3">{{ t('px.set.opsSub') }}</p>
 
       <div v-if="opsLoading" class="space-y-2">
         <div v-for="n in 3" :key="n" class="h-[52px] rounded-lg bg-stone-50 ring-1 ring-stone-200/60 animate-pulse" />
@@ -134,16 +134,16 @@
           </div>
         </li>
       </ul>
-      <div v-else class="text-[12px] text-stone-400 py-4">Couldn't load — deploy the latest backend.</div>
+      <div v-else class="text-[12px] text-stone-400 py-4">{{ t('px.set.deployHint') }}</div>
     </div>
 
     <!-- Pickable warehouses (manager) -->
     <div v-if="role === 'manager'" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-5">
       <div class="flex items-center gap-2 mb-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">
-        <Icon name="warehouse" :size="15" /> Pickable warehouses
+        <Icon name="warehouse" :size="15" /> {{ t('px.set.whTitle') }}
       </div>
-      <p class="text-[11.5px] text-stone-500 mb-3">Which stock zones the pick engine and Orders board draw from. Turn a zone off to keep its stock out of picking (it will show as out of stock). Aisle bins are always pickable; transit/defective zones are always excluded.</p>
-      <div v-if="whLoading" class="text-[12px] text-stone-400 py-4">Loading zones…</div>
+      <p class="text-[11.5px] text-stone-500 mb-3">{{ t('px.set.whSub') }}</p>
+      <div v-if="whLoading" class="text-[12px] text-stone-400 py-4">{{ t('px.set.whLoading') }}</div>
       <ul v-else-if="zones.length" class="divide-y divide-stone-100">
         <li v-for="z in zones" :key="z.name" class="flex items-center justify-between py-3 gap-3">
           <div class="min-w-0">
@@ -163,7 +163,7 @@
           </button>
         </li>
       </ul>
-      <div v-else class="text-[12px] text-stone-400 py-4">No configurable zones.</div>
+      <div v-else class="text-[12px] text-stone-400 py-4">{{ t('px.set.whEmpty') }}</div>
     </div>
   </div>
 </template>

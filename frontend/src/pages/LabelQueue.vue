@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="flex items-center justify-between gap-3 mb-4">
       <div>
-        <h1 class="text-[19px] font-semibold text-stone-900 tracking-[-0.01em]">Label &amp; Print</h1>
+        <h1 class="text-[19px] font-semibold text-stone-900 tracking-[-0.01em]">{{ t('px.lbl.title') }}</h1>
         <p class="text-[12.5px] text-stone-500 mt-0.5">{{ CARRIER }} · {{ WAREHOUSE }}</p>
       </div>
     </div>
@@ -19,7 +19,7 @@
             class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] transition-colors"
             @click="printAll"
           >
-            <Icon name="tag" :size="15" /> Generate label · all
+            <Icon name="tag" :size="15" /> {{ t('px.lbl.genAll') }}
           </button>
         </div>
 
@@ -70,7 +70,7 @@
       <!-- label preview -->
       <div>
         <div class="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400 mb-2">
-          <Icon name="scan-barcode" :size="14" /> Label preview
+          <Icon name="scan-barcode" :size="14" /> {{ t('px.lbl.preview') }}
         </div>
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
           <div class="flex items-center justify-between pb-3 border-b border-dashed border-stone-300">
@@ -97,7 +97,7 @@
               <span class="text-stone-400">Customer</span><span class="font-medium text-stone-800">{{ sel?.customer }}</span>
             </div>
             <div class="pt-1.5 mt-1.5 border-t border-stone-100">
-              <div class="text-stone-400 mb-0.5">Ship to</div>
+              <div class="text-stone-400 mb-0.5">{{ t('px.lbl.shipTo') }}</div>
               <div class="text-stone-800 leading-snug text-[11.5px]">
                 {{ sel?.customer }}<br />
                 {{ sel?.city || "—" }} · Maroc
@@ -120,7 +120,7 @@
             class="inline-flex items-center justify-center gap-1.5 w-full h-9 mt-4 rounded-lg text-[13px] font-medium text-white bg-stone-900 hover:bg-stone-800 transition-colors"
             @click="sel && print(sel.order)"
           >
-            <Icon name="printer" :size="15" /> Print label
+            <Icon name="printer" :size="15" /> {{ t('px.lbl.print') }}
           </button>
         </div>
       </div>
@@ -134,6 +134,8 @@ import Icon from "@/components/ui/Icon.vue";
 import { LABEL_QUEUE as DEMO_LABEL_QUEUE, CHANNELS, SLA, SLA_LABEL, CARRIER, WAREHOUSE, CITY, fmtMAD } from "@/lib/handoffData.js";
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
+import { useI18n } from "@/composables/useI18n";
+const { t } = useI18n();
 
 const { success, warn } = useToast();
 

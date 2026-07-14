@@ -10,7 +10,7 @@
         class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
         @click="$router.push({ name: 'Settings' })"
       >
-        <Icon name="settings" :size="14" /> Zone pick settings
+        <Icon name="settings" :size="14" /> {{ t('px.wh.zoneSettings') }}
       </button>
     </div>
 
@@ -54,7 +54,7 @@
           </div>
           <span v-if="g.offPick"
                 class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold text-amber-700 bg-amber-50 ring-1 ring-amber-200 whitespace-nowrap">
-            off-pick
+            {{ t('px.wh.offPick') }}
           </span>
         </div>
         <div class="flex items-end justify-between mt-3">
@@ -77,7 +77,7 @@
     </div>
 
     <div v-else-if="!loading" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-10 text-center">
-      <div class="text-[13.5px] font-semibold text-stone-900">Couldn't load the floor</div>
+      <div class="text-[13.5px] font-semibold text-stone-900">{{ t('px.wh.loadFail') }}</div>
       <button class="mt-3 h-9 px-4 rounded-lg text-[13px] font-semibold text-white bg-stone-800" @click="load">Retry</button>
     </div>
   </div>
@@ -88,6 +88,8 @@ import { computed, onMounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { WAREHOUSE } from "@/lib/handoffData.js";
 import { api } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
+const { t } = useI18n();
 
 // Honest rebuild: the old page rendered a fabricated floor plan (zones that
 // don't exist on this site, invented capacities/owners/pick counts) and four
@@ -115,7 +117,7 @@ const kpis = computed(() => [
   { label: "SKUs in stock", icon: "package", tone: "bg-stone-100 text-stone-500", value: num(map.value?.skus) },
   { label: "Units on the floor", icon: "boxes", tone: "bg-[var(--accent-50)] text-[var(--accent-700)]", value: num(map.value?.units) },
   { label: "Stock value", icon: "wallet", tone: "bg-emerald-50 text-emerald-600", value: num(map.value?.value), unit: "MAD" },
-  { label: "Zones off-pick", icon: "shield-alert", tone: (map.value?.offCount ? "bg-amber-50 text-amber-600" : "bg-stone-100 text-stone-400"), value: map.value?.offCount ?? 0 },
+  { label: t("px.wh.kOffPick"), icon: "shield-alert", tone: (map.value?.offCount ? "bg-amber-50 text-amber-600" : "bg-stone-100 text-stone-400"), value: map.value?.offCount ?? 0 },
 ]);
 
 function num(v) {

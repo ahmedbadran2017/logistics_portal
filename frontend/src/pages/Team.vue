@@ -4,19 +4,19 @@
     <div class="flex items-start justify-between gap-3 flex-wrap">
       <div>
         <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em] flex items-center gap-2">
-          <Icon name="users" :size="20" class="text-[var(--accent-600)]" /> Team
+          <Icon name="users" :size="20" class="text-[var(--accent-600)]" /> {{ t('nav.team') }}
         </h1>
-        <p class="text-[12.5px] text-stone-500 mt-1">Leaderboard, load and momentum across the floor.</p>
+        <p class="text-[12.5px] text-stone-500 mt-1">{{ t('px.team.sub') }}</p>
       </div>
       <!-- daily target control (drives the floor board pace + leaderboard) -->
       <div v-if="mgmt" class="flex items-center gap-2 bg-white ring-1 ring-stone-200 rounded-lg px-3 h-9">
-        <span class="text-[11.5px] font-medium text-stone-500">Target / day</span>
+        <span class="text-[11.5px] font-medium text-stone-500">{{ t('px.team.target') }}</span>
         <input v-model.number="targetEdit" type="number" min="1" max="500"
                class="w-[56px] h-7 text-[13px] font-semibold text-stone-900 tabular-nums text-center bg-stone-50 rounded-md ring-1 ring-stone-200 outline-none focus:ring-stone-400" />
         <button v-if="targetEdit !== mgmt.target"
                 class="h-7 px-2.5 rounded-md text-[11.5px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-50"
                 :disabled="savingTarget" @click="saveTarget">
-          {{ savingTarget ? "…" : "Save" }}
+          {{ savingTarget ? '…' : t('px.common.save') }}
         </button>
       </div>
     </div>
@@ -26,28 +26,28 @@
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
         <div class="flex items-center gap-2">
           <span class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center flex-shrink-0"><Icon name="shield-alert" :size="15" /></span>
-          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">Team same-day avg</span>
+          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('px.team.kSame') }}</span>
         </div>
         <div class="mt-2 text-[24px] font-semibold text-stone-900 tabular-nums leading-none">{{ teamSla }}<span class="text-[13px] font-medium text-stone-400">%</span></div>
       </div>
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
         <div class="flex items-center gap-2">
           <span class="w-8 h-8 rounded-lg bg-[var(--accent-50)] text-[var(--accent-700)] flex items-center justify-center flex-shrink-0"><Icon name="package" :size="15" /></span>
-          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">Orders picked (30d)</span>
+          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('px.team.kPicked') }}</span>
         </div>
         <div class="mt-2 text-[24px] font-semibold text-stone-900 tabular-nums leading-none">{{ totalPicks }}</div>
       </div>
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
         <div class="flex items-center gap-2">
           <span class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0"><Icon name="users" :size="15" /></span>
-          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">Active members</span>
+          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('px.team.kActive') }}</span>
         </div>
         <div class="mt-2 text-[24px] font-semibold text-stone-900 tabular-nums leading-none">{{ ranked.length }}</div>
       </div>
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
         <div class="flex items-center gap-2">
           <span class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" :class="flaggedCount ? 'bg-rose-50 text-rose-600' : 'bg-stone-100 text-stone-400'"><Icon name="alert-triangle" :size="15" /></span>
-          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">Flagged</span>
+          <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('px.team.kFlagged') }}</span>
         </div>
         <div class="mt-2 text-[24px] font-semibold tabular-nums leading-none" :class="flaggedCount ? 'text-rose-600' : 'text-stone-900'">{{ flaggedCount }}</div>
       </div>
@@ -60,13 +60,13 @@
           <thead>
             <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
               <th class="text-start px-4 py-2.5 w-12">#</th>
-              <th class="text-start px-4 py-2.5">Member</th>
-              <th class="text-start px-4 py-2.5">Role</th>
-              <th class="text-end px-4 py-2.5">Orders</th>
-              <th class="text-end px-4 py-2.5 hidden lg:table-cell">Pace</th>
-              <th class="text-end px-4 py-2.5">Same-day</th>
-              <th class="text-start px-4 py-2.5 hidden lg:table-cell">7-day</th>
-              <th class="text-end px-4 py-2.5 hidden sm:table-cell">Target</th>
+              <th class="text-start px-4 py-2.5">{{ t('px.team.thMember') }}</th>
+              <th class="text-start px-4 py-2.5">{{ t('px.team.thRole') }}</th>
+              <th class="text-end px-4 py-2.5">{{ t('px.team.thOrders') }}</th>
+              <th class="text-end px-4 py-2.5 hidden lg:table-cell">{{ t('px.team.thPace') }}</th>
+              <th class="text-end px-4 py-2.5">{{ t('px.team.thSameDay') }}</th>
+              <th class="text-start px-4 py-2.5 hidden lg:table-cell">{{ t('px.team.th7day') }}</th>
+              <th class="text-end px-4 py-2.5 hidden sm:table-cell">{{ t('px.team.thTarget') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-stone-100">
@@ -126,7 +126,7 @@
                       :stroke="trendUp(row.trend) ? '#10b981' : '#f43f5e'" stroke-width="1.75"
                       stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />
           </svg>
-          <span class="text-[11px] text-stone-400 tabular-nums">Target {{ row.target }}</span>
+          <span class="text-[11px] text-stone-400 tabular-nums">{{ t('px.team.thTarget') }} {{ row.target }}</span>
         </div>
       </div>
     </div>
@@ -135,12 +135,12 @@
     <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
       <div class="px-4 py-3 border-b border-stone-100 flex items-center justify-between gap-2 flex-wrap">
         <div>
-          <div class="text-[13.5px] font-semibold text-stone-900">Roles &amp; access</div>
-          <div class="text-[11.5px] text-stone-500">Who can use the portal, and as what — changes apply on their next page load.</div>
+          <div class="text-[13.5px] font-semibold text-stone-900">{{ t('px.team.rolesTitle') }}</div>
+          <div class="text-[11.5px] text-stone-500">{{ t('px.team.rolesSub') }}</div>
         </div>
         <div class="relative">
           <Icon name="search" :size="13" class="absolute start-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
-          <input v-model="mq" placeholder="Add someone — name or email…" @input="onMemberSearch"
+          <input v-model="mq" :placeholder="t('px.team.addPh')" @input="onMemberSearch"
                  class="h-8 w-[230px] ps-8 pe-3 text-[12.5px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none" />
         </div>
       </div>
@@ -148,7 +148,7 @@
       <!-- Invite someone who has no ERPNext account yet — no desk needed -->
       <div class="px-4 py-2.5 border-b border-stone-100 bg-stone-50/60 flex items-center gap-2 flex-wrap">
         <Icon name="plus" :size="13" class="text-stone-400 flex-shrink-0" />
-        <input v-model="invName" placeholder="Full name"
+        <input v-model="invName" :placeholder="t('px.team.namePh')"
                class="h-8 w-[150px] ps-3 pe-3 text-[12.5px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none" />
         <input v-model="invEmail" placeholder="email@…" type="email"
                class="h-8 w-[200px] ps-3 pe-3 text-[12.5px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none" />
@@ -160,8 +160,8 @@
           class="h-8 px-3 rounded-lg text-[12px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-50"
           :disabled="inviteBusy || !/^\S+@\S+\.\S+$/.test(invEmail)"
           @click="invite"
-        >{{ inviteBusy ? "Inviting…" : "Invite" }}</button>
-        <span class="text-[10.5px] text-stone-400">Creates the user + sends a welcome email to set a password.</span>
+        >{{ inviteBusy ? t('px.team.inviting') : t('px.team.invite') }}</button>
+        <span class="text-[10.5px] text-stone-400">{{ t('px.team.inviteHint') }}</span>
       </div>
 
       <div v-if="mgmtLoading" class="p-3 space-y-2">
@@ -178,8 +178,8 @@
           </div>
           <select class="role-select" :disabled="savingRole === m.user" :value="''"
                   @change="setRole(m.user, $event.target.value)">
-            <option value="" disabled>Grant role…</option>
-            <option v-for="r in mgmt.roles" :key="r" :value="r" class="capitalize">{{ r }}</option>
+            <option value="" disabled>{{ t('px.team.grantRole') }}</option>
+            <option v-for="r in mgmt.roles" :key="r" :value="r" class="capitalize">{{ t('roles.' + r) }}</option>
           </select>
         </div>
 
@@ -194,13 +194,13 @@
               <span v-else-if="m.source === 'blocked'" class="text-[9.5px] font-semibold uppercase text-rose-600 bg-rose-50 rounded px-1 py-0.5">blocked</span>
             </div>
             <div class="text-[11px] text-stone-400 truncate tabular-nums">
-              {{ m.user }}<template v-if="m.lastPick"> · last pick {{ m.lastPick }}</template>
+              {{ m.user }}<template v-if="m.lastPick"> · {{ t('px.team.lastPick') }} {{ m.lastPick }}</template>
             </div>
           </div>
           <select class="role-select" :disabled="savingRole === m.user" :value="m.role"
                   @change="setRole(m.user, $event.target.value)">
-            <option v-for="r in mgmt.roles" :key="r" :value="r" class="capitalize">{{ r }}</option>
-            <option value="">No access</option>
+            <option v-for="r in mgmt.roles" :key="r" :value="r" class="capitalize">{{ t('roles.' + r) }}</option>
+            <option value="">{{ t('px.team.noAccess') }}</option>
           </select>
         </div>
 
@@ -216,6 +216,8 @@ import Icon from "@/components/ui/Icon.vue";
 import { byId } from "@/lib/handoffData";
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
+import { useI18n } from "@/composables/useI18n";
+const { t } = useI18n();
 
 const { success, warn } = useToast();
 const board = ref([]);

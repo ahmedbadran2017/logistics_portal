@@ -5,13 +5,13 @@
       <div class="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 class="text-[22px] font-semibold text-stone-900 tracking-[-0.01em]">Alerts</h1>
-          <p class="text-[13px] text-stone-500 mt-0.5">Rule-based alerts &amp; daily insights across the floor</p>
+          <p class="text-[13px] text-stone-500 mt-0.5">{{ t('px.alr.sub') }}</p>
         </div>
         <button
           class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
           @click="markAll"
         >
-          <Icon name="check-circle" :size="15" /> Mark all read
+          <Icon name="check-circle" :size="15" /> {{ t('px.alr.markRead') }}
         </button>
       </div>
 
@@ -55,7 +55,7 @@
         <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-500 flex items-center justify-center mx-auto mb-3">
           <Icon name="check-circle" :size="24" />
         </div>
-        <div class="text-[14px] font-medium text-stone-700">You're all caught up</div>
+        <div class="text-[14px] font-medium text-stone-700">{{ t('px.alr.caughtUp') }}</div>
       </div>
 
       <!-- Alert list -->
@@ -109,6 +109,8 @@ import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 
 import { api, apiPost, liveOr } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
+const { t } = useI18n();
 
 const router = useRouter();
 

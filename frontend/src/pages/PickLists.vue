@@ -652,7 +652,7 @@
         <header class="flex items-center justify-between px-5 py-3.5 border-b border-stone-100">
           <div class="flex items-center gap-2.5">
             <span class="w-8 h-8 rounded-lg bg-[var(--accent-50)] text-[var(--accent-700)] flex items-center justify-center" v-html="zapIcon(16)" />
-            <div><div class="text-[14.5px] font-semibold text-stone-900">Pick lists</div><div class="text-[11.5px] text-stone-500">{{ smart.stats.orders }} orders of pending</div></div>
+            <div><div class="text-[14.5px] font-semibold text-stone-900">{{ t('px.pl.title') }}</div><div class="text-[11.5px] text-stone-500">{{ smart.stats.orders }} orders of pending</div></div>
           </div>
           <button class="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center text-stone-400" @click="create = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
         </header>
