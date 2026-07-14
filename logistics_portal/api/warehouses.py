@@ -12,8 +12,11 @@ import re
 import frappe
 
 # Always-off structural families (LIKE patterns) — transit/quarantine stock that
-# is never sellable off the shelf, whatever the settings say.
-_FAMILY = ["Defective%", "Container%", "Air Freight%", "%Old%", "CORRECTING%"]
+# is never sellable off the shelf, whatever the settings say. Goods In Transit /
+# WIP / Cathedis hold stock that is physically NOT on the floor (carrier hands,
+# containers at sea) — they were toggleable-by-omission before, a policy hole.
+_FAMILY = ["Defective%", "Container%", "Air Freight%", "%Old%", "CORRECTING%",
+           "Goods In Transit%", "Work In Progress%", "Cathedis%"]
 
 # Configurable zones excluded by default (returned goods, per ops' new policy).
 DEFAULT_EXCLUDED = ["Return Zone - JM", "Returns Adjustment - JM"]
@@ -51,7 +54,9 @@ def pickable_condition(col="warehouse"):
 
 def _family_excluded(name):
     n = (name or "").lower()
-    return any(k in n for k in ("defective", "container", "air freight", "old", "correcting"))
+    return any(k in n for k in ("defective", "container", "air freight", "old",
+                                "correcting", "goods in transit",
+                                "work in progress", "cathedis"))
 
 
 @frappe.whitelist()
@@ -108,9 +113,13 @@ def floor_map():
 
 @frappe.whitelist()
 def warehouse_settings():
-    """Manager: the configurable pick ZONES (named, non-aisle JM warehouses that
-    hold stock) and whether each is currently pickable. Aisle bins are always
-    pickable and not listed; structural families show locked-off."""
+    """Manager: EVERY configurable pick zone (named, non-aisle, enabled leaf JM
+    warehouse) and whether each is currently pickable. Starts from the
+    Warehouse tree, not from Bins — zero-stock zones must be listed too, so a
+    zone can be turned off BEFORE stock lands in it (the old Bin-based query
+    hid 33 of the 62 zones). Aisle/rack shelf bins are always pickable and not
+    listed; structural families show locked-off; empty locked ones (16 idle
+    Containers) are noise and skipped."""
     _require_manager()
     excluded = set(excluded_zones())
     # NB: the SKU-count column is aliased item_count, NOT `items` — on a
@@ -118,24 +127,32 @@ def warehouse_settings():
     # raised TypeError on every call. That's why the Settings panel showed
     # "No configurable zones" since day one.
     rows = frappe.db.sql(
-        """SELECT warehouse, ROUND(SUM(actual_qty)) qty,
-                  COUNT(DISTINCT item_code) item_count
-           FROM `tabBin` WHERE warehouse LIKE %s
-           GROUP BY warehouse HAVING qty <> 0""", ("% - JM",), as_dict=True)
+        """SELECT w.name AS warehouse,
+                  COALESCE(ROUND(b.qty), 0) AS qty,
+                  COALESCE(b.item_count, 0) AS item_count
+           FROM `tabWarehouse` w
+           LEFT JOIN (SELECT warehouse, SUM(actual_qty) qty,
+                             COUNT(DISTINCT item_code) item_count
+                      FROM `tabBin` GROUP BY warehouse) b ON b.warehouse = w.name
+           WHERE w.name LIKE %s AND w.is_group = 0 AND w.disabled = 0""",
+        ("% - JM",), as_dict=True)
     zones = []
     for r in rows:
         name = r.warehouse or ""
-        short = name[:-5] if name.endswith(" - JM") else name
-        if _AISLE_RE.match(short.strip()):
-            continue  # a shelf bin, always pickable — not a configurable zone
+        short = (name[:-5] if name.endswith(" - JM") else name).strip()
+        if _AISLE_RE.match(short) or short.upper().startswith(("AG-", "BAB-")):
+            continue  # a shelf bin/rack, always pickable — not a configurable zone
+        qty = int(r.qty or 0)
         if _family_excluded(name):
-            zones.append({"name": name, "short": short.strip(), "qty": int(r.qty or 0),
+            if qty == 0:
+                continue  # empty AND permanently locked — nothing to decide
+            zones.append({"name": name, "short": short, "qty": qty,
                           "items": int(r.item_count or 0), "pickable": False, "locked": True})
         else:
-            zones.append({"name": name, "short": short.strip(), "qty": int(r.qty or 0),
+            zones.append({"name": name, "short": short, "qty": qty,
                           "items": int(r.item_count or 0), "pickable": name not in excluded,
                           "locked": False})
-    zones.sort(key=lambda z: (z["locked"], -z["qty"]))
+    zones.sort(key=lambda z: (z["locked"], -z["qty"], z["short"].lower()))
     return {"zones": zones}
 
 
