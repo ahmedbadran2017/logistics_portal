@@ -6,7 +6,7 @@ Runs every 15 min (hooks.py). Computes expected delivery date + custom_sla_statu
 """
 
 import frappe
-from frappe.utils import nowdate
+from frappe.utils import add_days, nowdate
 
 DEFAULT_DELIVERY_DAYS = 3  # Casablanca metro default; region overrides later.
 
