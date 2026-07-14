@@ -30,7 +30,7 @@
             <span class="text-[11px] text-stone-500 tabular-nums">{{ allItems.length }} SKU</span>
           </button>
           <button
-            v-for="z in RESTOCK"
+            v-for="z in zonesList"
             :key="z.zone"
             @click="zone = zone === z.zone ? null : z.zone"
             class="w-full text-start rounded-lg px-3 py-2.5 transition-colors"
@@ -140,9 +140,15 @@ const allItems = ref(DEMO_STOCK_ITEMS);
 const stats = ref(DEMO_STOCK_STATS);
 
 const zone = ref(null);
+// Zone health panel: live from `inventory.zones` (same shape as the demo
+// RESTOCK); demo seed only in dev builds so the panel never shows fake zones.
+const zonesList = ref(import.meta.env.DEV ? RESTOCK : []);
 const items = computed(() => (zone.value ? allItems.value.filter((i) => i.zone === zone.value) : allItems.value));
 
 onMounted(async () => {
+  api("inventory.zones").then((z) => {
+    if (Array.isArray(z) && z.length) zonesList.value = z;
+  }).catch(() => {});
   const live = await liveOr(null, () => api("inventory.stock", { limit: 60 }));
   if (live && live.length) allItems.value = live;
   const s = await liveOr(null, () => api("inventory.stats"));

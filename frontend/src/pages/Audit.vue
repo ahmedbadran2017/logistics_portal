@@ -7,7 +7,7 @@
         <p class="text-[13px] text-stone-500 mt-0.5">Rule engine (real-time) + the daily LLM review · {{ WAREHOUSE }}</p>
       </div>
       <div class="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-stone-500">
-        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live · scans every 10 min
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Rule engine · alerts land below as they fire
       </div>
     </div>
 
@@ -53,8 +53,8 @@
         </div>
       </section>
 
-      <!-- Daily insights (LLM) -->
-      <section class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+      <!-- Daily insights (LLM) — hidden in production until the digest is wired -->
+      <section v-if="insights.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <header class="px-4 py-3 border-b border-stone-100 flex items-center gap-2">
           <Icon name="sparkles" :size="16" class="text-violet-500" />
           <h3 class="text-[13.5px] font-semibold text-stone-900">Daily insights</h3>
@@ -83,7 +83,7 @@ const router = useRouter();
 
 // Live-or-demo alerts (Layer A). Insights stay demo — LLM layer not live yet.
 const alerts = ref(AUDIT.filter((a) => a.kind === "alert"));
-const insights = computed(() => AUDIT.filter((a) => a.kind === "note"));
+const insights = computed(() => (import.meta.env.DEV ? AUDIT.filter((a) => a.kind === "note") : []));
 
 onMounted(async () => {
   const live = await liveOr(null, () => api("audit.recent_alerts"));

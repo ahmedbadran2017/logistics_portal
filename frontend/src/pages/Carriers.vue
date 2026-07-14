@@ -3,43 +3,7 @@
     <!-- head -->
     <div>
       <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em]">Carrier scorecard</h1>
-      <p class="text-[12.5px] text-stone-500 mt-0.5">Performance by zone + smart routing</p>
-    </div>
-
-    <!-- routing suggestions -->
-    <div v-if="routing.length > 0" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
-      <div class="px-4 py-3 border-b border-stone-100 flex items-center justify-between gap-2">
-        <div class="text-[13px] font-semibold text-stone-900">Smart routing suggestions</div>
-        <span
-          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold ring-1 whitespace-nowrap"
-          :style="{ color: 'var(--accent-600)', background: 'var(--accent-50)', '--tw-ring-color': 'var(--accent-200)' }"
-        >
-          <span class="w-1.5 h-1.5 rounded-full" :style="{ background: 'var(--accent-600)' }" />
-          {{ routing.length }}
-        </span>
-      </div>
-      <div class="p-3 space-y-2">
-        <div
-          v-for="(r, i) in routing"
-          :key="i"
-          class="flex items-center gap-2.5 rounded-xl ring-1 px-3 py-2"
-          :style="{ background: 'color-mix(in srgb, var(--accent-50) 40%, transparent)', '--tw-ring-color': 'color-mix(in srgb, var(--accent-200) 50%, transparent)' }"
-        >
-          <Icon name="globe" :size="15" class="flex-shrink-0" :style="{ color: 'var(--accent-600)' }" />
-          <div class="min-w-0 flex-1">
-            <div class="text-[12.5px] font-medium text-stone-900">{{ r.zone }}: {{ r.from }} → {{ r.to }}</div>
-            <div class="text-[11px] text-stone-500 truncate">{{ r.reason }}</div>
-          </div>
-          <span class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold ring-1 text-emerald-700 bg-emerald-50 ring-emerald-200 whitespace-nowrap tabular-nums">{{ r.gain }}</span>
-          <button
-            class="inline-flex items-center gap-1 px-2.5 h-7 text-[12px] font-medium text-white rounded-lg whitespace-nowrap transition-colors"
-            :style="{ background: 'var(--accent-600)' }"
-            @click="success(`${r.zone} re-routed to ${r.to}`)"
-          >
-            <Icon name="arrow-right" :size="13" /> Re-route
-          </button>
-        </div>
-      </div>
+      <p class="text-[12.5px] text-stone-500 mt-0.5">Live delivery performance · last 90 days</p>
     </div>
 
     <!-- carrier comparison cards -->
@@ -75,8 +39,8 @@
             <div class="text-[10px] text-stone-500 mt-1">Delivery rate</div>
           </div>
           <div>
-            <div class="text-[16px] font-semibold text-stone-900 tabular-nums leading-none font-mono">{{ s.costPerParcel }}<span class="text-[10px] text-stone-400"> MAD</span></div>
-            <div class="text-[10px] text-stone-500 mt-1">Cost / parcel</div>
+            <div class="text-[16px] font-semibold text-stone-900 tabular-nums leading-none font-mono">{{ s.awbActive ?? "—" }}</div>
+            <div class="text-[10px] text-stone-500 mt-1">Active parcels</div>
           </div>
           <div>
             <div class="text-[16px] font-semibold text-rose-500 tabular-nums leading-none font-mono">{{ s.exceptionRate }}%</div>
@@ -91,7 +55,7 @@
     </div>
 
     <!-- selected carrier · by zone -->
-    <div v-if="c" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+    <div v-if="c && c.zones.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
       <div class="px-4 py-3 border-b border-stone-100">
         <div class="text-[13px] font-semibold text-stone-900">{{ c.carrier }} · By zone</div>
       </div>
@@ -116,10 +80,7 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
-import { useToast } from "@/composables/useToast";
 import { api, liveOr } from "@/lib/resource";
-
-const { success } = useToast();
 
 // Carrier scorecard data (from design_handoff/logistics/data.jsx)
 const SCORES = [
@@ -148,11 +109,6 @@ const SCORES = [
   },
 ];
 
-const routing = [
-  { zone: "Tanger", from: "Cathedis", to: "Sendit", reason: "Cathedis 84% vs Sendit 92% in Tanger", gain: "+8% delivery" },
-  { zone: "Marrakech", from: "Cathedis", to: "Ozonexpress", reason: "Ozon 92% & faster transit", gain: "+4% · −0.3d" },
-];
-
 // Live-or-demo data. `shipping.carriers` returns rows shaped
 // { name, code, active, awbActive, deliveryRate, exceptionRate, avgTransit, zones, primary }.
 // Map name→carrier; keep costPerParcel (demo-only) as fallback. In local preview
@@ -172,9 +128,9 @@ onMounted(async () => {
         awbActive: r.awbActive ?? demo.awbActive,
         deliveryRate: r.deliveryRate ?? demo.deliveryRate ?? "—",
         exceptionRate: r.exceptionRate ?? demo.exceptionRate ?? "—",
-        avgTransit: r.avgTransit ?? demo.avgTransit ?? "—",
+        avgTransit: String(r.avgTransit ?? demo.avgTransit ?? "—").replace(/d$/, ""),
         costPerParcel: r.costPerParcel ?? demo.costPerParcel ?? "—",
-        zones: r.zones && r.zones.length ? r.zones : (demo.zones || []),
+        zones: Array.isArray(r.zones) && r.zones.length ? r.zones : [],
         primary: r.primary ?? demo.primary,
       };
     });
