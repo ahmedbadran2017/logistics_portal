@@ -125,6 +125,11 @@ export default {
     salesReturns: "stock returns created",
     closeFail: "Couldn't close the batch",
     loadFail: "Couldn't open a batch",
+    staleTitle: "Open batches left from previous days",
+    staleBody: "Closing posts their stock into the Return Zone. Resume only if that same delivery is genuinely still being scanned.",
+    resume: "Resume",
+    staleClose: "Close & post stock",
+    resumed: "Batch resumed",
   },
   queue: {
     hi: "Hi,",

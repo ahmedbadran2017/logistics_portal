@@ -125,6 +125,11 @@ export default {
     salesReturns: "retours de stock créés",
     closeFail: "Échec de la clôture",
     loadFail: "Impossible d'ouvrir un lot",
+    staleTitle: "Lots ouverts des jours précédents",
+    staleBody: "La clôture réintègre leur stock en zone retours. Reprenez seulement si cette livraison est encore en cours de scan.",
+    resume: "Reprendre",
+    staleClose: "Clôturer & réintégrer",
+    resumed: "Lot repris",
   },
   queue: {
     hi: "Salut,",

@@ -4,7 +4,7 @@
       <div>
         <h1 class="text-[20px] font-bold text-stone-900 tracking-tight">{{ t('recv.title') }}</h1>
         <p class="text-[12.5px] text-stone-500 mt-0.5">
-          {{ t('recv.intro') }}<span v-if="state" class="font-mono font-semibold text-stone-700"> · {{ state.batch }}</span>
+          {{ t('recv.intro') }}<span v-if="state" class="font-mono font-semibold text-stone-700"> · {{ state.batch }}</span><span v-if="state?.date" class="tabular-nums"> · {{ state.date }}</span>
         </p>
       </div>
       <div v-if="state" class="flex items-center gap-2 flex-wrap">
@@ -22,6 +22,32 @@
     <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4 sticky top-2 z-10 shadow-sm">
       <ScanInput ref="scanner" :placeholder="t('recv.scanPh')" @scan="onScan" />
       <div class="mt-1.5 text-[11px] text-stone-400">{{ t('recv.scanHint') }}</div>
+    </div>
+
+    <!-- stale open batches from previous days: close & post their stock, or
+         explicitly resume — never silently presented as today's batch -->
+    <div v-if="state?.staleBatches?.length" class="rounded-xl bg-amber-50 ring-1 ring-amber-200/70 px-4 py-3 space-y-2">
+      <div class="flex items-center gap-2 text-[12.5px] font-semibold text-amber-800">
+        <Icon name="alert-triangle" :size="15" class="flex-shrink-0" />{{ t('recv.staleTitle') }}
+      </div>
+      <div v-for="b in state.staleBatches" :key="b.name" class="flex items-center gap-2 flex-wrap text-[12.5px]">
+        <span class="font-mono font-semibold text-stone-900">{{ b.name }}</span>
+        <span class="text-stone-500 tabular-nums flex-1 min-w-[160px]">
+          {{ b.date }} · {{ b.by }} · {{ b.parcels }} {{ t('recv.parcels') }} · {{ b.units }}/{{ b.ordered }} {{ t('recv.units') }}
+        </span>
+        <button
+          class="h-7 px-2.5 rounded-lg text-[11.5px] font-semibold text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-100"
+          :disabled="staleBusy" @click="resumeStale(b.name)"
+        >{{ t('recv.resume') }}</button>
+        <button
+          class="h-7 px-2.5 rounded-lg text-[11.5px] font-semibold ring-1 transition-colors"
+          :class="armedClose === b.name
+            ? 'text-white bg-emerald-600 ring-emerald-600'
+            : 'text-emerald-700 bg-white ring-emerald-200 hover:bg-emerald-50'"
+          :disabled="staleBusy" @click="closeStale(b.name)"
+        >{{ armedClose === b.name ? t('recv.closeConfirm') : t('recv.staleClose') }}</button>
+      </div>
+      <p class="text-[11.5px] text-amber-700/80">{{ t('recv.staleBody') }}</p>
     </div>
 
     <!-- Load failed -->
@@ -152,6 +178,45 @@ async function onScan(raw) {
     if (res.allComplete) success(t("recv.allComplete"), state.value.batch);
   }
   setTimeout(() => { flash.value = ""; }, 900);
+}
+
+// ── stale batches (previous days) ────────────────────────────────────
+const armedClose = ref("");
+const staleBusy = ref(false);
+let armTimer = null;
+
+async function resumeStale(name) {
+  staleBusy.value = true;
+  try {
+    state.value = await apiPost("returns.resume_batch", { name });
+    success(t("recv.resumed"), name);
+  } catch (e) {
+    warn(t("recv.loadFail"), String(e.message || e));
+  } finally {
+    staleBusy.value = false;
+    scanner.value?.refocus();
+  }
+}
+
+async function closeStale(name) {
+  if (armedClose.value !== name) {
+    armedClose.value = name;
+    clearTimeout(armTimer);
+    armTimer = setTimeout(() => (armedClose.value = ""), 4000);
+    return;
+  }
+  staleBusy.value = true;
+  try {
+    const res = await apiPost("returns.close_batch", { batch: name });
+    success(t("recv.closed"), `${res.batch} · ${res.salesReturns} ${t("recv.salesReturns")}`);
+    state.value = await api("returns.open_batch");
+  } catch (e) {
+    warn(t("recv.closeFail"), String(e.message || e));
+  } finally {
+    staleBusy.value = false;
+    armedClose.value = "";
+    scanner.value?.refocus();
+  }
 }
 
 async function onClose() {

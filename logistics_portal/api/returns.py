@@ -250,6 +250,7 @@ def _batch_state(name):
         out.append(p)
     return {
         "batch": doc.name, "status": doc.status or "Draft",
+        "date": str(doc.posting_date or "")[:10],
         "docstatus": int(doc.docstatus),
         "parcels": out,
         "orders": int(doc.total_orders or 0),
@@ -260,23 +261,75 @@ def _batch_state(name):
     }
 
 
+def _stale_batches():
+    """Open receiving batches left over from PREVIOUS days — never silently
+    resumed as 'today's batch' (production had a fully-scanned 53/53 batch
+    from January that was never submitted, so its stock never posted).
+    Empty leftovers are deleted on the spot; the rest surface in the banner."""
+    rows = frappe.get_all(
+        "Return Shipment",
+        filters={"docstatus": 0, "posting_date": ["<", frappe.utils.nowdate()]},
+        fields=["name", "posting_date", "owner", "total_orders",
+                "total_ordered_qty", "total_actual_qty"],
+        order_by="posting_date desc", limit_page_length=20)
+    out = []
+    for r in rows:
+        if not int(r.total_orders or 0):
+            # A day-old batch nobody scanned onto — self-heal, no ceremony.
+            try:
+                frappe.delete_doc("Return Shipment", r.name, ignore_permissions=True)
+                frappe.db.commit()
+            except Exception:
+                pass
+            continue
+        out.append({
+            "name": r.name, "date": str(r.posting_date or ""),
+            "by": (r.owner or "").split("@")[0],
+            "parcels": int(r.total_orders or 0),
+            "units": int(r.total_actual_qty or 0),
+            "ordered": int(r.total_ordered_qty or 0),
+        })
+    return out
+
+
 @frappe.whitelist()
 def open_batch():
-    """Today's open receiving batch — resume the draft if one exists, else
-    start a new Return Shipment (same doc the desk flow used)."""
+    """TODAY's receiving batch — resume today's draft if one exists, else start
+    a new Return Shipment. Batches from previous days come back separately as
+    staleBatches (close & post, or explicitly resume) — never as 'today'."""
     _recv_gate()
-    draft = frappe.get_all("Return Shipment", filters={"docstatus": 0},
-                           order_by="creation desc", limit=1)
+    stale = _stale_batches()
+    draft = frappe.get_all(
+        "Return Shipment",
+        filters={"docstatus": 0, "posting_date": frappe.utils.nowdate()},
+        order_by="creation desc", limit=1)
     if draft:
-        return _batch_state(draft[0].name)
-    company = frappe.defaults.get_global_default("company") \
-        or frappe.db.get_value("Company", {}, "name")
-    doc = frappe.get_doc({
-        "doctype": "Return Shipment", "company": company,
-        "posting_date": frappe.utils.nowdate(), "shipping_company": "cathedis",
-    }).insert(ignore_permissions=True)
-    frappe.db.commit()
-    return _batch_state(doc.name)
+        st = _batch_state(draft[0].name)
+    else:
+        company = frappe.defaults.get_global_default("company") \
+            or frappe.db.get_value("Company", {}, "name")
+        doc = frappe.get_doc({
+            "doctype": "Return Shipment", "company": company,
+            "posting_date": frappe.utils.nowdate(), "shipping_company": "cathedis",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+        st = _batch_state(doc.name)
+    st["staleBatches"] = stale
+    return st
+
+
+@frappe.whitelist()
+def resume_batch(name):
+    """Explicitly continue scanning a stale open batch (the banner's action —
+    for when yesterday's delivery is genuinely still being worked)."""
+    _recv_gate()
+    if not frappe.db.exists("Return Shipment", name):
+        frappe.throw("Unknown batch.")
+    if frappe.db.get_value("Return Shipment", name, "docstatus") != 0:
+        frappe.throw("This batch is already closed.")
+    st = _batch_state(name)
+    st["staleBatches"] = [b for b in _stale_batches() if b["name"] != name]
+    return st
 
 
 @frappe.whitelist()
