@@ -102,7 +102,7 @@
 
   <!-- ── Global overlays ─────────────────────────────────────────── -->
   <CommandPalette :open="cmdOpen" @close="cmdOpen = false" />
-  <NotifCenter :open="notifOpen" @close="notifOpen = false" />
+  <NotifCenter :open="notifOpen" @close="notifOpen = false" @read="refreshUnread" />
   <OfflineBanner :show="offline" :queued="queued" />
 </template>
 
@@ -118,6 +118,7 @@ import { useRoute } from "vue-router";
 import { useAuth } from "@/composables/useAuth";
 import { useI18n } from "@/composables/useI18n";
 import { isMobileRole, navItemsFor } from "@/lib/roles";
+import { api } from "@/lib/resource";
 
 const route = useRoute();
 const logoSrc = "/assets/logistics_portal/justyol-logo.png";
@@ -132,7 +133,7 @@ const notifOpen = ref(false);
 const roleMenu = ref(false);
 const offline = ref(false); // wired false by default
 const queued = ref(0);
-const unread = ref(4);
+const unread = ref(0);
 
 const mobileRole = computed(() => isMobileRole(role.value));
 const initials = computed(() =>
@@ -151,7 +152,19 @@ function onKey(e) {
     cmdOpen.value = !cmdOpen.value;
   }
 }
-onMounted(() => window.addEventListener("keydown", onKey));
+async function refreshUnread() {
+  try {
+    unread.value = Number(await api("audit.unread_count")) || 0;
+  } catch (_) { /* keep last value */ }
+}
+let unreadTimer = null;
+
+onMounted(() => {
+  window.addEventListener("keydown", onKey);
+  refreshUnread();
+  unreadTimer = setInterval(refreshUnread, 60000);
+});
+onUnmounted(() => clearInterval(unreadTimer));
 onUnmounted(() => window.removeEventListener("keydown", onKey));
 </script>
 

@@ -107,8 +107,12 @@ def recent_alerts():
     try:
         rows = frappe.get_all(
             "Notification Log",
-            filters={"type": "Alert"},
-            fields=["subject", "email_content", "creation"],
+            # Scoped to THIS user's logistics alerts. document_type keeps system
+            # noise (failed HR emails etc.) out of the operations feed.
+            filters={"type": "Alert", "for_user": frappe.session.user,
+                     "document_type": ["in", ["Delivery Note", "Sales Order"]]},
+            fields=["name", "subject", "email_content", "creation", "read",
+                    "document_type", "document_name"],
             order_by="creation desc",
             limit=30,
         )
@@ -117,17 +121,57 @@ def recent_alerts():
             title = r.subject or ""
             sev = "red" if ("breach" in title.lower() or "sla" in title.lower()) else "yellow"
             out.append({
+                "id": r.name,
+                "read": bool(r.read),
                 "sev": sev,
                 "kind": "alert",
                 "t": pretty_date(r.creation),
                 "title": title,
                 "body": r.email_content or "",
                 "action": None,
-                "order": None,
+                "order": r.document_name if r.document_type == "Sales Order" else None,
             })
         return out
     except Exception:
         return []
+
+
+@frappe.whitelist()
+def unread_count():
+    """Bell badge: this user's unread logistics alerts (polled by the shell)."""
+    try:
+        return frappe.db.count("Notification Log", {
+            "type": "Alert", "for_user": frappe.session.user, "read": 0,
+            "document_type": ["in", ["Delivery Note", "Sales Order"]],
+        })
+    except Exception:
+        return 0
+
+
+@frappe.whitelist()
+def mark_read(names=None):
+    """Mark alerts read — a list of ids, or everything for this user."""
+    import json as _json
+    if isinstance(names, str):
+        try:
+            names = _json.loads(names)
+        except Exception:
+            names = [names]
+    user = frappe.session.user
+    if names:
+        for n in names:
+            # Ownership check: only your own rows.
+            if frappe.db.get_value("Notification Log", n, "for_user") == user:
+                frappe.db.set_value("Notification Log", n, "read", 1,
+                                    update_modified=False)
+    else:
+        frappe.db.sql(
+            """UPDATE `tabNotification Log` SET `read` = 1
+               WHERE for_user = %s AND `read` = 0 AND type = 'Alert'
+                 AND document_type IN ('Delivery Note', 'Sales Order')""",
+            (user,))
+    frappe.db.commit()
+    return {"ok": True}
 
 
 @frappe.whitelist()

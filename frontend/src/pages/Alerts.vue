@@ -64,10 +64,10 @@
           v-for="a in items"
           :key="a._id"
           class="relative transition-opacity"
-          :class="read.has(a._id) ? 'opacity-55' : ''"
+          :class="a.read ? 'opacity-55' : ''"
         >
           <span
-            v-if="!read.has(a._id)"
+            v-if="!a.read"
             class="absolute -start-2.5 top-4 w-1.5 h-1.5 rounded-full bg-[var(--accent-600)]"
           />
           <!-- AlertRow (severity-colored) -->
@@ -108,7 +108,7 @@ import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 
-import { api, liveOr } from "@/lib/resource";
+import { api, apiPost, liveOr } from "@/lib/resource";
 
 const router = useRouter();
 
@@ -132,7 +132,6 @@ const SEV = {
 const sev = (a) => SEV[a.sev] || SEV.yellow;
 
 const filter = ref("all");
-const read = ref(new Set());
 
 const filters = [
   { key: "all", label: "All" },
@@ -142,8 +141,7 @@ const filters = [
 ];
 
 const items = computed(() =>
-  AUDIT.value.map((a, i) => ({ ...a, _id: i }))
-    .filter((a) => filter.value === "all" || SEV_GROUP[a.sev] === filter.value)
+  AUDIT.value.filter((a) => filter.value === "all" || SEV_GROUP[a.sev] === filter.value)
 );
 
 const counts = computed(() => ({
@@ -151,7 +149,7 @@ const counts = computed(() => ({
   warning: AUDIT.value.filter((a) => SEV_GROUP[a.sev] === "warning").length,
   info: AUDIT.value.filter((a) => SEV_GROUP[a.sev] === "info").length,
 }));
-const unread = computed(() => AUDIT.value.length - read.value.size);
+const unread = computed(() => AUDIT.value.filter((a) => !a.read).length);
 
 const kpis = computed(() => [
   { label: "Unread", icon: "bell", tone: "text-stone-500 bg-stone-100", value: unread.value },
@@ -160,13 +158,16 @@ const kpis = computed(() => [
   { label: "Info", icon: "sparkles", tone: "text-violet-600 bg-violet-50", value: counts.value.info },
 ]);
 
-function markAll() {
-  read.value = new Set(AUDIT.value.map((_, i) => i));
+async function markAll() {
+  AUDIT.value = AUDIT.value.map((a) => ({ ...a, read: true }));
+  try { await apiPost("audit.mark_read"); } catch (_) { /* poll self-corrects */ }
 }
-function dismiss(a) {
-  read.value = new Set([...read.value, a._id]);
+async function dismiss(a) {
+  a.read = true;
+  if (a.id) { try { await apiPost("audit.mark_read", { names: [a.id] }); } catch (_) {} }
 }
 function onAction(a) {
+  dismiss(a);
   if (a.order) router.push({ name: "OrderDetail", params: { name: a.order.replace("#", "") } });
 }
 </script>

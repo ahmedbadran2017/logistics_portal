@@ -16,9 +16,10 @@
           {{ t("notif.title", "Notifications") }}
         </span>
         <button
+          v-if="items.some((a) => !a.read)"
           type="button"
           class="text-[11.5px] font-medium text-[var(--accent-700)] hover:text-[var(--accent-800)]"
-          @click="markRead"
+          @click="markAllRead"
         >{{ t("notif.markRead", "Mark read") }}</button>
         <button
           type="button"
@@ -31,59 +32,72 @@
 
       <!-- list -->
       <div class="flex-1 overflow-y-auto py-1">
-        <div
-          v-for="(a, i) in items"
-          :key="i"
-          class="flex items-start gap-3 px-4 py-3 border-b border-stone-100 hover:bg-stone-50/70 transition-colors"
-        >
-          <span
-            class="mt-1 w-2 h-2 rounded-full flex-shrink-0"
-            :class="dotClass(a.sev)"
-          />
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
-              <span class="text-[13px] font-semibold text-stone-900 truncate">{{ a.title }}</span>
-              <span class="text-[10.5px] text-stone-400 tabular-nums flex-shrink-0 ms-auto">{{ a.t }}</span>
-            </div>
-            <p class="text-[12px] text-stone-600 mt-0.5 leading-snug">{{ a.body }}</p>
-            <button
-              v-if="a.action"
-              type="button"
-              class="mt-1.5 text-[11.5px] font-semibold text-[var(--accent-700)] hover:text-[var(--accent-800)]"
-            >{{ a.action }}</button>
-          </div>
+        <div v-if="loading" class="p-4 space-y-2">
+          <div v-for="n in 4" :key="n" class="h-[64px] rounded-xl ring-1 ring-stone-200/60 bg-stone-50 animate-pulse" />
         </div>
 
-        <div v-if="!items.length" class="flex flex-col items-center justify-center py-16 text-center">
-          <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-500 flex items-center justify-center mb-3">
-            <Icon name="check-circle" :size="22" />
+        <template v-else>
+          <div
+            v-for="a in items"
+            :key="a.id"
+            class="flex items-start gap-3 px-4 py-3 border-b border-stone-100 hover:bg-stone-50/70 transition-colors"
+            :class="a.read ? 'opacity-60' : ''"
+          >
+            <span class="mt-1 w-2 h-2 rounded-full flex-shrink-0" :class="a.read ? 'bg-stone-300' : dotClass(a.sev)" />
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="text-[13px] font-semibold text-stone-900 truncate">{{ a.title }}</span>
+                <span class="text-[10.5px] text-stone-400 tabular-nums flex-shrink-0 ms-auto">{{ a.t }}</span>
+              </div>
+              <p class="text-[12px] text-stone-600 mt-0.5 leading-snug">{{ a.body }}</p>
+              <button
+                v-if="a.order"
+                type="button"
+                class="mt-1.5 text-[11.5px] font-semibold text-[var(--accent-700)] hover:text-[var(--accent-800)]"
+                @click="openOrder(a)"
+              >{{ t("notif.openOrder", "Open order") }}</button>
+            </div>
           </div>
-          <p class="text-[13px] font-medium text-stone-700">{{ t("common.allCaught", "All caught up") }}</p>
-        </div>
+
+          <div v-if="!items.length" class="flex flex-col items-center justify-center py-16 text-center">
+            <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-500 flex items-center justify-center mb-3">
+              <Icon name="check-circle" :size="22" />
+            </div>
+            <p class="text-[13px] font-medium text-stone-700">{{ t("common.allCaught", "All caught up") }}</p>
+          </div>
+        </template>
       </div>
     </aside>
   </div>
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 
-defineProps({ open: { type: Boolean, default: false } });
-defineEmits(["close"]);
+const props = defineProps({ open: { type: Boolean, default: false } });
+const emit = defineEmits(["close", "read"]);
 
 const { t, isRTL } = useI18n();
+const router = useRouter();
 
-// Seeded from the handoff AUDIT array.
-const items = ref([
-  { sev: "red", t: "4m", title: "SLA breached", body: "Order #242638 · Mohmad Mohmad has been Out of Stock 2h38m in Cosmetic zone — past the 14:00 cutoff.", action: "Reassign" },
-  { sev: "orange", t: "12m", title: "Failed delivery", body: "AWB LD007744422 (#240682 · Edghir hanane) — Cathedis logged a Failed Attempt. 2nd in 24h.", action: "Open order" },
-  { sev: "orange", t: "26m", title: "Carrier exception", body: "AWB LD007748688 (#242128 · Fatima Fatima) flagged Delivery Exception by Cathedis.", action: "Open order" },
-  { sev: "yellow", t: "38m", title: "Manifest cutoff risk", body: "3 picked orders not yet labeled — SH-000179 cutoff in 1h 40m.", action: "View queue" },
-  { sev: "insight", t: "1h", title: "Daily insight", body: "Said's pick time rose ~22% after 16:00 three days running — likely fatigue on the SLOW zone.", action: null },
-  { sev: "insight", t: "1h", title: "Daily insight", body: "Returns for SKU CSM44021 are +40% this week, all flagged 'defective' — worth a supplier quality check.", action: null },
-]);
+const items = ref([]);
+const loading = ref(false);
+
+watch(() => props.open, async (v) => {
+  if (!v) return;
+  loading.value = true;
+  try {
+    items.value = (await api("audit.recent_alerts")) || [];
+  } catch (_) {
+    items.value = [];
+  } finally {
+    loading.value = false;
+  }
+});
 
 const DOT = {
   red: "bg-rose-500",
@@ -95,8 +109,21 @@ function dotClass(sev) {
   return DOT[sev] || "bg-stone-400";
 }
 
-function markRead() {
-  items.value = [];
+async function markAllRead() {
+  try {
+    await apiPost("audit.mark_read");
+    items.value = items.value.map((a) => ({ ...a, read: true }));
+    emit("read");
+  } catch (_) { /* badge poll self-corrects */ }
+}
+
+function openOrder(a) {
+  if (!a.order) return;
+  apiPost("audit.mark_read", { names: [a.id] }).catch(() => {});
+  a.read = true;
+  emit("read");
+  emit("close");
+  router.push({ name: "OrderDetail", params: { name: String(a.order).replace("#", "") } });
 }
 </script>
 
