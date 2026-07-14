@@ -183,6 +183,8 @@ export default {
     all: "All",
     target: "Shelf",
     already: "already there",
+    otherShelf: "Type any other shelf…",
+    invalidShelf: "Not a valid restock shelf — pick one from the list.",
     toShelf: "Back to shelf",
     defective: "Defective",
     moving: "Moving…",

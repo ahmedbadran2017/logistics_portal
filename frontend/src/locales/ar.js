@@ -183,6 +183,8 @@ export default {
     all: "الكل",
     target: "الرف",
     already: "موجود هناك",
+    otherShelf: "اكتب أي رف آخر…",
+    invalidShelf: "الرف ده مش صالح للترجيع — اختر من القائمة.",
     toShelf: "رجّع للرف",
     defective: "تالفة",
     moving: "جارٍ النقل…",

@@ -347,6 +347,28 @@ def close_batch(batch):
 RETURN_ZONE = "Return Zone - JM"
 ADJUST_WH = "Returns Adjustment - JM"
 
+# Restock put-away targets = sellable LOCAL shelves/zones only. On top of the
+# pickable policy, exclude transit / receiving / other-country / virtual
+# warehouses — before this filter the dropdown offered 'Turkey - JM' and
+# 'Goods In Transit - JM' as restock destinations, and the server accepted them.
+_NOT_PUTAWAY_LIKE = [
+    "Goods In Transit%", "Work In Progress%", "Cathedis%", "%receiving%",
+    "%reception%", "Turkey%", "V-Turkey%", "Yakuplu%", "dsers%", "ERPNext%",
+    "Stores%", "Finished Goods%", "Rejected%", "Return%", "Aria%", "ain sebaa%",
+]
+_NOT_PUTAWAY_EXACT = ["Morocco - JM", RETURN_ZONE, ADJUST_WH]
+
+
+def _putaway_condition(col):
+    """(sql, args) — WHERE fragment selecting valid restock shelves."""
+    from logistics_portal.api.warehouses import pickable_condition
+    cond, args = pickable_condition(col)
+    parts = [cond] + [f"{col} NOT LIKE %s" for _ in _NOT_PUTAWAY_LIKE]
+    args = list(args) + list(_NOT_PUTAWAY_LIKE)
+    parts.append(f"{col} NOT IN ({', '.join(['%s'] * len(_NOT_PUTAWAY_EXACT))})")
+    args += _NOT_PUTAWAY_EXACT
+    return " AND ".join(parts), args
+
 
 @frappe.whitelist()
 def restock_summary(limit=30):
@@ -369,12 +391,10 @@ def restock_summary(limit=30):
            ORDER BY b.stock_value DESC LIMIT %s""",
         (RETURN_ZONE, limit), as_dict=True)
 
-    from logistics_portal.api.warehouses import excluded_zones, pickable_condition
-    cond, args = pickable_condition("name")
-    excluded = set(excluded_zones()) | {RETURN_ZONE, ADJUST_WH}
+    cond, args = _putaway_condition("name")
     targets = [w[0] for w in frappe.db.sql(
         f"SELECT name FROM `tabWarehouse` WHERE is_group = 0 AND {cond} ORDER BY name",
-        tuple(args)) if w[0] not in excluded]
+        tuple(args))]
 
     return {
         "items": int(tot[0] or 0), "qty": int(tot[1] or 0),
@@ -402,14 +422,12 @@ def restock_scan(code):
     if in_zone <= 0:
         return {"ok": False, "reason": "not_in_zone", "itemCode": item_code,
                 "name": r.get("name"), "sku": r.get("sku")}
-    from logistics_portal.api.warehouses import pickable_condition
-    cond, args = pickable_condition("b.warehouse")
+    cond, args = _putaway_condition("b.warehouse")
     suggestions = frappe.db.sql(
         f"""SELECT b.warehouse, b.actual_qty AS qty FROM `tabBin` b
             WHERE b.item_code = %s AND b.actual_qty > 0 AND {cond}
-              AND b.warehouse NOT IN (%s, %s)
             ORDER BY b.actual_qty DESC LIMIT 3""",
-        tuple([item_code, *args, RETURN_ZONE, ADJUST_WH]), as_dict=True)
+        tuple([item_code, *args]), as_dict=True)
     image = frappe.db.get_value("Item", item_code, "image") or ""
     return {"ok": True, "itemCode": item_code, "sku": r.get("sku") or "",
             "name": r.get("name") or item_code, "image": image,
@@ -439,8 +457,14 @@ def restock_move(item_code, qty, target=None, disposition="restock"):
     else:
         if not target or not frappe.db.exists("Warehouse", target):
             frappe.throw("Pick a target shelf.")
-        if target in (RETURN_ZONE,):
-            frappe.throw("Target can't be the Return Zone itself.")
+        # Server-side gate, not just a filtered dropdown: the target must be a
+        # valid put-away shelf (local, sellable, not transit/receiving/returns).
+        cond, args = _putaway_condition("name")
+        ok = frappe.db.sql(
+            f"SELECT 1 FROM `tabWarehouse` WHERE name = %s AND is_group = 0 AND {cond}",
+            tuple([target, *args]))
+        if not ok:
+            frappe.throw(f"{target} is not a valid restock shelf.")
 
     company = frappe.defaults.get_global_default("company") \
         or frappe.db.get_value("Warehouse", RETURN_ZONE, "company")
@@ -448,6 +472,7 @@ def restock_move(item_code, qty, target=None, disposition="restock"):
         "doctype": "Stock Entry",
         "stock_entry_type": "Material Transfer",
         "company": company,
+        "remarks": f"Portal restock ({disposition}) by {frappe.session.user}",
         "items": [{
             "item_code": item_code, "qty": qty,
             "s_warehouse": RETURN_ZONE, "t_warehouse": target,

@@ -183,6 +183,8 @@ export default {
     all: "Tout",
     target: "Rayon",
     already: "déjà là",
+    otherShelf: "Saisir un autre rayon…",
+    invalidShelf: "Rayon non valide — choisissez dans la liste.",
     toShelf: "Retour en rayon",
     defective: "Défectueuse",
     moving: "Déplacement…",

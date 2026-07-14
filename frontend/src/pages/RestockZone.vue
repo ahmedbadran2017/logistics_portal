@@ -5,7 +5,11 @@
         <h1 class="text-[20px] font-bold text-stone-900 tracking-tight">{{ t('restock.title') }}</h1>
         <p class="text-[12.5px] text-stone-500 mt-0.5">{{ t('restock.intro') }}</p>
       </div>
-      <div v-if="summary" class="flex items-center gap-2 flex-wrap">
+      <div v-if="loadingSummary" class="flex items-center gap-2">
+        <span class="w-[90px] h-8 rounded-lg bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
+        <span class="w-[150px] h-8 rounded-lg bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
+      </div>
+      <div v-else-if="summary" class="flex items-center gap-2 flex-wrap">
         <span class="inline-flex items-center gap-1.5 text-[12px] font-semibold text-stone-700 bg-white ring-1 ring-stone-200 rounded-lg px-2.5 h-8 tabular-nums">
           {{ summary.qty }} {{ t('recv.units') }}
         </span>
@@ -53,19 +57,34 @@
         </button>
       </div>
 
-      <!-- target shelf -->
-      <div class="flex items-center gap-3 flex-wrap">
-        <span class="text-[12.5px] font-medium text-stone-600 w-16">{{ t('restock.target') }}</span>
-        <div class="relative flex-1 min-w-[200px]">
-          <select v-model="target"
-                  class="w-full h-10 ps-3 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[13px] text-stone-800 appearance-none cursor-pointer focus:outline-none focus:ring-2"
-                  style="--tw-ring-color: var(--accent-400)">
-            <option v-for="s in current.suggestions" :key="s.warehouse" :value="s.warehouse">
-              {{ s.warehouse }} · {{ s.qty }} {{ t('restock.already') }}
-            </option>
-            <option v-for="w in otherTargets" :key="w" :value="w">{{ w }}</option>
-          </select>
-          <Icon name="chevron-down" :size="13" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-end:.6rem" />
+      <!-- target shelf: sibling-stock suggestions as one-tap chips, plus a
+           searchable field for any other valid shelf (the old <select> had
+           650+ options — unusable on the PDA). -->
+      <div class="flex items-start gap-3 flex-wrap">
+        <span class="text-[12.5px] font-medium text-stone-600 w-16 mt-2">{{ t('restock.target') }}</span>
+        <div class="flex-1 min-w-[200px] space-y-2">
+          <div v-if="current.suggestions?.length" class="flex flex-wrap gap-1.5">
+            <button
+              v-for="s in current.suggestions" :key="s.warehouse"
+              class="h-8 px-2.5 rounded-lg text-[12px] font-semibold ring-1 transition-colors tabular-nums"
+              :class="target === s.warehouse
+                ? 'text-white bg-[var(--accent-600)] ring-[var(--accent-600)]'
+                : 'text-stone-700 bg-white ring-stone-200 hover:ring-stone-300'"
+              @click="target = s.warehouse"
+            >{{ s.warehouse.replace(' - JM', '') }} · {{ s.qty }} {{ t('restock.already') }}</button>
+          </div>
+          <input
+            v-model="target"
+            list="lp-restock-targets"
+            :placeholder="t('restock.otherShelf')"
+            class="w-full h-10 ps-3 pe-3 rounded-lg bg-white ring-1 text-[13px] text-stone-800 focus:outline-none focus:ring-2"
+            :class="target && !targetValid ? 'ring-rose-300' : 'ring-stone-200'"
+            style="--tw-ring-color: var(--accent-400)"
+          />
+          <datalist id="lp-restock-targets">
+            <option v-for="w in summary?.targets || []" :key="w" :value="w" />
+          </datalist>
+          <p v-if="target && !targetValid" class="text-[11px] text-rose-600">{{ t('restock.invalidShelf') }}</p>
         </div>
       </div>
 
@@ -73,7 +92,7 @@
       <div class="grid grid-cols-2 gap-2.5">
         <button
           class="h-11 rounded-xl text-[13.5px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 flex items-center justify-center gap-2 disabled:opacity-50"
-          :disabled="busy || !target"
+          :disabled="busy || !targetValid"
           @click="move('restock')"
         >
           <Icon name="check-circle" :size="16" /> {{ busy === 'restock' ? t('restock.moving') : t('restock.toShelf') }}
@@ -88,8 +107,11 @@
       </div>
     </div>
 
-    <!-- Zone contents -->
-    <div v-if="summary" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+    <!-- Zone contents (skeleton while the live call is in flight) -->
+    <div v-if="loadingSummary" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-3 space-y-2">
+      <div v-for="n in 6" :key="n" class="h-[56px] rounded-lg bg-stone-50 ring-1 ring-stone-200/60 animate-pulse" />
+    </div>
+    <div v-else-if="summary" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
       <div class="px-4 py-2.5 border-b border-stone-100 flex items-center justify-between">
         <span class="text-[12px] font-semibold text-stone-900">{{ t('restock.zoneTitle') }}</span>
         <span class="text-[11px] text-stone-400 tabular-nums">{{ summary.items }} {{ t('consol.items') }}</span>
@@ -144,15 +166,19 @@ const { success, warn } = useToast();
 
 const scanner = ref(null);
 const summary = ref(null);
+const loadingSummary = ref(true);
 const current = ref(null);
 const qty = ref(1);
 const target = ref("");
 const busy = ref("");
 const moved = ref([]);
 
-const otherTargets = computed(() => {
-  const sugg = new Set((current.value?.suggestions || []).map((s) => s.warehouse));
-  return (summary.value?.targets || []).filter((w) => !sugg.has(w));
+// The move button unlocks only for a shelf the server will accept — the
+// backend re-validates anyway, this just keeps the UI honest while typing.
+const targetValid = computed(() => {
+  if (!target.value) return false;
+  if ((current.value?.suggestions || []).some((s) => s.warehouse === target.value)) return true;
+  return (summary.value?.targets || []).includes(target.value);
 });
 
 async function load() {
@@ -160,6 +186,8 @@ async function load() {
     summary.value = await api("returns.restock_summary");
   } catch (e) {
     warn(t("restock.loadFail"), String(e.message || e));
+  } finally {
+    loadingSummary.value = false;
   }
 }
 onMounted(async () => {
