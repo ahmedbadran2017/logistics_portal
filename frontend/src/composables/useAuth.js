@@ -7,6 +7,7 @@ const fullName = ref("");
 const role = ref(null);        // resolved logistics role
 const roles = ref([]);         // all logistics roles this user has (multi-role)
 const zone = ref("");
+const hiddenPages = ref([]);   // route names a manager hid for THIS user
 const isLoading = ref(true);
 const isInitialized = ref(false);
 
@@ -22,6 +23,7 @@ async function init(force = false) {
     role.value = boot.role;
     roles.value = boot.roles || (boot.role ? [boot.role] : []);
     zone.value = boot.zone || "";
+    hiddenPages.value = Array.isArray(boot.hiddenPages) ? boot.hiddenPages : [];
     // The page template can't inject the CSRF token reliably; the boot endpoint
     // returns it so POST writes (apiPost) work from the browser session.
     if (boot.csrf_token) window.csrf_token = boot.csrf_token;
@@ -72,7 +74,7 @@ function setActiveRole(next) {
 
 export function useAuth() {
   return {
-    user, fullName, role, roles, zone, isLoading, isLoggedIn, isInitialized,
+    user, fullName, role, roles, zone, hiddenPages, isLoading, isLoggedIn, isInitialized,
     init, login, logout, setActiveRole,
   };
 }

@@ -77,8 +77,55 @@ def get_boot():
         "role": role,
         "roles": [role] if role else [],
         "zone": resolve_zone(user),
+        "hiddenPages": hidden_pages(user),
         "csrf_token": csrf,
     }
+
+
+# ── per-user page visibility (on top of the role) ──────────────────────────
+# The role decides the DEFAULT nav; the manager can then hide individual
+# pages per user. Stored as {email: [routeNames]} in one JSON default;
+# enforced in the SPA (nav filter + router guard) via get_boot.
+_PAGES_KEY = "lp_user_pages"
+
+
+def _user_pages_map():
+    import json as _json
+    raw = frappe.db.get_default(_PAGES_KEY)
+    if raw:
+        try:
+            v = _json.loads(raw)
+            if isinstance(v, dict):
+                return v
+        except Exception:
+            pass
+    return {}
+
+
+def hidden_pages(user):
+    return [str(x) for x in _user_pages_map().get(user, [])]
+
+
+@frappe.whitelist()
+def set_member_pages(user, hidden=None):
+    """Manager: hide specific portal pages from one user (empty = full role nav)."""
+    import json as _json
+    _require_manager()
+    if not frappe.db.exists("User", user):
+        frappe.throw("Unknown user.")
+    if isinstance(hidden, str):
+        hidden = _json.loads(hidden)
+    hidden = sorted({str(x).strip() for x in (hidden or []) if str(x).strip()})
+    if user == frappe.session.user and "Team" in hidden:
+        frappe.throw("You can't hide the Team page from yourself — it's how you'd undo this.")
+    m = _user_pages_map()
+    if hidden:
+        m[user] = hidden
+    else:
+        m.pop(user, None)
+    frappe.db.set_default(_PAGES_KEY, _json.dumps(m))
+    frappe.db.commit()
+    return {"ok": True, "user": user, "hidden": hidden}
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +155,7 @@ def team_members(q=""):
            GROUP BY COALESCE(NULLIF(custom_assigned_picker, ''), owner)"""))
 
     ql = (q or "").strip().lower()
+    pages_map = _user_pages_map()
     members, matches = [], []
     for u in users:
         if u.name in ("Administrator", "Guest"):
@@ -123,6 +171,7 @@ def team_members(q=""):
             role, source = "", ""
         row = {"user": u.name, "name": u.full_name or u.name,
                "role": role, "source": source,
+               "hidden": pages_map.get(u.name, []),
                "lastPick": str(last_pick.get(u.name) or "")[:10]}
         if role or source == "blocked":
             members.append(row)

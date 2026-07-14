@@ -81,7 +81,7 @@ const props = defineProps({ open: { type: Boolean, default: false } });
 const emit = defineEmits(["close"]);
 
 const router = useRouter();
-const { role } = useAuth();
+const { role, hiddenPages } = useAuth();
 const { t } = useI18n();
 
 const query = ref("");
@@ -96,7 +96,7 @@ const DEMO_ORDERS = [
 ];
 
 const pages = computed(() =>
-  navItemsFor(role.value).map((it, i) => ({
+  navItemsFor(role.value, hiddenPages.value).map((it, i) => ({
     id: `p-${i}`,
     kind: "page",
     to: it.to,

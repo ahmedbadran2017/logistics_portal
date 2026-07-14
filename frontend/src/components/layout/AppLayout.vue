@@ -122,10 +122,10 @@ import { api } from "@/lib/resource";
 
 const route = useRoute();
 const logoSrc = "/assets/logistics_portal/justyol-logo.png";
-const { role, roles, fullName, setActiveRole } = useAuth();
+const { role, roles, fullName, hiddenPages, setActiveRole } = useAuth();
 const { t } = useI18n();
 
-const mobileNav = computed(() => navItemsFor(role.value));
+const mobileNav = computed(() => navItemsFor(role.value, hiddenPages.value));
 
 const drawer = ref(false);
 const cmdOpen = ref(false);

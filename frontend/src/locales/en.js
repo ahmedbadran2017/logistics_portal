@@ -546,6 +546,13 @@ export default {
       remove: "Remove",
     },
     team: {
+      pagesBtn: "Pages this member can see",
+      pagesHint: "Tap a page to hide/show it for this member — green = visible. Applies on their next page load.",
+      pagesSaved: "Page access saved",
+      pagesFail: "Couldn't save page access",
+      pagesHiddenN: "hidden",
+      pagesAll: "Full role navigation",
+      hiddenChip: "Pages hidden by the manager",
       thMember: "Member",
       thRole: "Role",
       thOrders: "Orders",

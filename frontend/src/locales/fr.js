@@ -546,6 +546,13 @@ export default {
       remove: "Retirer",
     },
     team: {
+      pagesBtn: "Pages visibles pour ce membre",
+      pagesHint: "Touchez une page pour la masquer/afficher pour ce membre — vert = visible. Appliqué au prochain chargement.",
+      pagesSaved: "Accès aux pages enregistré",
+      pagesFail: "Impossible d'enregistrer",
+      pagesHiddenN: "masquées",
+      pagesAll: "Navigation complète du rôle",
+      hiddenChip: "Pages masquées par le responsable",
       thMember: "Membre",
       thRole: "Rôle",
       thOrders: "Commandes",

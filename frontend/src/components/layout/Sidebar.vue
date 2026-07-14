@@ -121,11 +121,11 @@ defineEmits(["open-search"]);
 // doesn't try to resolve it at build time.
 const logoSrc = "/assets/logistics_portal/justyol-logo.png";
 const { t } = useI18n();
-const { role, roles, fullName, setActiveRole } = useAuth();
+const { role, roles, fullName, hiddenPages, setActiveRole } = useAuth();
 const route = useRoute();
 const menuOpen = ref(false);
 
-const nav = computed(() => navFor(role.value));
+const nav = computed(() => navFor(role.value, hiddenPages.value));
 const initials = computed(() =>
   (fullName.value || "?").split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase()
 );

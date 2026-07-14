@@ -546,6 +546,13 @@ export default {
       remove: "إزالة",
     },
     team: {
+      pagesBtn: "الصفحات المتاحة للعضو ده",
+      pagesHint: "اضغط على صفحة لإخفائها/إظهارها للعضو ده — الأخضر ظاهر. يسري مع أول تحميل صفحة.",
+      pagesSaved: "اتحفظ وصول الصفحات",
+      pagesFail: "تعذّر الحفظ",
+      pagesHiddenN: "مخفية",
+      pagesAll: "كل صفحات الدور",
+      hiddenChip: "صفحات مخفية بقرار المانجر",
       thMember: "العضو",
       thRole: "الدور",
       thOrders: "أوردرات",

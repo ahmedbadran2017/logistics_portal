@@ -150,18 +150,28 @@ export const ROLE_CONFIG = {
   },
 };
 
-export function homeRouteFor(role) {
-  return (ROLE_CONFIG[role] || ROLE_CONFIG.picker).home;
+/** Grouped nav for a role, minus the pages a manager hid for this user. */
+export function navFor(role, hidden) {
+  const nav = (ROLE_CONFIG[role] || ROLE_CONFIG.picker).nav;
+  if (!hidden || !hidden.length) return nav;
+  const h = new Set(hidden);
+  return nav
+    .map((g) => ({ ...g, items: g.items.filter((i) => !h.has(i.to)) }))
+    .filter((g) => g.items.length);
 }
 
-/** Grouped nav for a role: [{ section, items:[{to,label,icon}] }]. */
-export function navFor(role) {
-  return (ROLE_CONFIG[role] || ROLE_CONFIG.picker).nav;
+/** Flat list of nav items (for the command palette / route guard). */
+export function navItemsFor(role, hidden) {
+  return navFor(role, hidden).flatMap((g) => g.items);
 }
 
-/** Flat list of nav items (for the command palette). */
-export function navItemsFor(role) {
-  return navFor(role).flatMap((g) => g.items);
+export function homeRouteFor(role, hidden) {
+  const home = (ROLE_CONFIG[role] || ROLE_CONFIG.picker).home;
+  if (hidden && hidden.includes(home)) {
+    const first = navItemsFor(role, hidden)[0];
+    return first ? first.to : home;
+  }
+  return home;
 }
 
 export function isMobileRole(role) {

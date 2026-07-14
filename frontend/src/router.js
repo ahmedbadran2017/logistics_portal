@@ -75,8 +75,8 @@ const routes = [
 ];
 
 function roleRedirect(to, from, next) {
-  const { role } = useAuth();
-  next({ name: homeRouteFor(role.value) });
+  const { role, hiddenPages } = useAuth();
+  next({ name: homeRouteFor(role.value, hiddenPages.value) });
 }
 
 const router = createRouter({
@@ -85,13 +85,16 @@ const router = createRouter({
 });
 
 router.beforeEach(async (to, from, next) => {
-  const { init, isLoggedIn } = useAuth();
+  const { init, isLoggedIn, role, hiddenPages } = useAuth();
   await init();
 
   if (to.meta.requiresAuth && !isLoggedIn.value) {
     next({ name: "Login", query: { redirect: to.fullPath } });
   } else if (to.meta.guest && isLoggedIn.value) {
     next({ name: "Home2" });
+  } else if (isLoggedIn.value && to.name && hiddenPages.value.includes(to.name)) {
+    // A page the manager hid for this user — deep links bounce home too.
+    next({ name: homeRouteFor(role.value, hiddenPages.value) });
   } else {
     next();
   }

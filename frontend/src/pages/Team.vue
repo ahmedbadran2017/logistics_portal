@@ -184,24 +184,59 @@
         </div>
 
         <!-- current roster -->
-        <div v-for="m in mgmt.members" :key="m.user" class="flex items-center gap-3 px-4 py-2.5">
-          <span class="w-8 h-8 rounded-full grid place-items-center text-white text-[11px] font-semibold flex-shrink-0"
-                :style="{ background: m.role ? '#6366f1' : '#a8a29e' }">{{ initials(m.name) }}</span>
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-1.5">
-              <span class="text-[12.5px] font-semibold text-stone-900 truncate">{{ m.name }}</span>
-              <span v-if="m.source === 'seed'" class="text-[9.5px] font-semibold uppercase text-stone-400 bg-stone-100 rounded px-1 py-0.5" title="From the built-in seed map — set a role to make it explicit">seed</span>
-              <span v-else-if="m.source === 'blocked'" class="text-[9.5px] font-semibold uppercase text-rose-600 bg-rose-50 rounded px-1 py-0.5">blocked</span>
+        <div v-for="m in mgmt.members" :key="m.user">
+          <div class="flex items-center gap-3 px-4 py-2.5">
+            <span class="w-8 h-8 rounded-full grid place-items-center text-white text-[11px] font-semibold flex-shrink-0"
+                  :style="{ background: m.role ? '#6366f1' : '#a8a29e' }">{{ initials(m.name) }}</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                <span class="text-[12.5px] font-semibold text-stone-900 truncate">{{ m.name }}</span>
+                <span v-if="m.source === 'seed'" class="text-[9.5px] font-semibold uppercase text-stone-400 bg-stone-100 rounded px-1 py-0.5" title="From the built-in seed map — set a role to make it explicit">seed</span>
+                <span v-else-if="m.source === 'blocked'" class="text-[9.5px] font-semibold uppercase text-rose-600 bg-rose-50 rounded px-1 py-0.5">blocked</span>
+                <span v-if="(m.hidden || []).length" class="text-[9.5px] font-semibold text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded px-1 py-0.5 tabular-nums"
+                      :title="t('px.team.hiddenChip')">−{{ m.hidden.length }}</span>
+              </div>
+              <div class="text-[11px] text-stone-400 truncate tabular-nums">
+                {{ m.user }}<template v-if="m.lastPick"> · {{ t('px.team.lastPick') }} {{ m.lastPick }}</template>
+              </div>
             </div>
-            <div class="text-[11px] text-stone-400 truncate tabular-nums">
-              {{ m.user }}<template v-if="m.lastPick"> · {{ t('px.team.lastPick') }} {{ m.lastPick }}</template>
+            <button v-if="m.role"
+                    class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors flex-shrink-0"
+                    :class="pagesFor === m.user ? 'bg-[var(--accent-50)] text-[var(--accent-700)]' : 'text-stone-400 hover:bg-stone-100'"
+                    :title="t('px.team.pagesBtn')" @click="togglePages(m)">
+              <Icon name="eye" :size="15" />
+            </button>
+            <select class="role-select" :disabled="savingRole === m.user" :value="m.role"
+                    @change="setRole(m.user, $event.target.value)">
+              <option v-for="r in mgmt.roles" :key="r" :value="r" class="capitalize">{{ t('roles.' + r) }}</option>
+              <option value="">{{ t('px.team.noAccess') }}</option>
+            </select>
+          </div>
+
+          <!-- per-user page visibility (hides pages on top of the role nav) -->
+          <div v-if="pagesFor === m.user" class="px-4 pb-3 pt-1 bg-stone-50/60">
+            <div class="text-[11px] text-stone-500 mb-2">{{ t('px.team.pagesHint') }}</div>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="it in rolePages(m.role)" :key="it.to"
+                class="h-7 px-2.5 rounded-lg text-[11.5px] font-semibold ring-1 transition-colors inline-flex items-center gap-1"
+                :class="draftHidden.has(it.to)
+                  ? 'text-stone-400 bg-white ring-stone-200 line-through'
+                  : 'text-emerald-700 bg-emerald-50 ring-emerald-200'"
+                @click="togglePage(it.to)"
+              ><Icon :name="draftHidden.has(it.to) ? 'x' : 'check'" :size="11" />{{ t(it.label) }}</button>
+            </div>
+            <div class="flex items-center gap-2 mt-2.5">
+              <button
+                class="h-8 px-3 rounded-lg text-[12px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-50"
+                :disabled="savingPages"
+                @click="savePages(m)"
+              >{{ savingPages ? "…" : t('px.common.save') }}</button>
+              <button class="h-8 px-3 rounded-lg text-[12px] font-medium text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50"
+                      @click="pagesFor = ''">{{ t('common.cancel') }}</button>
+              <span class="text-[10.5px] text-stone-400">{{ draftHidden.size ? draftHidden.size + ' ' + t('px.team.pagesHiddenN') : t('px.team.pagesAll') }}</span>
             </div>
           </div>
-          <select class="role-select" :disabled="savingRole === m.user" :value="m.role"
-                  @change="setRole(m.user, $event.target.value)">
-            <option v-for="r in mgmt.roles" :key="r" :value="r" class="capitalize">{{ t('roles.' + r) }}</option>
-            <option value="">{{ t('px.team.noAccess') }}</option>
-          </select>
         </div>
 
         <div v-if="!mgmt.members.length && !mgmt.matches.length" class="text-center text-[12.5px] text-stone-400 py-10">—</div>
@@ -215,6 +250,7 @@ import { ref, computed, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { byId } from "@/lib/handoffData";
 import { api, apiPost, liveOr } from "@/lib/resource";
+import { navItemsFor } from "@/lib/roles";
 import { useToast } from "@/composables/useToast";
 import { useI18n } from "@/composables/useI18n";
 const { t } = useI18n();
@@ -273,6 +309,34 @@ async function invite() {
     warn("Couldn't invite", String(e.message || e));
   } finally {
     inviteBusy.value = false;
+  }
+}
+
+const pagesFor = ref("");
+const draftHidden = ref(new Set());
+const savingPages = ref(false);
+function rolePages(role) { return navItemsFor(role); }
+function togglePages(m) {
+  if (pagesFor.value === m.user) { pagesFor.value = ""; return; }
+  pagesFor.value = m.user;
+  draftHidden.value = new Set(m.hidden || []);
+}
+function togglePage(to) {
+  const s = new Set(draftHidden.value);
+  s.has(to) ? s.delete(to) : s.add(to);
+  draftHidden.value = s;
+}
+async function savePages(m) {
+  savingPages.value = true;
+  try {
+    const res = await apiPost("auth.set_member_pages", { user: m.user, hidden: [...draftHidden.value] });
+    m.hidden = res.hidden || [];
+    success(t("px.team.pagesSaved"), m.name);
+    pagesFor.value = "";
+  } catch (e) {
+    warn(t("px.team.pagesFail"), String(e.message || e));
+  } finally {
+    savingPages.value = false;
   }
 }
 
