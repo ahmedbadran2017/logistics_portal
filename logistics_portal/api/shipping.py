@@ -54,21 +54,36 @@ def label_queue(limit=50):
         return []
 
 
+def _fmt_window(t_from, t_to):
+    """pickup_from/pickup_to are timedeltas — '09:00 – 17:00', or ''."""
+    def hhmm(td):
+        try:
+            s = int(td.total_seconds())
+            return f"{s // 3600:02d}:{s % 3600 // 60:02d}"
+        except Exception:
+            return ""
+    a, b = hhmm(t_from), hhmm(t_to)
+    return f"{a} – {b}" if a and b else ""
+
+
 @frappe.whitelist()
 def shipments(limit=30):
-    """Daily carrier manifests with real per-manifest outcomes (delivered /
-    exceptions from the linked Delivery Notes) in one grouped query."""
+    """Daily CARRIER manifests (delivery_customer = CATHEDIS) with real
+    per-manifest outcomes from the linked Delivery Notes. China import
+    shipments (Justyol China → CMA CGM etc.) are a different flow and are
+    deliberately excluded — they were polluting this list."""
     try:
         rows = frappe.db.sql(
             """SELECT sh.name, sh.pickup_date, sh.value_of_goods, sh.status,
-                      sh.delivery_to, sh.awb_number,
+                      sh.pickup_company, sh.delivery_customer, sh.awb_number,
+                      sh.carrier_service, sh.pickup_from, sh.pickup_to,
                       COUNT(sdn.name) AS parcels,
                       SUM(CASE WHEN dn.custom_track_shipment_status = 'Delivered' THEN 1 ELSE 0 END) AS delivered,
                       SUM(CASE WHEN dn.custom_track_shipment_status IN ('Delivery Exception','Failed Attempt') THEN 1 ELSE 0 END) AS exceptions
                FROM `tabShipment` sh
                LEFT JOIN `tabShipment Delivery Note` sdn ON sdn.parent = sh.name
                LEFT JOIN `tabDelivery Note` dn ON dn.name = sdn.delivery_note
-               WHERE sh.docstatus < 2
+               WHERE sh.docstatus < 2 AND sh.delivery_customer = 'CATHEDIS'
                GROUP BY sh.name
                ORDER BY sh.pickup_date DESC, sh.modified DESC
                LIMIT %(limit)s""",
@@ -78,12 +93,15 @@ def shipments(limit=30):
             "date": str(r.pickup_date) if r.pickup_date else "",
             "value": r.value_of_goods or 0,
             "status": r.status or "Submitted",
-            "carrier": (r.delivery_to or "Cathedis").title(),
+            "carrier": (r.delivery_customer or "Cathedis").title(),
             "awb": r.awb_number or "",
+            "service": r.carrier_service or "",
+            "pickup": r.pickup_company or "",
+            "deliveryTo": (r.delivery_customer or "").title(),
             "parcels": int(r.parcels or 0),
             "delivered": int(r.delivered or 0),
             "exceptions": int(r.exceptions or 0),
-            "window": "09:00 – 17:00",
+            "window": _fmt_window(r.pickup_from, r.pickup_to) or "09:00 – 17:00",
         } for r in rows]
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.shipments")
@@ -333,74 +351,81 @@ def carriers():
         return []
 
 
+def _stale_drafts():
+    """Draft Cathedis manifests left open from PREVIOUS days. They hold their
+    parcels hostage (the ready-pool query excludes anything on an open
+    Shipment), so the Manifest page surfaces them with a discard action."""
+    rows = frappe.db.sql(
+        """SELECT sh.name, sh.pickup_date, sh.value_of_goods,
+                  COUNT(sdn.name) AS parcels
+           FROM `tabShipment` sh
+           LEFT JOIN `tabShipment Delivery Note` sdn ON sdn.parent = sh.name
+           WHERE sh.docstatus = 0 AND sh.delivery_customer = 'CATHEDIS'
+             AND COALESCE(sh.pickup_date, '2000-01-01') < CURDATE()
+           GROUP BY sh.name
+           ORDER BY sh.pickup_date DESC""", as_dict=True)
+    return [{"name": r.name, "date": str(r.pickup_date or ""),
+             "parcels": int(r.parcels or 0), "value": float(r.value_of_goods or 0)}
+            for r in rows]
+
+
 @frappe.whitelist()
 def today_manifest():
-    """Latest manifest snapshot in the SPA's MANIFEST shape: the current Draft
-    Shipment if one exists, else the most recent one. Parcels = its Delivery
-    Note children; notOnManifest = labeled orders not yet on any manifest."""
+    """TODAY's manifest snapshot: the Cathedis draft dated today if one exists,
+    else the NEW state (scan starts one). Stale drafts from previous days are
+    returned separately — never silently presented as today's manifest."""
     try:
-        sh = frappe.get_all(
-            "Shipment",
-            fields=["name", "pickup_date", "value_of_goods", "status"],
-            filters={"docstatus": 0},
-            order_by="modified desc", limit=1,
-        )
-        if not sh:
-            # No open draft → the manifest waiting to be closed is the live
-            # ready-to-ship pool (what close_manifest will actually ship).
-            return {
-                "no": "NEW",
-                "parcels": 0,
-                "parcelRows": [],
-                "readyCount": len(_ready_parcels()),
-                "value": 0,
-                "carrier": "Cathedis",
-                "pickupDate": nowdate(),
-                "window": "09:00 – 17:00",
-                "cutoff": "14:00",
-                "status": "Open",
-                "notOnManifest": frappe.db.count(
-                    "Sales Order",
-                    {"docstatus": 1,
-                     "custom_logistics_status": "Label Generated",
-                     "creation": [">=", frappe.utils.add_days(nowdate(), -7)]}),
-            }
-        sh = sh[0]
-        rows = frappe.db.sql(
-            """
-            SELECT sdn.delivery_note AS dn, dn.custom_awb AS awb,
-                   dn.customer_name AS customer, dn.grand_total AS value
-            FROM `tabShipment Delivery Note` sdn
-            LEFT JOIN `tabDelivery Note` dn ON dn.name = sdn.delivery_note
-            WHERE sdn.parent = %s
-            ORDER BY sdn.idx DESC
-            LIMIT 40
-            """,
-            (sh.name,), as_dict=True,
-        )
-        parcels = [{
-            "awb": r.awb or "", "dn": r.dn, "order": "",
-            "customer": r.customer or "", "value": r.value or 0,
-        } for r in rows]
-        total_parcels = frappe.db.count("Shipment Delivery Note", {"parent": sh.name})
         from frappe.utils import add_days
+
         not_on = frappe.db.count(
             "Sales Order",
             {"docstatus": 1, "custom_logistics_status": ["in", ["Label Generated", "Label Printed"]],
-             "creation": [">=", add_days(nowdate(), -7)]},
-        )
-        return {
-            "no": sh.name,
-            "parcels": total_parcels,
-            "parcelRows": parcels,
+             "creation": [">=", add_days(nowdate(), -7)]})
+        base = {
+            "carrier": "Cathedis", "cutoff": "14:00",
             "readyCount": len(_ready_parcels()),
-            "value": sh.value_of_goods or 0,
-            "carrier": "Cathedis",
-            "pickupDate": str(sh.pickup_date) if sh.pickup_date else nowdate(),
-            "window": "09:00 – 17:00",
-            "cutoff": "14:00",
-            "status": sh.status or "Draft",
             "notOnManifest": not_on,
+            "staleDrafts": _stale_drafts(),
+        }
+
+        sh = frappe.get_all(
+            "Shipment",
+            fields=["name", "pickup_date", "value_of_goods", "status",
+                    "pickup_from", "pickup_to"],
+            filters={"docstatus": 0, "delivery_customer": "CATHEDIS",
+                     "pickup_date": nowdate()},
+            order_by="modified desc", limit=1)
+        if not sh:
+            return {**base, "no": "NEW", "parcels": 0, "parcelRows": [],
+                    "value": 0, "pickupDate": nowdate(),
+                    "window": "09:00 – 17:00", "status": "Open"}
+
+        sh = sh[0]
+        rows = frappe.db.sql(
+            """SELECT sdn.delivery_note AS dn, dn.custom_awb AS awb,
+                      dn.customer_name AS customer, dn.grand_total AS value,
+                      (SELECT dni.against_sales_order FROM `tabDelivery Note Item` dni
+                       WHERE dni.parent = dn.name AND dni.against_sales_order IS NOT NULL
+                       LIMIT 1) AS so
+               FROM `tabShipment Delivery Note` sdn
+               LEFT JOIN `tabDelivery Note` dn ON dn.name = sdn.delivery_note
+               WHERE sdn.parent = %s
+               ORDER BY sdn.idx DESC
+               LIMIT 60""",
+            (sh.name,), as_dict=True)
+        parcels = [{
+            "awb": r.awb or "", "dn": r.dn, "order": r.so or "",
+            "customer": r.customer or "", "value": r.value or 0,
+        } for r in rows]
+        return {
+            **base,
+            "no": sh.name,
+            "parcels": frappe.db.count("Shipment Delivery Note", {"parent": sh.name}),
+            "parcelRows": parcels,
+            "value": sh.value_of_goods or 0,
+            "pickupDate": str(sh.pickup_date) if sh.pickup_date else nowdate(),
+            "window": _fmt_window(sh.pickup_from, sh.pickup_to) or "09:00 – 17:00",
+            "status": sh.status or "Draft",
         }
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.today_manifest")
@@ -490,18 +515,28 @@ def manifest_scan(code):
 
 
 def _open_or_new_manifest():
-    """Today's open manifest (draft Shipment), created from the last submitted one
-    on the first scan of the day so it inherits the Justyol to CATHEDIS config.
-    Serialized by a named lock — two first-scans must not create two drafts."""
+    """TODAY's open Cathedis manifest (draft Shipment dated today), created from
+    the last submitted Cathedis one on the first scan of the day so it inherits
+    the Justyol → CATHEDIS config. Stale drafts from previous days and China
+    import drafts are deliberately IGNORED — before this filter existed, a scan
+    could resurrect a months-old draft (or an import container) and close_manifest
+    would happily submit it. Serialized by a named lock."""
     from logistics_portal.api.locks import named_lock
 
     with named_lock("manifest"):
-        draft = frappe.get_all("Shipment", filters={"docstatus": 0}, order_by="creation desc", limit=1)
+        draft = frappe.get_all(
+            "Shipment",
+            filters={"docstatus": 0, "delivery_customer": "CATHEDIS",
+                     "pickup_date": nowdate()},
+            order_by="creation desc", limit=1)
         if draft:
             return frappe.get_doc("Shipment", draft[0].name)
-        template = frappe.get_all("Shipment", filters={"docstatus": 1}, order_by="creation desc", limit=1)
+        template = frappe.get_all(
+            "Shipment",
+            filters={"docstatus": 1, "delivery_customer": "CATHEDIS"},
+            order_by="creation desc", limit=1)
         if not template:
-            frappe.throw("No previous Shipment to base the manifest on — create the first from the desk.")
+            frappe.throw("No previous Cathedis Shipment to base the manifest on — create the first from the desk.")
         sh = frappe.copy_doc(frappe.get_doc("Shipment", template[0].name))
         sh.set("shipment_delivery_note", [])
         sh.value_of_goods = 0
@@ -512,6 +547,37 @@ def _open_or_new_manifest():
         sh.insert(ignore_permissions=True)
         frappe.db.commit()  # release the row before the lock drops
         return sh
+
+
+def _prune_manifest_rows(sh):
+    """Drop parcels that can no longer ship (DN cancelled, already delivered /
+    returned, or already on a SUBMITTED Shipment) and recompute the value.
+    Returns the number of rows dropped."""
+    rows = sh.get("shipment_delivery_note") or []
+    keep = []
+    for r in rows:
+        dn = frappe.db.get_value(
+            "Delivery Note", r.delivery_note,
+            ["docstatus", "custom_track_shipment_status"], as_dict=True)
+        if not dn or dn.docstatus != 1:
+            continue
+        if (dn.custom_track_shipment_status or "") in ("Delivered", "Returned", "Received"):
+            continue
+        dup = frappe.db.sql(
+            """SELECT 1 FROM `tabShipment Delivery Note` sdn
+               JOIN `tabShipment` s2 ON s2.name = sdn.parent
+               WHERE sdn.delivery_note = %s AND s2.docstatus = 1 LIMIT 1""",
+            (r.delivery_note,))
+        if dup:
+            continue
+        keep.append(r)
+    dropped = len(rows) - len(keep)
+    if dropped:
+        sh.set("shipment_delivery_note", keep)
+    sh.value_of_goods = round(sum(
+        float(frappe.db.get_value("Delivery Note", r.delivery_note, "grand_total") or 0)
+        for r in keep), 2)
+    return dropped
 
 
 @frappe.whitelist()
@@ -547,22 +613,27 @@ def close_manifest(parcels=None):
     from logistics_portal.api.locks import named_lock
 
     with named_lock("manifest", timeout=30):
-        # An existing Draft Shipment (from the desk) takes precedence — submit it.
-        draft = frappe.get_all("Shipment", filters={"docstatus": 0},
-                               order_by="modified desc", limit=1)
+        # TODAY's Cathedis draft takes precedence — submit it. Only today's:
+        # stale drafts and China import drafts must never be auto-submitted
+        # (that's how a January manifest almost went out in July).
+        draft = frappe.get_all(
+            "Shipment",
+            filters={"docstatus": 0, "delivery_customer": "CATHEDIS",
+                     "pickup_date": nowdate()},
+            order_by="modified desc", limit=1)
         if draft:
             sh = frappe.get_doc("Shipment", draft[0].name)
+            dropped = _prune_manifest_rows(sh)
             if not sh.get("shipment_delivery_note"):
-                frappe.throw("The open manifest has no parcels to ship.")
-            if not sh.value_of_goods:
-                sh.value_of_goods = round(sum(
-                    float(frappe.db.get_value("Delivery Note", r.delivery_note, "grand_total") or 0)
-                    for r in sh.shipment_delivery_note), 2)
+                frappe.throw("The open manifest has no shippable parcels left.")
+            if dropped:
+                sh.save(ignore_permissions=True)
             sh.submit()
             frappe.db.commit()
             _bust_ship_caches()
             return {"ok": True, "shipment": sh.name,
                     "parcels": len(sh.shipment_delivery_note),
+                    "dropped": dropped,
                     "value": round(float(sh.value_of_goods or 0), 2)}
 
         rows = _ready_parcels(wanted)
@@ -572,9 +643,10 @@ def close_manifest(parcels=None):
         if value <= 0:
             frappe.throw("Manifest value is 0 — cannot submit.")
 
-        # Clone the last submitted Shipment to inherit the exact pickup/delivery/
-        # parcel configuration (Justyol → CATHEDIS), then swap in today's parcels.
-        template = frappe.get_all("Shipment", filters={"docstatus": 1},
+        # Clone the last submitted CATHEDIS Shipment to inherit the exact pickup/
+        # delivery config (Justyol → CATHEDIS), then swap in today's parcels.
+        template = frappe.get_all("Shipment",
+                                  filters={"docstatus": 1, "delivery_customer": "CATHEDIS"},
                                   order_by="creation desc", limit=1)
         if not template:
             frappe.throw("No previous Shipment to base the manifest on — create the "
@@ -595,6 +667,62 @@ def close_manifest(parcels=None):
         frappe.db.commit()
         _bust_ship_caches()
         return {"ok": True, "shipment": sh.name, "parcels": len(rows), "value": value}
+
+
+@frappe.whitelist()
+def discard_manifest(name):
+    """Delete a DRAFT Cathedis manifest (stale or unwanted) — its parcels return
+    to the ready-to-ship pool. Dispatcher/manager only. Refuses submitted docs
+    and non-Cathedis (import) shipments."""
+    from logistics_portal.api.auth import resolve_role
+
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Only a dispatcher or manager can discard a manifest.",
+                     frappe.PermissionError)
+    sh = frappe.db.get_value("Shipment", name,
+                             ["docstatus", "delivery_customer"], as_dict=True)
+    if not sh:
+        frappe.throw("Unknown shipment.")
+    if sh.docstatus != 0:
+        frappe.throw("Only draft manifests can be discarded.")
+    if (sh.delivery_customer or "").upper() != "CATHEDIS":
+        frappe.throw("Not a Cathedis manifest — handle import shipments from the desk.")
+    frappe.delete_doc("Shipment", name, ignore_permissions=True)
+    frappe.db.commit()
+    _bust_ship_caches()
+    return {"ok": True}
+
+
+@frappe.whitelist()
+def manifest_remove(dn):
+    """Take a scanned parcel back OFF today's open manifest (mis-scan, parcel
+    pulled aside). The SPA's ✕ used to remove it from the screen only — the
+    row stayed on the draft and shipped anyway. Packer/dispatcher/manager."""
+    from logistics_portal.api.auth import resolve_role
+
+    if resolve_role(frappe.session.user) not in ("packer", "dispatcher", "manager"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    from logistics_portal.api.locks import named_lock
+
+    with named_lock("manifest"):
+        draft = frappe.get_all(
+            "Shipment",
+            filters={"docstatus": 0, "delivery_customer": "CATHEDIS",
+                     "pickup_date": nowdate()},
+            order_by="modified desc", limit=1)
+        if not draft:
+            return {"ok": False, "reason": "no_manifest"}
+        sh = frappe.get_doc("Shipment", draft[0].name)
+        rows = [r for r in (sh.get("shipment_delivery_note") or [])
+                if r.delivery_note != dn]
+        if len(rows) == len(sh.get("shipment_delivery_note") or []):
+            return {"ok": False, "reason": "not_on_manifest"}
+        sh.set("shipment_delivery_note", rows)
+        sh.value_of_goods = round(sum(float(r.grand_total or 0) for r in rows), 2)
+        sh.save(ignore_permissions=True)
+        frappe.db.commit()
+        return {"ok": True, "count": len(rows),
+                "manifestValue": float(sh.value_of_goods or 0)}
 
 
 def _bust_ship_caches():

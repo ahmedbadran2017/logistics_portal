@@ -12,7 +12,7 @@
               </span>
               <div>
                 <div class="font-mono text-[15px] font-semibold text-stone-900">{{ MANIFEST.no }}</div>
-                <div class="text-[11.5px] text-stone-500">{{ CARRIER }} · Today {{ MANIFEST.pickupDate }} · {{ MANIFEST.window }}</div>
+                <div class="text-[11.5px] text-stone-500">{{ CARRIER }} · {{ MANIFEST.pickupDate }} · {{ MANIFEST.window }}</div>
               </div>
             </div>
             <div class="flex items-center gap-5">
@@ -26,6 +26,27 @@
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- stale open manifests: they hold their parcels hostage — discard to free them -->
+        <div v-if="staleDrafts.length" class="rounded-lg bg-rose-50 ring-1 ring-rose-200/70 px-4 py-3 space-y-2">
+          <div class="flex items-center gap-2 text-[12.5px] font-semibold text-rose-700">
+            <Icon name="alert-triangle" :size="15" class="flex-shrink-0" />
+            {{ t("mani.staleTitle") }}
+          </div>
+          <div v-for="d in staleDrafts" :key="d.name" class="flex items-center gap-3 text-[12.5px]">
+            <span class="font-mono font-semibold text-stone-900">{{ d.name }}</span>
+            <span class="text-stone-500 flex-1 tabular-nums">{{ d.date }} · {{ d.parcels }} · {{ fmtMAD(d.value) }} MAD</span>
+            <button
+              class="h-7 px-2.5 rounded-lg text-[11.5px] font-semibold ring-1 transition-colors"
+              :class="armedDiscard === d.name
+                ? 'text-white bg-rose-600 ring-rose-600'
+                : 'text-rose-700 bg-white ring-rose-200 hover:bg-rose-100'"
+              :disabled="discarding"
+              @click="discard(d.name)"
+            >{{ armedDiscard === d.name ? t("mani.discardSure") : t("mani.discard") }}</button>
+          </div>
+          <p class="text-[11.5px] text-rose-600/80">{{ t("mani.staleBody") }}</p>
         </div>
 
         <!-- not-yet-labeled warning -->
@@ -248,8 +269,51 @@ async function onScan(code) {
   scanner.value?.showError("لا يوجد اتصال بالسيرفر — أعد تحميل الصفحة");
 }
 
-function remove(i) {
+async function remove(i) {
+  const p = parcels.value[i];
+  if (!p) return;
+  if (isLive.value) {
+    // Really take it off the draft Shipment — the old local-only splice left
+    // the row on the server, so the "removed" parcel shipped anyway.
+    try {
+      const res = await apiPost("shipping.manifest_remove", { dn: p.dn });
+      if (!res || !res.ok) {
+        warn(t("mani.removeFail"), res && res.reason === "no_manifest" ? t("mani.noOpen") : p.dn);
+        return;
+      }
+    } catch (e) {
+      warn(t("mani.removeFail"), String(e.message || e));
+      return;
+    }
+  }
   parcels.value.splice(i, 1);
+}
+
+// ── stale open manifests (previous days) — two-tap discard ──────────
+const staleDrafts = ref([]);
+const armedDiscard = ref("");
+const discarding = ref(false);
+let disarmTimer = null;
+
+async function discard(name) {
+  if (armedDiscard.value !== name) {
+    armedDiscard.value = name;
+    clearTimeout(disarmTimer);
+    disarmTimer = setTimeout(() => (armedDiscard.value = ""), 4000);
+    return;
+  }
+  discarding.value = true;
+  try {
+    await apiPost("shipping.discard_manifest", { name });
+    staleDrafts.value = staleDrafts.value.filter((d) => d.name !== name);
+    success(t("mani.discarded"), name);
+    await loadManifest(); // freed parcels re-enter the ready pool
+  } catch (e) {
+    warn(t("mani.removeFail"), String(e.message || e));
+  } finally {
+    discarding.value = false;
+    armedDiscard.value = "";
+  }
 }
 
 function closeManifest() {
@@ -267,7 +331,8 @@ async function doClose() {
     confirmClose.value = false;
     success(
       `Shipment ${res.shipment} submitted`,
-      `${res.parcels} parcels · ${fmtMAD(res.value)} MAD handed to ${CARRIER} — orders marked Shipped`,
+      `${res.parcels} parcels · ${fmtMAD(res.value)} MAD handed to ${CARRIER} — orders marked Shipped`
+        + (res.dropped ? ` · ${res.dropped} ${t("mani.droppedNote")}` : ""),
     );
     await loadManifest();
   } catch (e) {
@@ -293,6 +358,7 @@ async function loadManifest() {
     }));
     pool.value = [];
     if (live.notOnManifest != null) notLabeled.value = Number(live.notOnManifest) || 0;
+    staleDrafts.value = Array.isArray(live.staleDrafts) ? live.staleDrafts : [];
   }
 
   // Recent manifests from `shipping.shipments` (demo rows stay as fallback).

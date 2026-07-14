@@ -232,12 +232,14 @@ onMounted(async () => {
   if (live && live.length) shipments.value = live;
 });
 
+// Real statuses only — Booked/Completed never occur on this site's Shipments
+// (Draft 19 / Submitted 148 / Cancelled 3 in production), so those filters
+// were permanently-dead buttons.
 const statusFilters = computed(() => [
   { key: "all", label: t("shp.fAll") },
   { key: "Draft", label: t("shp.fDraft") },
   { key: "Submitted", label: t("shp.fSubmitted") },
-  { key: "Booked", label: t("shp.fBooked") },
-  { key: "Completed", label: t("shp.fCompleted") },
+  { key: "Cancelled", label: t("shp.fCancelled") },
 ]);
 
 // status → pill color by status
@@ -266,23 +268,40 @@ const shown = computed(() =>
   )
 );
 
-// KPI strip: this-week shipments, parcels today, avg value
+// KPI strip: this-week shipments, parcels today (really today — the old code
+// showed the FIRST row's parcels whatever its date), avg value, last manifest.
+const todayYmd = new Date().toISOString().slice(0, 10);
 const weekCount = computed(() => {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 7);
   return shipments.value.filter((s) => new Date(s.date) >= cutoff).length;
 });
-const parcelsToday = computed(() => shipments.value[0]?.parcels ?? 0);
+const parcelsToday = computed(() =>
+  shipments.value.filter((s) => s.date === todayYmd).reduce((a, s) => a + s.parcels, 0));
 const avgValue = computed(() => {
   if (!shipments.value.length) return 0;
   return Math.round(shipments.value.reduce((a, s) => a + s.value, 0) / shipments.value.length);
+});
+// Last handed-over manifest: the loudest signal on this page — if it's days
+// old, printed parcels are missing the truck.
+const lastManifest = computed(() => {
+  const d = shipments.value.find((s) => s.status === "Submitted")?.date;
+  if (!d) return { text: "—", days: null };
+  const days = Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 86400000));
+  return { text: d, days };
 });
 
 const kpis = computed(() => [
   { label: t("shp.weekCount"), icon: "truck", tone: "bg-stone-100 text-stone-500", value: weekCount.value },
   { label: t("shp.parcelsToday"), icon: "package", tone: "bg-cyan-50 text-cyan-600", value: parcelsToday.value },
   { label: t("shp.avgValue"), icon: "trending-up", tone: "bg-emerald-50 text-emerald-600", value: fmtMAD(avgValue.value), unit: "MAD" },
-  { label: t("shp.carrier"), icon: "send", tone: "bg-amber-50 text-amber-600", value: CARRIER },
+  { label: t("shp.lastManifest"),
+    icon: "send",
+    tone: lastManifest.value.days != null && lastManifest.value.days > 1
+      ? "bg-rose-50 text-rose-600" : "bg-amber-50 text-amber-600",
+    value: lastManifest.value.text,
+    unit: lastManifest.value.days != null && lastManifest.value.days > 0
+      ? `· ${lastManifest.value.days} ${t("shp.daysAgo")}` : "" },
 ]);
 
 // selected shipment
