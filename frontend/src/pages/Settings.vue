@@ -97,6 +97,46 @@
       </ul>
     </div>
 
+    <!-- Operations (manager): every tunable the portal used to hardcode -->
+    <div v-if="role === 'manager'" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-5">
+      <div class="flex items-center justify-between gap-2 mb-1 flex-wrap">
+        <div class="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">
+          <Icon name="gauge" :size="15" /> Operations
+        </div>
+        <button
+          v-if="opsDirty"
+          class="h-8 px-3 rounded-lg text-[12px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-50"
+          :disabled="opsSaving" @click="saveOps"
+        >{{ opsSaving ? "Saving…" : "Save changes" }}</button>
+      </div>
+      <p class="text-[11.5px] text-stone-500 mb-3">These drive the whole portal — the manifest countdown, the floor board pace, low-stock flags, the SLA promise and the short-pick cooldown.</p>
+
+      <div v-if="opsLoading" class="space-y-2">
+        <div v-for="n in 3" :key="n" class="h-[52px] rounded-lg bg-stone-50 ring-1 ring-stone-200/60 animate-pulse" />
+      </div>
+
+      <ul v-else-if="ops" class="divide-y divide-stone-100">
+        <li v-for="f in opsFields" :key="f.key" class="flex items-center justify-between py-3 gap-3">
+          <div class="min-w-0">
+            <div class="text-[12.5px] font-medium text-stone-900">{{ f.label }}</div>
+            <div class="text-[11px] text-stone-500">{{ f.hint }}</div>
+          </div>
+          <input
+            v-if="f.type === 'time'" v-model="ops[f.key]" type="time"
+            class="h-9 px-2.5 rounded-lg bg-white ring-1 ring-stone-200 text-[13px] font-semibold text-stone-900 tabular-nums outline-none focus:ring-stone-400 flex-shrink-0"
+          />
+          <div v-else class="flex items-center gap-1.5 flex-shrink-0">
+            <input
+              v-model.number="ops[f.key]" type="number" :min="f.min" :max="f.max"
+              class="w-[76px] h-9 px-2 rounded-lg bg-white ring-1 ring-stone-200 text-[13px] font-semibold text-stone-900 tabular-nums text-center outline-none focus:ring-stone-400"
+            />
+            <span class="text-[11px] text-stone-400 w-[42px]">{{ f.unit }}</span>
+          </div>
+        </li>
+      </ul>
+      <div v-else class="text-[12px] text-stone-400 py-4">Couldn't load — deploy the latest backend.</div>
+    </div>
+
     <!-- Pickable warehouses (manager) -->
     <div v-if="role === 'manager'" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-5">
       <div class="flex items-center gap-2 mb-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">
@@ -129,7 +169,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { computed, ref, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { useAuth } from "@/composables/useAuth";
 import { useTheme } from "@/composables/useTheme";
@@ -159,6 +199,60 @@ function toggle(n) {
   success("Preference saved", `${n.label} ${n.on ? "on" : "off"}`);
 }
 
+// ── Operations settings (manager) ────────────────────────────────────
+const ops = ref(null);
+const opsSaved = ref(null);
+const opsLoading = ref(true);
+const opsSaving = ref(false);
+
+const opsFields = [
+  { key: "cutoff", type: "time", label: "Manifest cutoff",
+    hint: "Carrier hand-off deadline — countdowns, today's cycle boundary, cutoff %" },
+  { key: "dayTarget", type: "num", min: 1, max: 500, unit: "orders",
+    label: "Daily target / person", hint: "Floor board pace + leaderboard target" },
+  { key: "floorStart", type: "num", min: 0, max: 23, unit: "h",
+    label: "Floor day starts", hint: "Hourly-rate denominators and the intake chart" },
+  { key: "floorEnd", type: "num", min: 1, max: 23, unit: "h",
+    label: "Floor day ends", hint: "Last hour on the intake chart" },
+  { key: "lowThreshold", type: "num", min: 0, max: 1000, unit: "units",
+    label: "Low-stock threshold", hint: "A SKU at or below this counts as low" },
+  { key: "slaDays", type: "num", min: 1, max: 30, unit: "days",
+    label: "Delivery promise", hint: "SLA engine — expected delivery = ship date + this" },
+  { key: "shortPickCooldownH", type: "num", min: 0, max: 168, unit: "hours",
+    label: "Short-pick cooldown", hint: "How long an order stays off the pick pool after a shelf-empty report" },
+];
+
+const opsDirty = computed(() =>
+  !!ops.value && !!opsSaved.value &&
+  JSON.stringify(ops.value) !== JSON.stringify(opsSaved.value));
+
+async function loadOps() {
+  if (role.value !== "manager") { opsLoading.value = false; return; }
+  try {
+    const r = await api("settings.ops_settings");
+    if (r && typeof r === "object" && r.cutoff) {
+      ops.value = { ...r };
+      opsSaved.value = { ...r };
+    }
+  } catch (_) { /* hint card shows */ } finally {
+    opsLoading.value = false;
+  }
+}
+
+async function saveOps() {
+  opsSaving.value = true;
+  try {
+    const r = await apiPost("settings.save_ops_settings", { settings: ops.value });
+    ops.value = { ...r };
+    opsSaved.value = { ...r };
+    success("Operations settings saved", "Applied portal-wide immediately");
+  } catch (e) {
+    warn("Couldn't save", String(e.message || e));
+  } finally {
+    opsSaving.value = false;
+  }
+}
+
 // ── Pickable warehouses (manager) ────────────────────────────────────
 const zones = ref([]);
 const whLoading = ref(false);
@@ -186,5 +280,5 @@ async function toggleZone(z) {
     whSaving.value = false;
   }
 }
-onMounted(loadWarehouses);
+onMounted(() => { loadWarehouses(); loadOps(); });
 </script>

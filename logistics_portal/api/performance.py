@@ -124,10 +124,12 @@ def cockpit(date=None):
             {"custom_track_shipment_status": ["in", ["In Transit", "Out For Delivery"]],
              "posting_date": [">=", sla_since]},
         ) or by.get("shipped", 0)
-        # Orders created that day before the 17:00 manifest cutoff.
+        # Orders created that day before the manifest cutoff (ops setting).
+        from logistics_portal.api.settings import get_ops
+        _cut = get_ops("cutoff")
         before_cutoff = frappe.db.sql(
-            "SELECT COUNT(*) FROM `tabSales Order` WHERE docstatus=1 AND creation >= %s AND creation < CONCAT(%s, ' 17:00:00')",
-            (day, day),
+            "SELECT COUNT(*) FROM `tabSales Order` WHERE docstatus=1 AND creation >= %s AND creation < CONCAT(%s, ' ', %s, ':00')",
+            (day, day, _cut),
         )[0][0]
 
         summary = {
@@ -144,7 +146,7 @@ def cockpit(date=None):
             "attention": sum(int(v or 0) for v in (attention or {}).values()),
             "totalOrders": total,
             "sameDayPct": _sla_hit_rate(sla_since),
-            "cutoff": "17:00",
+            "cutoff": _cut,
             "beforeCutoff": int(before_cutoff or 0),
             "cutoffPct": round((before_cutoff or 0) * 100 / max(1, orders_in)),
         }
@@ -211,8 +213,10 @@ def floor():
             (today, today), as_dict=True,
         )
         by_hour = {int(r.h): int(r.c) for r in rows}
-        # 8:00 → 20:00 window like the design
-        hours = [{"h": h, "count": by_hour.get(h, 0)} for h in range(8, 21)]
+        from logistics_portal.api.settings import get_ops
+        ops = get_ops()
+        f_start, f_end = int(ops["floorStart"]), int(ops["floorEnd"])
+        hours = [{"h": h, "count": by_hour.get(h, 0)} for h in range(f_start, f_end + 1)]
         total_today = sum(by_hour.values())
 
         picked = frappe.db.sql(
@@ -234,8 +238,8 @@ def floor():
         packed = int(printed) + int(shipped)
 
         now = now_datetime()
-        elapsed = max(1.0, (now.hour + now.minute / 60.0) - 8)  # floor opens 8:00
-        target = int(frappe.db.get_default("lp_floor_target") or 40)
+        elapsed = max(1.0, (now.hour + now.minute / 60.0) - f_start)
+        target = int(ops["dayTarget"])
 
         def station(name, count):
             rate = round(count / elapsed, 1)
@@ -247,7 +251,8 @@ def floor():
             station("Labeling", labeled), station("Shipping", shipped),
         ]
         bottleneck = min(stations, key=lambda s: s["rate"] / (s["target"] or 1))
-        cutoff_min = max(0, 17 * 60 - (now.hour * 60 + now.minute))  # 17:00 manifest
+        ch, cm = (int(x) for x in str(ops["cutoff"]).split(":"))
+        cutoff_min = max(0, ch * 60 + cm - (now.hour * 60 + now.minute))
 
         return {
             "hours": hours,

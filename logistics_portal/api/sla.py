@@ -16,7 +16,8 @@ def _delivery_days():
         v = frappe.db.get_single_value("Logistics SLA Settings", "default_delivery_days")
         if v:
             return int(v)
-    return DEFAULT_DELIVERY_DAYS
+    from logistics_portal.api.settings import get_ops
+    return int(get_ops("slaDays") or DEFAULT_DELIVERY_DAYS)
 
 
 def run_sla_engine():

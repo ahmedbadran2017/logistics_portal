@@ -287,7 +287,9 @@ def _board_counts():
     # How many To Pick orders already missed today's 14:00 same-day cutoff.
     from frappe.utils import now_datetime, nowdate
     _now = now_datetime()
-    cutoff_dt = f"{nowdate()} 14:00:00" if str(_now)[11:16] >= "14:00" else f"{nowdate()} 00:00:00"
+    from logistics_portal.api.settings import get_ops
+    _cut = get_ops("cutoff")
+    cutoff_dt = f"{nowdate()} {_cut}:00" if str(_now)[11:16] >= _cut else f"{nowdate()} 00:00:00"
     late = frappe.db.sql(
         """SELECT COUNT(*) FROM `tabSales Order` so
            LEFT JOIN (SELECT DISTINCT pli.sales_order FROM `tabPick List Item` pli) pl

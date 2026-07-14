@@ -2,7 +2,10 @@
 
 import frappe
 
-LOW_THRESHOLD = 10  # units at/below which a SKU is "low" (until Item reorder levels are wired)
+def _low_threshold():
+    """Low-stock threshold — manager-tunable (Settings → Operations)."""
+    from logistics_portal.api.settings import get_ops
+    return int(get_ops("lowThreshold"))
 
 
 def _grp_case(col="b.warehouse"):
@@ -40,7 +43,7 @@ def stock(limit=30, offset=0, q="", state="", group=""):
             like = f"%{str(q).strip()}%"
             filters.append("(b.item_code LIKE %s OR i.custom_sku LIKE %s OR i.item_name LIKE %s)")
             vals += [like, like, like]
-        having = f"HAVING SUM(b.actual_qty) <= {int(LOW_THRESHOLD)}" if state == "low" else ""
+        having = f"HAVING SUM(b.actual_qty) <= {int(_low_threshold())}" if state == "low" else ""
         base = f"""FROM `tabBin` b
             LEFT JOIN `tabItem` i ON i.name = b.item_code
             WHERE {' AND '.join(filters)}"""
@@ -81,7 +84,7 @@ def stock(limit=30, offset=0, q="", state="", group=""):
                 "reserved": reserved,
                 "available": on_hand - reserved,
                 "value": int(r.value or 0),
-                "state": "low" if on_hand <= LOW_THRESHOLD else "ok",
+                "state": "low" if on_hand <= _low_threshold() else "ok",
             })
         return {"rows": out, "total": int(total or 0), "limit": limit, "offset": offset}
     except Exception:
@@ -102,7 +105,7 @@ def zones(warehouse_like="%JM%"):
             WHERE b.warehouse LIKE %s
             GROUP BY b.warehouse ORDER BY skus DESC
             """,
-            (LOW_THRESHOLD, warehouse_like), as_dict=True,
+            (_low_threshold(), warehouse_like), as_dict=True,
         )
         out = []
         for r in rows:
@@ -145,7 +148,7 @@ def stats():
                     WHERE {cond} AND b.actual_qty > 0
                     GROUP BY b.item_code
                 ) t""",
-            tuple([LOW_THRESHOLD] + list(args)), as_dict=True)[0]
+            tuple([_low_threshold()] + list(args)), as_dict=True)[0]
 
         # Stock exists somewhere in JM, but ZERO of it is on a sellable shelf.
         stranded = frappe.db.sql(

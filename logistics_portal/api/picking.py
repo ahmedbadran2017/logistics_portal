@@ -555,7 +555,8 @@ def _pick_gate(name):
     if spa:
         from frappe.utils import time_diff_in_seconds, now_datetime
         try:
-            if time_diff_in_seconds(now_datetime(), spa) < 24 * 3600:
+            from logistics_portal.api.settings import get_ops
+            if time_diff_in_seconds(now_datetime(), spa) < int(get_ops("shortPickCooldownH")) * 3600:
                 return "short-picked recently (shelf empty)"
         except Exception:
             pass
@@ -887,7 +888,8 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
         _now = now_datetime()
         cutoff = f"{nowdate()} 14:00:00"
         day0 = f"{nowdate()} 00:00:00"
-        past_cutoff = str(_now)[11:16] >= "14:00"
+        from logistics_portal.api.settings import get_ops
+        past_cutoff = str(_now)[11:16] >= get_ops("cutoff")
         for o in orders.values():
             c = o["creation"]
             o["missed"] = c < day0 or (past_cutoff and c < cutoff)

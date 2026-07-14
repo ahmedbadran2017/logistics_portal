@@ -414,8 +414,9 @@ def today_manifest():
             "Sales Order",
             {"docstatus": 1, "custom_logistics_status": ["in", ["Label Generated", "Label Printed"]],
              "creation": [">=", add_days(nowdate(), -7)]})
+        from logistics_portal.api.settings import get_ops
         base = {
-            "carrier": "Cathedis", "cutoff": "14:00",
+            "carrier": "Cathedis", "cutoff": get_ops("cutoff"),
             "readyCount": len(_ready_parcels()),
             "notOnManifest": not_on,
             "staleDrafts": _stale_drafts(),
