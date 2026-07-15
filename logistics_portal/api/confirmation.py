@@ -46,7 +46,7 @@ def _gate():
 def board(tab="pending", days=30, q="", limit=30, offset=0):
     """The four queues + counts + my day so far, one call."""
     _gate()
-    if tab not in QUEUES:
+    if tab not in QUEUES and tab != "backlog":
         tab = "pending"
     days = min(max(int(days or 30), 1), 90)
     limit = min(max(int(limit or 30), 1), 100)
@@ -63,10 +63,22 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
         for k, v in QUEUES.items():
             if v == r.s:
                 counts[k] = int(r.n or 0)
+    # Orders that aged past the working window (2,900 were invisible) —
+    # an explicit tab with bulk-expire instead of a silent cutoff.
+    counts["backlog"] = int(frappe.db.sql(
+        """SELECT COUNT(*) FROM `tabSales Order`
+           WHERE docstatus = 1 AND custom_sales_status IN %(sts)s
+             AND creation < DATE_SUB(NOW(), INTERVAL %(days)s DAY)""",
+        {"sts": tuple(QUEUES.values()), "days": days})[0][0])
 
-    conds = ["so.docstatus = 1", "so.custom_sales_status = %(status)s",
-             "so.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)"]
-    vals["status"] = QUEUES[tab]
+    if tab == "backlog":
+        conds = ["so.docstatus = 1", "so.custom_sales_status IN %(statuses)s",
+                 "so.creation < DATE_SUB(NOW(), INTERVAL %(days)s DAY)"]
+        vals["statuses"] = tuple(QUEUES.values())
+    else:
+        conds = ["so.docstatus = 1", "so.custom_sales_status = %(status)s",
+                 "so.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)"]
+        vals["status"] = QUEUES[tab]
     if q and str(q).strip():
         vals["q"] = f"%{str(q).strip()}%"
         conds.append("""(so.name LIKE %(q)s OR so.customer_name LIKE %(q)s
@@ -78,7 +90,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
     # Retry queues surface what's DUE first (next_call in the past, oldest
     # deferral first); pending is simply oldest-first.
     order_by = ("COALESCE(so.custom_next_call_at, so.creation), so.creation"
-                if tab != "pending" else "so.creation")
+                if tab not in ("pending", "backlog") else "so.creation")
     rows = frappe.db.sql(
         f"""SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
                    COALESCE(NULLIF(so.custom_customer_phone,''),
@@ -199,6 +211,51 @@ def act(order, action, note=None):
             frappe.cache().delete_value(k)
         frappe.cache().delete_keys("lp_suggest")
     return {"ok": True, "order": order, "action": action, "attempts": attempts}
+
+
+@frappe.whitelist()
+def bulk_cancel(orders=None, reason=None):
+    """Expire a slice of the confirmation backlog in one move. Section
+    admins/manager only — one reason applies to the whole batch."""
+    import json as _json
+    _gate()
+    if not _is_cf_admin():
+        frappe.throw("Only the portal manager or a confirmation section admin "
+                     "can bulk-cancel.", frappe.PermissionError)
+    if isinstance(orders, str):
+        orders = _json.loads(orders)
+    orders = [str(x).strip() for x in (orders or []) if str(x).strip()]
+    if not orders:
+        frappe.throw("Nothing selected.")
+    if len(orders) > 200:
+        frappe.throw("200 orders max per batch.")
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw("A bulk cancel needs a reason.")
+    now = now_datetime()
+    has_reason_field = frappe.get_meta("Sales Order").has_field(
+        "custom_cancellation_reason")
+    done, skipped = [], []
+    for name in orders:
+        so = frappe.db.get_value(
+            "Sales Order", name, ["docstatus", "custom_sales_status"], as_dict=True)
+        if not so or so.docstatus != 1 or so.custom_sales_status not in QUEUES.values():
+            skipped.append(name)
+            continue
+        updates = {"custom_sales_status": "Cancelled",
+                   "custom_confirmation_agent": frappe.session.user,
+                   "custom_last_call_at": now, "custom_next_call_at": None}
+        if has_reason_field:
+            updates["custom_cancellation_reason"] = reason[:140]
+        frappe.db.set_value("Sales Order", name, updates, update_modified=True)
+        frappe.get_doc("Sales Order", name).add_comment(
+            "Comment", f"Confirmation: cancel — {reason} · bulk by {frappe.session.user}")
+        done.append(name)
+    frappe.db.commit()
+    for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    frappe.cache().delete_keys("lp_suggest")
+    return {"ok": True, "done": len(done), "skipped": skipped}
 
 
 @frappe.whitelist()

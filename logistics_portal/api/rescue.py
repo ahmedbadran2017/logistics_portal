@@ -14,10 +14,12 @@ Production workload at build time: 3,678 untriaged Delivery Exceptions +
 import frappe
 from frappe.utils import add_to_date, now_datetime
 
-TABS = ("exceptions", "failed", "notdelivered", "stale")
+TABS = ("exceptions", "failed", "notdelivered", "stale", "backlog")
 _DN_TRACK = {"exceptions": "Delivery Exception", "failed": "Failed Attempt"}
 _STALE_TRACKS = ("Out For Delivery", "In Transit", "Pending")
 _STALE_DAYS = 7
+# Everything the working queues track, for the older-than-window backlog.
+_BACKLOG_TRACKS = ("Delivery Exception", "Failed Attempt") + _STALE_TRACKS
 
 
 def _gate():
@@ -119,6 +121,14 @@ _DN_SELECT = """
 
 
 def _dn_where(tab, vals):
+    if tab == "backlog":
+        # The pile OLDER than the working window — 17k untriaged parcels were
+        # invisible when every queue clipped at `days`. Worked by bulk triage.
+        vals["backtracks"] = _BACKLOG_TRACKS
+        return " AND ".join([
+            "dn.docstatus = 1", "COALESCE(dn.custom_exception_action,'') = ''",
+            "dn.custom_track_shipment_status IN %(backtracks)s",
+            "dn.posting_date < DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"])
     conds = ["dn.docstatus = 1", "COALESCE(dn.custom_exception_action,'') = ''",
              "dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"]
     if tab in _DN_TRACK:
@@ -144,7 +154,7 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
     vals = {"days": days, "limit": limit, "offset": offset}
 
     counts = {}
-    for t in ("exceptions", "failed", "stale"):
+    for t in ("exceptions", "failed", "stale", "backlog"):
         v = dict(vals)
         counts[t] = int(frappe.db.sql(
             f"SELECT COUNT(*) FROM `tabDelivery Note` dn WHERE {_dn_where(t, v)}",
@@ -239,7 +249,7 @@ def act(id=None, action=None, note=None):
     _gate()
     id = (id or "").strip()
     note = (note or "").strip()
-    if action not in ("redeliver", "reship", "returnreq", "dna", "cancel"):
+    if action not in ("redeliver", "reship", "returnreq", "dna", "cancel", "resolve"):
         frappe.throw("Unknown action.")
 
     is_dn = frappe.db.exists("Delivery Note", id)
@@ -267,10 +277,11 @@ def act(id=None, action=None, note=None):
               + f" · by {frappe.session.user}"
 
     # Parcel-side record (turns the exceptions pile into a worked queue).
-    if dn and action in ("redeliver", "reship", "returnreq", "cancel"):
+    if dn and action in ("redeliver", "reship", "returnreq", "cancel", "resolve"):
         dn_action = {"redeliver": "Redeliver", "reship": "Redeliver",
                      "returnreq": "Return Requested",
-                     "cancel": "Return Requested"}[action]
+                     "cancel": "Return Requested",
+                     "resolve": "Resolved"}[action]
         doc = frappe.get_doc("Delivery Note", dn)
         if frappe.get_meta("Delivery Note").has_field("custom_exception_action"):
             doc.db_set("custom_exception_action", dn_action, update_modified=False)
@@ -301,6 +312,46 @@ def act(id=None, action=None, note=None):
     frappe.db.commit()
     return {"ok": True, "id": id, "action": action, "attempts": attempts,
             "order": order or ""}
+
+
+@frappe.whitelist()
+def bulk_act(ids=None, action=None, note=None):
+    """Bulk triage for the backlog pile: mark parcels Return Requested or
+    Resolved without the per-customer call flow. Section admins/manager only —
+    it moves hundreds of parcels in one click."""
+    import json as _json
+    _gate()
+    if not _is_rs_admin():
+        frappe.throw("Only the portal manager or a rescue section admin can "
+                     "bulk-triage.", frappe.PermissionError)
+    if isinstance(ids, str):
+        ids = _json.loads(ids)
+    ids = [str(x).strip() for x in (ids or []) if str(x).strip()]
+    if not ids:
+        frappe.throw("Nothing selected.")
+    if len(ids) > 200:
+        frappe.throw("200 parcels max per batch.")
+    if action not in ("returnreq", "resolve"):
+        frappe.throw("Unknown bulk action.")
+    note = (note or "").strip()
+    dn_action = {"returnreq": "Return Requested", "resolve": "Resolved"}[action]
+    now = now_datetime()
+    tag = (f"Rescue: {action} (bulk)" + (f" — {note}" if note else "")
+           + f" · by {frappe.session.user}")
+    done, skipped = [], []
+    has_field = frappe.get_meta("Delivery Note").has_field("custom_exception_action")
+    for dn in ids:
+        if not frappe.db.exists("Delivery Note", dn):
+            skipped.append(dn)
+            continue
+        doc = frappe.get_doc("Delivery Note", dn)
+        if has_field:
+            doc.db_set("custom_exception_action", dn_action, update_modified=False)
+            doc.db_set("custom_exception_actioned_at", now, update_modified=False)
+        doc.add_comment("Comment", tag)
+        done.append(dn)
+    frappe.db.commit()
+    return {"ok": True, "done": len(done), "skipped": skipped}
 
 
 @frappe.whitelist()

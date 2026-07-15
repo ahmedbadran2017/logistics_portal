@@ -51,6 +51,29 @@
       </div>
     </div>
 
+    <!-- backlog bulk bar -->
+    <div v-if="tab === 'backlog' && !loading && rows.length"
+         class="flex items-center gap-2.5 flex-wrap bg-white rounded-2xl ring-1 ring-stone-200/80 px-4 py-3">
+      <label class="inline-flex items-center gap-2 text-[12.5px] font-medium text-stone-700 cursor-pointer">
+        <input type="checkbox" :checked="selected.size === rows.length" class="accent-sky-600 w-4 h-4"
+               @change="toggleAll" />
+        {{ t('rs.selectPage') }}
+      </label>
+      <span class="text-[12px] text-stone-400 tabular-nums">{{ selected.size }} {{ t('rs.selectedN') }}</span>
+      <div class="flex items-center gap-2 ms-auto flex-wrap">
+        <input v-model="bulkNote" :placeholder="t('rs.bulkNotePh')" maxlength="120"
+               class="h-9 w-[200px] ps-3 pe-3 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] focus:outline-none" />
+        <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-rose-700 bg-rose-50 ring-1 ring-rose-200 hover:bg-rose-100 disabled:opacity-40 transition-colors"
+                :disabled="!selected.size || bulkBusy" @click="bulkAct('returnreq')">
+          <Icon name="rotate-ccw" :size="13" class="inline -mt-px me-1" />{{ t('rs.bulkReturn') }}
+        </button>
+        <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 hover:bg-emerald-100 disabled:opacity-40 transition-colors"
+                :disabled="!selected.size || bulkBusy" @click="bulkAct('resolve')">
+          <Icon name="check" :size="13" class="inline -mt-px me-1" />{{ t('rs.bulkResolve') }}
+        </button>
+      </div>
+    </div>
+
     <!-- rows -->
     <div v-if="loading" class="space-y-2.5">
       <div v-for="n in 6" :key="n" class="h-[76px] rounded-2xl rs-shimmer" />
@@ -65,6 +88,8 @@
            class="rs-card rounded-2xl p-4"
            :class="r.due ? 'rs-card-due' : ''">
         <div class="flex items-center gap-3.5 flex-wrap">
+          <input v-if="tab === 'backlog'" type="checkbox" class="accent-sky-600 w-4 h-4 shrink-0"
+                 :checked="selected.has(r.id)" @change="toggleOne(r.id)" />
           <span class="rs-avatar" :class="r.due ? 'rs-avatar-due' : ''">{{ initial(r.customer) }}</span>
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2 flex-wrap">
@@ -162,6 +187,7 @@ const TABS = [
   { key: "failed", label: "rs.tabFailed", icon: "alert-circle", onColor: "bg-amber-100 text-amber-700" },
   { key: "notdelivered", label: "rs.tabNotDelivered", icon: "package", onColor: "bg-violet-100 text-violet-700" },
   { key: "stale", label: "rs.tabStale", icon: "clock", onColor: "bg-sky-100 text-sky-700" },
+  { key: "backlog", label: "rs.tabBacklog", icon: "archive", onColor: "bg-stone-200 text-stone-700" },
 ];
 
 const tab = ref("exceptions");
@@ -176,6 +202,36 @@ const busy = ref("");
 const reasonFor = ref("");
 const reasonAction = ref("");
 const reason = ref("");
+const selected = ref(new Set());
+const bulkNote = ref("");
+const bulkBusy = ref(false);
+
+function toggleAll() {
+  selected.value = selected.value.size === rows.value.length
+    ? new Set() : new Set(rows.value.map((r) => r.id));
+}
+function toggleOne(id) {
+  const s = new Set(selected.value);
+  s.has(id) ? s.delete(id) : s.add(id);
+  selected.value = s;
+}
+
+async function bulkAct(action) {
+  bulkBusy.value = true;
+  try {
+    const res = await apiPost("rescue.bulk_act", {
+      ids: [...selected.value], action, note: bulkNote.value,
+    });
+    success(t("rs.bulkDone"), `${res.done}`);
+    selected.value = new Set();
+    bulkNote.value = "";
+    load();
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    bulkBusy.value = false;
+  }
+}
 
 let qTimer = null;
 function debouncedLoad() {
@@ -185,6 +241,7 @@ function debouncedLoad() {
 
 async function load() {
   loading.value = true;
+  selected.value = new Set();
   try {
     const res = await api("rescue.board", {
       tab: tab.value, q: q.value, limit: pageSize,
