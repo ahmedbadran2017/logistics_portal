@@ -227,6 +227,16 @@ async function createSuggested() {
     let msg = t("pl.sbCreated").replace("{n}", res.created);
     if (res.failed) msg += " · " + t("pl.sbFailed").replace("{n}", res.failed);
     success(msg);
+    // The combined insert can fall back to one-list-per-order (stock
+    // competition inside the batch) — that must be LOUD, not a surprise
+    // in the table.
+    const fell = (res.results || []).filter((r) => r.fellBack);
+    if (fell.length) {
+      warn(
+        t("pl.sbFellBack").replace("{n}", fell.reduce((s, r) => s + (r.pls || 0), 0)),
+        fell[0].fellBack,
+      );
+    }
     suggest.value = null;
     emit("created", res);
   } catch (e) {

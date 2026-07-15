@@ -644,15 +644,23 @@ def _build_pick_list(orders, picker=None):
                      f"in the flow): {detail}")
 
     # Happy path: one combined pick list.
+    combined_err = ""
     try:
         r = _insert_one(sos, picker)
         return {**r, "skipped": skipped, "pls": [r["pl"]]}
-    except Exception:
+    except Exception as e:
         frappe.db.rollback()
+        # This used to be swallowed silently — the 2026-07-15 mystery of
+        # "why did my batch become 13 one-order lists" with zero trace.
+        combined_err = _short_err(e)
+        frappe.log_error(frappe.get_traceback(),
+                         "logistics_portal.combined_insert_fell_back")
 
-    # Fallback: live-stock contention emptied or blocked the combined insert.
-    # Insert per order, commit each success, skip (and report) the ones that
-    # can't be picked right now — so the dispatcher still gets pick lists.
+    # Fallback: live-stock contention emptied or blocked the combined insert
+    # (ecommerce_integrations' remove_incomplete_orders drops orders whose
+    # stock can't FULLY cover them — in a combined doc they compete for the
+    # same SKUs). Insert per order, commit each success, skip (and report)
+    # the ones that can't be picked right now.
     made = []
     for so in sos:
         try:
@@ -666,7 +674,8 @@ def _build_pick_list(orders, picker=None):
         frappe.throw(f"Couldn't pick any of the selected orders — {detail}")
     return {"pl": made[0]["pl"], "orders": sum(m["orders"] for m in made),
             "items": sum(m["items"] for m in made),
-            "pls": [m["pl"] for m in made], "skipped": skipped}
+            "pls": [m["pl"] for m in made], "skipped": skipped,
+            "fellBack": combined_err or "combined insert failed"}
 
 
 @frappe.whitelist()
@@ -1302,8 +1311,12 @@ def _autopilot_core(trigger):
             frappe.db.commit()
             created += 1
             placed += len(b["orders"])
-            details.append({"pl": r["pl"], "kind": b["kind"], "orders": len(b["orders"]),
-                            "picker": picker or ""})
+            d = {"pl": r["pl"], "kind": b["kind"], "orders": len(b["orders"]),
+                 "picker": picker or ""}
+            if r.get("fellBack"):
+                d["fellBack"] = r["fellBack"]
+                d["pls"] = len(r.get("pls") or [])
+            details.append(d)
         except Exception as e:
             frappe.db.rollback()
             failed += 1
