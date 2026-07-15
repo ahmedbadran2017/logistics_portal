@@ -117,6 +117,8 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
                    GROUP BY parent""", (tuple(r.name for r in rows),)):
             items_text[parent] = (txt or "")[:240]
 
+    sla_h = _cf_settings().get("slaFirstCallH", 6)
+
     today = str(now_datetime())[:10]
     mine = {"confirm": 0, "cancel": 0, "dna": 0, "followup": 0, "onhold": 0,
             "duplicate": 0}
@@ -145,6 +147,9 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
             "nextCall": str(r.next_call)[:16] if r.next_call else "",
             "agent": (r.agent or "").split("@")[0],
             "due": bool(r.next_call and str(r.next_call) <= str(now_datetime())),
+            # First-call SLA: never touched and older than the target.
+            "slaBreached": bool(int(r.attempts or 0) == 0
+                                and int(r.age_h or 0) > sla_h),
         } for r in rows],
         "mine": mine,
         "reasons": _cf_settings().get("reasons", []),
@@ -301,6 +306,7 @@ _CF_DEFAULTS = {
     "retryDna": 4,        # hours before a Did-not-Answer resurfaces
     "retryFollowup": 24,
     "retryOnhold": 48,
+    "slaFirstCallH": 6,   # a Pending order untouched longer than this is late
     "reasons": ["Prix trop élevé", "Commande par erreur", "Ne répond plus",
                 "Adresse hors zone", "Commande dupliquée", "A changé d'avis"],
     "admins": [],         # section admins (user emails)
@@ -347,7 +353,7 @@ def save_cf_settings(settings=None):
         settings = _json.loads(settings)
     settings = settings or {}
     out = dict(_cf_settings())
-    for k in ("retryDna", "retryFollowup", "retryOnhold"):
+    for k in ("retryDna", "retryFollowup", "retryOnhold", "slaFirstCallH"):
         if k in settings:
             v = int(settings[k])
             if not (1 <= v <= 168):

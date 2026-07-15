@@ -34,6 +34,7 @@ def _gate():
 _RS_KEY = "lp_rescue_settings"
 _RS_DEFAULTS = {
     "retryDna": 6,
+    "slaTriageH": 24,   # a failing parcel untouched longer than this is late
     "reasons": ["Client injoignable", "Refuse le colis", "Adresse introuvable",
                 "Reporté par le client", "Annulé par le client"],
     "admins": [],
@@ -78,11 +79,12 @@ def save_rs_settings(settings=None):
         settings = _json.loads(settings)
     settings = settings or {}
     out = dict(_rs_settings())
-    if "retryDna" in settings:
-        v = int(settings["retryDna"])
-        if not (1 <= v <= 168):
-            frappe.throw("retryDna must be between 1 and 168 hours.")
-        out["retryDna"] = v
+    for k in ("retryDna", "slaTriageH"):
+        if k in settings:
+            v = int(settings[k])
+            if not (1 <= v <= 168):
+                frappe.throw(f"{k} must be between 1 and 168 hours.")
+            out[k] = v
     if "reasons" in settings:
         reasons = [str(r).strip()[:60] for r in (settings["reasons"] or []) if str(r).strip()]
         if not reasons:
@@ -218,6 +220,7 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
                 mine[k] += int(r.n or 0)
 
     now = str(now_datetime())
+    sla_h = _rs_settings().get("slaTriageH", 24)
     return {
         "tab": tab, "counts": counts, "total": int(total or 0),
         "rows": [{
@@ -228,6 +231,9 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
             "ageD": int(r.age_d or 0), "attempts": int(r.attempts or 0),
             "nextCall": str(r.next_call)[:16] if r.next_call else "",
             "due": bool(r.next_call and str(r.next_call) <= now),
+            # Triage SLA: nobody touched the failing parcel within the target.
+            "slaBreached": bool(int(r.attempts or 0) == 0
+                                and int(r.age_d or 0) * 24 > sla_h),
         } for r in rows],
         "mine": mine,
         "reasons": _rs_settings().get("reasons", []),

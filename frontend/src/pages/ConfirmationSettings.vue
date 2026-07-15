@@ -99,6 +99,7 @@ const TIMERS = [
   { key: "retryDna", label: "cfs.tDna" },
   { key: "retryFollowup", label: "cfs.tFollowup" },
   { key: "retryOnhold", label: "cfs.tOnhold" },
+  { key: "slaFirstCallH", label: "cfs.tSla" },
 ];
 
 const s = ref(null);
@@ -138,7 +139,8 @@ async function save() {
   try {
     const payload = {
       retryDna: s.value.retryDna, retryFollowup: s.value.retryFollowup,
-      retryOnhold: s.value.retryOnhold, reasons: s.value.reasons,
+      retryOnhold: s.value.retryOnhold, slaFirstCallH: s.value.slaFirstCallH,
+      reasons: s.value.reasons,
     };
     if (isManager.value) payload.admins = s.value.admins;
     const res = await apiPost("confirmation.save_cf_settings", { settings: payload });

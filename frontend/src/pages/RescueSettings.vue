@@ -19,15 +19,26 @@
         <div class="flex items-center gap-2 text-[12px] font-semibold text-stone-900">
           <Icon name="clock" :size="14" class="text-stone-400" /> {{ t('cfs.timersTitle') }}
         </div>
-        <label class="block max-w-[260px]">
-          <span class="text-[11.5px] font-medium text-stone-600">{{ t('cfs.tDna') }}</span>
-          <div class="flex items-center gap-2 mt-1">
-            <input v-model.number="s.retryDna" type="number" min="1" max="168" :disabled="!s.canEdit"
-                   class="w-full h-10 ps-3 pe-3 rounded-lg bg-white ring-1 ring-stone-200 text-[13px] tabular-nums focus:outline-none focus:ring-2 disabled:bg-stone-50"
-                   style="--tw-ring-color: rgb(125 211 252)" @input="dirty = true" />
-            <span class="text-[11.5px] text-stone-400">{{ t('cfs.hours') }}</span>
-          </div>
-        </label>
+        <div class="grid sm:grid-cols-2 gap-3 max-w-[560px]">
+          <label class="block">
+            <span class="text-[11.5px] font-medium text-stone-600">{{ t('cfs.tDna') }}</span>
+            <div class="flex items-center gap-2 mt-1">
+              <input v-model.number="s.retryDna" type="number" min="1" max="168" :disabled="!s.canEdit"
+                     class="w-full h-10 ps-3 pe-3 rounded-lg bg-white ring-1 ring-stone-200 text-[13px] tabular-nums focus:outline-none focus:ring-2 disabled:bg-stone-50"
+                     style="--tw-ring-color: rgb(125 211 252)" @input="dirty = true" />
+              <span class="text-[11.5px] text-stone-400">{{ t('cfs.hours') }}</span>
+            </div>
+          </label>
+          <label class="block">
+            <span class="text-[11.5px] font-medium text-stone-600">{{ t('rss.tSla') }}</span>
+            <div class="flex items-center gap-2 mt-1">
+              <input v-model.number="s.slaTriageH" type="number" min="1" max="168" :disabled="!s.canEdit"
+                     class="w-full h-10 ps-3 pe-3 rounded-lg bg-white ring-1 ring-stone-200 text-[13px] tabular-nums focus:outline-none focus:ring-2 disabled:bg-stone-50"
+                     style="--tw-ring-color: rgb(125 211 252)" @input="dirty = true" />
+              <span class="text-[11.5px] text-stone-400">{{ t('cfs.hours') }}</span>
+            </div>
+          </label>
+        </div>
       </div>
 
       <!-- reasons -->
@@ -134,7 +145,8 @@ function addAdmin() {
 async function save() {
   saving.value = true;
   try {
-    const payload = { retryDna: s.value.retryDna, reasons: s.value.reasons };
+    const payload = { retryDna: s.value.retryDna, slaTriageH: s.value.slaTriageH,
+                      reasons: s.value.reasons };
     if (isManager.value) payload.admins = s.value.admins;
     const res = await apiPost("rescue.save_rs_settings", { settings: payload });
     Object.assign(s.value, res);

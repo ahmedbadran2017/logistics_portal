@@ -97,6 +97,7 @@
               <span class="font-mono text-[11px] text-stone-400">{{ r.order || r.dn }}</span>
               <span class="rs-track" :class="trackClass(r.track)">{{ t('track.' + trackKey(r.track), r.track) }}</span>
               <span v-if="r.due" class="rs-due-badge">{{ t('cf.due') }}</span>
+              <span v-else-if="r.slaBreached && tab !== 'backlog'" class="rs-due-badge">{{ t('rs.slaLate') }}</span>
             </div>
             <div class="flex items-center gap-2.5 text-[11.5px] text-stone-500 tabular-nums mt-1 flex-wrap">
               <span class="font-semibold text-stone-800">{{ fmtMAD(r.total) }} <span class="text-stone-400 font-normal">MAD</span></span>
