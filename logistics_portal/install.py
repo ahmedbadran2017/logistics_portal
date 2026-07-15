@@ -80,6 +80,20 @@ _DN_EXC_FIELDS = [
      "fieldtype": "Datetime", "read_only": 1, "no_copy": 1, "hidden": 1},
 ]
 
+_SO_CONTACT_FIELDS = [
+    # Contact Center (confirmation lane): who called, when, how many times,
+    # and when to retry. The WhatsApp automation stays first-line; these track
+    # the human tail it can't close.
+    {"fieldname": "custom_call_attempts", "label": "Call Attempts", "fieldtype": "Int",
+     "default": "0", "read_only": 1, "no_copy": 1, "hidden": 1},
+    {"fieldname": "custom_last_call_at", "label": "Last Call At", "fieldtype": "Datetime",
+     "read_only": 1, "no_copy": 1, "hidden": 1},
+    {"fieldname": "custom_next_call_at", "label": "Next Call At", "fieldtype": "Datetime",
+     "read_only": 1, "no_copy": 1, "hidden": 1},
+    {"fieldname": "custom_confirmation_agent", "label": "Confirmation Agent", "fieldtype": "Data",
+     "read_only": 1, "no_copy": 1, "hidden": 1},
+]
+
 _SO_SHORT_FIELDS = [
     # Set when a picker reports the item physically missing (short pick):
     # batching skips the order for 24h so it doesn't bounce straight back
@@ -93,7 +107,7 @@ def ensure_pick_fields():
     try:
         from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
         create_custom_fields({"Pick List Item": _PLI_FIELDS,
-                              "Sales Order": _SO_SHORT_FIELDS,
+                              "Sales Order": _SO_SHORT_FIELDS + _SO_CONTACT_FIELDS,
                               "Delivery Note": _DN_EXC_FIELDS}, ignore_validate=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_pick_fields")

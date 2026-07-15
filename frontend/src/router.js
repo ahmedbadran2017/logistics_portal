@@ -23,6 +23,9 @@ const routes = [
       { path: "labels", name: "LabelQueue", component: () => import("@/pages/LabelQueue.vue") },
       { path: "manifest", name: "Manifest", component: () => import("@/pages/Manifest.vue") },
 
+      // Contact center (confirmation lane)
+      { path: "confirmation", name: "Confirmation", component: () => import("@/pages/Confirmation.vue") },
+
       // Dispatcher
       { path: "assign", name: "Assign", component: () => import("@/pages/Assign.vue") },
       { path: "pipeline", name: "Pipeline", component: () => import("@/pages/Pipeline.vue") },

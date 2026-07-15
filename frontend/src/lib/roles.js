@@ -25,6 +25,7 @@ export const ROLE_CONFIG = {
         section: "nav.fulfillment",
         items: [
           { to: "Pipeline", label: "nav.orders", icon: "shopping-bag" },
+          { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
           { to: "Consolidation", label: "nav.consolidation", icon: "git-merge" },
           { to: "PickLists", label: "nav.picklists", icon: "package" },
           { to: "PackStation", label: "nav.pack", icon: "tag" },
@@ -115,6 +116,25 @@ export const ROLE_CONFIG = {
           { to: "Manifest", label: "nav.manifest", icon: "package-check" },
           { to: "Shipments", label: "nav.shipments", icon: "truck" },
           { to: "Carriers", label: "nav.carriers", icon: "send" },
+        ],
+      },
+      {
+        section: "nav.me",
+        items: [
+          { to: "Performance", label: "nav.performance", icon: "trending-up" },
+        ],
+      },
+    ],
+  },
+  confirmation: {
+    home: "Confirmation",
+    nav: [
+      {
+        section: "nav.operations",
+        items: [
+          { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
+          { to: "Consolidation", label: "nav.consolidation", icon: "git-merge" },
+          { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
         ],
       },
       {

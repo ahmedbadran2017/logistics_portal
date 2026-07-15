@@ -14,9 +14,20 @@ SEED_ROLES = {
     "lamdanisaad12@gmail.com": "picker",
     "redazaari47@gmail.com": "packer",
     "operation@justyol.com": "manager",
+    # Confirmation agents — the humans behind the 14-day Version counts on
+    # custom_sales_status in production (the WhatsApp automation runs as
+    # Administrator and stays untouched).
+    "hjustyol@gmail.com": "confirmation",
+    "amaljustyol@gmail.com": "confirmation",
+    "salmaseffariii@gmail.com": "confirmation",
+    "aithammou.justyol@gmail.com": "confirmation",
+    "basbousalina@gmail.com": "confirmation",
+    "cakhadija34@gmail.com": "confirmation",
+    "oumaima.asri.19@gmail.com": "confirmation",
+    "youssrajustyol@gmail.com": "confirmation",
 }
 
-VALID_ROLES = {"manager", "dispatcher", "picker", "packer", "returns"}
+VALID_ROLES = {"manager", "dispatcher", "picker", "packer", "returns", "confirmation"}
 
 
 def resolve_role(user):
