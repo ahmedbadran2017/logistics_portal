@@ -112,18 +112,40 @@ def _has_wa():
     return bool(frappe.db.exists("DocType", "WhatsApp Message"))
 
 
-def _match_order(phone):
-    """The customer's latest order by the trailing 9 digits of their phone."""
-    digits = "".join(ch for ch in str(phone or "") if ch.isdigit())[-9:]
-    if len(digits) < 9:
-        return None
-    row = frappe.db.sql(
-        """SELECT name, customer_name FROM `tabSales Order`
-           WHERE docstatus = 1 AND (custom_customer_phone LIKE %(p)s
-                 OR custom_shipping_phone LIKE %(p)s)
-           ORDER BY creation DESC LIMIT 1""",
-        {"p": f"%{digits}"}, as_dict=True)
-    return row[0] if row else None
+def _match_orders(phones):
+    """Latest order per phone, matched on the trailing 9 digits.
+
+    One scan for the whole inbox page — the per-phone leading-wildcard LIKE
+    this replaces cost ~270ms × 30 rows (~8s/page) on the live 250k-order
+    table. Returns {phone: {name, customer_name}}.
+    """
+    digits = {}
+    for p in phones:
+        d = "".join(ch for ch in str(p or "") if ch.isdigit())[-9:]
+        if len(d) == 9:
+            digits.setdefault(d, []).append(p)
+    if not digits:
+        return {}
+    rows = frappe.db.sql(
+        """SELECT name, customer_name, creation,
+                  RIGHT(TRIM(custom_customer_phone), 9) AS d1,
+                  RIGHT(TRIM(custom_shipping_phone), 9) AS d2
+           FROM `tabSales Order`
+           WHERE docstatus = 1
+             AND (RIGHT(TRIM(custom_customer_phone), 9) IN %(ds)s
+                  OR RIGHT(TRIM(custom_shipping_phone), 9) IN %(ds)s)""",
+        {"ds": tuple(digits)}, as_dict=True)
+    best = {}
+    for r in rows:
+        for d in (r.d1, r.d2):
+            if d in digits and (d not in best or str(r.creation) > str(best[d].creation)):
+                best[d] = r
+    out = {}
+    for d, plist in digits.items():
+        if d in best:
+            for p in plist:
+                out[p] = best[d]
+    return out
 
 
 @frappe.whitelist()
@@ -178,8 +200,9 @@ def board(tab="inbox", days=7, q="", limit=30, offset=0):
                 GROUP BY wm.`from`
                 ORDER BY last_at DESC
                 LIMIT %(limit)s OFFSET %(offset)s""", vals, as_dict=True)
+        matches = _match_orders([c.phone for c in convs])
         for c in convs:
-            so = _match_order(c.phone)
+            so = matches.get(c.phone)
             rows.append({
                 "id": c.phone, "phone": c.phone,
                 "message": (c.last_msg or "")[:140], "msgCount": int(c.n or 0),

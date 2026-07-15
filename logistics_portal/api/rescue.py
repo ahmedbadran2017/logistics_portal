@@ -192,9 +192,13 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
 
     today = str(now_datetime())[:10]
     mine = {"redeliver": 0, "reship": 0, "returnreq": 0, "dna": 0, "cancel": 0}
+    # SO comments only: act() writes the same tag on the parcel AND the order,
+    # so counting both doctypes doubled every decision. The section report
+    # counts SO comments too — same convention. (A DN-queue decision with no
+    # linked order writes only the DN comment and is missed here — rare.)
     for r in frappe.db.sql(
             """SELECT c.content, COUNT(*) n FROM `tabComment` c
-               WHERE c.reference_doctype IN ('Sales Order', 'Delivery Note')
+               WHERE c.reference_doctype = 'Sales Order'
                  AND c.owner = %s AND c.creation >= %s
                  AND c.content LIKE 'Rescue: %%'
                GROUP BY c.content""",

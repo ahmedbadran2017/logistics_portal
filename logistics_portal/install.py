@@ -24,6 +24,12 @@ INDEXES = [
     ("Shipment Delivery Note", ["delivery_note"], "lp_sdn_dn_idx"),
     # Board counts + intake filter Confirmed orders by creation window.
     ("Sales Order", ["custom_sales_status", "creation"], "lp_so_sales_creation_idx"),
+    # Contact Center my-day tallies filter Comments by owner+today, and the
+    # section reports scan by doctype+window. tabComment is 2.6M rows with no
+    # index on either — measured 31s per board load on the live site without
+    # these.
+    ("Comment", ["owner", "creation"], "lp_comment_owner_idx"),
+    ("Comment", ["reference_doctype", "creation"], "lp_comment_dt_idx"),
 ]
 
 
