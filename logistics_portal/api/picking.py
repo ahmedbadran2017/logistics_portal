@@ -599,8 +599,9 @@ def _insert_one(sos, picker=None):
     if not pl.get("locations"):
         raise frappe.ValidationError(
             "nothing pickable — stock is locked by other open pick lists")
-    return {"pl": pl.name, "orders": len({l.sales_order for l in pl.locations}),
-            "items": len(pl.locations)}
+    on_pl = {l.sales_order for l in pl.locations if l.sales_order}
+    return {"pl": pl.name, "orders": len(on_pl),
+            "items": len(pl.locations), "soNames": sorted(on_pl)}
 
 
 def _short_err(e):
@@ -643,6 +644,15 @@ def _build_pick_list(orders, picker=None):
         frappe.throw("None of the selected orders can be picked (already picked or "
                      f"in the flow): {detail}")
 
+    # Serialize allocation+insert: a manual create racing the autopilot must
+    # not hand the same free stock to two batches (the loser would shrink
+    # silently at save time).
+    from logistics_portal.api.locks import named_lock
+    with named_lock("pl_create", timeout=30):
+        return _allocate_and_insert(sos, skipped, picker)
+
+
+def _allocate_and_insert(sos, skipped, picker):
     # Apply the controller's own rule OURSELVES, up front: an order rides the
     # combined list only if FREE stock fully covers it after the orders before
     # it took theirs (ecommerce_integrations' remove_incomplete_orders drops
@@ -676,6 +686,14 @@ def _build_pick_list(orders, picker=None):
     combined_err = ""
     try:
         r = _insert_one(sos, picker)
+        # The controller's validate may still drop an order our estimate
+        # accepted (its availability source differs at the margin) — the doc
+        # saves without it, SILENTLY. Diff requested vs saved and say so.
+        on_pl = set(r.pop("soNames", []))
+        for so in sos:
+            if so.name not in on_pl:
+                skipped.append({"order": so.name,
+                                "reason": "dropped by stock validation on save"})
         return {**r, "skipped": skipped, "pls": [r["pl"]]}
     except Exception as e:
         frappe.db.rollback()
@@ -693,7 +711,9 @@ def _build_pick_list(orders, picker=None):
     made = []
     for so in sos:
         try:
-            made.append(_insert_one([so], picker))
+            m = _insert_one([so], picker)
+            m.pop("soNames", None)
+            made.append(m)
             frappe.db.commit()
         except Exception as e:
             frappe.db.rollback()
@@ -1012,12 +1032,16 @@ def _available_totals(item_codes):
         "SELECT item_code, SUM(GREATEST(actual_qty - reserved_qty, 0)) FROM `tabBin` "
         "WHERE item_code IN %s AND " + cond + " GROUP BY item_code",
         tuple([tuple(item_codes)] + wargs))}
+    # Same warehouse universe on both sides of the equation: a draft row
+    # parked on a non-pickable bin must not eat into pickable free stock.
+    lcond, largs = pickable_condition("pli.warehouse")
     for r in frappe.db.sql(
-            """SELECT pli.item_code, SUM(GREATEST(pli.qty - pli.picked_qty, 0))
+            f"""SELECT pli.item_code, SUM(GREATEST(pli.qty - pli.picked_qty, 0))
                FROM `tabPick List Item` pli
                JOIN `tabPick List` p ON p.name = pli.parent
-               WHERE p.docstatus = 0 AND pli.item_code IN %s
-               GROUP BY pli.item_code""", (tuple(item_codes),)):
+               WHERE p.docstatus = 0 AND pli.item_code IN %s AND {lcond}
+               GROUP BY pli.item_code""",
+            tuple([tuple(item_codes)] + largs)):
         totals[r[0]] = totals.get(r[0], 0) - float(r[1] or 0)
     return totals
 
@@ -1100,15 +1124,29 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
             o["missed"] = c < day0 or (past_cutoff and c < cutoff)
             o["units"] = sum(l["qty"] for l in o["lines"])
 
-        bins = _resolve_bins({l["sku"] for o in orders.values() for l in o["lines"]})
+        all_skus = {l["sku"] for o in orders.values() for l in o["lines"]}
+        bins = _resolve_bins(all_skus)
 
-        # OOS: any line without stock anywhere → the order can't be picked today.
+        # Full-coverage allocation in priority order (missed-cutoff first, then
+        # oldest): an order joins the pool only if the FREE stock left after
+        # the orders ahead of it covers EVERY line completely — the same rule
+        # the save enforces (remove_incomplete_orders drops partially-covered
+        # orders), applied HERE so what the modal proposes is exactly what
+        # create will produce. Partially-covered orders show as OOS with the
+        # short SKUs named.
+        totals = _available_totals(all_skus)
         oos, pool = [], []
-        for o in orders.values():
-            missing = [l["sku"] for l in o["lines"] if l["sku"] not in bins]
-            if missing:
-                oos.append({"so": o["so"], "customer": o["customer"], "missing": missing})
+        for o in sorted(orders.values(), key=lambda x: (not x["missed"], x["creation"])):
+            need = {}
+            for l in o["lines"]:
+                need[l["sku"]] = need.get(l["sku"], 0) + l["qty"]
+            short = [c for c, q in need.items()
+                     if c not in bins or totals.get(c, 0) < q]
+            if short:
+                oos.append({"so": o["so"], "customer": o["customer"], "missing": short})
             else:
+                for c, q in need.items():
+                    totals[c] -= q
                 pool.append(o)
 
         def sort_q(q):
