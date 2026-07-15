@@ -79,6 +79,7 @@ export const ROLE_CONFIG = {
         section: "nav.team",
         items: [
           { to: "Team", label: "nav.team", icon: "users" },
+          { to: "Bonus", label: "nav.bonus", icon: "wallet" },
           { to: "Settings", label: "nav.settings", icon: "settings" },
         ],
       },
@@ -190,6 +191,7 @@ export const ROLE_CONFIG = {
         section: "nav.me",
         items: [
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         ],
       },
     ],

@@ -1,0 +1,216 @@
+<template>
+  <div class="p-5 sm:p-6 space-y-4 max-w-[1000px] mx-auto">
+    <header class="flex items-start justify-between gap-3 flex-wrap">
+      <div>
+        <h1 class="text-[20px] font-bold text-stone-900 tracking-tight">{{ t('bn.title') }}</h1>
+        <p class="text-[12.5px] text-stone-500 mt-0.5">{{ t('bn.intro') }}</p>
+      </div>
+      <div class="flex items-center gap-1">
+        <button v-for="m in months" :key="m.key"
+                class="h-8 px-3 rounded-lg text-[12px] font-semibold ring-1 transition-colors"
+                :class="month === m.key ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200'"
+                @click="month = m.key; load()">{{ m.label }}</button>
+      </div>
+    </header>
+
+    <div v-if="loading" class="space-y-2">
+      <div class="h-[110px] rounded-2xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
+      <div class="h-[220px] rounded-2xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
+    </div>
+
+    <div v-else-if="loadError" class="bg-white rounded-2xl ring-1 ring-rose-200/70 p-8 text-center">
+      <Icon name="alert-triangle" :size="24" class="mx-auto mb-2 text-rose-500" />
+      <div class="text-[13px] font-semibold text-stone-800">{{ t('cf.loadFail') }}</div>
+      <div class="text-[11.5px] text-stone-400 font-mono mt-1 max-w-[420px] mx-auto break-words">{{ loadError }}</div>
+    </div>
+
+    <template v-else-if="d">
+      <!-- my card -->
+      <div class="bn-hero rounded-2xl p-5">
+        <div class="flex items-center gap-4 flex-wrap">
+          <span class="bn-ico"><Icon name="wallet" :size="20" /></span>
+          <div class="flex-1 min-w-[220px]">
+            <div class="flex items-baseline gap-2">
+              <span class="text-[30px] font-extrabold text-stone-900 tabular-nums leading-none">{{ d.me.points }}</span>
+              <span class="text-[12px] text-stone-500">{{ t('bn.pts') }} / {{ d.target }}</span>
+              <span v-if="d.me.rank" class="ms-2 text-[11px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-full px-2.5 py-0.5">
+                #{{ d.me.rank }}
+              </span>
+            </div>
+            <div class="h-2 rounded-full bg-stone-100 overflow-hidden mt-2.5 max-w-[420px]">
+              <div class="h-full rounded-full transition-all duration-500"
+                   :class="d.me.points >= d.target ? 'bg-emerald-500' : 'bg-amber-500'"
+                   :style="{ width: Math.min(100, d.me.points * 100 / d.target) + '%' }" />
+            </div>
+            <div class="text-[11px] text-stone-400 mt-1.5 tabular-nums">
+              {{ d.me.actions }} {{ t('bn.actions') }} · {{ Math.round(Math.min(100, d.me.points * 100 / d.target)) }}% {{ t('bn.ofTarget') }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- leaderboard -->
+      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
+          <Icon name="trending-up" :size="14" class="text-stone-400" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('cco.leaderboard') }}</span>
+          <span class="text-[11px] text-stone-400 tabular-nums">{{ d.month }}</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[620px] text-[12.5px]">
+            <thead>
+              <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
+                <th class="text-start px-4 py-2.5">{{ t('cfr.thAgent') }}</th>
+                <th class="text-end px-3 py-2.5">{{ t('nav.confirmation') }}</th>
+                <th class="text-end px-3 py-2.5">{{ t('nav.rescue') }}</th>
+                <th class="text-end px-3 py-2.5">{{ t('nav.tickets') }}</th>
+                <th class="text-end px-4 py-2.5">{{ t('bn.thPoints') }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-stone-100">
+              <tr v-for="(a, i) in d.agents" :key="a.user" class="hover:bg-stone-50"
+                  :class="a.user === d.meUser ? 'bg-amber-50/40' : ''">
+                <td class="px-4 py-2.5">
+                  <span class="inline-flex items-center gap-2">
+                    <span class="w-5 h-5 rounded-full text-[10px] font-bold inline-flex items-center justify-center"
+                          :class="i === 0 ? 'bg-amber-100 text-amber-700' : 'bg-stone-100 text-stone-500'">{{ i + 1 }}</span>
+                    <span class="font-medium text-stone-900">{{ a.agent }}</span>
+                  </span>
+                </td>
+                <td class="px-3 py-2.5 text-end tabular-nums text-stone-600">{{ a.cf || '—' }}</td>
+                <td class="px-3 py-2.5 text-end tabular-nums text-stone-600">{{ a.rs || '—' }}</td>
+                <td class="px-3 py-2.5 text-end tabular-nums text-stone-600">{{ a.cs || '—' }}</td>
+                <td class="px-4 py-2.5 text-end">
+                  <div class="inline-flex items-center gap-2">
+                    <div class="w-[56px] h-1.5 rounded-full bg-stone-100 overflow-hidden">
+                      <div class="h-full rounded-full"
+                           :class="a.points >= d.target ? 'bg-emerald-500' : 'bg-amber-500'"
+                           :style="{ width: Math.min(100, a.points * 100 / d.target) + '%' }" />
+                    </div>
+                    <span class="tabular-nums font-bold text-stone-900 w-[52px] text-end">{{ a.points }}</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="!d.agents.length" class="text-center text-[12.5px] text-stone-400 py-8">{{ t('cfr.noData') }}</div>
+      </div>
+
+      <!-- scheme editor (manager) -->
+      <div v-if="scheme?.canEdit" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 space-y-3">
+        <div class="flex items-center gap-2">
+          <Icon name="settings" :size="14" class="text-stone-400" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('bn.schemeTitle') }}</span>
+          <span class="text-[11px] text-stone-400">{{ t('bn.schemeHint') }}</span>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <label class="inline-flex items-center gap-2 text-[12px] text-stone-600">
+            {{ t('bn.target') }}
+            <input v-model.number="scheme.monthlyTarget" type="number" min="1"
+                   class="w-24 h-9 ps-3 rounded-lg ring-1 ring-stone-200 text-[12.5px] tabular-nums focus:outline-none"
+                   @input="dirty = true" />
+          </label>
+        </div>
+        <div class="grid sm:grid-cols-3 gap-x-4 gap-y-2">
+          <label v-for="(v, k) in scheme.points" :key="k"
+                 class="flex items-center justify-between gap-2 text-[12px] text-stone-600">
+            <span class="font-mono text-[11px]">{{ k }}</span>
+            <input v-model.number="scheme.points[k]" type="number" min="0" step="0.25"
+                   class="w-20 h-8 ps-2.5 rounded-lg ring-1 ring-stone-200 text-[12px] tabular-nums focus:outline-none"
+                   @input="dirty = true" />
+          </label>
+        </div>
+        <div class="flex justify-end">
+          <button class="h-9 px-4 rounded-lg text-[12px] font-bold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-50 transition-colors"
+                  :disabled="!dirty || saving" @click="saveScheme">
+            {{ saving ? '…' : t('px.common.save') }}
+          </button>
+        </div>
+      </div>
+    </template>
+  </div>
+</template>
+
+<script setup>
+import { computed, onMounted, ref } from "vue";
+import Icon from "@/components/ui/Icon.vue";
+import { api, apiPost } from "@/lib/resource";
+import { useI18n } from "@/composables/useI18n";
+import { useToast } from "@/composables/useToast";
+
+const { t } = useI18n();
+const { success, warn } = useToast();
+
+const now = new Date();
+const fmt = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+const months = computed(() => {
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return [
+    { key: fmt(now), label: t("bn.thisMonth") },
+    { key: fmt(prev), label: t("bn.lastMonth") },
+  ];
+});
+
+const month = ref(fmt(now));
+const d = ref(null);
+const loading = ref(true);
+const loadError = ref("");
+const scheme = ref(null);
+const dirty = ref(false);
+const saving = ref(false);
+
+async function load() {
+  loading.value = true;
+  loadError.value = "";
+  try {
+    const res = await api("contact_center.bonus", { month: month.value });
+    d.value = res;
+  } catch (e) {
+    loadError.value = String(e.message || e);
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function loadScheme() {
+  try {
+    scheme.value = await api("contact_center.bonus_settings");
+  } catch {
+    scheme.value = null;
+  }
+}
+
+async function saveScheme() {
+  saving.value = true;
+  try {
+    const res = await apiPost("contact_center.save_bonus_settings", {
+      settings: { monthlyTarget: scheme.value.monthlyTarget, points: scheme.value.points },
+    });
+    Object.assign(scheme.value, res);
+    dirty.value = false;
+    success(t("cfs.saved"));
+    load();
+  } catch (e) {
+    warn(t("cfs.saveFail"), String(e.message || e));
+  } finally {
+    saving.value = false;
+  }
+}
+
+onMounted(() => { load(); loadScheme(); });
+</script>
+
+<style scoped>
+.bn-hero {
+  background: linear-gradient(135deg, rgb(255 251 235) 0%, #fff 50%, rgb(255 251 235) 100%);
+  box-shadow: inset 0 0 0 1px rgb(253 230 138 / 0.6), 0 1px 2px rgb(0 0 0 / 0.03);
+}
+.bn-ico {
+  width: 48px; height: 48px; border-radius: 14px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: white;
+  background: linear-gradient(135deg, rgb(251 191 36), rgb(217 119 6));
+  box-shadow: 0 6px 16px -6px rgb(217 119 6 / 0.5);
+}
+</style>

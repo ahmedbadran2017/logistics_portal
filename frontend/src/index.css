@@ -356,3 +356,10 @@ html[data-theme="dark"] .ex-shimmer {
 }
 html[data-theme="dark"] .bg-amber-50\/50 { background-color: rgba(120, 53, 15, .2) !important; }
 html[data-theme="dark"] .ring-amber-200 { --tw-ring-color: #78350f !important; }
+
+/* Bonus hero */
+html[data-theme="dark"] .bn-hero {
+  background: linear-gradient(135deg, #2e2718 0%, #292524 50%, #2e2718 100%) !important;
+  box-shadow: inset 0 0 0 1px #44403c !important;
+}
+html[data-theme="dark"] .bg-amber-50\/40 { background-color: rgba(120, 53, 15, .18) !important; }

@@ -38,6 +38,140 @@ def _today_by_prefix(prefix, doctypes=("Sales Order",)):
     return out
 
 
+# ── Bonus system ─────────────────────────────────────────────────────────
+# Points per decision, straight from the Comment trail the lanes already
+# write. Bulk actions are excluded so mass triage can't farm points.
+_BONUS_KEY = "lp_bonus_settings"
+_BONUS_DEFAULTS = {
+    "monthlyTarget": 400,
+    "points": {
+        "cf.confirm": 1.0, "cf.cancel": 0.5, "cf.duplicate": 0.5,
+        "cf.dna": 0.25, "cf.followup": 0.25, "cf.onhold": 0.25,
+        "rs.redeliver": 3.0, "rs.reship": 3.0, "rs.returnreq": 1.0,
+        "rs.dna": 0.25, "rs.cancel": 1.0, "rs.resolve": 0.5,
+        "cs.resolve": 2.0, "cs.reply": 0.5, "cs.create": 0.5,
+        "cs.take": 0.25, "cs.hold": 0.0, "cs.reopen": 0.0,
+    },
+}
+
+
+def _lane_gate():
+    from logistics_portal.api.auth import resolve_role
+    role = resolve_role(frappe.session.user)
+    if role not in ("confirmation", "manager"):
+        frappe.throw("Not authorized for the bonus board.", frappe.PermissionError)
+    return role
+
+
+def _bonus_settings():
+    import json as _json
+    raw = frappe.db.get_default(_BONUS_KEY)
+    out = {"monthlyTarget": _BONUS_DEFAULTS["monthlyTarget"],
+           "points": dict(_BONUS_DEFAULTS["points"])}
+    if raw:
+        try:
+            saved = _json.loads(raw)
+            if isinstance(saved, dict):
+                if "monthlyTarget" in saved:
+                    out["monthlyTarget"] = int(saved["monthlyTarget"])
+                if isinstance(saved.get("points"), dict):
+                    for k in out["points"]:
+                        if k in saved["points"]:
+                            out["points"][k] = float(saved["points"][k])
+        except Exception:
+            pass
+    return out
+
+
+@frappe.whitelist()
+def bonus_settings():
+    _lane_gate()
+    from logistics_portal.api.auth import resolve_role
+    return {**_bonus_settings(),
+            "canEdit": resolve_role(frappe.session.user) == "manager"}
+
+
+@frappe.whitelist()
+def save_bonus_settings(settings=None):
+    import json as _json
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Only the portal manager can change the bonus scheme.",
+                     frappe.PermissionError)
+    if isinstance(settings, str):
+        settings = _json.loads(settings)
+    settings = settings or {}
+    out = _bonus_settings()
+    if "monthlyTarget" in settings:
+        v = int(settings["monthlyTarget"])
+        if not (1 <= v <= 100000):
+            frappe.throw("monthlyTarget must be between 1 and 100000.")
+        out["monthlyTarget"] = v
+    if isinstance(settings.get("points"), dict):
+        for k in out["points"]:
+            if k in settings["points"]:
+                v = float(settings["points"][k])
+                if not (0 <= v <= 100):
+                    frappe.throw(f"{k}: points must be between 0 and 100.")
+                out["points"][k] = v
+    frappe.db.set_default(_BONUS_KEY, _json.dumps(out))
+    frappe.db.commit()
+    return {"ok": True, **out}
+
+
+@frappe.whitelist()
+def bonus(month=None):
+    """The month's points per agent, ranked — plus the caller's own card."""
+    _lane_gate()
+    import re as _re
+    month = (month or "").strip()
+    if not _re.match(r"^\d{4}-\d{2}$", month):
+        month = str(now_datetime())[:7]
+    s = _bonus_settings()
+    pts = s["points"]
+
+    per_agent = {}
+    for prefix, lane, dts in (("Confirmation", "cf", ("Sales Order",)),
+                              ("Rescue", "rs", ("Sales Order",)),
+                              ("CS", "cs", ("Issue",))):
+        for r in frappe.db.sql(
+                """SELECT c.owner, c.content, COUNT(*) n FROM `tabComment` c
+                   WHERE c.reference_doctype IN %(dts)s
+                     AND c.creation >= %(start)s
+                     AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
+                     AND c.content LIKE %(pfx)s
+                   GROUP BY c.owner, c.content""",
+                {"dts": dts, "start": f"{month}-01 00:00:00",
+                 "pfx": prefix + ": %"}, as_dict=True):
+            if " bulk " in r.content or "(bulk)" in r.content:
+                continue
+            action = (r.content.split(": ", 1)[1] or "").split(" ", 1)[0].strip("()—-→ ")
+            key = f"{lane}.{action}"
+            if key not in pts:
+                continue
+            a = per_agent.setdefault(r.owner, {"cf": 0.0, "rs": 0.0, "cs": 0.0,
+                                               "actions": 0})
+            a[lane] += pts[key] * int(r.n or 0)
+            a["actions"] += int(r.n or 0)
+
+    agents = sorted(
+        ({"agent": u.split("@")[0], "user": u,
+          "cf": round(a["cf"], 1), "rs": round(a["rs"], 1), "cs": round(a["cs"], 1),
+          "points": round(a["cf"] + a["rs"] + a["cs"], 1),
+          "actions": a["actions"]} for u, a in per_agent.items()),
+        key=lambda x: -x["points"])
+
+    me = {"points": 0.0, "rank": 0, "actions": 0}
+    for i, a in enumerate(agents):
+        if a["user"] == frappe.session.user:
+            me = {"points": a["points"], "rank": i + 1, "actions": a["actions"]}
+            break
+
+    return {"month": month, "target": s["monthlyTarget"], "agents": agents,
+            "me": me, "meUser": frappe.session.user,
+            "serverNow": str(now_datetime())[:19]}
+
+
 @frappe.whitelist()
 def overview():
     _gate()
