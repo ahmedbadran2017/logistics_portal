@@ -26,6 +26,8 @@ _ACTIONS = {
     "followup": "Follow Up",
     "onhold": "On Hold",
     "cancel": "Cancelled",
+    # Desk parity: agents mark ~23 duplicate orders a month there.
+    "duplicate": "Duplicated",
 }
 # How long an order rests before it resurfaces at the top of its queue.
 _RETRY_HOURS = {"dna": 4, "followup": 24, "onhold": 48}
@@ -92,8 +94,20 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
             ORDER BY {order_by}
             LIMIT %(limit)s OFFSET %(offset)s""", vals, as_dict=True)
 
+    # What's IN each order — the agent reads it to the customer on the call.
+    items_text = {}
+    if rows:
+        for parent, txt in frappe.db.sql(
+                """SELECT parent,
+                          GROUP_CONCAT(CONCAT(CAST(qty AS UNSIGNED), '× ', item_name)
+                                       ORDER BY idx SEPARATOR ' · ')
+                   FROM `tabSales Order Item` WHERE parent IN %s
+                   GROUP BY parent""", (tuple(r.name for r in rows),)):
+            items_text[parent] = (txt or "")[:240]
+
     today = str(now_datetime())[:10]
-    mine = {"confirm": 0, "cancel": 0, "dna": 0, "followup": 0, "onhold": 0}
+    mine = {"confirm": 0, "cancel": 0, "dna": 0, "followup": 0, "onhold": 0,
+            "duplicate": 0}
     for r in frappe.db.sql(
             """SELECT c.content, COUNT(*) n FROM `tabComment` c
                WHERE c.reference_doctype = 'Sales Order' AND c.owner = %s
@@ -113,6 +127,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
             # `r.items` resolves to the dict METHOD and int(method) TypeErrors
             # (same trap that blanked the Settings zones panel once).
             "city": (r.city or "").strip().title(), "items": int(r.item_count or 1),
+            "itemsText": items_text.get(r.name, ""),
             "ageH": int(r.age_h or 0), "attempts": int(r.attempts or 0),
             "lastCall": str(r.last_call)[:16] if r.last_call else "",
             "nextCall": str(r.next_call)[:16] if r.next_call else "",
@@ -164,6 +179,11 @@ def act(order, action, note=None):
         updates["custom_next_call_at"] = add_to_date(now, hours=hours)
     else:
         updates["custom_next_call_at"] = None
+    if action == "cancel" and frappe.get_meta("Sales Order").has_field(
+            "custom_cancellation_reason"):
+        # The desk stores the reason in this field (272 edits/14d) — keep the
+        # desk reports seeing portal cancels too, not just the comment trail.
+        updates["custom_cancellation_reason"] = note[:140]
     frappe.db.set_value("Sales Order", order, updates, update_modified=True)
 
     doc = frappe.get_doc("Sales Order", order)
@@ -318,7 +338,8 @@ def report(days=7):
         action = (r.content.split("Confirmation: ", 1)[1] or "").split(" ", 1)[0]
         action = action.strip("()—- ")
         a = per_agent.setdefault(r.owner, {"confirm": 0, "cancel": 0, "dna": 0,
-                                           "followup": 0, "onhold": 0})
+                                           "followup": 0, "onhold": 0,
+                                           "duplicate": 0})
         if action in a:
             a[action] += 1
 

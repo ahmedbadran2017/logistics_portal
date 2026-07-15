@@ -75,15 +75,25 @@
       <div v-for="r in rows" :key="r.id" class="cs-card rounded-2xl p-4">
         <div class="flex items-center gap-3.5 flex-wrap">
           <span class="cs-avatar cs-avatar-wa"><Icon name="message-circle" :size="17" /></span>
-          <div class="min-w-0 flex-1">
+          <div class="min-w-0 flex-1 cursor-pointer" @click="openThread(r)">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="text-[13.5px] font-bold text-stone-900">{{ r.customer || r.phone }}</span>
               <span v-if="r.customer" class="font-mono text-[11px] text-stone-400">{{ r.phone }}</span>
               <span v-if="r.order" class="font-mono text-[11px] text-violet-600">{{ r.order }}</span>
               <span v-if="r.msgCount > 1" class="text-[10px] font-bold text-violet-700 bg-violet-50 ring-1 ring-violet-200 rounded-full px-2 py-0.5 tabular-nums">×{{ r.msgCount }}</span>
+              <span v-if="r.images" class="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 rounded-full px-2 py-0.5 tabular-nums">
+                <Icon name="image" :size="10" />{{ r.images }}
+              </span>
             </div>
-            <div class="text-[12px] text-stone-600 truncate max-w-[520px] mt-1" dir="auto">{{ r.message }}</div>
-            <div class="text-[10.5px] text-stone-400 tabular-nums mt-0.5">{{ r.lastAt.slice(5) }}</div>
+            <div class="text-[12px] text-stone-600 truncate max-w-[520px] mt-1" dir="auto">
+              {{ r.message || (r.images ? t('cs.photoMsg') : '') }}
+            </div>
+            <div class="flex items-center gap-2 text-[10.5px] text-stone-400 tabular-nums mt-0.5">
+              <span>{{ r.lastAt.slice(5) }}</span>
+              <span class="inline-flex items-center gap-1 text-violet-500 font-medium">
+                <Icon :name="threadFor === r.id ? 'chevron-up' : 'chevron-down'" :size="10" />{{ t('cs.thread') }}
+              </span>
+            </div>
           </div>
           <a :href="'https://wa.me/' + r.phone" target="_blank" title="WhatsApp" class="cs-contact cs-wa">
             <Icon name="message-circle" :size="15" />
@@ -96,6 +106,23 @@
                     @click="dismiss(r)"><Icon name="x" :size="15" /></button>
           </div>
         </div>
+        <Transition name="csslide">
+          <div v-if="threadFor === r.id" class="bg-stone-50 rounded-xl p-3 mt-3 max-h-[320px] overflow-y-auto space-y-1.5">
+            <div v-if="threadLoading" class="text-[12px] text-stone-400 text-center py-3">…</div>
+            <template v-else>
+              <div v-for="(m, i) in thread" :key="i" class="flex" :class="m.in ? 'justify-start' : 'justify-end'">
+                <div class="max-w-[75%] rounded-xl px-3 py-1.5 text-[12px]"
+                     :class="m.in ? 'bg-white ring-1 ring-stone-200 text-stone-800' : 'bg-emerald-50 ring-1 ring-emerald-200 text-emerald-900'"
+                     dir="auto">
+                  <span v-if="m.kind === 'image'" class="inline-flex items-center gap-1 text-stone-500"><Icon name="image" :size="12" />{{ t('cs.photoMsg') }}</span>
+                  <template v-if="m.text"> {{ m.text }}</template>
+                  <div class="text-[9.5px] text-stone-400 tabular-nums mt-0.5">{{ m.at.slice(5) }}</div>
+                </div>
+              </div>
+              <div v-if="!thread.length" class="text-[12px] text-stone-400 text-center py-3">—</div>
+            </template>
+          </div>
+        </Transition>
         <Transition name="csslide">
           <div v-if="createFor === r.id" class="bg-violet-50/50 rounded-xl p-3 mt-3">
             <TicketForm :categories="data?.categories || []" :busy="creating"
@@ -292,6 +319,26 @@ function resetForm() { /* form state lives inside TicketForm per mount */ }
 
 function openCreateFromWa(r) {
   createFor.value = createFor.value === r.id ? "" : r.id;
+}
+
+const threadFor = ref("");
+const thread = ref([]);
+const threadLoading = ref(false);
+
+async function openThread(r) {
+  if (threadFor.value === r.id) { threadFor.value = ""; return; }
+  threadFor.value = r.id;
+  thread.value = [];
+  threadLoading.value = true;
+  try {
+    const res = await api("tickets.wa_thread", { phone: r.phone });
+    if (threadFor.value === r.id) thread.value = res.messages || [];
+  } catch (e) {
+    warn(t("cf.loadFail"), String(e.message || e));
+    threadFor.value = "";
+  } finally {
+    threadLoading.value = false;
+  }
 }
 
 async function submitCreate(f) {

@@ -82,6 +82,10 @@
               <span v-if="r.agent" class="text-stone-400">{{ r.agent }}</span>
               <span v-if="r.nextCall" class="text-stone-400">→ {{ r.nextCall.slice(5) }}</span>
             </div>
+            <div v-if="r.itemsText" class="text-[11.5px] text-stone-500 truncate max-w-[560px] mt-1"
+                 :title="r.itemsText" dir="auto">
+              <Icon name="package" :size="11" class="inline -mt-px me-1 text-stone-300" />{{ r.itemsText }}
+            </div>
           </div>
           <!-- contact -->
           <div class="flex items-center gap-1.5">
@@ -105,6 +109,7 @@
             <button class="cf-act cf-act-soft text-amber-700" :disabled="busy === r.order" :title="t('cf.actDna')" @click="act(r, 'dna')"><Icon name="phone-off" :size="15" /></button>
             <button class="cf-act cf-act-soft text-sky-700" :disabled="busy === r.order" :title="t('cf.actFollowup')" @click="act(r, 'followup')"><Icon name="clock" :size="15" /></button>
             <button class="cf-act cf-act-soft text-stone-500" :disabled="busy === r.order" :title="t('cf.actOnhold')" @click="act(r, 'onhold')"><Icon name="pause" :size="15" /></button>
+            <button class="cf-act cf-act-soft text-violet-600" :disabled="busy === r.order" :title="t('cf.actDuplicate')" @click="act(r, 'duplicate')"><Icon name="copy" :size="15" /></button>
             <button class="cf-act cf-act-soft text-rose-600" :disabled="busy === r.order"
                     :class="cancelFor === r.order ? 'ring-2' : ''"
                     @click="cancelFor = cancelFor === r.order ? '' : r.order"><Icon name="x" :size="15" /></button>

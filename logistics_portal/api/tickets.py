@@ -166,7 +166,7 @@ def board(tab="inbox", days=7, q="", limit=30, offset=0):
             """SELECT COUNT(DISTINCT wm.`from`) FROM `tabWhatsApp Message` wm
                WHERE wm.type = 'Incoming' AND COALESCE(wm.custom_lp_handled, 0) = 0
                  AND wm.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)
-                 AND (wm.content_type = 'text'
+                 AND (wm.content_type IN ('text', 'image')
                       OR (wm.content_type = 'button' AND wm.message LIKE %(csbtn)s))""",
             {"days": days, "csbtn": "%خدمة العملاء%"})[0][0])
     counts["open"] = int(frappe.db.sql(
@@ -187,12 +187,13 @@ def board(tab="inbox", days=7, q="", limit=30, offset=0):
                 "csbtn": "%خدمة العملاء%"}
         conds = """wm.type = 'Incoming' AND COALESCE(wm.custom_lp_handled, 0) = 0
                  AND wm.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)
-                 AND (wm.content_type = 'text'
+                 AND (wm.content_type IN ('text', 'image')
                       OR (wm.content_type = 'button' AND wm.message LIKE %(csbtn)s))"""
         total = counts["inbox"]
         convs = frappe.db.sql(
             f"""SELECT wm.`from` AS phone, MAX(wm.creation) AS last_at,
                        COUNT(*) AS n,
+                       SUM(wm.content_type = 'image') AS img_n,
                        SUBSTRING_INDEX(GROUP_CONCAT(wm.message ORDER BY wm.creation DESC
                                        SEPARATOR '\\n'), '\\n', 1) AS last_msg
                 FROM `tabWhatsApp Message` wm
@@ -206,6 +207,7 @@ def board(tab="inbox", days=7, q="", limit=30, offset=0):
             rows.append({
                 "id": c.phone, "phone": c.phone,
                 "message": (c.last_msg or "")[:140], "msgCount": int(c.n or 0),
+                "images": int(c.img_n or 0),
                 "lastAt": str(c.last_at)[:16],
                 "order": so.name if so else "", "customer": so.customer_name if so else "",
             })
@@ -301,6 +303,28 @@ def create_ticket(subject, phone=None, order=None, category=None,
                  AND COALESCE(custom_lp_handled, 0) = 0""", (wa_phone,))
     frappe.db.commit()
     return {"ok": True, "ticket": doc.name}
+
+
+@frappe.whitelist()
+def wa_thread(phone, limit=40):
+    """The full recent conversation — read before deciding ticket vs dismiss."""
+    _gate()
+    if not _has_wa():
+        frappe.throw("WhatsApp inbox is not available on this site.")
+    phone = (phone or "").strip()
+    limit = min(max(int(limit or 40), 1), 100)
+    rows = frappe.db.sql(
+        """SELECT wm.type, wm.message, wm.content_type, wm.creation
+           FROM `tabWhatsApp Message` wm
+           WHERE wm.`from` = %(p)s OR wm.`to` = %(p)s
+           ORDER BY wm.creation DESC LIMIT %(limit)s""",
+        {"p": phone, "limit": limit}, as_dict=True)
+    return {"phone": phone, "messages": [{
+        "in": r.type == "Incoming",
+        "text": (r.message or "")[:500],
+        "kind": r.content_type or "text",
+        "at": str(r.creation)[:16],
+    } for r in reversed(rows)]}
 
 
 @frappe.whitelist()

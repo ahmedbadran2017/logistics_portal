@@ -291,6 +291,9 @@ def act(id=None, action=None, note=None):
             so_updates["custom_next_call_at"] = None
         if action == "cancel":
             so_updates["custom_sales_status"] = "Cancelled"
+            if note and frappe.get_meta("Sales Order").has_field(
+                    "custom_cancellation_reason"):
+                so_updates["custom_cancellation_reason"] = note[:140]
         frappe.db.set_value("Sales Order", order, so_updates, update_modified=True)
         frappe.get_doc("Sales Order", order).add_comment(
             "Comment", tag + (f" (attempt {attempts})" if action == "dna" else ""))
