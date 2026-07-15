@@ -80,6 +80,37 @@ _DN_EXC_FIELDS = [
      "fieldtype": "Datetime", "read_only": 1, "no_copy": 1, "hidden": 1},
 ]
 
+# Contact Center lane 3 — CS tickets ride the stock ERPNext Issue doctype;
+# these fields tie a ticket to the COD reality (phone, order, channel, agent).
+_ISSUE_FIELDS = [
+    {"fieldname": "custom_phone", "label": "Customer Phone", "fieldtype": "Data",
+     "in_standard_filter": 1, "no_copy": 1},
+    {"fieldname": "custom_order", "label": "Sales Order", "fieldtype": "Data", "no_copy": 1},
+    {"fieldname": "custom_channel", "label": "Channel", "fieldtype": "Select",
+     "options": "\nwhatsapp\nphone\nmanual", "no_copy": 1},
+    {"fieldname": "custom_category", "label": "Category", "fieldtype": "Data", "no_copy": 1},
+    {"fieldname": "custom_agent", "label": "Agent", "fieldtype": "Data", "no_copy": 1},
+]
+
+# Inbox marker on the third-party WhatsApp Message doctype: which incoming
+# messages the CS lane has already turned into tickets / dismissed.
+_WA_FIELDS = [
+    {"fieldname": "custom_lp_handled", "label": "LP Handled", "fieldtype": "Check",
+     "default": "0", "read_only": 1, "no_copy": 1, "hidden": 1},
+]
+
+
+def ensure_cs_fields():
+    try:
+        from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+        payload = {"Issue": _ISSUE_FIELDS}
+        if frappe.db.exists("DocType", "WhatsApp Message"):
+            payload["WhatsApp Message"] = _WA_FIELDS
+        create_custom_fields(payload, ignore_validate=True)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_cs_fields")
+
+
 _SO_CONTACT_FIELDS = [
     # Contact Center (confirmation lane): who called, when, how many times,
     # and when to retry. The WhatsApp automation stays first-line; these track
