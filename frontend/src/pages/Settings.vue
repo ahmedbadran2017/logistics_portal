@@ -179,7 +179,7 @@ import { api, apiPost, liveOr } from "@/lib/resource";
 
 const { fullName, role, user, zone } = useAuth();
 const { theme, set } = useTheme();
-const { locale, setLocale } = useI18n();
+const { locale, setLocale, t } = useI18n();
 const { success, warn } = useToast();
 
 const langs = [
