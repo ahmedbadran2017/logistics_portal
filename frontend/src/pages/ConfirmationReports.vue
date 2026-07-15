@@ -46,9 +46,18 @@
                 <td class="px-3 py-2.5 text-end tabular-nums text-rose-600">{{ a.cancel }}</td>
                 <td class="px-3 py-2.5 text-end tabular-nums text-amber-600">{{ a.dna }}</td>
                 <td class="px-3 py-2.5 text-end tabular-nums font-semibold text-stone-900">{{ a.total }}</td>
-                <td class="px-3 py-2.5 text-end tabular-nums font-semibold"
-                    :class="a.confirmRate >= 70 ? 'text-emerald-600' : a.confirmRate >= 50 ? 'text-amber-600' : 'text-rose-600'">
-                  {{ a.confirmRate }}%
+                <td class="px-3 py-2.5 text-end">
+                  <div class="flex items-center justify-end gap-2">
+                    <div class="w-[64px] h-1.5 rounded-full bg-stone-100 overflow-hidden">
+                      <div class="h-full rounded-full transition-all"
+                           :class="a.confirmRate >= 70 ? 'bg-emerald-500' : a.confirmRate >= 50 ? 'bg-amber-500' : 'bg-rose-500'"
+                           :style="{ width: a.confirmRate + '%' }" />
+                    </div>
+                    <span class="tabular-nums font-semibold w-[44px]"
+                          :class="a.confirmRate >= 70 ? 'text-emerald-600' : a.confirmRate >= 50 ? 'text-amber-600' : 'text-rose-600'">
+                      {{ a.confirmRate }}%
+                    </span>
+                  </div>
                 </td>
                 <td class="px-4 py-2.5 text-end tabular-nums text-stone-600">{{ a.avgAttempts }}</td>
               </tr>
@@ -74,11 +83,18 @@
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
           <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold text-stone-900">{{ t('cfr.funnelTitle') }}</div>
           <div class="divide-y divide-stone-50">
-            <div v-for="f in [...data.funnel].reverse()" :key="f.date" class="px-4 py-2 flex items-center gap-3 text-[12px] tabular-nums">
-              <span class="text-stone-500 w-[80px]">{{ f.date.slice(5) }}</span>
-              <span class="text-emerald-600 font-semibold">✓ {{ f.confirm }}</span>
-              <span class="text-rose-600">✕ {{ f.cancel }}</span>
-              <span class="text-amber-600">📵 {{ f.dna }}</span>
+            <div v-for="f in [...data.funnel].reverse()" :key="f.date" class="px-4 py-2 space-y-1">
+              <div class="flex items-center gap-3 text-[12px] tabular-nums">
+                <span class="text-stone-500 w-[64px]">{{ f.date.slice(5) }}</span>
+                <span class="text-emerald-600 font-semibold">✓ {{ f.confirm }}</span>
+                <span class="text-rose-600">✕ {{ f.cancel }}</span>
+                <span class="text-amber-600">📵 {{ f.dna }}</span>
+              </div>
+              <div class="flex h-1.5 rounded-full overflow-hidden bg-stone-100 ms-[76px]">
+                <div class="bg-emerald-500" :style="{ width: barW(f.confirm) }" />
+                <div class="bg-rose-400" :style="{ width: barW(f.cancel) }" />
+                <div class="bg-amber-400" :style="{ width: barW(f.dna) }" />
+              </div>
             </div>
             <div v-if="!data.funnel.length" class="text-center text-[12px] text-stone-400 py-6">—</div>
           </div>
@@ -102,6 +118,11 @@ const days = ref(7);
 const data = ref(null);
 const loading = ref(true);
 const denied = ref(false);
+
+function barW(n) {
+  const max = Math.max(1, ...(data.value?.funnel || []).map((f) => f.confirm + f.cancel + f.dna));
+  return Math.round((n / max) * 100) + "%";
+}
 
 async function load() {
   loading.value = true;
