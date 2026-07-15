@@ -144,3 +144,138 @@ html[data-theme="dark"] img[alt="Justyol"] { filter: invert(1) brightness(1.8); 
    ========================================================================== */
 html:not([data-theme="dark"]) .text-stone-400 { color: #8a827c; }
 html:not([data-theme="dark"]) .text-stone-500 { color: #5f5a54; }
+
+/* ==========================================================================
+   DARK THEME — Contact Center lane pages (cf-/rs-/cs- scoped components).
+   The scoped <style> blocks hardcode light surfaces; global rules still
+   match the class names (only [data-v] attrs are scoped), so remap here.
+   !important beats the scoped rules' specificity, same as the base remap.
+   ========================================================================== */
+html[data-theme="dark"] .cf-hero,
+html[data-theme="dark"] .rs-hero,
+html[data-theme="dark"] .cs-hero {
+  background: linear-gradient(135deg, #2b2320 0%, #292524 45%, #292524 70%, #2b2320 100%) !important;
+  box-shadow: inset 0 0 0 1px #44403c, 0 1px 2px rgb(0 0 0 / .2) !important;
+}
+html[data-theme="dark"] .rs-hero {
+  background: linear-gradient(135deg, #20282e 0%, #292524 45%, #292524 70%, #20282e 100%) !important;
+}
+html[data-theme="dark"] .cs-hero {
+  background: linear-gradient(135deg, #292239 0%, #292524 45%, #292524 70%, #292239 100%) !important;
+}
+html[data-theme="dark"] .cf-stat,
+html[data-theme="dark"] .rs-stat,
+html[data-theme="dark"] .cs-stat {
+  background: rgba(28, 25, 23, .6) !important;
+  box-shadow: inset 0 0 0 1px #44403c, 0 1px 2px rgb(0 0 0 / .2) !important;
+}
+html[data-theme="dark"] .cf-stat-l,
+html[data-theme="dark"] .rs-stat-l,
+html[data-theme="dark"] .cs-stat-l { color: #8c857c !important; }
+
+html[data-theme="dark"] .cf-seg,
+html[data-theme="dark"] .rs-seg,
+html[data-theme="dark"] .cs-seg { background: rgba(68, 64, 60, .45) !important; }
+html[data-theme="dark"] .cf-seg-btn,
+html[data-theme="dark"] .rs-seg-btn,
+html[data-theme="dark"] .cs-seg-btn { color: #a8a29e !important; }
+html[data-theme="dark"] .cf-seg-btn:hover,
+html[data-theme="dark"] .rs-seg-btn:hover,
+html[data-theme="dark"] .cs-seg-btn:hover { color: #f5f5f4 !important; }
+html[data-theme="dark"] .cf-seg-on,
+html[data-theme="dark"] .rs-seg-on,
+html[data-theme="dark"] .cs-seg-on {
+  background: #1c1917 !important; color: #f5f5f4 !important;
+  box-shadow: 0 1px 3px rgb(0 0 0 / .4) !important;
+}
+
+html[data-theme="dark"] .cf-card,
+html[data-theme="dark"] .rs-card,
+html[data-theme="dark"] .cs-card {
+  background: #292524 !important;
+  box-shadow: inset 0 0 0 1px #44403c, 0 1px 2px rgb(0 0 0 / .15) !important;
+}
+html[data-theme="dark"] .cf-card:hover,
+html[data-theme="dark"] .rs-card:hover,
+html[data-theme="dark"] .cs-card:hover {
+  box-shadow: inset 0 0 0 1px #57534e, 0 8px 24px -12px rgb(0 0 0 / .5) !important;
+}
+html[data-theme="dark"] .cf-card-due,
+html[data-theme="dark"] .rs-card-due,
+html[data-theme="dark"] .cs-card-breach {
+  box-shadow: inset 0 0 0 1.5px #9f1239, 0 4px 16px -8px rgb(244 63 94 / .25) !important;
+}
+
+html[data-theme="dark"] .cf-avatar {
+  background: linear-gradient(135deg, #3a2a24, #44302a) !important;
+  box-shadow: inset 0 0 0 1px #6d291d !important; color: #eea894 !important;
+}
+html[data-theme="dark"] .rs-avatar {
+  background: linear-gradient(135deg, #16283a, #1a3350) !important;
+  box-shadow: inset 0 0 0 1px #0c4a6e !important; color: #7dd3fc !important;
+}
+html[data-theme="dark"] .cs-avatar {
+  background: linear-gradient(135deg, #2a2440, #352a55) !important;
+  box-shadow: inset 0 0 0 1px #4c1d95 !important; color: #c4b5fd !important;
+}
+html[data-theme="dark"] .cs-avatar-wa {
+  background: linear-gradient(135deg, #12291c, #143722) !important;
+  box-shadow: inset 0 0 0 1px #14532d !important; color: #6ee7b7 !important;
+}
+html[data-theme="dark"] .cf-avatar-due,
+html[data-theme="dark"] .rs-avatar-due,
+html[data-theme="dark"] .cs-avatar-breach {
+  background: linear-gradient(135deg, #3a1622, #4a1a2a) !important;
+  box-shadow: inset 0 0 0 1px #9f1239 !important; color: #fda4af !important;
+}
+
+html[data-theme="dark"] .cf-contact, html[data-theme="dark"] .cf-act-soft,
+html[data-theme="dark"] .rs-contact, html[data-theme="dark"] .rs-act-soft,
+html[data-theme="dark"] .cs-contact, html[data-theme="dark"] .cs-act-soft,
+html[data-theme="dark"] .pg-btn {
+  background: #1c1917 !important;
+  box-shadow: inset 0 0 0 1px #44403c !important;
+}
+html[data-theme="dark"] .cf-act-soft:hover,
+html[data-theme="dark"] .rs-act-soft:hover,
+html[data-theme="dark"] .cs-act-soft:hover { background: #292524 !important; }
+html[data-theme="dark"] .cf-wa:hover,
+html[data-theme="dark"] .rs-wa:hover,
+html[data-theme="dark"] .cs-wa:hover { background: #12291c !important; }
+
+html[data-theme="dark"] .cf-empty,
+html[data-theme="dark"] .rs-empty,
+html[data-theme="dark"] .cs-empty {
+  background: linear-gradient(180deg, #292524, #1c1917) !important;
+  box-shadow: inset 0 0 0 1px #44403c !important;
+}
+html[data-theme="dark"] .cf-shimmer,
+html[data-theme="dark"] .rs-shimmer,
+html[data-theme="dark"] .cs-shimmer {
+  background: linear-gradient(90deg, #292524 25%, #3a3530 50%, #292524 75%) !important;
+  background-size: 200% 100% !important;
+}
+
+/* Pastel tint utilities the lane pages lean on — deep translucent fills and
+   brightened text so chips/badges survive the flip. */
+html[data-theme="dark"] .bg-violet-50, html[data-theme="dark"] .bg-violet-50\/50,
+html[data-theme="dark"] .bg-violet-50\/60 { background-color: rgba(76, 29, 149, .22) !important; }
+html[data-theme="dark"] .bg-sky-50 { background-color: rgba(12, 74, 110, .3) !important; }
+html[data-theme="dark"] .bg-emerald-50 { background-color: rgba(6, 78, 59, .35) !important; }
+html[data-theme="dark"] .bg-rose-50 { background-color: rgba(136, 19, 55, .3) !important; }
+html[data-theme="dark"] .bg-amber-50 { background-color: rgba(120, 53, 15, .3) !important; }
+html[data-theme="dark"] .text-violet-700, html[data-theme="dark"] .text-violet-600 { color: #c4b5fd !important; }
+html[data-theme="dark"] .text-sky-700, html[data-theme="dark"] .text-sky-600 { color: #7dd3fc !important; }
+html[data-theme="dark"] .text-emerald-700, html[data-theme="dark"] .text-emerald-600 { color: #6ee7b7 !important; }
+html[data-theme="dark"] .text-rose-700, html[data-theme="dark"] .text-rose-600 { color: #fda4af !important; }
+html[data-theme="dark"] .text-amber-700, html[data-theme="dark"] .text-amber-600,
+html[data-theme="dark"] .text-amber-800 { color: #fcd34d !important; }
+html[data-theme="dark"] .ring-violet-200, html[data-theme="dark"] .ring-violet-200\/80 { --tw-ring-color: #4c1d95 !important; }
+html[data-theme="dark"] .ring-sky-200 { --tw-ring-color: #0c4a6e !important; }
+html[data-theme="dark"] .ring-emerald-200 { --tw-ring-color: #14532d !important; }
+html[data-theme="dark"] .ring-rose-200 { --tw-ring-color: #9f1239 !important; }
+html[data-theme="dark"] .ring-amber-200, html[data-theme="dark"] .ring-amber-200\/70 { --tw-ring-color: #78350f !important; }
+
+/* Shell backdrop uses the arbitrary bg-[#f5f5f4] utility — remap it too. */
+html[data-theme="dark"] .bg-\[\#f5f5f4\] { background-color: #1c1917 !important; }
+html[data-theme="dark"] .bg-stone-200\/70 { background-color: #44403c !important; }
