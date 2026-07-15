@@ -468,6 +468,7 @@ export default {
     rService: "Service", rWindow: "Window", rPickup: "Pickup", rDeliveryTo: "Delivery to",
   },
   pl: {
+    sbSkipped: "{n} orders left out — stock can't fully cover them",
     sbFellBack: "Batch split into {n} separate lists — combined save was rejected",
     emptyDrafts: "{n} draft pick lists hold ZERO items — leftovers of stripped inserts. They block nothing but bury the real lists.",
     cleanupBtn: "Delete {n} empty drafts",

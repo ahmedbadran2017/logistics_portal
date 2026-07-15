@@ -227,9 +227,17 @@ async function createSuggested() {
     let msg = t("pl.sbCreated").replace("{n}", res.created);
     if (res.failed) msg += " · " + t("pl.sbFailed").replace("{n}", res.failed);
     success(msg);
-    // The combined insert can fall back to one-list-per-order (stock
-    // competition inside the batch) — that must be LOUD, not a surprise
-    // in the table.
+    // Orders without full stock coverage are excluded up front so the rest
+    // stay merged — say who was left out instead of a silent shrink.
+    const skippedAll = (res.results || []).flatMap((r) => r.skipped || []);
+    if (skippedAll.length) {
+      warn(
+        t("pl.sbSkipped").replace("{n}", skippedAll.length),
+        skippedAll.slice(0, 3).map((s) => `${s.order}: ${s.reason}`).join(" · "),
+      );
+    }
+    // Last-resort fallback (one list per order) — should be rare now that
+    // coverage is pre-checked; must be LOUD, not a surprise in the table.
     const fell = (res.results || []).filter((r) => r.fellBack);
     if (fell.length) {
       warn(

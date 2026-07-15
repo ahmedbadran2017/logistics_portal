@@ -468,6 +468,7 @@ export default {
     rService: "Service", rWindow: "Créneau", rPickup: "Enlèvement", rDeliveryTo: "Livraison à",
   },
   pl: {
+    sbSkipped: "{n} commandes écartées — le stock ne les couvre pas entièrement",
     sbFellBack: "Lot scindé en {n} listes séparées — l'enregistrement combiné a été rejeté",
     emptyDrafts: "{n} brouillons de listes sans AUCUN article — résidus d'insertions vidées. Ils ne bloquent rien mais noient les vraies listes.",
     cleanupBtn: "Supprimer {n} brouillons vides",

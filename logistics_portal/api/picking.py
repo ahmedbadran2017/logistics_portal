@@ -643,6 +643,35 @@ def _build_pick_list(orders, picker=None):
         frappe.throw("None of the selected orders can be picked (already picked or "
                      f"in the flow): {detail}")
 
+    # Apply the controller's own rule OURSELVES, up front: an order rides the
+    # combined list only if FREE stock fully covers it after the orders before
+    # it took theirs (ecommerce_integrations' remove_incomplete_orders drops
+    # partially-covered orders and throws when a combined doc empties out —
+    # that throw is what shattered a batch into one-order lists on 2026-07-15).
+    # Uncoverable orders are SKIPPED with a named reason; the rest stay merged.
+    totals = _available_totals({it.item_code for so in sos for it in so.items})
+    covered = []
+    for so in sos:
+        need = {}
+        for it in so.items:
+            pending = (it.qty or 0) - (it.delivered_qty or 0)
+            if pending > 0:
+                need[it.item_code] = need.get(it.item_code, 0) + pending
+        short = [c for c, q in need.items() if totals.get(c, 0) < q]
+        if not need:
+            skipped.append({"order": so.name, "reason": "nothing pending to pick"})
+        elif short:
+            skipped.append({"order": so.name,
+                            "reason": f"insufficient stock ({short[0]})"})
+        else:
+            for c, q in need.items():
+                totals[c] -= q
+            covered.append(so)
+    sos = covered
+    if not sos:
+        detail = "; ".join(f"{s['order']} — {s['reason']}" for s in skipped[:4])
+        frappe.throw("None of the selected orders has full stock coverage: " + detail)
+
     # Happy path: one combined pick list.
     combined_err = ""
     try:
@@ -964,6 +993,33 @@ def _resolve_bins(item_codes):
         if not cur or (cand["shelf"], cand["qty"]) > (cur["shelf"], cur["qty"]):
             best[r.item_code] = cand
     return best
+
+
+def _available_totals(item_codes):
+    """item_code → total FREE qty across pickable bins (actual − reserved −
+    open-draft pick list claims). Mirrors the controller's full-coverage rule
+    so the portal can exclude uncoverable orders BEFORE the save rejects the
+    whole combined document."""
+    if not item_codes:
+        return {}
+    from logistics_portal.api.warehouses import pickable_condition
+    cond, wargs = pickable_condition("warehouse")
+    # GREATEST(..., 0) per bin: stale SO reservations leave some bins deeply
+    # negative (reserved 27k vs actual 0 on one SKU in production) — a naive
+    # SUM goes negative and would flag EVERYTHING as uncoverable. Only bins
+    # you can physically pick from count.
+    totals = {r[0]: float(r[1] or 0) for r in frappe.db.sql(
+        "SELECT item_code, SUM(GREATEST(actual_qty - reserved_qty, 0)) FROM `tabBin` "
+        "WHERE item_code IN %s AND " + cond + " GROUP BY item_code",
+        tuple([tuple(item_codes)] + wargs))}
+    for r in frappe.db.sql(
+            """SELECT pli.item_code, SUM(GREATEST(pli.qty - pli.picked_qty, 0))
+               FROM `tabPick List Item` pli
+               JOIN `tabPick List` p ON p.name = pli.parent
+               WHERE p.docstatus = 0 AND pli.item_code IN %s
+               GROUP BY pli.item_code""", (tuple(item_codes),)):
+        totals[r[0]] = totals.get(r[0], 0) - float(r[1] or 0)
+    return totals
 
 
 def _chunk(seq, cap_orders, cap_units, units_of):
