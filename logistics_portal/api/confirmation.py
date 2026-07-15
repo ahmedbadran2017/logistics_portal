@@ -117,6 +117,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
             "due": bool(r.next_call and str(r.next_call) <= str(now_datetime())),
         } for r in rows],
         "mine": mine,
+        "reasons": _cf_settings().get("reasons", []),
         "serverNow": str(now_datetime())[:19],
     }
 
@@ -154,7 +155,10 @@ def act(order, action, note=None):
     if action in _RETRY_HOURS:
         attempts += 1
         updates["custom_call_attempts"] = attempts
-        updates["custom_next_call_at"] = add_to_date(now, hours=_RETRY_HOURS[action])
+        s = _cf_settings()
+        hours = {"dna": s["retryDna"], "followup": s["retryFollowup"],
+                 "onhold": s["retryOnhold"]}[action]
+        updates["custom_next_call_at"] = add_to_date(now, hours=hours)
     else:
         updates["custom_next_call_at"] = None
     frappe.db.set_value("Sales Order", order, updates, update_modified=True)
@@ -207,3 +211,160 @@ def update_contact(order, phone=None, city=None):
         "Comment", "Contact updated: " + "; ".join(log) + f" · by {frappe.session.user}")
     frappe.db.commit()
     return {"ok": True, "updated": log}
+
+
+# ── Section administration: settings + reports, gated to the portal manager
+# OR designated section admins (a team lead can run her section without
+# portal-wide manager powers). Same pattern will serve lanes 2 and 3.
+_CF_KEY = "lp_cf_settings"
+_CF_DEFAULTS = {
+    "retryDna": 4,        # hours before a Did-not-Answer resurfaces
+    "retryFollowup": 24,
+    "retryOnhold": 48,
+    "reasons": ["Prix trop élevé", "Commande par erreur", "Ne répond plus",
+                "Adresse hors zone", "Commande dupliquée", "A changé d'avis"],
+    "admins": [],         # section admins (user emails)
+}
+
+
+def _cf_settings():
+    import json as _json
+    raw = frappe.db.get_default(_CF_KEY)
+    out = dict(_CF_DEFAULTS)
+    if raw:
+        try:
+            saved = _json.loads(raw)
+            if isinstance(saved, dict):
+                out.update({k: saved[k] for k in _CF_DEFAULTS if k in saved})
+        except Exception:
+            pass
+    return out
+
+
+def _is_cf_admin():
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) == "manager":
+        return True
+    return frappe.session.user in _cf_settings().get("admins", [])
+
+
+@frappe.whitelist()
+def cf_settings():
+    _gate()
+    s = _cf_settings()
+    return {**s, "canEdit": _is_cf_admin()}
+
+
+@frappe.whitelist()
+def save_cf_settings(settings=None):
+    """Section settings — portal manager or a designated section admin."""
+    import json as _json
+    _gate()
+    if not _is_cf_admin():
+        frappe.throw("Only the portal manager or a confirmation section admin "
+                     "can change these settings.", frappe.PermissionError)
+    if isinstance(settings, str):
+        settings = _json.loads(settings)
+    settings = settings or {}
+    out = dict(_cf_settings())
+    for k in ("retryDna", "retryFollowup", "retryOnhold"):
+        if k in settings:
+            v = int(settings[k])
+            if not (1 <= v <= 168):
+                frappe.throw(f"{k} must be between 1 and 168 hours.")
+            out[k] = v
+    if "reasons" in settings:
+        reasons = [str(r).strip()[:60] for r in (settings["reasons"] or []) if str(r).strip()]
+        if not reasons:
+            frappe.throw("Keep at least one cancel reason.")
+        out["reasons"] = reasons[:20]
+    if "admins" in settings:
+        from logistics_portal.api.auth import resolve_role
+        if resolve_role(frappe.session.user) != "manager":
+            frappe.throw("Only the portal manager can change section admins.",
+                         frappe.PermissionError)
+        admins = [str(a).strip().lower() for a in (settings["admins"] or []) if str(a).strip()]
+        for a in admins:
+            if not frappe.db.exists("User", a):
+                frappe.throw(f"Unknown user: {a}")
+        out["admins"] = admins[:10]
+    frappe.db.set_default(_CF_KEY, _json.dumps(out))
+    frappe.db.commit()
+    return {"ok": True, **out}
+
+
+@frappe.whitelist()
+def report(days=7):
+    """The section's own report: per-agent decisions, confirm rate, attempts,
+    cancel-reason breakdown and the day-by-day funnel. Manager or section
+    admin (agents see their own numbers on the workspace itself)."""
+    _gate()
+    if not _is_cf_admin():
+        frappe.throw("Only the portal manager or a section admin can open the "
+                     "section report.", frappe.PermissionError)
+    days = min(max(int(days or 7), 1), 90)
+    since = f"DATE_SUB(NOW(), INTERVAL {days} DAY)"
+
+    # Per-agent decision counts from the Comment trail the workspace writes.
+    per_agent = {}
+    for r in frappe.db.sql(
+            f"""SELECT c.owner, c.content FROM `tabComment` c
+                WHERE c.reference_doctype = 'Sales Order'
+                  AND c.content LIKE 'Confirmation: %%'
+                  AND c.creation >= {since}""", as_dict=True):
+        action = (r.content.split("Confirmation: ", 1)[1] or "").split(" ", 1)[0]
+        action = action.strip("()—- ")
+        a = per_agent.setdefault(r.owner, {"confirm": 0, "cancel": 0, "dna": 0,
+                                           "followup": 0, "onhold": 0})
+        if action in a:
+            a[action] += 1
+
+    agents = []
+    for user, a in per_agent.items():
+        decided = a["confirm"] + a["cancel"]
+        stats = frappe.db.sql(
+            f"""SELECT AVG(custom_call_attempts), COUNT(*) FROM `tabSales Order`
+                WHERE custom_confirmation_agent = %s
+                  AND custom_sales_status = 'Confirmed'
+                  AND custom_last_call_at >= {since}""", (user,))[0]
+        agents.append({
+            "agent": user.split("@")[0], "user": user, **a,
+            "total": sum(a.values()),
+            "confirmRate": round(a["confirm"] * 100.0 / decided, 1) if decided else 0,
+            "avgAttempts": round(float(stats[0] or 0), 1),
+        })
+    agents.sort(key=lambda x: -x["total"])
+
+    # Cancel reasons breakdown (reason text sits between '—' and '· by').
+    reasons = {}
+    for r in frappe.db.sql(
+            f"""SELECT c.content FROM `tabComment` c
+                WHERE c.reference_doctype = 'Sales Order'
+                  AND c.content LIKE 'Confirmation: cancel%%'
+                  AND c.creation >= {since}""", as_dict=True):
+        txt = r.content
+        reason = ""
+        if "—" in txt:
+            reason = txt.split("—", 1)[1].split("· by", 1)[0].strip()
+        reasons[reason or "(no reason)"] = reasons.get(reason or "(no reason)", 0) + 1
+    reason_rows = sorted(({"reason": k, "n": v} for k, v in reasons.items()),
+                         key=lambda x: -x["n"])[:12]
+
+    # Day-by-day funnel: how many orders ENTERED each terminal state.
+    funnel = frappe.db.sql(
+        f"""SELECT DATE(c.creation) d,
+                   SUM(c.content LIKE 'Confirmation: confirm%%') conf,
+                   SUM(c.content LIKE 'Confirmation: cancel%%') canc,
+                   SUM(c.content LIKE 'Confirmation: dna%%') dna
+            FROM `tabComment` c
+            WHERE c.reference_doctype = 'Sales Order'
+              AND c.content LIKE 'Confirmation: %%' AND c.creation >= {since}
+            GROUP BY DATE(c.creation) ORDER BY d""", as_dict=True)
+
+    return {
+        "days": days,
+        "agents": agents,
+        "reasons": reason_rows,
+        "funnel": [{"date": str(f.d), "confirm": int(f.conf or 0),
+                    "cancel": int(f.canc or 0), "dna": int(f.dna or 0)} for f in funnel],
+    }

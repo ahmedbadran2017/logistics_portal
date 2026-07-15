@@ -89,12 +89,20 @@
         </div>
 
         <!-- cancel reason -->
-        <div v-if="cancelFor === r.order" class="flex items-center gap-2 bg-rose-50/60 rounded-lg p-2">
+        <div v-if="cancelFor === r.order" class="space-y-2 bg-rose-50/60 rounded-lg p-2">
+          <div v-if="data?.reasons?.length" class="flex flex-wrap gap-1.5">
+            <button v-for="rs in data.reasons" :key="rs"
+                    class="h-7 px-2.5 rounded-lg text-[11.5px] font-medium ring-1 transition-colors"
+                    :class="cancelReason === rs ? 'text-white bg-rose-600 ring-rose-600' : 'text-rose-700 bg-white ring-rose-200 hover:bg-rose-100'"
+                    @click="cancelReason = rs">{{ rs }}</button>
+          </div>
+          <div class="flex items-center gap-2">
           <input v-model="cancelReason" :placeholder="t('cf.cancelPh')" maxlength="120"
                  class="flex-1 h-9 ps-3 pe-3 rounded-lg bg-white ring-1 ring-rose-200 text-[12.5px] focus:outline-none" />
           <button class="h-9 px-3 rounded-lg text-[12px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50"
                   :disabled="!cancelReason.trim() || busy === r.order"
                   @click="act(r, 'cancel', cancelReason)">{{ t('cf.cancelConfirm') }}</button>
+          </div>
         </div>
 
         <!-- contact edit -->

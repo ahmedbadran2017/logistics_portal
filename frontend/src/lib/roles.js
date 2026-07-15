@@ -22,10 +22,17 @@ export const ROLE_CONFIG = {
         ],
       },
       {
+        section: "nav.confirmSection",
+        items: [
+          { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
+          { to: "ConfirmationReports", label: "nav.cfReports", icon: "trending-up" },
+          { to: "ConfirmationSettings", label: "nav.cfSettings", icon: "settings" },
+        ],
+      },
+      {
         section: "nav.fulfillment",
         items: [
           { to: "Pipeline", label: "nav.orders", icon: "shopping-bag" },
-          { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
           { to: "Consolidation", label: "nav.consolidation", icon: "git-merge" },
           { to: "PickLists", label: "nav.picklists", icon: "package" },
           { to: "PackStation", label: "nav.pack", icon: "tag" },
@@ -130,9 +137,16 @@ export const ROLE_CONFIG = {
     home: "Confirmation",
     nav: [
       {
-        section: "nav.operations",
+        section: "nav.confirmSection",
         items: [
           { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
+          { to: "ConfirmationReports", label: "nav.cfReports", icon: "trending-up" },
+          { to: "ConfirmationSettings", label: "nav.cfSettings", icon: "settings" },
+        ],
+      },
+      {
+        section: "nav.operations",
+        items: [
           { to: "Consolidation", label: "nav.consolidation", icon: "git-merge" },
           { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
         ],
