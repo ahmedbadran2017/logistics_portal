@@ -13,15 +13,15 @@
         <div v-if="data" class="flex items-stretch gap-2">
           <div class="cf-stat">
             <span class="cf-stat-n text-emerald-600">{{ data.mine.confirm }}</span>
-            <span class="cf-stat-l">✓ {{ t('cf.actConfirm') }}</span>
+            <span class="cf-stat-l"><Icon name="check-circle" :size="10" class="inline -mt-px me-0.5" />{{ t('cf.actConfirm') }}</span>
           </div>
           <div class="cf-stat">
             <span class="cf-stat-n text-amber-600">{{ data.mine.dna }}</span>
-            <span class="cf-stat-l">📵 {{ t('cf.actDna') }}</span>
+            <span class="cf-stat-l"><Icon name="phone-off" :size="10" class="inline -mt-px me-0.5" />{{ t('cf.actDna') }}</span>
           </div>
           <div class="cf-stat">
             <span class="cf-stat-n text-rose-500">{{ data.mine.cancel }}</span>
-            <span class="cf-stat-l">✕ {{ t('cf.actCancel') }}</span>
+            <span class="cf-stat-l"><Icon name="x" :size="10" class="inline -mt-px me-0.5" />{{ t('cf.actCancel') }}</span>
           </div>
         </div>
       </div>
@@ -36,7 +36,7 @@
           :class="tab === tb.key ? 'cf-seg-on' : ''"
           @click="tab = tb.key; page = 1; load()"
         >
-          <span>{{ tb.emoji }}</span>
+          <Icon :name="tb.icon" :size="14" />
           <span>{{ t(tb.label) }}</span>
           <span class="cf-seg-count" :class="tab === tb.key ? tb.onColor : 'bg-stone-200/70 text-stone-500'">
             {{ data?.counts?.[tb.key] ?? '–' }}
@@ -56,7 +56,7 @@
       <div v-for="n in 6" :key="n" class="h-[76px] rounded-2xl cf-shimmer" />
     </div>
     <div v-else-if="!rows.length" class="cf-empty rounded-2xl p-12 text-center">
-      <div class="text-[40px] leading-none mb-3">{{ tab === 'pending' ? '🎉' : '☕️' }}</div>
+      <span class="inline-flex w-14 h-14 rounded-2xl items-center justify-center bg-emerald-50 text-emerald-500 mb-3"><Icon name="check-circle" :size="26" /></span>
       <div class="text-[15px] font-semibold text-stone-800">{{ t('cf.empty') }}</div>
       <div class="text-[12.5px] text-stone-400 mt-1">{{ t('cf.emptyHint') }}</div>
     </div>
@@ -77,8 +77,8 @@
               <span class="font-semibold text-stone-800">{{ fmtMAD(r.total) }} <span class="text-stone-400 font-normal">MAD</span></span>
               <span v-if="r.city" class="inline-flex items-center gap-1"><Icon name="map-pin" :size="11" class="text-stone-300" />{{ r.city }}</span>
               <span>{{ r.items }} {{ t('consol.items') }}</span>
-              <span :class="ageColor(r.ageH)">⏱ {{ ageLabel(r.ageH) }}</span>
-              <span v-if="r.attempts" class="text-amber-600 font-medium">📵 ×{{ r.attempts }}</span>
+              <span class="inline-flex items-center gap-1" :class="ageColor(r.ageH)"><Icon name="clock" :size="11" />{{ ageLabel(r.ageH) }}</span>
+              <span v-if="r.attempts" class="inline-flex items-center gap-1 text-amber-600 font-medium"><Icon name="phone-off" :size="11" />×{{ r.attempts }}</span>
               <span v-if="r.agent" class="text-stone-400">{{ r.agent }}</span>
               <span v-if="r.nextCall" class="text-stone-400">→ {{ r.nextCall.slice(5) }}</span>
             </div>
@@ -100,14 +100,14 @@
           <!-- decisions -->
           <div class="flex items-center gap-1.5 flex-wrap">
             <button class="cf-act cf-act-confirm" :disabled="busy === r.order" @click="act(r, 'confirm')">
-              ✓ {{ t('cf.actConfirm') }}
+              <Icon name="check" :size="14" class="inline -mt-px me-1" />{{ t('cf.actConfirm') }}
             </button>
-            <button class="cf-act cf-act-soft text-amber-700" :disabled="busy === r.order" @click="act(r, 'dna')">📵</button>
-            <button class="cf-act cf-act-soft text-sky-700" :disabled="busy === r.order" :title="t('cf.actFollowup')" @click="act(r, 'followup')">🕐</button>
-            <button class="cf-act cf-act-soft text-stone-500" :disabled="busy === r.order" :title="t('cf.actOnhold')" @click="act(r, 'onhold')">⏸</button>
+            <button class="cf-act cf-act-soft text-amber-700" :disabled="busy === r.order" :title="t('cf.actDna')" @click="act(r, 'dna')"><Icon name="phone-off" :size="15" /></button>
+            <button class="cf-act cf-act-soft text-sky-700" :disabled="busy === r.order" :title="t('cf.actFollowup')" @click="act(r, 'followup')"><Icon name="clock" :size="15" /></button>
+            <button class="cf-act cf-act-soft text-stone-500" :disabled="busy === r.order" :title="t('cf.actOnhold')" @click="act(r, 'onhold')"><Icon name="pause" :size="15" /></button>
             <button class="cf-act cf-act-soft text-rose-600" :disabled="busy === r.order"
                     :class="cancelFor === r.order ? 'ring-2' : ''"
-                    @click="cancelFor = cancelFor === r.order ? '' : r.order">✕</button>
+                    @click="cancelFor = cancelFor === r.order ? '' : r.order"><Icon name="x" :size="15" /></button>
           </div>
         </div>
 
@@ -168,10 +168,10 @@ const { t } = useI18n();
 const { success, warn } = useToast();
 
 const TABS = [
-  { key: "pending", label: "cf.tabPending", emoji: "🆕", onColor: "bg-[var(--accent-100)] text-[var(--accent-700)]" },
-  { key: "dna", label: "cf.tabDna", emoji: "📵", onColor: "bg-amber-100 text-amber-700" },
-  { key: "followup", label: "cf.tabFollowup", emoji: "🕐", onColor: "bg-sky-100 text-sky-700" },
-  { key: "onhold", label: "cf.tabOnhold", emoji: "⏸", onColor: "bg-stone-200 text-stone-600" },
+  { key: "pending", label: "cf.tabPending", icon: "shopping-bag", onColor: "bg-[var(--accent-100)] text-[var(--accent-700)]" },
+  { key: "dna", label: "cf.tabDna", icon: "phone-off", onColor: "bg-amber-100 text-amber-700" },
+  { key: "followup", label: "cf.tabFollowup", icon: "clock", onColor: "bg-sky-100 text-sky-700" },
+  { key: "onhold", label: "cf.tabOnhold", icon: "pause", onColor: "bg-stone-200 text-stone-600" },
 ];
 
 const tab = ref("pending");

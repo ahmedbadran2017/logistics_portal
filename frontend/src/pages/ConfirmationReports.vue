@@ -31,9 +31,9 @@
             <thead>
               <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
                 <th class="text-start px-4 py-2.5">{{ t('cfr.thAgent') }}</th>
-                <th class="text-end px-3 py-2.5">✓ {{ t('cf.actConfirm') }}</th>
-                <th class="text-end px-3 py-2.5">✕ {{ t('cf.actCancel') }}</th>
-                <th class="text-end px-3 py-2.5">📵 {{ t('cf.actDna') }}</th>
+                <th class="text-end px-3 py-2.5">{{ t('cf.actConfirm') }}</th>
+                <th class="text-end px-3 py-2.5">{{ t('cf.actCancel') }}</th>
+                <th class="text-end px-3 py-2.5">{{ t('cf.actDna') }}</th>
                 <th class="text-end px-3 py-2.5">{{ t('cfr.thTotal') }}</th>
                 <th class="text-end px-3 py-2.5">{{ t('cfr.thRate') }}</th>
                 <th class="text-end px-4 py-2.5">{{ t('cfr.thAttempts') }}</th>
@@ -86,9 +86,9 @@
             <div v-for="f in [...data.funnel].reverse()" :key="f.date" class="px-4 py-2 space-y-1">
               <div class="flex items-center gap-3 text-[12px] tabular-nums">
                 <span class="text-stone-500 w-[64px]">{{ f.date.slice(5) }}</span>
-                <span class="text-emerald-600 font-semibold">✓ {{ f.confirm }}</span>
-                <span class="text-rose-600">✕ {{ f.cancel }}</span>
-                <span class="text-amber-600">📵 {{ f.dna }}</span>
+                <span class="inline-flex items-center gap-1.5 text-emerald-600 font-semibold"><span class="w-2 h-2 rounded-full bg-emerald-500" />{{ f.confirm }}</span>
+                <span class="inline-flex items-center gap-1.5 text-rose-600"><span class="w-2 h-2 rounded-full bg-rose-400" />{{ f.cancel }}</span>
+                <span class="inline-flex items-center gap-1.5 text-amber-600"><span class="w-2 h-2 rounded-full bg-amber-400" />{{ f.dna }}</span>
               </div>
               <div class="flex h-1.5 rounded-full overflow-hidden bg-stone-100 ms-[76px]">
                 <div class="bg-emerald-500" :style="{ width: barW(f.confirm) }" />
