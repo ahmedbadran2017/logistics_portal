@@ -82,7 +82,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
                    COALESCE(NULLIF(so.custom_customer_phone,''),
                             so.custom_shipping_phone) AS phone,
                    so.custom_shipping_city AS city,
-                   so.custom_items_count AS items,
+                   so.custom_items_count AS item_count,
                    TIMESTAMPDIFF(HOUR, so.creation, NOW()) AS age_h,
                    COALESCE(so.custom_call_attempts, 0) AS attempts,
                    so.custom_last_call_at AS last_call,
@@ -109,7 +109,10 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
         "rows": [{
             "order": r.name, "customer": r.customer or "",
             "total": float(r.total or 0), "phone": (r.phone or "").strip(),
-            "city": (r.city or "").strip().title(), "items": int(r.items or 1),
+            # NB: the alias is item_count, NOT `items` — on a frappe._dict row
+            # `r.items` resolves to the dict METHOD and int(method) TypeErrors
+            # (same trap that blanked the Settings zones panel once).
+            "city": (r.city or "").strip().title(), "items": int(r.item_count or 1),
             "ageH": int(r.age_h or 0), "attempts": int(r.attempts or 0),
             "lastCall": str(r.last_call)[:16] if r.last_call else "",
             "nextCall": str(r.next_call)[:16] if r.next_call else "",
