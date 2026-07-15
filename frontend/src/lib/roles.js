@@ -42,6 +42,7 @@ export const ROLE_CONFIG = {
         section: "nav.ticketsSection",
         items: [
           { to: "Tickets", label: "nav.tickets", icon: "message-circle" },
+          { to: "Exchanges", label: "nav.exchanges", icon: "refresh-cw" },
           { to: "TicketsReports", label: "nav.tsReports", icon: "trending-up" },
           { to: "TicketsSettings", label: "nav.tsSettings", icon: "settings" },
         ],
@@ -173,6 +174,7 @@ export const ROLE_CONFIG = {
         section: "nav.ticketsSection",
         items: [
           { to: "Tickets", label: "nav.tickets", icon: "message-circle" },
+          { to: "Exchanges", label: "nav.exchanges", icon: "refresh-cw" },
           { to: "TicketsReports", label: "nav.tsReports", icon: "trending-up" },
           { to: "TicketsSettings", label: "nav.tsSettings", icon: "settings" },
         ],

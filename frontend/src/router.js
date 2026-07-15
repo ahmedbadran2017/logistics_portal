@@ -37,6 +37,7 @@ const routes = [
       { path: "tickets/reports", name: "TicketsReports", component: () => import("@/pages/TicketsReports.vue") },
       { path: "tickets/settings", name: "TicketsSettings", component: () => import("@/pages/TicketsSettings.vue") },
       { path: "contact-center", name: "ContactCenter", component: () => import("@/pages/ContactCenter.vue") },
+      { path: "exchanges", name: "Exchanges", component: () => import("@/pages/Exchanges.vue") },
 
       // Dispatcher
       { path: "assign", name: "Assign", component: () => import("@/pages/Assign.vue") },
