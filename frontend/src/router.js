@@ -28,6 +28,11 @@ const routes = [
       { path: "confirmation/reports", name: "ConfirmationReports", component: () => import("@/pages/ConfirmationReports.vue") },
       { path: "confirmation/settings", name: "ConfirmationSettings", component: () => import("@/pages/ConfirmationSettings.vue") },
 
+      // Contact center (rescue lane)
+      { path: "rescue", name: "Rescue", component: () => import("@/pages/Rescue.vue") },
+      { path: "rescue/reports", name: "RescueReports", component: () => import("@/pages/RescueReports.vue") },
+      { path: "rescue/settings", name: "RescueSettings", component: () => import("@/pages/RescueSettings.vue") },
+
       // Dispatcher
       { path: "assign", name: "Assign", component: () => import("@/pages/Assign.vue") },
       { path: "pipeline", name: "Pipeline", component: () => import("@/pages/Pipeline.vue") },

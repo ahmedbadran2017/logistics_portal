@@ -1347,8 +1347,9 @@ def reship(order):
     re-enters stock through the RET receiving + restock flow).
     Dispatcher/manager only."""
     from logistics_portal.api.auth import resolve_role
-    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
-        frappe.throw("Only a dispatcher or manager can reship.", frappe.PermissionError)
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager", "confirmation"):
+        frappe.throw("Only a dispatcher, manager or rescue agent can reship.",
+                     frappe.PermissionError)
 
     raw = (order or "").strip()
     stripped = raw.lstrip("#")
