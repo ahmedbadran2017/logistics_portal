@@ -54,6 +54,61 @@
         </span>
       </div>
 
+      <!-- FIX QUEUE: consolidations (ERPNext-side, safe) -->
+      <div v-if="fix.consolidations.length" class="bg-white rounded-xl ring-1 ring-emerald-200/70 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
+          <Icon name="git-merge" :size="14" class="text-emerald-600" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('catalog.consolTitle') }} ({{ fix.consolidations.length }})</span>
+          <span class="text-[11px] text-stone-400 hidden sm:inline">{{ t('catalog.consolHint') }}</span>
+        </div>
+        <div class="divide-y divide-stone-100 max-h-[360px] overflow-y-auto">
+          <div v-for="c in fix.consolidations" :key="c.dead" class="px-4 py-2.5 flex items-center gap-3 flex-wrap">
+            <div class="min-w-0 flex-1">
+              <div class="font-mono text-[12px] text-stone-900">{{ c.sku }}</div>
+              <div class="text-[11.5px] text-stone-500 truncate max-w-[300px]">{{ c.name }}</div>
+            </div>
+            <span class="inline-flex items-center gap-1 text-[11px] font-semibold rounded-md px-2 py-0.5 ring-1" :class="statusClass(c.status)">{{ c.status }}</span>
+            <span class="text-[12px] tabular-nums text-stone-700 whitespace-nowrap"><b>{{ c.units }}</b> u · {{ fmtMAD(c.value) }} MAD</span>
+            <span class="text-[11px] text-stone-400 font-mono whitespace-nowrap">→ {{ c.survivor }}</span>
+            <button
+              class="h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors disabled:opacity-50"
+              :class="armed === 'c:' + c.dead ? 'text-white bg-emerald-600' : 'text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 hover:bg-emerald-100'"
+              :disabled="actBusy"
+              @click="doConsolidate(c)"
+            >{{ armed === 'c:' + c.dead ? t('catalog.consolSure') : t('catalog.consolBtn') }}</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- FIX QUEUE: re-activate on Shopify (writes to the live store) -->
+      <div v-if="fix.reactivations.length" class="bg-white rounded-xl ring-1 ring-amber-200/70 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
+          <Icon name="zap" :size="14" class="text-amber-600" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('catalog.reactTitle') }} ({{ fix.reactivations.length }})</span>
+          <span class="text-[11px] text-amber-600 hidden sm:inline">{{ t('catalog.reactHint') }}</span>
+        </div>
+        <div class="divide-y divide-stone-100 max-h-[360px] overflow-y-auto">
+          <div v-for="r in fix.reactivations" :key="r.code" class="px-4 py-2.5 flex items-center gap-3 flex-wrap">
+            <div class="min-w-0 flex-1">
+              <div class="font-mono text-[12px] text-stone-900">{{ r.sku || r.code }}</div>
+              <div class="text-[11.5px] text-stone-500 truncate max-w-[300px]">{{ r.name }}</div>
+            </div>
+            <span class="inline-flex items-center gap-1 text-[11px] font-semibold rounded-md px-2 py-0.5 ring-1" :class="statusClass(r.status)">{{ r.status }}</span>
+            <span class="text-[12px] tabular-nums text-stone-700 whitespace-nowrap"><b>{{ r.units }}</b> u · {{ fmtMAD(r.value) }} MAD</span>
+            <button
+              class="h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors disabled:opacity-50"
+              :class="armed === 'r:' + r.code ? 'text-white bg-amber-600' : 'text-amber-700 bg-amber-50 ring-1 ring-amber-200 hover:bg-amber-100'"
+              :disabled="actBusy"
+              @click="doReactivate(r)"
+            >{{ armed === 'r:' + r.code ? t('catalog.reactSure') : t('catalog.reactBtn') }}</button>
+          </div>
+        </div>
+      </div>
+
+      <p v-if="fix.unfixable" class="text-[11.5px] text-stone-400 px-1">
+        {{ t('catalog.unfixable').replace('{n}', fix.unfixable) }}
+      </p>
+
       <!-- stranded stock table -->
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
@@ -109,6 +164,9 @@ const { success, warn } = useToast();
 
 const ov = ref({ synced: 0, lastSync: "", byStatus: {}, strandedValue: 0, strandedCount: 0, strandedSkus: 0 });
 const rows = ref([]);
+const fix = ref({ consolidations: [], reactivations: [], unfixable: 0 });
+const armed = ref("");
+const actBusy = ref(false);
 const loading = ref(true);
 const syncing = ref(false);
 
@@ -131,13 +189,54 @@ function openSku(sku) {
 
 async function load() {
   loading.value = true;
-  const [o, s] = await Promise.all([
+  const [o, s, f] = await Promise.all([
     liveOr(null, () => api("catalog_hub.problems.overview")),
     liveOr(null, () => api("catalog_hub.problems.stranded_stock", { limit: 100 })),
+    liveOr(null, () => api("catalog_hub.actions.fix_candidates")),
   ]);
   if (o) ov.value = o;
   rows.value = Array.isArray(s) ? s : [];
+  if (f && Array.isArray(f.consolidations)) fix.value = f;
   loading.value = false;
+}
+
+function arm(key) {
+  armed.value = key;
+  setTimeout(() => { if (armed.value === key) armed.value = ""; }, 4000);
+}
+
+async function doConsolidate(c) {
+  const key = "c:" + c.dead;
+  if (armed.value !== key) return arm(key);
+  armed.value = "";
+  actBusy.value = true;
+  try {
+    const res = await apiPost("catalog_hub.actions.consolidate", {
+      dead_item: c.dead, survivor_item: c.survivor,
+    });
+    success(t("catalog.consolDone"), `${res.entry} · ${res.units} u → ${res.survivor}`);
+    await load();
+  } catch (e) {
+    warn(t("catalog.actFail"), String(e.message || e));
+  } finally {
+    actBusy.value = false;
+  }
+}
+
+async function doReactivate(r) {
+  const key = "r:" + r.code;
+  if (armed.value !== key) return arm(key);
+  armed.value = "";
+  actBusy.value = true;
+  try {
+    const res = await apiPost("catalog_hub.actions.reactivate", { item_code: r.code });
+    success(t("catalog.reactDone"), `${r.sku || r.code} · ${res.itemsUpdated} items`);
+    await load();
+  } catch (e) {
+    warn(t("catalog.actFail"), String(e.message || e));
+  } finally {
+    actBusy.value = false;
+  }
 }
 
 async function runSync() {
