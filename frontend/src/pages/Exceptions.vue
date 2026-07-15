@@ -47,12 +47,28 @@
 
     <!-- rows -->
     <div class="space-y-2">
+      <!-- bulk triage bar -->
+      <div v-if="selected.size" class="sticky top-2 z-40">
+        <div class="flex items-center gap-2.5 flex-wrap bg-stone-900 text-white rounded-2xl shadow-xl px-4 py-2.5">
+          <span class="text-[12.5px] font-semibold tabular-nums">{{ selected.size }} {{ t('px.blk.selected') }}</span>
+          <span class="w-px h-5 bg-white/20" />
+          <button v-for="a in BULK_ACTIONS" :key="a.action"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold bg-white/10 hover:bg-white/20 disabled:opacity-50"
+                  :disabled="bulkBusy" @click="bulkTriage(a.action)">{{ t(a.label) }}</button>
+          <button class="w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center ms-auto" @click="selected = new Set()">
+            <Icon name="x" :size="15" />
+          </button>
+        </div>
+      </div>
+
       <div
         v-for="e in shown"
         :key="e.id"
         class="relative bg-white rounded-xl ring-1 ring-stone-200/70 p-3.5 ps-4 overflow-hidden flex items-center gap-3 flex-wrap"
       >
         <span class="absolute inset-y-0 start-0 w-1" :class="sevColor(e.sev)" />
+        <input v-if="isLive && tab === 'open' && e.dn" type="checkbox" class="blk-cb flex-shrink-0"
+               :checked="selected.has(e.dn)" @change="toggleSel(e.dn)" />
         <span
           class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
           :class="[toneBg(EXC_KIND[e.kind].tone), toneFg(EXC_KIND[e.kind].tone)]"
@@ -296,6 +312,40 @@ function resolveExc(id) {
   rows.value = rows.value.filter((e) => e.id !== id);
   success(`${id} resolved`);
 }
+// ── bulk triage ────────────────────────────────────────────────────
+const selected = ref(new Set());
+const bulkBusy = ref(false);
+const BULK_ACTIONS = [
+  { action: "Redeliver", label: "exc.actRedeliver" },
+  { action: "Return Requested", label: "exc.actReturn" },
+  { action: "Resolved", label: "exc.actResolved" },
+];
+function toggleSel(dn) {
+  const s = new Set(selected.value);
+  s.has(dn) ? s.delete(dn) : s.add(dn);
+  selected.value = s;
+}
+async function bulkTriage(action) {
+  bulkBusy.value = true;
+  try {
+    const res = await apiPost("shipping.bulk_exceptions", { action, dns: [...selected.value] });
+    const sel = new Set(selected.value);
+    rows.value = rows.value.filter((x) => !(x.dn && sel.has(x.dn)));
+    total.value = Math.max(0, total.value - res.done);
+    if (res.failed?.length) {
+      warn(`${t("exc.triaged")}: ${res.done} · ${res.failed.length} ✗`,
+           res.failed.slice(0, 3).map((f) => `${f.name}: ${f.error}`).join(" · "));
+    } else {
+      success(t("exc.triaged"), `${res.done} · ${action}`);
+    }
+    selected.value = new Set();
+  } catch (e) {
+    warn(t("exc.triageFail"), String(e.message || e));
+  } finally {
+    bulkBusy.value = false;
+  }
+}
+
 async function triage(e, action) {
   busy.value = e.id;
   try {
@@ -370,4 +420,5 @@ function openOrder(id) {
   box-shadow: 0 0 0 1px var(--tw-ring-color, #e7e5e4);
 }
 .triage-btn:disabled { opacity: 0.5; pointer-events: none; }
+.blk-cb { width: 15px; height: 15px; accent-color: var(--accent-600); cursor: pointer; }
 </style>

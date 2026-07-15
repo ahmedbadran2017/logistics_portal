@@ -541,6 +541,17 @@ export default {
     openErp: "فتح في ERPNext", trackOn: "تتبع على كاتيديس",
   },
   px: {
+    blk: {
+      selected: "محدد",
+      pickerPh: "إسناد إلى…",
+      assign: "إسناد",
+      assigned: "اتوزعت",
+      cancelN: "إلغاء {n}",
+      cancelSure: "متأكد؟ اضغط تاني",
+      cancelled: "اتلغت",
+      failed: "فشلت",
+      fail: "فشل الإجراء الجماعي",
+    },
     common: {
       save: "حفظ",
       remove: "إزالة",

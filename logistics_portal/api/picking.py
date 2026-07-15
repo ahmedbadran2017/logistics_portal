@@ -757,6 +757,66 @@ def cancel_pick_list(name, reason=None):
     return {"ok": True}
 
 
+@frappe.whitelist()
+def bulk_pick_lists(action, names=None, picker=None):
+    """Bulk operations on DRAFT pick lists: 'cancel' (delete, frees the orders
+    back to the pool) or 'assign' (set the picker). Per-item failures don't
+    abort the rest — the response says exactly what happened to each one.
+    Dispatcher/manager only."""
+    import json
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Only a dispatcher or manager can bulk-edit pick lists.",
+                     frappe.PermissionError)
+    if isinstance(names, str):
+        names = json.loads(names)
+    names = list(dict.fromkeys(str(n).strip() for n in (names or []) if str(n).strip()))
+    if not names:
+        frappe.throw("Select at least one pick list.")
+    if len(names) > 200:
+        frappe.throw("Too many at once (max 200).")
+    if action not in ("cancel", "assign"):
+        frappe.throw("Unknown bulk action.")
+    if action == "assign":
+        picker = (picker or "").strip()
+        if not picker or not frappe.db.exists("User", picker):
+            frappe.throw("Pick a picker.")
+        if not frappe.get_meta("Pick List").has_field("custom_assigned_picker"):
+            frappe.throw("The assigned-picker field isn't installed.")
+
+    done, failed = 0, []
+    for name in names:
+        try:
+            ds = frappe.db.get_value("Pick List", name, "docstatus")
+            if ds is None:
+                raise frappe.ValidationError("unknown pick list")
+            if ds != 0:
+                raise frappe.ValidationError(
+                    "not a draft — submitted lists already carry an AWB")
+            if action == "cancel":
+                frappe.delete_doc("Pick List", name, ignore_permissions=True)
+            else:
+                frappe.db.set_value("Pick List", name, "custom_assigned_picker",
+                                    picker)
+                frappe.get_doc({
+                    "doctype": "Comment", "comment_type": "Comment",
+                    "reference_doctype": "Pick List", "reference_name": name,
+                    "content": f"Assigned to {picker} (bulk)",
+                }).insert(ignore_permissions=True)
+            done += 1
+            if done % 50 == 0:
+                frappe.db.commit()
+        except Exception as e:
+            frappe.db.rollback()
+            failed.append({"name": name, "error": _short_err(e)})
+    frappe.db.commit()
+    frappe.cache().delete_value("lp_board_summary")
+    frappe.cache().delete_value("lp_pick_avail")
+    frappe.cache().delete_keys("lp_suggest")
+    frappe.cache().delete_value("lp_consolidation")
+    return {"ok": True, "action": action, "done": done, "failed": failed}
+
+
 def _empty_draft_names(limit=2000):
     """Draft pick lists with zero item rows — pure noise, safe to delete."""
     return [r[0] for r in frappe.db.sql(

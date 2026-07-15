@@ -967,3 +967,46 @@ def cancel_parcel(dn, reason=None):
     frappe.db.commit()
     _bust_ship_caches()
     return {"ok": True, "dn": dn, "order": order or ""}
+
+
+@frappe.whitelist()
+def bulk_exceptions(action, dns=None, note=None):
+    """Triage many exception parcels at once — same decision log as
+    handle_exception, one action for the whole selection.
+    Dispatcher/returns/manager."""
+    import json
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("dispatcher", "returns", "manager"):
+        frappe.throw("Not authorized to triage exceptions.", frappe.PermissionError)
+    if action not in ("Redeliver", "Return Requested", "Resolved"):
+        frappe.throw("Invalid action.")
+    if isinstance(dns, str):
+        dns = json.loads(dns)
+    dns = list(dict.fromkeys(str(d).strip() for d in (dns or []) if str(d).strip()))
+    if not dns:
+        frappe.throw("Select at least one parcel.")
+    if len(dns) > 200:
+        frappe.throw("Too many at once (max 200).")
+    if not frappe.get_meta("Delivery Note").has_field("custom_exception_action"):
+        frappe.throw("Exception fields not installed yet — run migrate.")
+
+    done, failed = 0, []
+    now = frappe.utils.now_datetime()
+    for dn in dns:
+        try:
+            if not frappe.db.exists("Delivery Note", dn):
+                raise frappe.ValidationError("unknown parcel")
+            doc = frappe.get_doc("Delivery Note", dn)
+            doc.db_set("custom_exception_action", action, update_modified=False)
+            doc.db_set("custom_exception_actioned_at", now, update_modified=False)
+            doc.add_comment("Comment",
+                            f"Exception triage (bulk): {action} by {frappe.session.user}."
+                            + (f" Note: {note}" if note else ""))
+            done += 1
+            if done % 50 == 0:
+                frappe.db.commit()
+        except Exception as e:
+            frappe.db.rollback()
+            failed.append({"name": dn, "error": str(e)[:90]})
+    frappe.db.commit()
+    return {"ok": True, "action": action, "done": done, "failed": failed}

@@ -541,6 +541,17 @@ export default {
     openErp: "Open in ERPNext", trackOn: "Track on Cathedis",
   },
   px: {
+    blk: {
+      selected: "selected",
+      pickerPh: "Assign to…",
+      assign: "Assign",
+      assigned: "Assigned",
+      cancelN: "Cancel {n}",
+      cancelSure: "Sure? Tap again",
+      cancelled: "Cancelled",
+      failed: "failed",
+      fail: "Bulk action failed",
+    },
     common: {
       save: "Save",
       remove: "Remove",

@@ -541,6 +541,17 @@ export default {
     openErp: "Ouvrir dans ERPNext", trackOn: "Suivre sur Cathedis",
   },
   px: {
+    blk: {
+      selected: "sélectionnés",
+      pickerPh: "Affecter à…",
+      assign: "Affecter",
+      assigned: "Affectées",
+      cancelN: "Annuler {n}",
+      cancelSure: "Sûr ? Retouchez",
+      cancelled: "Annulées",
+      failed: "échecs",
+      fail: "Échec de l'action groupée",
+    },
     common: {
       save: "Enregistrer",
       remove: "Retirer",

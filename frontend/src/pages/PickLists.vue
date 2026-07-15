@@ -598,6 +598,9 @@
         <table class="w-full min-w-[760px]">
           <thead>
             <tr class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
+              <th v-if="isLiveData" class="px-3 py-2.5 w-8">
+                <input type="checkbox" class="blk-cb" :checked="allDraftsSelected" @change="toggleAllDrafts" />
+              </th>
               <th class="text-start px-4 py-2.5">{{ t("pl.thPl") }}</th>
               <th class="text-start px-4 py-2.5">{{ t("pl.thPicker") }}</th>
               <th v-if="!isLiveData" class="text-start px-4 py-2.5">{{ t("pl.thOrigin") }}</th>
@@ -610,7 +613,12 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-stone-100">
-            <tr v-for="p in shown" :key="p.no" class="transition-colors cursor-pointer hover:bg-stone-50" @click="openDetail(p)">
+            <tr v-for="p in shown" :key="p.no" class="transition-colors cursor-pointer hover:bg-stone-50"
+                :class="selected.has(p.no) ? 'bg-[var(--accent-50)]/40' : ''" @click="openDetail(p)">
+              <td v-if="isLiveData" class="px-3 py-2.5" @click.stop>
+                <input v-if="p.status === 'draft'" type="checkbox" class="blk-cb"
+                       :checked="selected.has(p.no)" @change="toggleSel(p.no)" />
+              </td>
               <td class="px-4 py-2.5 font-mono text-[12px] font-semibold text-stone-900 whitespace-nowrap">{{ p.no }}<svg v-if="p.errors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" class="text-rose-500 inline ms-1.5 -mt-0.5"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg></td>
               <td class="px-4 py-2.5"><div class="flex items-center gap-1.5"><span class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-[9px] font-bold">{{ pickerInitials(p.picker) }}</span><span class="text-[12px] text-stone-700">{{ pickerName(p.picker) }}</span></div></td>
               <td v-if="!isLiveData" class="px-4 py-2.5"><span v-if="plOrigin(p) === 'manual'" class="inline-flex items-center gap-1 text-[10.5px] font-medium text-stone-500 bg-stone-100 rounded px-1.5 py-0.5 whitespace-nowrap"><span v-html="usersIcon(9)" />Manual</span><span v-else class="inline-flex items-center gap-1 text-[10.5px] font-medium text-[var(--accent-700)] bg-[var(--accent-50)] rounded px-1.5 py-0.5 whitespace-nowrap"><span v-html="zapIcon(9)" />Autopilot</span></td>
@@ -630,6 +638,30 @@
           </tbody>
         </table>
         <div v-if="!shown.length && !loading" class="text-center text-[12.5px] text-stone-400 py-12">{{ t("pl.noRows") }}</div>
+      </div>
+
+      <!-- bulk action bar (drafts) -->
+      <div v-if="selected.size" class="sticky bottom-3 z-40 mx-4 my-3">
+        <div class="flex items-center gap-2.5 flex-wrap bg-stone-900 text-white rounded-2xl shadow-xl px-4 py-2.5">
+          <span class="text-[12.5px] font-semibold tabular-nums">{{ selected.size }} {{ t('px.blk.selected') }}</span>
+          <span class="w-px h-5 bg-white/20" />
+          <select v-model="bulkPicker" class="h-8 rounded-lg bg-stone-800 text-[12px] text-white px-2 outline-none ring-1 ring-white/15">
+            <option value="" disabled>{{ t('px.blk.pickerPh') }}</option>
+            <option v-for="p in sbPickers" :key="p.email" :value="p.email">{{ p.name }} ({{ p.load }})</option>
+          </select>
+          <button class="h-8 px-3 rounded-lg text-[12px] font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50"
+                  :disabled="bulkBusy || !bulkPicker" @click="bulkRun('assign')">
+            {{ t('px.blk.assign') }}
+          </button>
+          <button class="h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors disabled:opacity-50"
+                  :class="bulkArmed ? 'bg-rose-600 hover:bg-rose-500' : 'bg-white/10 hover:bg-white/20 text-rose-300'"
+                  :disabled="bulkBusy" @click="bulkRun('cancel')">
+            {{ bulkArmed ? t('px.blk.cancelSure') : t('px.blk.cancelN').replace('{n}', selected.size) }}
+          </button>
+          <button class="w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center ms-auto" @click="selected = new Set()">
+            <Icon name="x" :size="15" />
+          </button>
+        </div>
       </div>
       <div v-if="isLiveData && total > pageSize" class="flex items-center justify-between px-4 py-2.5 border-t border-stone-100 bg-stone-50/50">
         <span class="text-[11.5px] text-stone-500 tabular-nums">
@@ -910,6 +942,59 @@ const q = ref("");
 const loading = ref(false);
 let searchTimer = null;
 const isLiveData = computed(() => dataMode.value === "live");
+
+// ── bulk actions on draft pick lists ──────────────────────────────
+const selected = ref(new Set());
+const bulkPicker = ref("");
+const bulkBusy = ref(false);
+const bulkArmed = ref(false);
+const allDraftsSelected = computed(() => {
+  const drafts = shown.value.filter((p) => p.status === "draft");
+  return drafts.length > 0 && drafts.every((p) => selected.value.has(p.no));
+});
+function toggleSel(no) {
+  const s = new Set(selected.value);
+  s.has(no) ? s.delete(no) : s.add(no);
+  selected.value = s;
+  if (s.size && !sbPickers.value.length) loadPickers();
+}
+function toggleAllDrafts() {
+  const drafts = shown.value.filter((p) => p.status === "draft").map((p) => p.no);
+  const s = new Set(selected.value);
+  const all = drafts.length && drafts.every((no) => s.has(no));
+  drafts.forEach((no) => (all ? s.delete(no) : s.add(no)));
+  selected.value = s;
+  if (s.size && !sbPickers.value.length) loadPickers();
+}
+async function bulkRun(action) {
+  if (action === "cancel" && !bulkArmed.value) {
+    bulkArmed.value = true;
+    setTimeout(() => { bulkArmed.value = false; }, 4000);
+    return;
+  }
+  bulkArmed.value = false;
+  bulkBusy.value = true;
+  try {
+    const res = await apiPost("picking.bulk_pick_lists", {
+      action, names: [...selected.value],
+      picker: action === "assign" ? bulkPicker.value : undefined,
+    });
+    const label = action === "cancel" ? t("px.blk.cancelled") : t("px.blk.assigned");
+    if (res.failed?.length) {
+      warn(`${label}: ${res.done} · ${res.failed.length} ${t('px.blk.failed')}`,
+           res.failed.slice(0, 3).map((f) => `${f.name}: ${f.error}`).join(" · "));
+    } else {
+      success(label, `${res.done}`);
+    }
+    selected.value = new Set();
+    await load(true);
+    apRefresh();
+  } catch (e) {
+    warn(t("px.blk.fail"), String(e.message || e));
+  } finally {
+    bulkBusy.value = false;
+  }
+}
 
 async function load(keepPage = false) {
   if (!keepPage) page.value = 1;
@@ -1344,3 +1429,7 @@ const detailActivity = computed(() => {
   ];
 });
 </script>
+
+<style scoped>
+.blk-cb { width: 15px; height: 15px; accent-color: var(--accent-600); cursor: pointer; }
+</style>
