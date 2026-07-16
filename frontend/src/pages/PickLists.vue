@@ -1,134 +1,6 @@
 <template>
-  <!-- ══════════════ AUTOPILOT FULL PAGE ══════════════ -->
-  <div v-if="autopilot" class="max-w-[1240px] mx-auto px-6 py-6 animate-fade-in">
-    <button class="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-stone-500 hover:text-stone-900 mb-4 whitespace-nowrap" @click="autopilot = false">
-      <Icon name="chevron-left" :size="15" />Pick lists
-    </button>
-
-    <!-- hero -->
-    <div class="rounded-2xl ring-1 ring-[var(--accent-300)]/60 bg-gradient-to-br from-[var(--accent-50)]/60 to-white p-5 mb-4">
-      <div class="flex items-start justify-between gap-3 flex-wrap">
-        <div class="flex items-center gap-3">
-          <div class="relative w-12 h-12 rounded-xl bg-gradient-to-br from-[var(--accent-500)] to-[var(--accent-700)] text-white flex items-center justify-center">
-            <span v-html="zapIcon(24)" />
-            <span class="absolute -top-0.5 -end-0.5 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-white animate-pulse" />
-          </div>
-          <div>
-            <div class="flex items-center gap-2">
-              <h1 class="text-[20px] font-semibold text-stone-900">Pick Autopilot</h1>
-              <span class="inline-flex items-center gap-1 px-2 h-[20px] rounded-md text-[11px] font-medium text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500" />Active</span>
-            </div>
-            <div class="text-[12.5px] text-stone-500 mt-0.5">AI agent · generates, assigns &amp; monitors picks</div>
-          </div>
-        </div>
-        <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] transition-colors" @click="success('Autopilot run · 4 pick lists created & assigned')">
-          <span v-html="zapIcon(15)" />Run now
-        </button>
-      </div>
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-        <div v-for="s in apStats" :key="s.label" class="bg-white rounded-xl ring-1 ring-stone-200/60 p-3">
-          <div class="flex items-center gap-1.5 text-stone-500"><span v-html="s.icon" /><span v-if="s.live" class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /><span class="text-[11px] font-medium">{{ s.label }}</span></div>
-          <div class="text-[20px] font-semibold tabular-nums leading-none mt-1.5" :class="s.tone === 'emerald' ? 'text-emerald-600' : 'text-stone-900'">{{ s.value }}</div>
-          <div v-if="s.sub" class="text-[10px] text-stone-400 mt-1 truncate">{{ s.sub }}</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- tabs -->
-    <div class="flex items-center gap-1 border-b border-stone-200/70 mb-4">
-      <button v-for="tb in apTabs" :key="tb[0]" class="px-3 h-9 text-[13px] font-medium border-b-2 -mb-px transition-colors" :class="apTab === tb[0] ? 'border-[var(--accent-600)] text-stone-900' : 'border-transparent text-stone-500 hover:text-stone-800'" @click="apTab = tb[0]">{{ tb[1] }}</button>
-    </div>
-
-    <!-- overview -->
-    <div v-if="apTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
-        <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">Suggestions</div>
-        <div class="p-3 space-y-2">
-          <div v-for="(r, i) in AUTOPILOT.recos" :key="i" class="flex items-center gap-2.5 rounded-xl bg-white ring-1 ring-[var(--accent-200)]/50 px-3 py-2">
-            <span v-html="zapIcon(14)" class="text-[var(--accent-600)] flex-shrink-0" />
-            <span class="text-[12px] text-stone-700 flex-1">{{ r.txt }}</span>
-            <button class="inline-flex items-center h-7 px-2.5 rounded-md text-[11.5px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]" @click="success('Suggestion applied')">Apply</button>
-          </div>
-        </div>
-      </div>
-      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
-        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center justify-between">
-          <span class="text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">Agent activity</span>
-          <span class="text-[11px] text-stone-400">Watching {{ AUTOPILOT.watching }} active picks</span>
-        </div>
-        <div class="p-3 space-y-1">
-          <div v-for="(e, i) in AUTOPILOT.feed" :key="i" class="flex items-center gap-2.5 px-1 py-1">
-            <span class="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0" :class="feedStyle(e.kind).cls" v-html="feedStyle(e.kind).icon" />
-            <span class="text-[12px] text-stone-700 flex-1">{{ e.act }}</span>
-            <span class="text-[10.5px] text-stone-400 tabular-nums flex-shrink-0">{{ e.t }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- rules -->
-    <div v-else-if="apTab === 'rules'" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden max-w-[560px]">
-      <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">Autopilot rules</div>
-      <div class="p-4 space-y-4">
-        <div class="flex items-center justify-between gap-3"><span class="text-[13px] text-stone-700">Default strategy</span>
-          <div class="inline-flex bg-stone-100/80 rounded-lg p-0.5">
-            <button v-for="o in [['zone','By zone'],['sku','By SKU'],['balanced','Balanced']]" :key="o[0]" class="px-2.5 h-7 text-[12px] font-medium rounded-md" :class="ruleStrategy === o[0] ? 'bg-white text-stone-900 shadow-[0_1px_2px_rgba(0,0,0,0.06)]' : 'text-stone-500'" @click="ruleStrategy = o[0]">{{ o[1] }}</button>
-          </div>
-        </div>
-        <div class="flex items-center justify-between gap-3"><span class="text-[13px] text-stone-700">Run schedule</span>
-          <div class="inline-flex bg-stone-100/80 rounded-lg p-0.5">
-            <button v-for="o in [['15m','15m'],['30m','30m'],['60m','60m']]" :key="o[0]" class="px-2.5 h-7 text-[12px] font-medium rounded-md" :class="ruleSchedule === o[0] ? 'bg-white text-stone-900 shadow-[0_1px_2px_rgba(0,0,0,0.06)]' : 'text-stone-500'" @click="ruleSchedule = o[0]">{{ o[1] }}</button>
-          </div>
-        </div>
-        <div class="flex items-center justify-between gap-3"><span class="text-[13px] text-stone-700">Min orders per batch</span>
-          <div class="inline-flex items-center gap-2"><button class="w-7 h-7 rounded-lg ring-1 ring-stone-200 text-stone-600 hover:bg-stone-50" @click="batchThresh = Math.max(1, batchThresh - 1)">−</button><span class="w-6 text-center text-[13px] font-semibold tabular-nums">{{ batchThresh }}</span><button class="w-7 h-7 rounded-lg ring-1 ring-stone-200 text-stone-600 hover:bg-stone-50" @click="batchThresh++">+</button></div>
-        </div>
-        <div class="flex items-center justify-between gap-3"><span class="text-[13px] text-stone-700">Idle threshold (min)</span>
-          <div class="inline-flex items-center gap-2"><button class="w-7 h-7 rounded-lg ring-1 ring-stone-200 text-stone-600 hover:bg-stone-50" @click="idleMin = Math.max(1, idleMin - 1)">−</button><span class="w-6 text-center text-[13px] font-semibold tabular-nums">{{ idleMin }}</span><button class="w-7 h-7 rounded-lg ring-1 ring-stone-200 text-stone-600 hover:bg-stone-50" @click="idleMin++">+</button></div>
-        </div>
-        <div v-for="tg in toggles" :key="tg.key" class="flex items-center justify-between gap-3">
-          <span class="text-[13px] text-stone-700">{{ tg.label }}</span>
-          <button class="w-9 h-5 rounded-full p-0.5 transition-colors" :class="tg.on ? 'bg-[var(--accent-600)]' : 'bg-stone-200'" @click="tg.on = !tg.on"><span class="block w-4 h-4 rounded-full bg-white shadow transition-transform" :class="tg.on ? 'translate-x-4' : ''" /></button>
-        </div>
-        <div class="flex justify-end pt-2 border-t border-stone-100">
-          <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]" @click="success('Autopilot rules saved · synced to ERPNext scheduler')"><Icon name="check-circle" :size="15" />Save rules</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- history -->
-    <div v-else-if="apTab === 'history'" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
-      <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">All agent decisions today</div>
-      <div class="p-3 space-y-1">
-        <div v-for="(e, i) in fullLog" :key="i" class="flex items-center gap-2.5 px-1.5 py-1.5 rounded-lg hover:bg-stone-50">
-          <span class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" :class="feedStyle(e.kind).cls" v-html="feedStyle(e.kind).icon" />
-          <span class="text-[12.5px] text-stone-700 flex-1">{{ e.act }}</span>
-          <span class="text-[10.5px] text-stone-400 tabular-nums flex-shrink-0">{{ e.t }}</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- perf -->
-    <div v-else class="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4">
-      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
-        <div class="px-4 py-2.5 border-b border-stone-100"><span class="text-[12px] font-semibold uppercase tracking-[0.05em] text-stone-400">Efficiency gain</span> <span class="text-[11px] text-stone-400">last 14 runs</span></div>
-        <div class="p-4">
-          <svg viewBox="0 0 300 120" class="w-full" preserveAspectRatio="none" style="height:120px">
-            <polyline :points="sparkPoints" fill="none" stroke="#10b981" stroke-width="2" />
-          </svg>
-        </div>
-      </div>
-      <div class="space-y-3">
-        <div v-for="s in perfStats" :key="s.label" class="bg-white rounded-xl ring-1 ring-stone-200/60 p-3">
-          <div class="flex items-center gap-1.5 text-stone-500"><span v-html="s.icon" /><span class="text-[11px] font-medium">{{ s.label }}</span></div>
-          <div class="text-[20px] font-semibold tabular-nums leading-none mt-1.5" :class="s.tone === 'emerald' ? 'text-emerald-600' : 'text-stone-900'">{{ s.value }}</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- ══════════════ PICK LIST DETAIL ══════════════ -->
-  <div v-else-if="detail" class="max-w-[1240px] mx-auto px-6 py-6 animate-fade-in">
+  <div v-if="detail" class="max-w-[1240px] mx-auto px-6 py-6 animate-fade-in">
     <button class="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-stone-500 hover:text-stone-900 mb-4 whitespace-nowrap" @click="detail = null">
       <Icon name="chevron-left" :size="15" class="flip-rtl" />{{ t("pl.back") }}
     </button>
@@ -424,7 +296,7 @@
     <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
       <div>
         <h1 class="text-[19px] font-semibold text-stone-900 tracking-[-0.01em]">{{ t("pl.title") }}</h1>
-        <p class="text-[12.5px] text-stone-500 mt-0.5">{{ isLiveData ? t("pl.subtitle").replace("{n}", total).replace("{d}", daysF) : rows.length + " pick lists today" }} · {{ WAREHOUSE }}</p>
+        <p class="text-[12.5px] text-stone-500 mt-0.5">{{ t("pl.subtitle").replace("{n}", total).replace("{d}", daysF) }} · {{ WAREHOUSE }}</p>
       </div>
       <div class="flex items-center gap-2">
         <div v-if="isLiveData" class="flex items-center rounded-lg ring-1 ring-stone-200 bg-white p-0.5">
@@ -439,10 +311,21 @@
         <button v-if="isLiveData" class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] transition-colors" @click="sbModal && sbModal.open()">
           <span v-html="zapIcon(15)" />{{ t("pl.sbBtn") }}
         </button>
-        <button v-else class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] transition-colors" @click="create = true">
-          <span v-html="zapIcon(15)" />Smart auto pick list
-        </button>
       </div>
+    </div>
+
+    <!-- Outage. A demo autopilot used to render here instead, and its
+         "Run now" button reported 4 pick lists created. -->
+    <div v-if="loadError" class="rounded-2xl bg-white ring-1 ring-rose-200/70 p-8 text-center mb-4">
+      <Icon name="alert-triangle" :size="24" class="mx-auto mb-2 text-rose-500" />
+      <div class="text-[13px] font-semibold text-stone-800">{{ t("common.loadFail") }}</div>
+      <div class="text-[11.5px] text-stone-400 font-mono mt-1 max-w-[420px] mx-auto break-words">{{ loadError }}</div>
+      <button
+        class="mt-4 h-8 px-3 inline-flex items-center gap-1.5 text-[12px] font-medium rounded-lg ring-1 ring-stone-200 hover:ring-stone-300 transition-all"
+        @click="load()"
+      >
+        <Icon name="refresh-cw" :size="14" />{{ t("common.refresh") }}
+      </button>
     </div>
 
     <!-- autopilot card (LIVE — real engine, real log) -->
@@ -514,68 +397,9 @@
       </div>
     </div>
 
-    <!-- autopilot card (concept preview — demo mode only) -->
-    <div v-if="!isLiveData" class="rounded-2xl ring-1 mb-4 overflow-hidden" :class="apOn ? 'ring-[var(--accent-300)]/60 bg-gradient-to-br from-[var(--accent-50)]/60 to-white' : 'ring-stone-200 bg-white'">
-      <div class="p-4">
-        <div class="flex items-start justify-between gap-3 flex-wrap">
-          <div class="flex items-center gap-3">
-            <div class="relative w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" :class="apOn ? 'bg-gradient-to-br from-[var(--accent-500)] to-[var(--accent-700)] text-white' : 'bg-stone-100 text-stone-400'">
-              <span v-html="zapIcon(22)" />
-              <span v-if="apOn" class="absolute -top-0.5 -end-0.5 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-white animate-pulse" />
-            </div>
-            <div>
-              <div class="flex items-center gap-2">
-                <h2 class="text-[16px] font-semibold text-stone-900">Pick Autopilot</h2>
-                <span class="inline-flex items-center gap-1 px-2 h-[20px] rounded-md text-[11px] font-medium ring-1" :class="apOn ? 'text-emerald-700 bg-emerald-50 ring-emerald-200' : 'text-stone-600 bg-stone-100 ring-stone-200'"><span class="w-1.5 h-1.5 rounded-full" :class="apOn ? 'bg-emerald-500' : 'bg-stone-400'" />{{ apOn ? "Active" : "Paused" }}</span>
-              </div>
-              <div class="text-[12px] text-stone-500 mt-0.5">AI agent · generates, assigns &amp; monitors picks</div>
-            </div>
-          </div>
-          <div class="flex items-center gap-2">
-            <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 disabled:opacity-40" :disabled="thinking || !apOn" @click="runNow"><span v-html="zapIcon(15)" />{{ thinking ? "Analyzing pending orders…" : "Run now" }}</button>
-            <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50" @click="autopilot = true">Open Autopilot<Icon name="arrow-right" :size="15" /></button>
-            <button class="inline-flex items-center h-9 px-3 rounded-lg text-[13px] font-medium transition-colors" :class="apOn ? 'text-stone-600 hover:bg-stone-100' : 'text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]'" @click="apOn = !apOn">{{ apOn ? "Pause Autopilot" : "Enable Autopilot" }}</button>
-          </div>
-        </div>
-
-        <template v-if="apOn">
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-            <div v-for="s in apStats" :key="s.label" class="bg-white rounded-xl ring-1 ring-stone-200/60 p-3">
-              <div class="flex items-center gap-1.5 text-stone-500"><span v-html="s.icon" /><span v-if="s.live" class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /><span class="text-[11px] font-medium">{{ s.label }}</span></div>
-              <div class="text-[20px] font-semibold tabular-nums leading-none mt-1.5" :class="s.tone === 'emerald' ? 'text-emerald-600' : 'text-stone-900'">{{ s.cardValue !== undefined ? s.cardValue : s.value }}</div>
-              <div v-if="s.sub" class="text-[10px] text-stone-400 mt-1 truncate">{{ s.sub }}</div>
-            </div>
-          </div>
-
-          <div v-if="recos.length" class="mt-4 space-y-2">
-            <div class="text-[11px] font-semibold uppercase tracking-wide text-stone-400">Suggestions</div>
-            <div v-for="(r, i) in recos" :key="i" class="flex items-center gap-2.5 rounded-xl bg-white ring-1 ring-[var(--accent-200)]/50 px-3 py-2">
-              <span v-html="zapIcon(14)" class="text-[var(--accent-600)] flex-shrink-0" />
-              <span class="text-[12px] text-stone-700 flex-1">{{ r.txt }}</span>
-              <button class="inline-flex items-center h-7 px-2.5 rounded-md text-[11.5px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]" @click="applyReco(i)">Apply</button>
-              <button class="w-7 h-7 rounded-lg hover:bg-stone-100 flex items-center justify-center text-stone-400" @click="recos.splice(i, 1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
-            </div>
-          </div>
-
-          <div class="mt-4">
-            <div class="flex items-center justify-between mb-2">
-              <span class="text-[11px] font-semibold uppercase tracking-wide text-stone-400">Agent activity</span>
-              <span class="text-[11px] text-stone-400">Watching {{ AUTOPILOT.watching }} active picks</span>
-            </div>
-            <div class="space-y-1">
-              <div v-for="(e, i) in AUTOPILOT.feed" :key="i" class="flex items-center gap-2.5 px-1 py-1">
-                <span class="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0" :class="feedStyle(e.kind).cls" v-html="feedStyle(e.kind).icon" />
-                <span class="text-[12px] text-stone-700 flex-1">{{ e.act }}</span>
-                <span class="text-[10.5px] text-stone-400 tabular-nums flex-shrink-0">{{ e.t }}</span>
-              </div>
-            </div>
-          </div>
-        </template>
-      </div>
-    </div>
 
     <!-- KPIs -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+    <div v-if="!loadError" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
       <div v-for="k in kpis" :key="k.label" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
         <div class="flex items-center gap-1.5 text-[11px] font-medium text-stone-500"><span v-html="k.icon" /><span>{{ k.label }}</span></div>
         <div class="text-[24px] font-semibold text-stone-900 tabular-nums leading-none mt-2">{{ k.value }}</div>
@@ -583,7 +407,7 @@
     </div>
 
     <!-- filters -->
-    <div class="flex items-center gap-1.5 mb-3 overflow-x-auto pb-1">
+    <div v-if="!loadError" class="flex items-center gap-1.5 mb-3 overflow-x-auto pb-1">
       <div v-if="isLiveData" class="relative flex-shrink-0">
         <Icon name="search" :size="13" class="absolute start-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
         <input v-model="q" :placeholder="t('pl.searchPh')" @input="onSearch"
@@ -593,7 +417,7 @@
     </div>
 
     <!-- table -->
-    <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+    <div v-if="!loadError" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
       <div class="overflow-x-auto">
         <table class="w-full min-w-[760px]">
           <thead>
@@ -603,7 +427,6 @@
               </th>
               <th class="text-start px-4 py-2.5">{{ t("pl.thPl") }}</th>
               <th class="text-start px-4 py-2.5">{{ t("pl.thPicker") }}</th>
-              <th v-if="!isLiveData" class="text-start px-4 py-2.5">{{ t("pl.thOrigin") }}</th>
               <th class="text-start px-4 py-2.5">{{ t("pl.thOrders") }}</th>
               <th class="text-end px-4 py-2.5 hidden sm:table-cell">{{ t("pl.thItems") }}</th>
               <th class="text-end px-4 py-2.5">{{ t("pl.thQty") }}</th>
@@ -621,7 +444,6 @@
               </td>
               <td class="px-4 py-2.5 font-mono text-[12px] font-semibold text-stone-900 whitespace-nowrap">{{ p.no }}<svg v-if="p.errors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" class="text-rose-500 inline ms-1.5 -mt-0.5"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg></td>
               <td class="px-4 py-2.5"><div class="flex items-center gap-1.5"><span class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-[9px] font-bold">{{ pickerInitials(p.picker) }}</span><span class="text-[12px] text-stone-700">{{ pickerName(p.picker) }}</span></div></td>
-              <td v-if="!isLiveData" class="px-4 py-2.5"><span v-if="plOrigin(p) === 'manual'" class="inline-flex items-center gap-1 text-[10.5px] font-medium text-stone-500 bg-stone-100 rounded px-1.5 py-0.5 whitespace-nowrap"><span v-html="usersIcon(9)" />Manual</span><span v-else class="inline-flex items-center gap-1 text-[10.5px] font-medium text-[var(--accent-700)] bg-[var(--accent-50)] rounded px-1.5 py-0.5 whitespace-nowrap"><span v-html="zapIcon(9)" />Autopilot</span></td>
               <td class="px-4 py-2.5 text-[12px] text-stone-600">
                 <div class="flex items-center gap-1.5">
                   <span v-if="p.order === 'combined'" class="inline-flex items-center px-2 h-[20px] rounded-md text-[11px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200 whitespace-nowrap">{{ t("pl.combined") }}<template v-if="p.orders"> · {{ p.orders }}</template></span>
@@ -678,85 +500,6 @@
     <SuggestBatchesModal ref="sbModal" @created="load()" />
 
     <!-- ══════════ SMART PICK MODAL ══════════ -->
-    <div v-if="create" class="fixed inset-0 z-[150] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <div class="absolute inset-0 bg-stone-900/30 backdrop-blur-[1px] animate-fade-in" @click="create = false" />
-      <div class="relative w-full max-w-[680px] bg-white rounded-2xl shadow-[0_24px_64px_-16px_rgba(0,0,0,0.3)] animate-scale-in overflow-hidden flex flex-col max-h-[88vh]">
-        <header class="flex items-center justify-between px-5 py-3.5 border-b border-stone-100">
-          <div class="flex items-center gap-2.5">
-            <span class="w-8 h-8 rounded-lg bg-[var(--accent-50)] text-[var(--accent-700)] flex items-center justify-center" v-html="zapIcon(16)" />
-            <div><div class="text-[14.5px] font-semibold text-stone-900">{{ t('px.pl.title') }}</div><div class="text-[11.5px] text-stone-500">{{ smart.stats.orders }} orders of pending</div></div>
-          </div>
-          <button class="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center text-stone-400" @click="create = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
-        </header>
-        <div class="px-5 pt-3">
-          <div class="inline-flex bg-stone-100/80 rounded-lg p-0.5 w-full">
-            <button v-for="m in [['smart','Smart auto'],['manual','Manual']]" :key="m[0]" class="flex-1 h-8 text-[12.5px] font-medium rounded-md transition-all" :class="mode === m[0] ? 'bg-white text-stone-900 shadow-[0_1px_2px_rgba(0,0,0,0.06)]' : 'text-stone-500'" @click="mode = m[0]">{{ m[1] }}</button>
-          </div>
-        </div>
-
-        <div class="p-5 overflow-y-auto">
-          <template v-if="mode === 'smart'">
-            <div class="text-[11px] font-semibold uppercase tracking-wide text-stone-400 mb-2">Grouping strategy</div>
-            <div class="grid grid-cols-2 gap-2 mb-4">
-              <button v-for="s in strategies" :key="s.k" class="text-start rounded-xl ring-1 p-3 transition-all" :class="strategy === s.k ? 'ring-[var(--accent-400)] bg-[var(--accent-50)]/40' : 'ring-stone-200 hover:ring-stone-300'" @click="strategy = s.k">
-                <div class="flex items-center gap-2"><span :class="strategy === s.k ? 'text-[var(--accent-700)]' : 'text-stone-400'" v-html="s.icon" /><span class="text-[12.5px] font-semibold text-stone-900">{{ s.label }}</span></div>
-                <div class="text-[11px] text-stone-500 mt-0.5">{{ s.sub }}</div>
-              </button>
-            </div>
-
-            <div class="flex items-center gap-3 rounded-xl bg-emerald-50 ring-1 ring-emerald-200/60 px-4 py-2.5 mb-4">
-              <span v-html="trendIcon(18)" class="text-emerald-600 flex-shrink-0" />
-              <div class="text-[12.5px] text-emerald-800 flex-1"><span class="font-bold tabular-nums">{{ smart.stats.saved }}%</span> walk saved · <span class="font-semibold">{{ smart.stats.batches }}</span> batches of {{ smart.stats.orders }} orders</div>
-            </div>
-
-            <div class="text-[11px] font-semibold uppercase tracking-wide text-stone-400 mb-2">Generated batches</div>
-            <div class="space-y-2">
-              <div v-for="(g, i) in smart.groups" :key="g.key" class="rounded-xl ring-1 ring-stone-200 p-3">
-                <div class="flex items-center justify-between gap-2">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <span class="font-mono text-[12px] font-semibold text-stone-900">{{ g.no }}</span>
-                    <span class="inline-flex items-center px-2 h-[20px] rounded-md text-[11px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200 whitespace-nowrap">{{ g.kind }}</span>
-                    <span class="text-[12px] text-stone-600 truncate">{{ g.label }}</span>
-                  </div>
-                  <div class="flex items-center gap-1.5 flex-shrink-0">
-                    <span class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-[9px] font-bold">{{ initials(byId(pickers[i % pickers.length].id).name) }}</span>
-                    <span class="text-[11px] text-stone-500 hidden sm:inline">{{ byId(pickers[i % pickers.length].id).short }}</span>
-                  </div>
-                </div>
-                <div class="flex items-center gap-3 mt-2 text-[11px] text-stone-500">
-                  <span class="tabular-nums">{{ g.orders }} orders</span><span class="text-stone-300">·</span>
-                  <span class="tabular-nums">{{ g.items }} lines</span><span class="text-stone-300">·</span>
-                  <span class="tabular-nums">{{ g.units }} units</span><span class="text-stone-300">·</span>
-                  <span class="inline-flex items-center gap-1 tabular-nums"><Icon name="map-pin" :size="10" />{{ g.aisles }} aisles</span>
-                </div>
-              </div>
-            </div>
-          </template>
-          <template v-else>
-            <div class="rounded-lg bg-amber-50 ring-1 ring-amber-200/60 px-3 py-2 mb-3 flex items-start gap-2 text-[11.5px] text-amber-800"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" class="text-amber-500 mt-0.5 flex-shrink-0"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>Use when Autopilot needs an override — hand-pick orders &amp; picker.</div>
-            <div class="text-[11px] font-semibold uppercase tracking-wide text-stone-400 mb-2">Assign to picker</div>
-            <div class="grid grid-cols-3 gap-1.5 mb-4">
-              <button v-for="p in pickers" :key="p.id" class="flex items-center gap-1.5 px-2 py-1.5 rounded-lg ring-1 transition-all" :class="manPicker === p.id ? 'ring-[var(--accent-400)] bg-[var(--accent-50)]/40' : 'ring-stone-200 hover:ring-stone-300'" @click="manPicker = p.id"><span class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-[9px] font-bold">{{ initials(p.name) }}</span><span class="text-[11.5px] font-medium text-stone-800 truncate">{{ p.short }}</span></button>
-            </div>
-            <div class="text-[11px] font-semibold uppercase tracking-wide text-stone-400 mb-2">Select orders to pick · {{ selOrders.size }} selected</div>
-            <div class="space-y-1.5">
-              <button v-for="o in poolOrders" :key="o" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg ring-1 text-start transition-all" :class="selOrders.has(o) ? 'ring-[var(--accent-400)] bg-[var(--accent-50)]/40' : 'ring-stone-200 hover:ring-stone-300'" @click="toggleOrder(o)">
-                <span class="w-4 h-4 rounded flex items-center justify-center ring-1 flex-shrink-0" :class="selOrders.has(o) ? 'bg-[var(--accent-600)] ring-[var(--accent-600)] text-white' : 'ring-stone-300'"><Icon v-if="selOrders.has(o)" name="check-circle" :size="11" /></span>
-                <span class="font-mono text-[12px] font-semibold text-stone-900">{{ o }}</span>
-                <span class="text-[12px] text-stone-600 flex-1 truncate">{{ poolLines(o)[0].customer }}</span>
-                <span class="text-[11px] text-stone-400">{{ poolLines(o).length }} lines</span>
-              </button>
-            </div>
-          </template>
-        </div>
-
-        <footer class="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-stone-100 bg-stone-50/60">
-          <button class="inline-flex items-center h-9 px-3 rounded-lg text-[13px] font-medium text-stone-600 hover:bg-stone-100" @click="create = false">Cancel</button>
-          <button v-if="mode === 'smart'" class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]" @click="generate"><Icon name="check-circle" :size="15" />Generate {{ smart.groups.length }} pick lists</button>
-          <button v-else class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-40" :disabled="selOrders.size === 0" @click="createManual"><Icon name="check-circle" :size="15" />Create pick list ({{ selOrders.size }})</button>
-        </footer>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -777,37 +520,6 @@ const { t } = useI18n();
 
 // ── local data (from data.jsx) ─────────────────────────────────────────
 const BIN_ZONE = { J: "FAST ZONE - JM", F: "SLOW ZONE - JM", I: "Cosmetic zone - JM", H: "MU Zone - JM", E: "Accessory Zone - JM", G: "Textile Zone - JM" };
-const PICK_POOL = [
-  { so: "#242646", sku: "MCH100013", code: "46029739950334", grp: "Home Fragrance", uom: "Nos", name: "Diffuseur huile MCH — box", bin: "J8C - JM", qty: 1, customer: "oualid elmouden" },
-  { so: "#242644", sku: "ACC11008", code: "47594099441918", grp: "Accessories", uom: "Nos", name: "Trousse maquillage zip", bin: "H14A - JM", qty: 1, customer: "Chada Rami" },
-  { so: "#242644", sku: "ACC11015", code: "47594099442011", grp: "Accessories", uom: "Nos", name: "Miroir LED pliable", bin: "H14C - JM", qty: 1, customer: "Chada Rami" },
-  { so: "#242641", sku: "TXT55012", code: "46881234500021", grp: "Textile", uom: "Nos", name: "Foulard soie imprimé", bin: "G13C - JM", qty: 1, customer: "Hamid Hamid" },
-  { so: "#242638", sku: "CSM44021", code: "46029811200334", grp: "Cosmetics", uom: "box", name: "Sérum éclat 30ml", bin: "I4A - JM", qty: 2, customer: "Mohmad Mohmad", serial: true },
-  { so: "#242620", sku: "MCH100013", code: "46029739950334", grp: "Home Fragrance", uom: "Nos", name: "Diffuseur huile MCH — box", bin: "J8C - JM", qty: 1, customer: "Najat Bennani" },
-  { so: "#242620", sku: "MCH100020", code: "46029739950571", grp: "Home Fragrance", uom: "Nos", name: "Recharge huile lavande", bin: "J7B - JM", qty: 1, customer: "Najat Bennani" },
-  { so: "#242618", sku: "MUZ22014", code: "46772200140088", grp: "Makeup", uom: "Nos", name: "Palette ombres MU", bin: "H13B - JM", qty: 1, customer: "Imane Tazi", batch: true },
-  { so: "#242615", sku: "CSM44021", code: "46029811200334", grp: "Cosmetics", uom: "box", name: "Sérum éclat 30ml", bin: "I4A - JM", qty: 1, customer: "Fouzia Fouzia", serial: true },
-  { so: "#242612", sku: "MCH100013", code: "46029739950334", grp: "Home Fragrance", uom: "Nos", name: "Diffuseur huile MCH — box", bin: "J8C - JM", qty: 1, customer: "Sanae R." },
-  { so: "#242609", sku: "ACC11015", code: "47594099442011", grp: "Accessories", uom: "Nos", name: "Miroir LED pliable", bin: "H14C - JM", qty: 1, customer: "Loubna T." },
-  { so: "#242607", sku: "TXT55012", code: "46881234500021", grp: "Textile", uom: "Nos", name: "Foulard soie imprimé", bin: "G13C - JM", qty: 1, customer: "Nawal B." },
-  { so: "#242605", sku: "MCH100020", code: "46029739950571", grp: "Home Fragrance", uom: "Nos", name: "Recharge huile lavande", bin: "J7B - JM", qty: 1, customer: "Soukaina Idrissi" },
-  { so: "#242601", sku: "CSM44021", code: "46029811200334", grp: "Cosmetics", uom: "box", name: "Sérum éclat 30ml", bin: "I4A - JM", qty: 1, customer: "Yasmine Alaoui", serial: true },
-];
-const AUTOPILOT = {
-  active: true, nextRunMin: 12, createdToday: 14, assignedToday: 14, efficiency: 41, watching: 6,
-  feed: [
-    { t: "2m", act: "Created PL-51440 → PL-51443 · 4 zone batches", kind: "create" },
-    { t: "2m", act: "Auto-assigned to Marouane, Asmaa, Saad, Oussama by load + zone", kind: "assign" },
-    { t: "14m", act: "Marouane idle 6 min — re-routed 1 batch to Asmaa", kind: "balance" },
-    { t: "31m", act: "Flagged PL-51388 stalled (Short-pick) — alerted dispatcher", kind: "alert" },
-    { t: "1h", act: "Held 8 SLOW-zone orders for next batch (below threshold)", kind: "hold" },
-  ],
-  recos: [
-    { txt: "Batch 6 Cosmetic-zone orders now — saves ~22 min walking before cutoff", strat: "zone" },
-    { txt: "Marouane is fastest on FAST zone — assign next FAST batch to him", strat: "sku" },
-  ],
-};
-
 // ── inline lucide-style icons (missing from Icon.vue set) ───────────────
 const zapIcon = (s) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
 const boxIcon = (s) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="${s}" height="${s}"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>`;
@@ -837,45 +549,6 @@ const feedStyle = (kind) => {
   };
   return map[kind] || map.create;
 };
-
-// ── autoPickGroups engine (from data.jsx) ───────────────────────────────
-function autoPickGroups(strategy, cap2 = 12) {
-  const pool = PICK_POOL;
-  const totalLines = pool.length;
-  let groups = [];
-  if (strategy === "sku") {
-    const m = {};
-    pool.forEach((l) => { (m[l.sku] = m[l.sku] || []).push(l); });
-    groups = Object.entries(m).map(([sku, ls]) => ({ key: sku, kind: "Batch SKU", label: ls[0].name, lines: ls }));
-  } else if (strategy === "single") {
-    const orders = {};
-    pool.forEach((l) => { (orders[l.so] = orders[l.so] || []).push(l); });
-    const singles = Object.values(orders).filter((ls) => ls.length === 1).flat();
-    const multi = Object.entries(orders).filter(([, ls]) => ls.length > 1);
-    groups = [{ key: "blitz", kind: "Single-item blitz", label: `${singles.length} one-line orders`, lines: singles }];
-    multi.forEach(([so, ls]) => groups.push({ key: so, kind: "Multi-line", label: so, lines: ls }));
-  } else if (strategy === "zone") {
-    const m = {};
-    pool.forEach((l) => { const z = binZone(l.bin); (m[z] = m[z] || []).push(l); });
-    groups = Object.entries(m).map(([z, ls]) => ({ key: z, kind: "Zone cluster", label: z.replace(" - JM", ""), lines: ls }));
-  } else {
-    const m = {};
-    pool.forEach((l) => { const z = binZone(l.bin); (m[z] = m[z] || []).push(l); });
-    Object.entries(m).forEach(([z, ls]) => {
-      for (let i = 0; i < ls.length; i += cap2) groups.push({ key: z + i, kind: "Balanced", label: z.replace(" - JM", ""), lines: ls.slice(i, i + cap2) });
-    });
-  }
-  groups = groups.filter((g) => g.lines.length).map((g, i) => {
-    const orders = new Set(g.lines.map((l) => l.so)).size;
-    const aisles = new Set(g.lines.map((l) => aisle(l.bin))).size;
-    const units = g.lines.reduce((a, l) => a + l.qty, 0);
-    return { ...g, no: `PL-${51440 + i}`, orders, aisles, units, items: g.lines.length };
-  });
-  const baselineAisles = pool.length;
-  const newAisles = groups.reduce((a, g) => a + g.aisles, 0);
-  const saved = Math.max(0, Math.round((1 - newAisles / baselineAisles) * 100));
-  return { groups, stats: { lines: totalLines, units: pool.reduce((a, l) => a + l.qty, 0), orders: new Set(pool.map((l) => l.so)).size, batches: groups.length, saved } };
-}
 
 // ── list state (server-driven when live · demo seed as fallback) ────────
 const rows = ref([]);
@@ -931,7 +604,8 @@ async function apRunNow() {
   } catch (e) { warn("Autopilot", String(e.message || e)); }
   finally { apBusy.value = false; }
 }
-const dataMode = ref("loading");
+const dataMode = ref("loading");   // loading | live | error
+const loadError = ref("");
 const counts = ref({});
 const total = ref(0);
 const page = ref(1);
@@ -999,19 +673,23 @@ async function bulkRun(action) {
 async function load(keepPage = false) {
   if (!keepPage) page.value = 1;
   loading.value = true;
-  const live = await liveOr(null, () => api("picking.pick_lists", {
-    days: daysF.value, status: statusF.value || undefined,
-    q: q.value.trim() || undefined,
-    limit: pageSize, offset: (page.value - 1) * pageSize,
-  }));
-  if (live && Array.isArray(live.rows)) {
+  try {
+    const live = await api("picking.pick_lists", {
+      days: daysF.value, status: statusF.value || undefined,
+      q: q.value.trim() || undefined,
+      limit: pageSize, offset: (page.value - 1) * pageSize,
+    });
+    if (!live || !Array.isArray(live.rows)) throw new Error("Empty response");
     dataMode.value = "live";
+    loadError.value = "";
     rows.value = live.rows.map((p) => ({ ...p }));
     counts.value = live.counts || {};
     total.value = live.total || 0;
     if (!ap.value.runs.length && !ap.value.enabled) apRefresh();
-  } else if (dataMode.value !== "live") {
-    dataMode.value = "demo";
+  } catch (e) {
+    dataMode.value = "error";
+    loadError.value = String(e.message || e);
+    rows.value = []; counts.value = {}; total.value = 0;
   }
   loading.value = false;
 }
@@ -1041,15 +719,9 @@ function pickerInitials(p) {
   const s = pickerName(p);
   return ((s[0] || "?") + (s[1] || "")).toUpperCase();
 }
-const create = ref(false);
 const detail = ref(null);
-const autopilot = ref(false);
 const filter = ref("all");
 
-const apOn = ref(AUTOPILOT.active);
-const thinking = ref(false);
-const recos = reactive([...AUTOPILOT.recos]);
-const apTab = ref("overview");
 const apTabs = [["overview", "Overview"], ["rules", "Rules"], ["history", "Decision log"], ["perf", "Performance"]];
 const ruleStrategy = ref("zone");
 const ruleSchedule = ref("30m");
@@ -1062,135 +734,34 @@ const toggles = reactive([
 ]);
 
 const withErrors = computed(() => rows.value.filter((p) => p.errors).length);
-const kpis = computed(() => isLiveData.value ? [
+const kpis = computed(() => [
   { label: t("pl.kOpen"), value: counts.value.open || 0, icon: boxIcon(13) },
   { label: t("pl.kShipped"), value: counts.value.shipped || 0, icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>` },
   { label: t("pl.kDraft"), value: counts.value.draft || 0, icon: layersIcon(13) },
   { label: t("pl.kCancelled"), value: counts.value.cancelled || 0, icon: alertIcon(13) },
-] : [
-  { label: "Open / draft", value: rows.value.filter((p) => p.status === "open" || p.status === "draft").length, icon: boxIcon(13) },
-  { label: "Completed", value: rows.value.filter((p) => p.status === "completed").length, icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>` },
-  { label: "Combined picks", value: rows.value.filter((p) => p.order === "combined").length, icon: layersIcon(13) },
-  { label: "Pick errors", value: withErrors.value, icon: alertIcon(13) },
+
 ]);
 
-const filters = computed(() => isLiveData.value ? [
+const filters = computed(() => [
   ["all", `${t("pl.fAll")} · ${(counts.value.draft || 0) + (counts.value.open || 0) + (counts.value.shipped || 0) + (counts.value.partial || 0) + (counts.value.cancelled || 0)}`],
   ["draft", `${t("pl.fDraft")} · ${counts.value.draft || 0}`],
   ["open", `${t("pl.fOpen")} · ${counts.value.open || 0}`],
   ["shipped", `${t("pl.fShipped")} · ${counts.value.shipped || 0}`],
   ["cancelled", `${t("pl.fCancelled")} · ${counts.value.cancelled || 0}`],
-] : [
-  ["all", "All"], ["draft", "Draft"], ["open", "Open"], ["completed", "Completed"], ["cancelled", "Cancelled"], ["errors", `Errors·${withErrors.value}`],
+
 ]);
 
-const shown = computed(() => isLiveData.value
-  ? rows.value
-  : rows.value.filter((p) => filter.value === "all" || p.status === filter.value || (filter.value === "errors" && p.errors)).slice()
-);
+const shown = computed(() => rows.value);
 
 const plOrigin = (p) => p.origin || (["Zone cluster", "Balanced", "Batch SKU", "Single-item blitz", "Multi-line"].includes(p.item) ? "auto" : p.item === "Manual" ? "manual" : "auto");
 
 const plStatusChip = (s) => ({ draft: "text-stone-600 bg-stone-100 ring-stone-200", open: "text-amber-700 bg-amber-50 ring-amber-200", completed: "text-emerald-700 bg-emerald-50 ring-emerald-200", shipped: "text-emerald-700 bg-emerald-50 ring-emerald-200", partial: "text-orange-700 bg-orange-50 ring-orange-200", cancelled: "text-rose-700 bg-rose-50 ring-rose-200" }[s] || "text-stone-600 bg-stone-100 ring-stone-200");
 const plStatusDot = (s) => ({ draft: "bg-stone-400", open: "bg-amber-500", completed: "bg-emerald-500", shipped: "bg-emerald-500", partial: "bg-orange-500", cancelled: "bg-rose-500" }[s] || "bg-stone-400");
-const plStatusLabel = (s) => isLiveData.value
-  ? ({ draft: t("pl.fDraft"), open: t("pl.fOpen"), shipped: t("pl.fShipped"), partial: t("pl.fPartial"), cancelled: t("pl.fCancelled") }[s] || s)
-  : cap(s);
+const plStatusLabel = (s) =>
+  ({ draft: t("pl.fDraft"), open: t("pl.fOpen"), shipped: t("pl.fShipped"), partial: t("pl.fPartial"), cancelled: t("pl.fCancelled") }[s] || s);
 
-// ── autopilot card ──────────────────────────────────────────────────────
-const apStats = computed(() => [
-  { label: "Next run", value: `${AUTOPILOT.nextRunMin}m`, cardValue: thinking.value ? "—" : `${AUTOPILOT.nextRunMin}m`, sub: "every 30 min · cutoff-aware", live: true, icon: clockIcon(13) },
-  { label: "Created today", value: AUTOPILOT.createdToday, icon: boxIcon(13) },
-  { label: "Auto-assigned", value: AUTOPILOT.assignedToday, icon: usersIcon(13) },
-  { label: "Efficiency gain", value: "+" + AUTOPILOT.efficiency + "%", tone: "emerald", icon: trendIcon(13) },
-]);
-const perfStats = [
-  { label: "Walk time saved today", value: "3h 12m", tone: "emerald", icon: clockIcon(13) },
-  { label: "Assign accuracy", value: "96%", icon: usersIcon(13) },
-  { label: "Runs today", value: 18, icon: zapIcon(13) },
-];
-const fullLog = [
-  ...AUTOPILOT.feed,
-  { t: "1h", act: "Created PL-51436 · single-item blitz (5 orders)", kind: "create" },
-  { t: "2h", act: "Auto-assigned 3 batches to morning shift", kind: "assign" },
-  { t: "2h", act: "SLA risk: 4 picked orders not labeled — pinged Reda", kind: "alert" },
-];
-const sparkData = [22, 28, 25, 31, 34, 30, 36, 38, 35, 40, 39, 42, 41, 41];
-const sparkPoints = computed(() => {
-  const max = Math.max(...sparkData), min = Math.min(...sparkData);
-  return sparkData.map((v, i) => {
-    const x = (i / (sparkData.length - 1)) * 300;
-    const y = 110 - ((v - min) / (max - min || 1)) * 100;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
-});
 
-function runNow() {
-  thinking.value = true;
-  setTimeout(() => {
-    thinking.value = false;
-    const gs = autoPickGroups("zone").groups.map((g, i) => ({
-      no: g.no, customer: g.kind === "Batch SKU" ? g.label : `${g.kind} · ${g.label}`, item: g.kind,
-      bin: g.aisles > 1 ? "Multiple" : g.lines[0].bin, qty: g.units, items: g.items, status: "open", pct: 0,
-      picker: TEAM.filter((p) => p.role === "picker")[i % 5].id, order: g.orders > 1 ? "combined" : g.lines[0].so,
-    }));
-    rows.value = [...gs, ...rows.value];
-    success("Autopilot generated 4 pick lists · auto-assigned · 41% less walking");
-  }, 1400);
-}
-function applyReco(i) {
-  const gs = autoPickGroups("zone").groups.map((g, j) => ({
-    no: g.no, customer: g.kind === "Batch SKU" ? g.label : `${g.kind} · ${g.label}`, item: g.kind,
-    bin: g.aisles > 1 ? "Multiple" : g.lines[0].bin, qty: g.units, items: g.items, status: "open", pct: 0,
-    picker: TEAM.filter((p) => p.role === "picker")[j % 5].id, order: g.orders > 1 ? "combined" : g.lines[0].so,
-  }));
-  rows.value = [...gs, ...rows.value];
-  recos.splice(i, 1);
-  success("Suggestion applied · pick list created");
-}
-
-// ── smart pick modal ────────────────────────────────────────────────────
-const mode = ref("smart");
-const strategy = ref("zone");
 const pickers = TEAM.filter((p) => p.role === "picker");
-const manPicker = ref(pickers[0].id);
-const selOrders = reactive(new Set());
-const poolOrders = [...new Set(PICK_POOL.map((l) => l.so))];
-const poolLines = (o) => PICK_POOL.filter((l) => l.so === o);
-const smart = computed(() => autoPickGroups(strategy.value));
-const strategies = [
-  { k: "zone", icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>`, label: "By zone", sub: "Cluster by aisle — least walking" },
-  { k: "sku", icon: layersIcon(15), label: "By SKU", sub: "Batch-pick same product" },
-  { k: "single", icon: zapIcon(15), label: "Single-item blitz", sub: "All 1-line orders in one sweep" },
-  { k: "balanced", icon: usersIcon(15), label: "Balanced", sub: "Zone clusters, capped per picker" },
-];
-
-function toggleOrder(o) { selOrders.has(o) ? selOrders.delete(o) : selOrders.add(o); }
-
-function generate() {
-  const { groups, stats } = smart.value;
-  rows.value = [
-    ...groups.map((g, i) => ({
-      no: g.no, customer: g.kind === "Batch SKU" ? g.label : `${g.kind} · ${g.label}`, item: g.kind,
-      bin: g.aisles > 1 ? "Multiple" : g.lines[0].bin, qty: g.units, items: g.items, status: "open", pct: 0,
-      picker: pickers[i % pickers.length].id, order: g.orders > 1 ? "combined" : g.lines[0].so,
-    })),
-    ...rows.value,
-  ];
-  success(`${groups.length} smart pick lists created · ${stats.saved}% less walking`);
-  create.value = false;
-}
-function createManual() {
-  const chosen = PICK_POOL.filter((l) => selOrders.has(l.so));
-  const combined = selOrders.size > 1;
-  rows.value = [
-    { no: "PL-" + (51450 + Math.floor(Math.random() * 40)), customer: combined ? `Manual · ${selOrders.size} orders` : PICK_POOL.find((l) => selOrders.has(l.so))?.customer, item: "Manual", bin: "Multiple", qty: chosen.reduce((a, l) => a + l.qty, 0), items: chosen.length, status: "open", pct: 0, picker: manPicker.value, order: combined ? "combined" : [...selOrders][0] },
-    ...rows.value,
-  ];
-  success(`Manual pick list created · ${selOrders.size} orders · ${byId(manPicker.value).short}`);
-  create.value = false;
-}
-
 // ── detail view ─────────────────────────────────────────────────────────
 const view = ref("walk");
 const liveDetail = ref(null);
@@ -1253,23 +824,16 @@ async function doCancel() {
 }
 const lines = computed(() => {
   const pl = detail.value;
-  if (!pl) return [];
-  if (liveDetail.value) {
-    const done = liveDetail.value.status !== "draft";
-    return (liveDetail.value.lines || []).map((l) => ({
-      ...l, code: "", serial: false, batch: false,
-      picked: done && l.pickedQty >= l.qty,
-      partial: l.pickedQty > 0 && l.pickedQty < l.qty,
-      pickedQty: l.pickedQty,
-    }));
-  }
-  let ls = PICK_POOL.slice(0, Math.max(1, pl.items || 1)).map((l) => ({ ...l }));
-  ls = ls.sort((a, b) => (a.bin > b.bin ? 1 : -1));
-  return ls.map((l, i) => {
-    const picked = pl.pct >= 100 || (pl.pct > 0 && i < Math.floor(ls.length * pl.pct / 100));
-    const partial = pl.errors && i === ls.length - 1 && l.qty > 1;
-    return { ...l, picked: picked && !partial, pickedQty: partial ? l.qty - 1 : (picked ? l.qty : 0), partial };
-  });
+  // No fabricated lines. Without the live detail this told a picker to walk to
+  // a bin that holds something else.
+  if (!pl || !liveDetail.value) return [];
+  const done = liveDetail.value.status !== "draft";
+  return (liveDetail.value.lines || []).map((l) => ({
+    ...l, code: "", serial: false, batch: false,
+    picked: done && l.pickedQty >= l.qty,
+    partial: l.pickedQty > 0 && l.pickedQty < l.qty,
+    pickedQty: l.pickedQty,
+  }));
 });
 const doneCount = computed(() => lines.value.filter((l) => l.picked).length);
 const detailOrders = computed(() => new Set(lines.value.map((l) => l.so)).size);

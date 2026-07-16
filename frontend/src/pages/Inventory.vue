@@ -125,7 +125,12 @@
               </tr>
             </tbody>
           </table>
-          <div v-if="!rows.length" class="text-center text-[12.5px] text-stone-400 py-12">{{ t('px.inv.noMatch') }}</div>
+          <div v-if="loadError" class="text-center py-12">
+            <Icon name="alert-triangle" :size="20" class="mx-auto mb-2 text-rose-500" />
+            <div class="text-[13px] font-semibold text-stone-800">{{ t('common.loadFail') }}</div>
+            <div class="text-[11.5px] text-stone-400 font-mono mt-1 break-words">{{ loadError }}</div>
+          </div>
+          <div v-else-if="!rows.length" class="text-center text-[12.5px] text-stone-400 py-12">{{ t('px.inv.noMatch') }}</div>
         </div>
 
         <div v-if="total > pageSize" class="flex items-center justify-between px-4 py-2.5 border-t border-stone-100 bg-stone-50/50">
@@ -161,6 +166,7 @@ const zones = ref([]);
 const zonesLoading = ref(true);
 
 const rows = ref([]);
+const loadError = ref("");
 const total = ref(0);
 const loading = ref(true);
 const pageSize = 30;
@@ -179,7 +185,13 @@ async function load() {
     });
     rows.value = Array.isArray(r?.rows) ? r.rows : [];
     total.value = Number(r?.total || 0);
-  } catch (_) { rows.value = []; total.value = 0; } finally {
+    loadError.value = "";
+  } catch (e) {
+    // Swallowing this rendered "No matching items" -- a dead stock API read
+    // as an empty warehouse.
+    rows.value = []; total.value = 0;
+    loadError.value = String(e.message || e);
+  } finally {
     loading.value = false;
   }
 }

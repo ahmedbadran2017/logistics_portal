@@ -45,6 +45,19 @@
         </div>
       </template>
 
+      <!-- Outage. Zeros are not an all-clear: nothing was measured. -->
+      <div v-else-if="loadError" class="rounded-2xl bg-white ring-1 ring-rose-200/70 p-8 text-center">
+        <Icon name="alert-triangle" :size="24" class="mx-auto mb-2 text-rose-500" />
+        <div class="text-[13px] font-semibold text-stone-800">{{ t("common.loadFail") }}</div>
+        <div class="text-[11.5px] text-stone-400 font-mono mt-1 max-w-[420px] mx-auto break-words">{{ loadError }}</div>
+        <button
+          class="mt-4 h-8 px-3 inline-flex items-center gap-1.5 text-[12px] font-medium rounded-lg ring-1 ring-stone-200 hover:ring-stone-300 transition-all"
+          @click="load()"
+        >
+          <Icon name="refresh-cw" :size="14" />{{ t('common.refresh') }}
+        </button>
+      </div>
+
       <template v-else>
       <!-- Needs attention band -->
       <div
@@ -99,6 +112,11 @@
             </header>
             <div class="flex-1 overflow-y-auto">
               <div v-if="breachedLoading" class="p-8 text-center text-[13px] text-stone-400">Loading…</div>
+              <div v-else-if="breachedError" class="p-8 text-center">
+                <Icon name="alert-triangle" :size="20" class="mx-auto mb-2 text-rose-500" />
+                <div class="text-[13px] font-semibold text-stone-800">{{ t("common.loadFail") }}</div>
+                <div class="text-[11.5px] text-stone-400 font-mono mt-1 break-words">{{ breachedError }}</div>
+              </div>
               <div v-else-if="!breachedRows.length" class="p-8 text-center text-[13px] text-stone-400">Nothing open. All clear.</div>
               <button
                 v-for="r in breachedRows"
@@ -304,7 +322,7 @@ import Icon from "@/components/ui/Icon.vue";
 import {
   STAGE, STAGE_LABEL, byId, fmtMAD, getInitial, WAREHOUSE, CITY,
 } from "@/lib/handoffData.js";
-import { api, liveOr } from "@/lib/resource";
+import { api } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useRouter } from "vue-router";
 import { useToast } from "@/composables/useToast";
@@ -338,6 +356,7 @@ function cutoffDelta(cutoff = "14:00") {
 }
 
 const isLive = ref(false);
+const loadError = ref("");
 
 // ── Date scope ──────────────────────────────────────────────────────
 const todayStr = new Date().toISOString().slice(0, 10);
@@ -352,9 +371,14 @@ const dateLabel = computed(() => {
 
 async function load() {
   loading.value = true;
-  const live = await liveOr(null, () => api("performance.cockpit", { date: selectedDate.value }));
-  if (live && live.summary) {
+  // A failed load must never read as "All green". EMPTY_COCKPIT is all zeros,
+  // so breaches=0 -> needsAttention=false -> the manager sees a green card
+  // saying everything is on track, when in fact nothing was measured.
+  try {
+    const live = await api("performance.cockpit", { date: selectedDate.value });
+    if (!live || !live.summary) throw new Error("Empty response");
     isLive.value = true;
+    loadError.value = "";
     const delta = live.summary.isToday
       ? cutoffDelta(live.summary.cutoff || "17:00") : null;
     cockpit.value = {
@@ -366,6 +390,9 @@ async function load() {
     };
     pipeline.value = live.pipeline || [];
     leaderboard.value = live.leaderboard || [];
+  } catch (e) {
+    isLive.value = false;
+    loadError.value = String(e.message || e);
   }
   loading.value = false;
 }
@@ -383,13 +410,18 @@ onMounted(load);
 const breachedOpen = ref(false);
 const breachedLoading = ref(false);
 const breachedRows = ref([]);
+const breachedError = ref("");
 
 async function openBreached() {
   breachedOpen.value = true;
   if (breachedRows.value.length) return;
   breachedLoading.value = true;
+  breachedError.value = "";
   try {
     breachedRows.value = (await api("performance.breached_list")) || [];
+  } catch (e) {
+    // Without this the empty array falls through to "Nothing open. All clear."
+    breachedError.value = String(e.message || e);
   } finally {
     breachedLoading.value = false;
   }

@@ -185,7 +185,19 @@
       </button>
     </div>
 
-    <div class="bg-white rounded-xl ring-1 ring-stone-200/70">
+    <div v-if="mode === 'error'" class="bg-white rounded-xl ring-1 ring-rose-200/70 p-8 text-center">
+      <Icon name="alert-triangle" :size="24" class="mx-auto mb-2 text-rose-500" />
+      <div class="text-[13px] font-semibold text-stone-800">{{ t("trk.loadFail") }}</div>
+      <div class="text-[11.5px] text-stone-400 font-mono mt-1 max-w-[420px] mx-auto break-words">{{ loadError }}</div>
+      <button
+        class="mt-4 h-8 px-3 inline-flex items-center gap-1.5 text-[12px] font-medium rounded-lg ring-1 ring-stone-200 hover:ring-stone-300 transition-all"
+        @click="load()"
+      >
+        <Icon name="refresh-cw" :size="14" />{{ t("common.refresh") }}
+      </button>
+    </div>
+
+    <div v-else class="bg-white rounded-xl ring-1 ring-stone-200/70">
       <div class="px-4 py-3 border-b border-stone-100">
         <div class="text-[13px] font-semibold text-stone-900">{{ t("trk.parcels") }}</div>
         <div class="text-[11px] text-stone-400 tabular-nums">
@@ -269,9 +281,9 @@ import { computed, ref, h, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import {
-  PARCELS, TRACK_STATES, TRACK_LABEL, TRACK_COUNTS, SLA, SLA_LABEL, CARRIER, fmtMAD,
+  TRACK_STATES, TRACK_LABEL, SLA, SLA_LABEL, CARRIER, fmtMAD,
 } from "@/lib/handoffData";
-import { api, liveOr } from "@/lib/resource";
+import { api } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 
 const router = useRouter();
@@ -305,7 +317,8 @@ const SlaBadge = (props) => {
 };
 
 // ── server-driven board state ──────────────────────────────────────
-const mode = ref("loading"); // loading → skeleton · live · demo (backend unreachable)
+const mode = ref("loading"); // loading → skeleton · live · error
+const loadError = ref("");
 const loading = ref(false);
 const parcels = ref([]);
 const counts = ref({});
@@ -322,22 +335,28 @@ let searchTimer = null;
 async function load(keepPage = false) {
   if (!keepPage) page.value = 1;
   loading.value = true;
-  const live = await liveOr(null, () => api("shipping.tracking", {
-    days: daysF.value, state: stateF.value || undefined,
-    q: q.value.trim() || undefined,
-    limit: pageSize, offset: (page.value - 1) * pageSize,
-  }));
-  if (live && live.counts) {
+  // No fallback data. This screen answers "where is this customer's parcel"
+  // and an agent reads it out loud on the phone. Inventing a row here means
+  // telling a real person their parcel was delivered because the API blinked.
+  // An error the agent can see is the only honest failure mode.
+  try {
+    const live = await api("shipping.tracking", {
+      days: daysF.value, state: stateF.value || undefined,
+      q: q.value.trim() || undefined,
+      limit: pageSize, offset: (page.value - 1) * pageSize,
+    });
     mode.value = "live";
+    loadError.value = "";
     parcels.value = live.parcels || [];
-    counts.value = live.counts;
+    counts.value = live.counts || {};
     total.value = live.total ?? (live.parcels || []).length;
     updatedAt.value = Date.now();
-  } else if (mode.value !== "live") {
-    mode.value = "demo";
-    parcels.value = PARCELS;
-    counts.value = TRACK_COUNTS;
-    total.value = PARCELS.length;
+  } catch (e) {
+    mode.value = "error";
+    loadError.value = String(e.message || e);
+    parcels.value = [];
+    counts.value = {};
+    total.value = 0;
   }
   loading.value = false;
 }
