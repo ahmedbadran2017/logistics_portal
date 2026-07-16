@@ -49,8 +49,15 @@
           <span class="bn-ico"><Icon name="wallet" :size="20" /></span>
           <div class="flex-1 min-w-[220px]">
             <div class="flex items-baseline gap-2 flex-wrap">
-              <span class="text-[30px] font-extrabold text-stone-900 tabular-nums leading-none">{{ nPoints }}</span>
-              <span class="text-[12px] text-stone-500">{{ t('bn.pts') }} / {{ d.target }}</span>
+              <template v-if="d.me.pay">
+                <span class="text-[30px] font-extrabold text-stone-900 tabular-nums leading-none">{{ d.me.pay.total }}</span>
+                <span class="text-[12px] font-semibold text-stone-500">{{ d.me.pay.currency }}</span>
+                <span class="text-[11px] text-stone-400 tabular-nums">· {{ nPoints }} {{ t('bn.pts') }} / {{ d.target }}</span>
+              </template>
+              <template v-else>
+                <span class="text-[30px] font-extrabold text-stone-900 tabular-nums leading-none">{{ nPoints }}</span>
+                <span class="text-[12px] text-stone-500">{{ t('bn.pts') }} / {{ d.target }}</span>
+              </template>
               <span v-if="d.me.rank" class="ms-1 text-[11px] font-bold rounded-full px-2.5 py-0.5"
                     :class="d.me.rank === 1 ? 'text-amber-700 bg-amber-50 ring-1 ring-amber-200' : 'text-stone-600 bg-stone-100 ring-1 ring-stone-200'">
                 #{{ d.me.rank }}
@@ -64,6 +71,49 @@
             <div class="text-[11px] text-stone-400 mt-1.5 tabular-nums">
               {{ d.me.actions }} {{ t('bn.actions') }} · {{ pct }}% {{ t('bn.ofTarget') }}
             </div>
+            <!-- how the payout was reached — never a black box -->
+            <div v-if="d.me.pay" class="flex flex-wrap items-center gap-1.5 mt-2">
+              <span class="bn-part">{{ t('bn.pBase') }} <b class="tabular-nums">{{ d.me.pay.base }}</b></span>
+              <span v-if="d.me.pay.streakPct" class="bn-part bn-part-good">
+                <Icon name="zap" :size="10" />{{ d.me.pay.streakDays }}{{ t('cf.days') }} +{{ d.me.pay.streakPct }}%
+              </span>
+              <span v-if="d.me.pay.kicker" class="bn-part bn-part-good">
+                <Icon name="users" :size="10" />{{ t('bn.pKicker') }} +{{ d.me.pay.kicker }}
+              </span>
+              <span v-if="d.me.pay.gatePct !== null" class="bn-part"
+                    :class="d.me.pay.gatePass ? 'bn-part-good' : 'bn-part-bad'">
+                <Icon :name="d.me.pay.gatePass ? 'check-circle' : 'shield-alert'" :size="10" />
+                {{ t('bn.pGate') }} {{ d.me.pay.gatePct }}%
+              </span>
+              <span v-if="d.me.pay.capped" class="bn-part bn-part-warn">
+                <Icon name="alert-triangle" :size="10" />{{ t('bn.pCapped') }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- team kicker: everyone gets it, or nobody does -->
+      <div v-if="d.money?.kickerOn" class="rounded-2xl p-4 flex items-center gap-3.5 flex-wrap"
+           :class="d.money.kickerHit ? 'bn-kick-on' : 'bn-kick-off'">
+        <span class="w-10 h-10 rounded-xl grid place-items-center text-white shrink-0"
+              :class="d.money.kickerHit ? 'bg-emerald-500' : 'bg-amber-500'">
+          <Icon name="users" :size="19" />
+        </span>
+        <div class="flex-1 min-w-[200px]">
+          <div class="text-[13.5px] font-bold text-stone-900">
+            {{ t('bn.kickTitle') }} · +{{ d.money.kickerAmount }} {{ d.money.currency }}
+          </div>
+          <div class="text-[12px] text-stone-600 mt-0.5">
+            {{ d.money.kickerHit ? t('bn.kickHit') : t('bn.kickMiss') }}
+            <b class="tabular-nums">{{ d.money.sameday }}%</b> / {{ d.money.kickerTargetPct }}%
+          </div>
+        </div>
+        <div class="w-[120px] shrink-0">
+          <div class="h-2 rounded-full bg-white/70 overflow-hidden">
+            <div class="h-full rounded-full transition-all duration-700"
+                 :class="d.money.kickerHit ? 'bg-emerald-500' : 'bg-amber-500'"
+                 :style="{ width: Math.min(100, (d.money.sameday / d.money.kickerTargetPct) * 100) + '%' }" />
           </div>
         </div>
       </div>
@@ -82,6 +132,7 @@
                 <th class="text-start px-4 py-2.5">{{ t('cfr.thAgent') }}</th>
                 <th v-for="c in d.cols" :key="c" class="text-end px-3 py-2.5">{{ t(c) }}</th>
                 <th class="text-end px-4 py-2.5">{{ t('bn.thPoints') }}</th>
+                <th v-if="d.money?.on" class="text-end px-4 py-2.5">{{ t('bn.thPay') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-stone-100">
@@ -107,10 +158,26 @@
                     <span class="tabular-nums font-bold text-stone-900 w-[52px] text-end">{{ a.points }}</span>
                   </div>
                 </td>
+                <td v-if="d.money?.on" class="px-4 py-2.5 text-end">
+                  <span class="tabular-nums font-bold text-stone-900">{{ a.pay?.total ?? '—' }}</span>
+                  <span v-if="a.prize" class="ms-1.5 text-[10px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-full px-1.5 py-0.5">
+                    +{{ a.prize }}
+                  </span>
+                  <Icon v-if="a.pay && !a.pay.gatePass" name="shield-alert" :size="11"
+                        class="inline ms-1 text-rose-500" :title="t('bn.pGateFail')" />
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
+            <tfoot v-if="d.money?.on && d.money.pool !== null">
+              <tr class="border-t border-stone-200 bg-stone-50/60 text-[12.5px] font-bold">
+                <td class="px-4 py-2.5" :colspan="(d.cols?.length || 1) + 2">{{ t('bn.pool') }}</td>
+                <td class="px-4 py-2.5 text-end text-stone-900 tabular-nums">
+                  {{ d.money.pool }} <span class="text-[10px] font-normal text-stone-400">{{ d.money.currency }}</span>
+                </td>
+              </tr>
+            </tfoot>
         <div v-if="!d.agents.length" class="text-center text-[12.5px] text-stone-400 py-8">{{ t('cfr.noData') }}</div>
       </div>
 
@@ -128,6 +195,102 @@
                    class="w-24 h-9 ps-3 rounded-lg ring-1 ring-stone-200 text-[12.5px] tabular-nums focus:outline-none"
                    @input="dirty = true" />
           </label>
+        </div>
+
+        <!-- MONEY. Nothing here is a decision the code gets to make. -->
+        <div v-if="scheme.money" class="rounded-xl bg-amber-50/40 ring-1 ring-amber-200/60 p-3.5 space-y-3">
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <button type="button" role="switch" :aria-checked="!!scheme.money.on"
+                    class="relative w-11 h-6 rounded-full transition-colors shrink-0"
+                    :class="scheme.money.on ? 'bg-amber-500' : 'bg-stone-300'"
+                    @click="scheme.money.on = scheme.money.on ? 0 : 1; dirty = true">
+              <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform"
+                    :class="scheme.money.on ? 'translate-x-5' : 'translate-x-0'" />
+            </button>
+            <span>
+              <span class="block text-[12.5px] font-bold text-stone-900">{{ t('bn.mTitle') }}</span>
+              <span class="block text-[11px] text-stone-500">{{ t('bn.mHint') }}</span>
+            </span>
+          </label>
+
+          <template v-if="scheme.money.on">
+            <div class="grid sm:grid-cols-2 gap-x-4 gap-y-2.5 pt-1">
+              <label v-for="g in scheme.groups" :key="'pp' + g" class="flex items-center justify-between gap-2 text-[12px] text-stone-600">
+                <span>{{ t('bn.mPerPoint') }} — {{ t('bn.grp_' + g) }}</span>
+                <input v-model.number="scheme.money.perPoint[g]" type="number" min="0" step="0.5"
+                       class="w-20 h-8 ps-2.5 rounded-lg ring-1 ring-stone-200 text-[12px] tabular-nums focus:outline-none" @input="dirty = true" />
+              </label>
+              <label v-for="g in scheme.groups" :key="'cap' + g" class="flex items-center justify-between gap-2 text-[12px] text-stone-600">
+                <span>{{ t('bn.mCap') }} — {{ t('bn.grp_' + g) }}</span>
+                <input v-model.number="scheme.money.monthlyCap[g]" type="number" min="0" step="100"
+                       class="w-20 h-8 ps-2.5 rounded-lg ring-1 ring-stone-200 text-[12px] tabular-nums focus:outline-none" @input="dirty = true" />
+              </label>
+              <label class="flex items-center justify-between gap-2 text-[12px] text-stone-600">
+                <span>{{ t('bn.mStreakStep') }}</span>
+                <input v-model.number="scheme.money.streakStepPct" type="number" min="0" max="50"
+                       class="w-20 h-8 ps-2.5 rounded-lg ring-1 ring-stone-200 text-[12px] tabular-nums focus:outline-none" @input="dirty = true" />
+              </label>
+              <label class="flex items-center justify-between gap-2 text-[12px] text-stone-600">
+                <span>{{ t('bn.mStreakCap') }}</span>
+                <input v-model.number="scheme.money.streakCapPct" type="number" min="0" max="200"
+                       class="w-20 h-8 ps-2.5 rounded-lg ring-1 ring-stone-200 text-[12px] tabular-nums focus:outline-none" @input="dirty = true" />
+              </label>
+            </div>
+
+            <!-- quality gate, per group -->
+            <div class="pt-2 border-t border-amber-200/60 space-y-2">
+              <div class="text-[11.5px] font-bold text-stone-700">{{ t('bn.mGate') }}</div>
+              <p class="text-[11px] text-stone-500">{{ t('bn.mGateHint') }}</p>
+              <div class="flex flex-wrap gap-3">
+                <label v-for="g in scheme.groups" :key="'gate' + g"
+                       class="inline-flex items-center gap-2 text-[12px] text-stone-600">
+                  <input type="checkbox" class="w-4 h-4" style="accent-color: #d97706"
+                         :checked="!!scheme.money.gateOn[g]"
+                         @change="scheme.money.gateOn[g] = scheme.money.gateOn[g] ? 0 : 1; dirty = true" />
+                  {{ t('bn.grp_' + g) }}
+                  <input v-model.number="scheme.money.gatePct[g]" type="number" min="0" max="100"
+                         :disabled="!scheme.money.gateOn[g]"
+                         class="w-16 h-8 ps-2.5 rounded-lg ring-1 ring-stone-200 text-[12px] tabular-nums focus:outline-none disabled:bg-stone-100 disabled:text-stone-400"
+                         @input="dirty = true" />%
+                </label>
+              </div>
+              <p v-if="!scheme.money.gateOn.floor" class="text-[11px] text-stone-400">{{ t('bn.mGateFloorWhy') }}</p>
+            </div>
+
+            <!-- team kicker -->
+            <div class="pt-2 border-t border-amber-200/60 space-y-2">
+              <label class="inline-flex items-center gap-2 text-[12px] font-bold text-stone-700">
+                <input type="checkbox" class="w-4 h-4" style="accent-color: #d97706"
+                       :checked="!!scheme.money.kickerOn"
+                       @change="scheme.money.kickerOn = scheme.money.kickerOn ? 0 : 1; dirty = true" />
+                {{ t('bn.mKicker') }}
+              </label>
+              <p class="text-[11px] text-stone-500">{{ t('bn.mKickerHint') }}</p>
+              <div v-if="scheme.money.kickerOn" class="flex flex-wrap gap-3">
+                <label class="inline-flex items-center gap-2 text-[12px] text-stone-600">
+                  {{ t('bn.mKickerAmount') }}
+                  <input v-model.number="scheme.money.kickerAmount" type="number" min="0" step="10"
+                         class="w-20 h-8 ps-2.5 rounded-lg ring-1 ring-stone-200 text-[12px] tabular-nums focus:outline-none" @input="dirty = true" />
+                </label>
+                <label class="inline-flex items-center gap-2 text-[12px] text-stone-600">
+                  {{ t('bn.mKickerTarget') }}
+                  <input v-model.number="scheme.money.kickerTargetPct" type="number" min="0" max="100"
+                         class="w-16 h-8 ps-2.5 rounded-lg ring-1 ring-stone-200 text-[12px] tabular-nums focus:outline-none" @input="dirty = true" />%
+                </label>
+              </div>
+            </div>
+
+            <!-- weekly top 3 -->
+            <div class="pt-2 border-t border-amber-200/60">
+              <div class="text-[11.5px] font-bold text-stone-700 mb-1.5">{{ t('bn.mWeekly') }}</div>
+              <div class="flex items-center gap-2">
+                <input v-for="(v, i) in scheme.money.weeklyTop" :key="i"
+                       v-model.number="scheme.money.weeklyTop[i]" type="number" min="0" step="10"
+                       class="w-20 h-8 ps-2.5 rounded-lg ring-1 ring-stone-200 text-[12px] tabular-nums focus:outline-none" @input="dirty = true" />
+                <span class="text-[11px] text-stone-400">{{ scheme.money.currency }} · 1st / 2nd / 3rd</span>
+              </div>
+            </div>
+          </template>
         </div>
         <div class="grid sm:grid-cols-3 gap-x-4 gap-y-2 pt-1">
           <label v-for="(v, k) in scheme.points" :key="k"
@@ -227,7 +390,8 @@ async function saveScheme() {
   saving.value = true;
   try {
     const res = await apiPost("contact_center.save_bonus_settings", {
-      settings: { targets: scheme.value.targets, points: scheme.value.points },
+      settings: { targets: scheme.value.targets, points: scheme.value.points,
+                  money: scheme.value.money },
     });
     Object.assign(scheme.value, res);
     dirty.value = false;
@@ -247,6 +411,23 @@ onMounted(() => { load(); loadScheme(); });
 .bn-hero {
   background: linear-gradient(135deg, rgb(255 251 235) 0%, #fff 50%, rgb(255 251 235) 100%);
   box-shadow: inset 0 0 0 1px rgb(253 230 138 / 0.6), 0 1px 2px rgb(0 0 0 / 0.03);
+}
+.bn-part {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10.5px; font-weight: 600; color: rgb(87 83 78);
+  background: rgb(255 255 255 / .8); border-radius: 999px; padding: 3px 9px;
+  box-shadow: inset 0 0 0 1px rgb(231 229 228);
+}
+.bn-part-good { color: #047857; box-shadow: inset 0 0 0 1px #a7f3d0; }
+.bn-part-bad { color: #be123c; box-shadow: inset 0 0 0 1px #fda4af; }
+.bn-part-warn { color: #b45309; box-shadow: inset 0 0 0 1px #fcd34d; }
+.bn-kick-on {
+  background: linear-gradient(90deg, rgb(236 253 245), #fff);
+  box-shadow: inset 0 0 0 1px rgb(167 243 208);
+}
+.bn-kick-off {
+  background: linear-gradient(90deg, rgb(255 251 235), #fff);
+  box-shadow: inset 0 0 0 1px rgb(253 230 138);
 }
 .bn-ico {
   width: 48px; height: 48px; border-radius: 14px; flex-shrink: 0;

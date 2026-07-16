@@ -54,8 +54,41 @@ def _today_by_prefix(prefix, doctypes=("Sales Order",)):
 _BONUS_KEY = "lp_bonus_settings"
 GROUPS = ("cc", "floor")
 _ROLE_GROUP = {"confirmation": "cc", "picker": "floor"}
+# What a point is WORTH. The old handoff design paid money and gated it on
+# quality — a much better idea than bare points, so it comes back here, wired
+# to real numbers. Every figure below is a default for the manager to tune in
+# Settings; none of it is a business decision this code gets to make.
+#
+# Calibrated against production, not invented:
+#   floor  top picker moves ~3,124 orders/month -> 0.4 MAD each = ~1,250 MAD
+#   cc     a busy agent works ~2,000 orders/month -> 0.5 MAD each = ~1,000 MAD
+#   kicker the floor's real same-day rate is 41%, so the old design's 90% team
+#          target could never once have paid out. 55% is a reachable stretch.
+_MONEY_DEFAULTS = {
+    "on": 0,                  # off until the manager sets the numbers
+    "currency": "MAD",
+    "perPoint": {"cc": 2.5, "floor": 4.0},   # MAD per point earned
+    "monthlyCap": {"cc": 1500, "floor": 1500},
+    # Quality gate: no payout above the base until the agent clears it.
+    # cc is gated on confirm rate — a number the agent actually controls.
+    # floor has NO honest per-person quality signal yet (same-day measures the
+    # dispatcher's list timing, not the picker's work), so it stays off.
+    "gateOn": {"cc": 1, "floor": 0},
+    "gatePct": {"cc": 70, "floor": 0},
+    # Streak: +N% per 5 consecutive working days, capped.
+    "streakStepPct": 10,
+    "streakCapPct": 30,
+    # Team kicker: every member of the group gets this if the floor's same-day
+    # rate clears the target. Collective, so the team pulls together.
+    "kickerOn": 0,
+    "kickerAmount": 120,
+    "kickerTargetPct": 55,
+    "weeklyTop": [200, 100, 50],
+}
+
 _BONUS_DEFAULTS = {
     "targets": {"cc": 400, "floor": 300},
+    "money": dict(_MONEY_DEFAULTS),
     "points": {
         "cf.confirm": 1.0, "cf.cancel": 0.5, "cf.duplicate": 0.5,
         "cf.dna": 0.25, "cf.followup": 0.25, "cf.onhold": 0.25,
@@ -88,7 +121,8 @@ def _bonus_settings():
     import json as _json
     raw = frappe.db.get_default(_BONUS_KEY)
     out = {"targets": dict(_BONUS_DEFAULTS["targets"]),
-           "points": dict(_BONUS_DEFAULTS["points"])}
+           "points": dict(_BONUS_DEFAULTS["points"]),
+           "money": dict(_MONEY_DEFAULTS)}
     if raw:
         try:
             saved = _json.loads(raw)
@@ -104,6 +138,15 @@ def _bonus_settings():
                     for k in out["points"]:
                         if k in saved["points"]:
                             out["points"][k] = float(saved["points"][k])
+                if isinstance(saved.get("money"), dict):
+                    m = saved["money"]
+                    for k, v in _MONEY_DEFAULTS.items():
+                        if k not in m:
+                            continue
+                        if isinstance(v, dict):
+                            out["money"][k] = {g: m[k].get(g, v[g]) for g in v}
+                        else:
+                            out["money"][k] = m[k]
         except Exception:
             pass
     return out
@@ -141,6 +184,34 @@ def save_bonus_settings(settings=None):
                 if not (0 <= v <= 100):
                     frappe.throw(f"{k}: points must be between 0 and 100.")
                 out["points"][k] = v
+    if isinstance(settings.get("money"), dict):
+        m = settings["money"]
+        mo = out["money"]
+        for flag in ("on", "kickerOn"):
+            if flag in m:
+                mo[flag] = 1 if m[flag] else 0
+        for grp_key, lo, hi in (("perPoint", 0, 1000), ("monthlyCap", 0, 100000),
+                                ("gatePct", 0, 100)):
+            if isinstance(m.get(grp_key), dict):
+                for g in GROUPS:
+                    if g in m[grp_key]:
+                        v = float(m[grp_key][g])
+                        if not (lo <= v <= hi):
+                            frappe.throw(f"{grp_key}.{g} must be between {lo} and {hi}.")
+                        mo[grp_key][g] = v
+        if isinstance(m.get("gateOn"), dict):
+            for g in GROUPS:
+                if g in m["gateOn"]:
+                    mo["gateOn"][g] = 1 if m["gateOn"][g] else 0
+        for k, lo, hi in (("streakStepPct", 0, 50), ("streakCapPct", 0, 200),
+                          ("kickerAmount", 0, 10000), ("kickerTargetPct", 0, 100)):
+            if k in m:
+                v = float(m[k])
+                if not (lo <= v <= hi):
+                    frappe.throw(f"{k} must be between {lo} and {hi}.")
+                mo[k] = v
+        if isinstance(m.get("weeklyTop"), list):
+            mo["weeklyTop"] = [max(0, float(x)) for x in m["weeklyTop"][:3]]
     frappe.db.set_default(_BONUS_KEY, _json.dumps(out))
     frappe.db.commit()
     return {"ok": True, **out}
@@ -199,6 +270,122 @@ def _floor_board(month, pts):
         key=lambda x: -x["points"])
 
 
+def _floor_sameday_pct(month):
+    """The floor's same-day rate for the month — what the team kicker rides on.
+    Measured baseline: 41%."""
+    r = frappe.db.sql(
+        """SELECT COUNT(DISTINCT pli.sales_order) n,
+                  COUNT(DISTINCT CASE WHEN DATE(pl.creation) = DATE(so.creation)
+                                      THEN pli.sales_order END) same
+           FROM `tabPick List` pl
+           JOIN `tabPick List Item` pli ON pli.parent = pl.name
+           LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
+           WHERE pl.docstatus = 1 AND pl.creation >= %(start)s
+             AND pl.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)""",
+        {"start": f"{month}-01 00:00:00"})[0]
+    n = int(r[0] or 0)
+    return round(int(r[1] or 0) * 100.0 / n, 1) if n else 0.0
+
+
+def _quality_pct(user, group, month):
+    """The number the gate reads. Only where the person actually controls it.
+
+    cc: confirm rate — confirms over the decisions that closed an order.
+    floor: None. Same-day would be the obvious candidate and it is NOT honest:
+    the dispatcher creates the pick lists, so same-day measures HIS timing.
+    Gating a picker's pay on it would dock them for someone else's work.
+    """
+    if group != "cc":
+        return None
+    rows = frappe.db.sql(
+        """SELECT c.content, COUNT(*) n FROM `tabComment` c
+           WHERE c.owner = %(u)s AND c.reference_doctype = 'Sales Order'
+             AND c.creation >= %(start)s
+             AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
+             AND c.content LIKE 'Confirmation: %%'
+           GROUP BY c.content""",
+        {"u": user, "start": f"{month}-01 00:00:00"}, as_dict=True)
+    conf = canc = 0
+    for r in rows:
+        if "(bulk)" in r.content or " bulk " in r.content:
+            continue
+        a = (r.content.split(": ", 1)[1] or "").split(" ", 1)[0].strip("()—-→ ")
+        if a == "confirm":
+            conf += int(r.n or 0)
+        elif a == "cancel":
+            canc += int(r.n or 0)
+    closed = conf + canc
+    return round(conf * 100.0 / closed, 1) if closed else None
+
+
+def _streak_days(user, group, month):
+    """Consecutive working days ending at the last day worked this month."""
+    if group == "cc":
+        rows = frappe.db.sql(
+            """SELECT DISTINCT DATE(c.creation) d FROM `tabComment` c
+               WHERE c.owner = %(u)s AND c.creation >= %(start)s
+                 AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
+                 AND (c.content LIKE 'Confirmation: %%' OR c.content LIKE 'Rescue: %%'
+                      OR c.content LIKE 'CS: %%')
+               ORDER BY d""", {"u": user, "start": f"{month}-01 00:00:00"})
+    else:
+        rows = frappe.db.sql(
+            """SELECT DISTINCT DATE(pl.creation) d FROM `tabPick List` pl
+               WHERE pl.docstatus = 1
+                 AND COALESCE(NULLIF(pl.custom_assigned_picker, ''), pl.owner) = %(u)s
+                 AND pl.creation >= %(start)s
+                 AND pl.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
+               ORDER BY d""", {"u": user, "start": f"{month}-01 00:00:00"})
+    days = [str(r[0]) for r in rows]
+    if not days:
+        return 0
+    from datetime import date as _date, timedelta as _td
+    best = run = 1
+    prev = _date.fromisoformat(days[0])
+    for d in days[1:]:
+        cur = _date.fromisoformat(d)
+        run = run + 1 if (cur - prev).days == 1 else 1
+        best = max(best, run)
+        prev = cur
+    return run   # the streak they're ON, not their best ever
+
+
+def _payout(agent, group, s, month, kicker_on):
+    """Points -> money. Every knob is a setting; nothing here is hardcoded
+    business policy."""
+    m = s["money"]
+    if not m["on"]:
+        return None
+    pts = agent["points"]
+    rate = float(m["perPoint"].get(group, 0))
+    base = pts * rate
+
+    gate_pct = None
+    gate_pass = True
+    if m["gateOn"].get(group):
+        gate_pct = _quality_pct(agent["user"], group, month)
+        # No measurement yet = no penalty. Silence is not failure.
+        gate_pass = gate_pct is None or gate_pct >= float(m["gatePct"].get(group, 0))
+
+    streak = _streak_days(agent["user"], group, month)
+    streak_pct = min(float(m["streakCapPct"]),
+                     (streak // 5) * float(m["streakStepPct"]))
+
+    gross = base * (1 + streak_pct / 100) if gate_pass else base
+    kicker = float(m["kickerAmount"]) if (kicker_on and gate_pass) else 0
+    cap = float(m["monthlyCap"].get(group, 0)) or None
+    total = gross + kicker
+    capped = bool(cap and total > cap)
+    if capped:
+        total = cap
+    return {
+        "base": round(base), "streakDays": streak, "streakPct": streak_pct,
+        "gatePct": gate_pct, "gatePass": gate_pass,
+        "kicker": round(kicker), "capped": capped,
+        "total": round(total), "currency": m["currency"],
+    }
+
+
 def bonus_points_for(user, group, month):
     """One person's points this month — used by My Performance too."""
     if not group:
@@ -232,10 +419,29 @@ def bonus(month=None, group=None):
 
     s = _bonus_settings()
     agents = (_cc_board if group == "cc" else _floor_board)(month, s["points"])
-    me = {"points": 0.0, "rank": 0, "actions": 0}
+
+    # Money, if the manager has switched the scheme on.
+    money = s["money"]
+    sameday = pool = None
+    kicker_on = False
+    if money["on"]:
+        if money["kickerOn"]:
+            sameday = _floor_sameday_pct(month)
+            kicker_on = sameday >= float(money["kickerTargetPct"])
+        for a in agents:
+            a["pay"] = _payout(a, group, s, month, kicker_on)
+        pool = sum(a["pay"]["total"] for a in agents if a.get("pay"))
+        # The weekly-top prizes ride on the same board, top three by points.
+        for i, a in enumerate(agents[:3]):
+            prize = (money["weeklyTop"] or [0, 0, 0])[i] if i < 3 else 0
+            if prize:
+                a["prize"] = round(float(prize))
+
+    me = {"points": 0.0, "rank": 0, "actions": 0, "pay": None}
     for i, a in enumerate(agents):
         if a["user"] == frappe.session.user:
-            me = {"points": a["points"], "rank": i + 1, "actions": a["actions"]}
+            me = {"points": a["points"], "rank": i + 1, "actions": a["actions"],
+                  "pay": a.get("pay")}
             break
 
     cols = (["nav.confirmation", "nav.rescue", "nav.tickets"] if group == "cc"
@@ -244,6 +450,12 @@ def bonus(month=None, group=None):
             "groups": list(GROUPS) if role == "manager" else [my_group],
             "cols": cols, "target": s["targets"][group], "agents": agents,
             "me": me, "meUser": frappe.session.user,
+            "money": {"on": money["on"], "currency": money["currency"],
+                      "pool": round(pool) if pool is not None else None,
+                      "kickerOn": money["kickerOn"], "kickerHit": kicker_on,
+                      "kickerAmount": money["kickerAmount"],
+                      "kickerTargetPct": money["kickerTargetPct"],
+                      "sameday": sameday},
             "serverNow": str(now_datetime())[:19]}
 
 
