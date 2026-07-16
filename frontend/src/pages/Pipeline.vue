@@ -1258,16 +1258,6 @@ function actionFor(r) {
   width: 15px; height: 15px; cursor: pointer;
   accent-color: var(--accent-600);
 }
-.pager-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  height: 32px; padding: 0 9px; border-radius: 8px;
-  font-size: 12.5px; font-weight: 600; color: #57534e;
-  background: #fff; box-shadow: inset 0 0 0 1px #e7e5e4;
-  transition: background-color .12s;
-}
-.pager-btn:hover:not(:disabled):not(.pager-active) { background: #fafaf9; }
-.pager-btn:disabled { opacity: .4; cursor: default; box-shadow: none; background: transparent; }
-.pager-active { color: #fff; background: var(--accent-600); box-shadow: none; }
 .qv-enter-from .qv-panel, .qv-leave-to .qv-panel { transform: translateX(100%); }
 [dir="rtl"] .qv-enter-from .qv-panel, [dir="rtl"] .qv-leave-to .qv-panel { transform: translateX(-100%); }
 .qv-enter-active .qv-panel, .qv-leave-active .qv-panel { transition: transform .26s cubic-bezier(.16,1,.3,1); }

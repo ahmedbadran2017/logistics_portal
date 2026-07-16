@@ -1,7 +1,7 @@
 <template>
   <button
     type="button"
-    class="lp-card p-5 text-left w-full relative overflow-hidden transition-all duration-150
+    class="lp-card p-5 text-start w-full relative overflow-hidden transition-all duration-150
            hover:shadow-glow hover:-translate-y-0.5"
     :class="clickable ? 'cursor-pointer' : 'cursor-default'"
     :disabled="!clickable"
