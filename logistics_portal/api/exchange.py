@@ -192,6 +192,18 @@ def generate(name):
     name = (name or "").strip()
     if not frappe.db.exists("Sales Exchange", name):
         frappe.throw("Unknown exchange.")
+    # A state guard, like set_items and settle already have. Without it a
+    # double-click -- the Cathedis call is slow enough to invite one -- buys a
+    # SECOND carrier AWB and creates a second -ex Sales Order for one exchange.
+    # Real money, and a second parcel to chase. The vocabulary is the field's
+    # own Select: Draft / Waiting for Cathedis API / Label Generated / Settled
+    # / Cancelled.
+    doc = frappe.get_doc("Sales Exchange", name)
+    if doc.exchange_status not in ("Draft", "Waiting for Cathedis API"):
+        frappe.throw(f"This exchange is already {doc.exchange_status}"
+                     + (f" (AWB {doc.new_awb})." if doc.new_awb else "."))
+    if doc.new_awb:
+        frappe.throw(f"This exchange already has AWB {doc.new_awb}.")
     m = _se()
     m.create_exchange_shipment(name)
     m.create_sales_order_from_exchange(name)
