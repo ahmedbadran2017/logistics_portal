@@ -30,18 +30,20 @@
     <!-- segmented queues + search -->
     <div class="flex items-center gap-3 flex-wrap">
       <div class="cf-seg">
-        <button
-          v-for="tb in TABS" :key="tb.key"
-          class="cf-seg-btn"
-          :class="tab === tb.key ? 'cf-seg-on' : ''"
-          @click="tab = tb.key; page = 1; load()"
-        >
-          <Icon :name="tb.icon" :size="14" />
-          <span>{{ t(tb.label) }}</span>
-          <span class="cf-seg-count" :class="tab === tb.key ? tb.onColor : 'bg-stone-200/70 text-stone-500'">
-            {{ data?.counts?.[tb.key] ?? '–' }}
-          </span>
-        </button>
+        <template v-for="(tb, i) in TABS" :key="tb.key">
+          <span v-if="tb.group && tb.group !== TABS[i - 1]?.group" class="cf-seg-div" />
+          <button
+            class="cf-seg-btn"
+            :class="[tab === tb.key ? 'cf-seg-on' : '', tb.group ? 'cf-seg-alt' : '']"
+            @click="tab = tb.key; page = 1; load()"
+          >
+            <Icon :name="tb.icon" :size="14" />
+            <span>{{ t(tb.label) }}</span>
+            <span class="cf-seg-count" :class="tab === tb.key ? tb.onColor : 'bg-stone-200/70 text-stone-500'">
+              {{ data?.counts?.[tb.key] ?? '–' }}
+            </span>
+          </button>
+        </template>
       </div>
       <div class="flex items-center gap-2 ms-auto flex-wrap">
         <DateRange v-model:days="days" v-model:frm="frm" v-model:to="to" @change="page = 1; load()" />
@@ -279,10 +281,10 @@ const TABS = [
   { key: "dna", label: "cf.tabDna", icon: "phone-off", onColor: "bg-amber-100 text-amber-700" },
   { key: "followup", label: "cf.tabFollowup", icon: "clock", onColor: "bg-sky-100 text-sky-700" },
   { key: "onhold", label: "cf.tabOnhold", icon: "pause", onColor: "bg-stone-200 text-stone-600" },
-  { key: "backlog", label: "cf.tabBacklog", icon: "archive", onColor: "bg-stone-200 text-stone-700" },
-  { key: "confirmed", label: "cf.tabConfirmed", icon: "check-circle", onColor: "bg-emerald-100 text-emerald-700" },
-  { key: "cancelled", label: "cf.tabCancelled", icon: "x", onColor: "bg-rose-100 text-rose-700" },
-  { key: "duplicated", label: "cf.tabDuplicated", icon: "copy", onColor: "bg-violet-100 text-violet-700" },
+  { key: "backlog", label: "cf.tabBacklog", icon: "archive", onColor: "bg-stone-200 text-stone-700", group: "cleanup" },
+  { key: "confirmed", label: "cf.tabConfirmed", icon: "check-circle", onColor: "bg-emerald-100 text-emerald-700", group: "done" },
+  { key: "cancelled", label: "cf.tabCancelled", icon: "x", onColor: "bg-rose-100 text-rose-700", group: "done" },
+  { key: "duplicated", label: "cf.tabDuplicated", icon: "copy", onColor: "bg-violet-100 text-violet-700", group: "done" },
 ];
 // Tabs where the lane is done deciding — read-only rows with an undo.
 const DONE = ["confirmed", "cancelled", "duplicated"];
@@ -535,6 +537,14 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
   background: white; color: rgb(28 25 23);
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.04);
 }
+.cf-seg-div {
+  width: 1px; align-self: stretch; margin: 5px 5px;
+  background: rgb(214 211 209 / .9);
+  flex-shrink: 0;
+}
+/* Cleanup + archive: reachable, but never competing with the work queues. */
+.cf-seg-alt { color: rgb(168 162 158); }
+.cf-seg-alt.cf-seg-on { color: rgb(28 25 23); }
 .cf-seg-count {
   font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
   padding: 1px 7px; border-radius: 999px;

@@ -93,7 +93,13 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     # Each family of tabs is dated by its OWN column: the working queues by
     # when the order arrived, the done tabs by when the decision was taken.
     q_rng = rng.format(col="creation")
-    d_rng = rng.format(col="COALESCE(custom_last_call_at, modified)")
+    # NB: strictly custom_last_call_at — the column only a human decision
+    # through this workspace sets. The WhatsApp automation confirms ~85% of
+    # orders without ever touching it, so a COALESCE(..., modified) fallback
+    # put 167,046 automation-confirmed orders in the agent's "Confirmed" tab.
+    # These tabs answer "what did WE decide", and the search box still reaches
+    # any order.
+    d_rng = "custom_last_call_at IS NOT NULL AND " + rng.format(col="custom_last_call_at")
 
     counts = {k: 0 for k in QUEUES}
     for r in frappe.db.sql(
@@ -128,7 +134,8 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
 
     if tab in DONE_QUEUES:
         conds = ["so.docstatus = 1", "so.custom_sales_status = %(status)s",
-                 rng.format(col="COALESCE(so.custom_last_call_at, so.modified)")]
+                 "so.custom_last_call_at IS NOT NULL",
+                 rng.format(col="so.custom_last_call_at")]
         vals["status"] = DONE_QUEUES[tab]
     elif tab == "backlog":
         conds = ["so.docstatus = 1", "so.custom_sales_status IN %(statuses)s",
@@ -149,7 +156,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     # Retry queues surface what's DUE first (next_call in the past, oldest
     # deferral first); pending is simply oldest-first.
     if tab in DONE_QUEUES:
-        order_by = "COALESCE(so.custom_last_call_at, so.modified) DESC"  # newest decision first
+        order_by = "so.custom_last_call_at DESC"  # newest decision first
     elif tab in ("pending", "backlog"):
         order_by = "so.creation"
     else:
