@@ -296,7 +296,7 @@ def act(id=None, action=None, note=None):
 
     # Order-side record + state.
     if order:
-        so_updates = {"custom_confirmation_agent": frappe.session.user,
+        so_updates = {"custom_allocated_to": frappe.session.user,
                       "custom_last_call_at": now}
         if action == "dna":
             attempts = int(frappe.db.get_value(

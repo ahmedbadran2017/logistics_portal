@@ -149,6 +149,10 @@
               <span>{{ r.items }} {{ t('consol.items') }}</span>
               <span class="inline-flex items-center gap-1" :class="ageColor(r.ageH)"><Icon name="clock" :size="11" />{{ ageLabel(r.ageH) }}</span>
               <span v-if="r.attempts" class="inline-flex items-center gap-1 text-amber-600 font-medium"><Icon name="phone-off" :size="11" />×{{ r.attempts }}</span>
+              <span v-if="r.chased" class="inline-flex items-center gap-1 text-sky-600 font-medium"
+                    :title="t('cf.chasedHint')">
+                <Icon name="send" :size="11" />{{ t('cf.chased') }} ×{{ r.chased }}
+              </span>
               <span v-if="r.agent" class="text-stone-400">{{ r.agent }}</span>
               <span v-if="r.nextCall" class="text-stone-400">→ {{ r.nextCall.slice(5) }}</span>
             </div>

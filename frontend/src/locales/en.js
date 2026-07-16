@@ -799,6 +799,8 @@ export default {
     contactSaved: "Contact updated",
     contactFail: "Couldn't update contact",
     tabMonitor: "Monitoring",
+    chased: "auto-chased",
+    chasedHint: "The WhatsApp automation already sent this customer a reminder — they did not answer it either.",
     targetHit: "target hit",
     targetGo: "{n} to go today",
     tabBacklog: "Backlog",

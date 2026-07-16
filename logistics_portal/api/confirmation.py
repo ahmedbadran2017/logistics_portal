@@ -172,9 +172,14 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
         order_by = "COALESCE(so.custom_next_call_at, so.creation), so.creation"
     # custom_cancellation_reason is the desk's field — absent on sites that
     # never had it, so only select it when the meta says it exists.
+    _m = frappe.get_meta("Sales Order")
     reason_col = ("so.custom_cancellation_reason"
-                  if frappe.get_meta("Sales Order").has_field("custom_cancellation_reason")
-                  else "NULL")
+                  if _m.has_field("custom_cancellation_reason") else "NULL")
+    if not _m.has_field("custom_first_reminder"):
+        # A site without the WhatsApp automation's ladder.
+        s_r1 = s_r2 = "0"
+    else:
+        s_r1, s_r2 = "so.custom_first_reminder", "so.custom_second_reminder"
     rows = frappe.db.sql(
         f"""SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
                    COALESCE(NULLIF(so.custom_customer_phone,''),
@@ -185,8 +190,10 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
                    COALESCE(so.custom_call_attempts, 0) AS attempts,
                    so.custom_last_call_at AS last_call,
                    so.custom_next_call_at AS next_call,
-                   so.custom_confirmation_agent AS agent,
+                   so.custom_allocated_to AS agent,
                    so.custom_sales_status AS status,
+                   COALESCE({s_r1}, 0) AS r1,
+                   COALESCE({s_r2}, 0) AS r2,
                    {reason_col} AS reason
             FROM `tabSales Order` so WHERE {where}
             ORDER BY {order_by}
@@ -255,6 +262,8 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
             "status": r.status or "",
             "reason": (r.reason or "").strip(),
             "cust": hist.get(digits(r.phone)) if r.phone else None,
+            # How hard the automation already chased this one.
+            "chased": int(r.r2 or 0) and 2 or (int(r.r1 or 0) and 1 or 0),
             # First-call SLA: never touched and older than the target. Only
             # meaningful while the order is still ours to call.
             "slaBreached": bool(tab not in DONE_QUEUES
@@ -309,7 +318,7 @@ def act(order, action, note=None):
     attempts = int(so.custom_call_attempts or 0)
     updates = {
         "custom_sales_status": _ACTIONS[action],
-        "custom_confirmation_agent": frappe.session.user,
+        "custom_allocated_to": frappe.session.user,
         "custom_last_call_at": now,
     }
     if action in _RETRY_HOURS:
@@ -418,7 +427,7 @@ def bulk_cancel(orders=None, reason=None):
             skipped.append(name)
             continue
         updates = {"custom_sales_status": "Cancelled",
-                   "custom_confirmation_agent": frappe.session.user,
+                   "custom_allocated_to": frappe.session.user,
                    "custom_last_call_at": now, "custom_next_call_at": None}
         if has_reason_field:
             updates["custom_cancellation_reason"] = reason[:140]
@@ -589,7 +598,7 @@ def report(days=7):
         decided = a["confirm"] + a["cancel"]
         stats = frappe.db.sql(
             f"""SELECT AVG(custom_call_attempts), COUNT(*) FROM `tabSales Order`
-                WHERE custom_confirmation_agent = %s
+                WHERE custom_allocated_to = %s
                   AND custom_sales_status = 'Confirmed'
                   AND custom_last_call_at >= {since}""", (user,))[0]
         agents.append({

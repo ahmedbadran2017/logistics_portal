@@ -118,16 +118,17 @@ def ensure_cs_fields():
 
 
 _SO_CONTACT_FIELDS = [
-    # Contact Center (confirmation lane): who called, when, how many times,
-    # and when to retry. The WhatsApp automation stays first-line; these track
-    # the human tail it can't close.
+    # Contact Center (confirmation lane): when the call happened, how many
+    # times, and when to retry. The WhatsApp automation stays first-line;
+    # these track the human tail it can't close.
+    # NB: WHO owns the order is custom_allocated_to — an existing Link->User
+    # field the business already runs on (17 agents live on it, the desk's
+    # confirmation dashboard reports off it). Do not add a second one.
     {"fieldname": "custom_call_attempts", "label": "Call Attempts", "fieldtype": "Int",
      "default": "0", "read_only": 1, "no_copy": 1, "hidden": 1},
     {"fieldname": "custom_last_call_at", "label": "Last Call At", "fieldtype": "Datetime",
      "read_only": 1, "no_copy": 1, "hidden": 1},
     {"fieldname": "custom_next_call_at", "label": "Next Call At", "fieldtype": "Datetime",
-     "read_only": 1, "no_copy": 1, "hidden": 1},
-    {"fieldname": "custom_confirmation_agent", "label": "Confirmation Agent", "fieldtype": "Data",
      "read_only": 1, "no_copy": 1, "hidden": 1},
 ]
 

@@ -25,6 +25,17 @@ SEED_ROLES = {
     "cakhadija34@gmail.com": "confirmation",
     "oumaima.asri.19@gmail.com": "confirmation",
     "youssrajustyol@gmail.com": "confirmation",
+    # The rest of the floor, read off custom_allocated_to on the live site
+    # (17 agents worked orders in 30 days; the first 8 were only the loudest).
+    "belfrouh.justyol@gmail.com": "confirmation",
+    "chaimaa.safin@gmail.com": "confirmation",
+    "bouugadoumaima@gmail.com": "confirmation",
+    "imanejustyol@gmail.com": "confirmation",
+    "akilbasma05@gmail.com": "confirmation",
+    "justyolm@gmail.com": "confirmation",
+    "boukanounoumeriem@gmail.com": "confirmation",
+    "elabdouny99@gmail.com": "confirmation",
+    "hammouchisoukaina63@gmail.com": "confirmation",
 }
 
 VALID_ROLES = {"manager", "dispatcher", "picker", "packer", "returns", "confirmation"}

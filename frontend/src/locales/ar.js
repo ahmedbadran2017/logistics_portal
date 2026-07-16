@@ -799,6 +799,8 @@ export default {
     contactSaved: "اتحدثت بيانات التواصل",
     contactFail: "تعذّر التحديث",
     tabMonitor: "المراقبة",
+    chased: "الأوتوميشن طارده",
+    chasedHint: "أوتوميشن الواتساب بعتله تذكير خلاص — ومردش عليه هو كمان.",
     targetHit: "الهدف اتحقق",
     targetGo: "فاضل {n} النهارده",
     tabBacklog: "المتراكم",
