@@ -55,7 +55,7 @@
           <button v-for="a in BULK_ACTIONS" :key="a.action"
                   class="h-8 px-3 rounded-lg text-[12px] font-semibold bg-white/10 hover:bg-white/20 disabled:opacity-50"
                   :disabled="bulkBusy" @click="bulkTriage(a.action)">{{ t(a.label) }}</button>
-          <button class="w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center ms-auto" @click="selected = new Set()">
+          <button :title="t('common.close')" class="w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center ms-auto" @click="selected = new Set()">
             <Icon name="x" :size="15" />
           </button>
         </div>
@@ -165,12 +165,12 @@
           {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, total) }} {{ t("exc.of") }} {{ total }}
         </span>
         <div class="flex items-center gap-1">
-          <button class="pager-btn" :disabled="page <= 1" @click="page--; loadLive()">
+          <button :title="t('common.prev')" class="pager-btn" :disabled="page <= 1" @click="page--; loadLive()">
             <Icon name="chevron-left" :size="13" class="flip-rtl" />
           </button>
           <span class="text-[11.5px] text-stone-600 tabular-nums px-1.5">{{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span>
-          <button class="pager-btn" :disabled="page * pageSize >= total" @click="page++; loadLive()">
-            <Icon name="chevron-right" :size="13" class="flip-rtl" />
+          <button :title="t('common.next')" class="pager-btn" :disabled="page * pageSize >= total" @click="page++; loadLive()">
+                <Icon name="chevron-right" :size="13" class="flip-rtl" />
           </button>
         </div>
       </div>

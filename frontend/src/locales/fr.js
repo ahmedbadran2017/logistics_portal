@@ -1,6 +1,14 @@
 export default {
   brand: "Justyol Logistique",
   common: {
+    menu: "Menu",
+    next: "Suivant",
+    close: "Fermer",
+    back: "Retour",
+    prev: "Précédent",
+    live: "En direct",
+    reconnecting: "Reconnexion…",
+    queued: "en attente",
     loadFail: "Impossible de charger",
     refresh: "Actualiser",
     cancel: "Annuler",
@@ -24,6 +32,8 @@ export default {
     returns: "Retours",
   },
   nav: {
+    logistics: "Logistique",
+    viewAs: "Voir en tant que",
     rescueSection: "Centre de sauvetage",
     rescue: "Sauvetage",
     rsReports: "Rapports du service",
@@ -473,6 +483,15 @@ export default {
     locNone: "Aucun stock nulle part au Maroc.",
     locNote: "Vert = le moteur peut y puiser. Gris = il y a du stock mais ce n'est pas une zone de prélèvement.",
     footnote: "Une commande confirmée sans liste de prélèvement n'appartient à personne : elle n'est ni sur le tableau de confirmation (elle est décidée), ni sur le sol (pas de liste), ni dans le suivi (pas de colis). Elle vieillit, c'est tout. Cet écran est le seul endroit où elle apparaît.",
+  },
+  cmd: {
+    pages: "Pages",
+    orders: "Commandes",
+  },
+  notif: {
+    title: "Notifications",
+    markRead: "Marquer comme lu",
+    openOrder: "Ouvrir la commande",
   },
   trk: {
     title: "Suivi", subtitle: "colis expédiés sur les {n} derniers jours",

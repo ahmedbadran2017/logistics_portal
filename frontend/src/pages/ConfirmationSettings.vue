@@ -38,7 +38,7 @@
           <span v-for="(r, i) in s.reasons" :key="i"
                 class="inline-flex items-center gap-1.5 h-8 ps-3 pe-1.5 rounded-lg text-[12px] font-medium text-stone-700 bg-stone-50 ring-1 ring-stone-200">
             {{ r }}
-            <button v-if="s.canEdit" class="w-5 h-5 rounded hover:bg-rose-100 text-stone-400 hover:text-rose-600 flex items-center justify-center"
+            <button :title="t('common.close')" v-if="s.canEdit" class="w-5 h-5 rounded hover:bg-rose-100 text-stone-400 hover:text-rose-600 flex items-center justify-center"
                     @click="s.reasons.splice(i, 1); dirty = true"><Icon name="x" :size="11" /></button>
           </span>
         </div>
@@ -59,7 +59,7 @@
           <span v-for="(a, i) in s.admins" :key="a"
                 class="inline-flex items-center gap-1.5 h-8 ps-3 pe-1.5 rounded-lg text-[12px] font-mono text-violet-700 bg-violet-50 ring-1 ring-violet-200">
             {{ a }}
-            <button v-if="isManager" class="w-5 h-5 rounded hover:bg-rose-100 text-violet-400 hover:text-rose-600 flex items-center justify-center"
+            <button :title="t('common.close')" v-if="isManager" class="w-5 h-5 rounded hover:bg-rose-100 text-violet-400 hover:text-rose-600 flex items-center justify-center"
                     @click="s.admins.splice(i, 1); dirty = true"><Icon name="x" :size="11" /></button>
           </span>
           <span v-if="!s.admins.length" class="text-[12px] text-stone-400">{{ t('cfs.noAdmins') }}</span>

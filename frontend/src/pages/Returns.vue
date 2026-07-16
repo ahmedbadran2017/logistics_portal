@@ -279,7 +279,7 @@
               <div class="text-[12px] text-stone-500 mt-0.5">{{ t("ret.batch") }} · {{ activeBatch.date }} · {{ ownerShort(activeBatch.owner) }}</div>
             </div>
             <div class="flex items-center gap-1.5">
-              <button class="w-8 h-8 rounded-lg flex items-center justify-center text-stone-500 hover:bg-stone-100" @click="activeBatch = null">
+              <button :title="t('common.close')" class="w-8 h-8 rounded-lg flex items-center justify-center text-stone-500 hover:bg-stone-100" @click="activeBatch = null">
                 <Icon name="x" :size="17" />
               </button>
             </div>

@@ -1,6 +1,14 @@
 export default {
   brand: "Justyol Logistics",
   common: {
+    menu: "Menu",
+    next: "Next",
+    close: "Close",
+    back: "Back",
+    prev: "Previous",
+    live: "Live",
+    reconnecting: "Reconnecting…",
+    queued: "queued",
     loadFail: "Couldn't load",
     refresh: "Refresh",
     cancel: "Cancel",
@@ -24,6 +32,8 @@ export default {
     returns: "Returns",
   },
   nav: {
+    logistics: "Logistics",
+    viewAs: "View as role",
     rescueSection: "Rescue center",
     rescue: "Rescue",
     rsReports: "Section reports",
@@ -473,6 +483,15 @@ export default {
     locNone: "No stock anywhere in Morocco.",
     locNote: "Green = the pick engine can pull from here. Grey = it holds stock but isn't a pick zone.",
     footnote: "A confirmed order with no pick list belongs to nobody: it isn't on the confirmation board (it's decided), the pick floor (there's no list) or Tracking (there's no parcel). It just ages. This screen is the only place it shows up.",
+  },
+  cmd: {
+    pages: "Pages",
+    orders: "Orders",
+  },
+  notif: {
+    title: "Notifications",
+    markRead: "Mark read",
+    openOrder: "Open order",
   },
   trk: {
     title: "Tracking", subtitle: "parcels shipped in the last {n} days",

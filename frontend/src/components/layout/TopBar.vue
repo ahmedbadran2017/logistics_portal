@@ -5,6 +5,8 @@
     <!-- Mobile hamburger -->
     <button
       type="button"
+      :title="t('common.menu')"
+      :aria-label="t('common.menu')"
       class="lg:hidden w-8 h-8 rounded-md text-stone-500 hover:bg-stone-100 hover:text-stone-900 flex items-center justify-center"
       @click="$emit('toggle-menu')"
     >
@@ -43,6 +45,8 @@
     <!-- Notification bell -->
     <button
       type="button"
+      :title="t('notif.title')"
+      :aria-label="t('notif.title')"
       class="relative w-8 h-8 rounded-md text-stone-500 hover:bg-stone-100 hover:text-stone-900 flex items-center justify-center"
       @click="$emit('open-notif')"
     >

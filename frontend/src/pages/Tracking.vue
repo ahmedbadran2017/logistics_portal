@@ -258,12 +258,12 @@
             {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, total) }} {{ t("trk.of") }} {{ total }}
           </span>
           <div class="flex items-center gap-1">
-            <button class="pager-btn" :disabled="page <= 1" @click="page--; load(true)">
+            <button :title="t('common.prev')" class="pager-btn" :disabled="page <= 1" @click="page--; load(true)">
               <Icon name="chevron-left" :size="13" class="flip-rtl" />
             </button>
             <span class="text-[11.5px] text-stone-600 tabular-nums px-1.5">{{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span>
-            <button class="pager-btn" :disabled="page * pageSize >= total" @click="page++; load(true)">
-              <Icon name="chevron-right" :size="13" class="flip-rtl" />
+            <button :title="t('common.next')" class="pager-btn" :disabled="page * pageSize >= total" @click="page++; load(true)">
+                <Icon name="chevron-right" :size="13" class="flip-rtl" />
             </button>
           </div>
         </div>

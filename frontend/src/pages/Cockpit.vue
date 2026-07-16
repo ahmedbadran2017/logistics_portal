@@ -106,7 +106,7 @@
                   Breached & at-risk parcels not yet delivered · last 14 days
                 </p>
               </div>
-              <button class="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center" @click="breachedOpen = false">
+              <button :title="t('common.close')" class="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center" @click="breachedOpen = false">
                 <Icon name="x" :size="16" />
               </button>
             </header>

@@ -38,7 +38,7 @@
           <div class="text-[14.5px] font-semibold text-stone-900 truncate">{{ current.name }}</div>
           <div class="font-mono text-[12px] text-stone-500">{{ current.sku || current.itemCode }}</div>
         </div>
-        <button class="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center flex-shrink-0" @click="clearCurrent">
+        <button :title="t('common.close')" class="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center flex-shrink-0" @click="clearCurrent">
           <Icon name="x" :size="16" />
         </button>
       </div>

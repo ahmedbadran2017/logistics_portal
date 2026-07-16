@@ -60,7 +60,7 @@
                 class="inline-flex items-center gap-1.5 h-8 ps-3 rounded-full text-[12px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200"
                 :class="s.canEdit ? 'pe-1.5' : 'pe-3'">
             {{ c }}
-            <button v-if="s.canEdit" class="w-5 h-5 rounded-full inline-flex items-center justify-center hover:bg-violet-100 text-violet-400 hover:text-violet-700"
+            <button :title="t('common.close')" v-if="s.canEdit" class="w-5 h-5 rounded-full inline-flex items-center justify-center hover:bg-violet-100 text-violet-400 hover:text-violet-700"
                     @click="s.categories.splice(i, 1); dirty = true"><Icon name="x" :size="11" /></button>
           </span>
         </div>
@@ -89,7 +89,7 @@
                 class="inline-flex items-center gap-1.5 h-8 ps-3 rounded-full text-[12px] font-medium text-stone-700 bg-stone-100 ring-1 ring-stone-200 font-mono"
                 :class="isManager ? 'pe-1.5' : 'pe-3'">
             {{ a }}
-            <button v-if="isManager" class="w-5 h-5 rounded-full inline-flex items-center justify-center hover:bg-stone-200 text-stone-400 hover:text-stone-700"
+            <button :title="t('common.close')" v-if="isManager" class="w-5 h-5 rounded-full inline-flex items-center justify-center hover:bg-stone-200 text-stone-400 hover:text-stone-700"
                     @click="s.admins.splice(i, 1); dirty = true"><Icon name="x" :size="11" /></button>
           </span>
           <span v-if="!s.admins.length" class="text-[12px] text-stone-400">{{ t('cfs.noAdmins') }}</span>

@@ -171,7 +171,7 @@
               <h3 class="text-[14.5px] font-semibold text-stone-900 truncate">{{ locate.sku }}</h3>
               <p class="text-[12px] text-stone-500 mt-0.5 truncate">{{ locate.item }}</p>
             </div>
-            <button class="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center flex-shrink-0"
+            <button :title="t('common.close')" class="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center flex-shrink-0"
                     @click="locate = null"><Icon name="x" :size="16" /></button>
           </header>
           <div class="flex-1 overflow-y-auto p-4">

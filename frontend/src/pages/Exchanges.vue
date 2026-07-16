@@ -109,7 +109,7 @@
                      class="w-[80px] h-9 ps-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] tabular-nums focus:outline-none" />
               <input v-model.number="it.rate" type="number" min="0" :placeholder="t('ex.ratePh')"
                      class="w-[110px] h-9 ps-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] tabular-nums focus:outline-none" />
-              <button class="w-8 h-8 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 inline-flex items-center justify-center"
+              <button :title="t('common.close')" class="w-8 h-8 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 inline-flex items-center justify-center"
                       @click="editItems.splice(i, 1)"><Icon name="x" :size="13" /></button>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
@@ -134,7 +134,7 @@
         {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, total) }} / {{ total }}
       </span>
       <div class="flex items-center gap-1">
-        <button class="pg-btn" :disabled="page <= 1" @click="page--; load()"><Icon name="chevron-left" :size="13" class="flip-rtl" /></button>
+        <button :title="t('common.back')" class="pg-btn" :disabled="page <= 1" @click="page--; load()"><Icon name="chevron-left" :size="13" class="flip-rtl" /></button>
         <button class="pg-btn" :disabled="page * pageSize >= total" @click="page++; load()"><Icon name="chevron-right" :size="13" class="flip-rtl" /></button>
       </div>
     </div>

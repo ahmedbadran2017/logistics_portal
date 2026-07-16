@@ -107,7 +107,7 @@
                    class="w-14 h-8 text-center text-[14px] font-bold tabular-nums rounded-lg ring-1 ring-stone-200 focus:outline-none" />
             <button class="w-8 h-8 rounded-lg bg-stone-100 text-[14px] font-bold" @click="l.qty += 1">+</button>
           </div>
-          <button class="w-8 h-8 rounded-lg hover:bg-rose-50 text-stone-400 hover:text-rose-600 flex items-center justify-center" @click="session.splice(i, 1)">
+          <button :title="t('common.close')" class="w-8 h-8 rounded-lg hover:bg-rose-50 text-stone-400 hover:text-rose-600 flex items-center justify-center" @click="session.splice(i, 1)">
             <Icon name="x" :size="14" />
           </button>
         </div>

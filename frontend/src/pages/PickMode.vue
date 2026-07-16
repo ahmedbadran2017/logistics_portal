@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="px-4 pt-3 pb-2.5 bg-white border-b border-stone-200/70 sticky top-0 z-10">
       <div class="flex items-center gap-2.5">
-        <button class="w-8 h-8 rounded-lg bg-stone-100 flex items-center justify-center flex-shrink-0" @click="goBack">
+        <button :title="t('common.back')" class="w-8 h-8 rounded-lg bg-stone-100 flex items-center justify-center flex-shrink-0" @click="goBack">
           <Icon name="chevron-left" :size="16" class="rtl:rotate-180" />
         </button>
         <div class="min-w-0 flex-1">

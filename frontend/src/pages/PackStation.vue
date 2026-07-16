@@ -56,7 +56,7 @@
     <template v-else>
       <header class="flex items-center justify-between gap-3 flex-wrap">
         <div class="flex items-center gap-3 min-w-0">
-          <button class="w-9 h-9 rounded-lg bg-white ring-1 ring-stone-200 hover:bg-stone-50 flex items-center justify-center flex-shrink-0" @click="closeWall">
+          <button :title="t('common.back')" class="w-9 h-9 rounded-lg bg-white ring-1 ring-stone-200 hover:bg-stone-50 flex items-center justify-center flex-shrink-0" @click="closeWall">
             <Icon name="chevron-left" :size="16" class="rtl:rotate-180" />
           </button>
           <div class="min-w-0">

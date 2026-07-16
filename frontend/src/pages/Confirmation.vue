@@ -192,7 +192,7 @@
             <button class="cf-act cf-act-soft text-sky-700" :disabled="busy === r.order" :title="t('cf.actFollowup')" @click="act(r, 'followup')"><Icon name="clock" :size="15" /></button>
             <button class="cf-act cf-act-soft text-stone-500" :disabled="busy === r.order" :title="t('cf.actOnhold')" @click="act(r, 'onhold')"><Icon name="circle-pause" :size="15" /></button>
             <button class="cf-act cf-act-soft text-violet-600" :disabled="busy === r.order" :title="t('cf.actDuplicate')" @click="act(r, 'duplicate')"><Icon name="copy" :size="15" /></button>
-            <button class="cf-act cf-act-soft text-rose-600" :disabled="busy === r.order"
+            <button :title="t('common.close')" class="cf-act cf-act-soft text-rose-600" :disabled="busy === r.order"
                     :class="cancelFor === r.order ? 'ring-2' : ''"
                     @click="cancelFor = cancelFor === r.order ? '' : r.order"><Icon name="circle-x" :size="15" /></button>
           </div>

@@ -89,7 +89,7 @@
                   {{ a.action }} <Icon name="arrow-right" :size="11" />
                 </button>
               </div>
-              <button
+              <button :title="t('common.close')"
                 class="w-[22px] h-[22px] rounded-md flex items-center justify-center text-stone-400 hover:text-stone-600 hover:bg-stone-100 flex-shrink-0 transition-colors"
                 @click="dismiss(a)"
               >

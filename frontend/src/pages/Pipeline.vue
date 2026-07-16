@@ -21,7 +21,7 @@
               style="--tw-ring-color: var(--accent-400)"
               @input="onSearch"
             />
-            <button v-if="q" class="absolute top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600" style="inset-inline-end:.5rem"
+            <button :title="t('common.close')" v-if="q" class="absolute top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600" style="inset-inline-end:.5rem"
                     @click="q=''; onSearch()">
               <Icon name="x" :size="13" />
             </button>
@@ -479,7 +479,7 @@
               <option :value="100">100 {{ t("ordersPg.perPage") }}</option>
             </select>
             <div class="flex items-center gap-0.5">
-              <button class="pager-btn" :disabled="page <= 1" @click="goPage(page - 1)">
+              <button :title="t('common.prev')" class="pager-btn" :disabled="page <= 1" @click="goPage(page - 1)">
                 <Icon name="chevron-left" :size="13" class="flip-rtl" />
               </button>
               <button
@@ -489,7 +489,7 @@
                 :disabled="typeof p !== 'number'"
                 @click="goPage(p)"
               >{{ typeof p === 'number' ? p : '…' }}</button>
-              <button class="pager-btn" :disabled="page >= totalPages" @click="goPage(page + 1)">
+              <button :title="t('common.next')" class="pager-btn" :disabled="page >= totalPages" @click="goPage(page + 1)">
                 <Icon name="chevron-right" :size="13" class="flip-rtl" />
               </button>
             </div>
@@ -514,7 +514,7 @@
             <div class="text-[14px] font-semibold text-stone-900 truncate">{{ blockedFor.name }}</div>
             <div class="font-mono text-[11px] text-stone-400">{{ blockedFor.sku }} · {{ t('ordersPg.blStuckOn') }}</div>
           </div>
-          <button class="text-stone-400 hover:text-stone-700 flex-shrink-0" @click="blockedFor = null"><Icon name="x" :size="18" /></button>
+          <button :title="t('common.close')" class="text-stone-400 hover:text-stone-700 flex-shrink-0" @click="blockedFor = null"><Icon name="x" :size="18" /></button>
         </header>
         <div class="overflow-y-auto p-2">
           <div v-if="blockedLoading" class="text-center text-[12.5px] text-stone-400 py-8">…</div>
@@ -552,7 +552,7 @@
             <button class="text-[11.5px] font-semibold whitespace-nowrap" style="color: var(--accent-700)" @click="openOrder(drawerRow)">
               {{ t("ordersPg.qvFullPage") }} →
             </button>
-            <button class="w-7 h-7 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 flex items-center justify-center" @click="drawerRow = null">
+            <button :title="t('common.close')" class="w-7 h-7 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 flex items-center justify-center" @click="drawerRow = null">
               <Icon name="x" :size="15" />
             </button>
           </div>
@@ -684,7 +684,7 @@
               {{ creating ? t("ordersPg.marking") : t("ordersPg.markPrinted") }}
             </button>
           </template>
-          <button class="w-7 h-7 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 flex items-center justify-center"
+          <button :title="t('common.close')" class="w-7 h-7 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 flex items-center justify-center"
                   @click="selected = new Set()">
             <Icon name="x" :size="14" />
           </button>
