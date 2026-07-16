@@ -387,7 +387,7 @@ async function toggleCust(r) {
   try {
     const res = await api("customers.card", { phone: r.phone });
     if (custFor.value !== r.order) return;
-    cust.value = { ...res, orders_list: res.orders || [] };
+    cust.value = { ...res, orders_list: res.recent || [] };
   } catch (e) {
     warn(t("cf.loadFail"), String(e.message || e));
     custFor.value = "";

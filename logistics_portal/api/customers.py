@@ -176,7 +176,7 @@ def card(phone):
         frappe.throw("Not authorized.", frappe.PermissionError)
     d = digits(phone)
     if not d:
-        return {"seg": "new", "orders": [], "phone": phone}
+        return {"seg": "new", "orders": 0, "recent": [], "phone": phone}
     h = history_for([phone]).get(d, {})
     # The actual orders behind the counts — the agent reads them on the call.
     orders = frappe.db.sql(
@@ -191,9 +191,11 @@ def card(phone):
             WHERE so.docstatus = 1 AND {_KEY_SQL.format(t='so')} = %(d)s
             GROUP BY so.name
             ORDER BY so.creation DESC LIMIT 20""", {"d": d}, as_dict=True)
+    # NB: `recent`, not `orders` — h already carries "orders" as the COUNT, and
+    # spreading a list over it silently replaced the number with an array.
     return {
         **h, "phone": phone,
-        "orders": [{
+        "recent": [{
             "order": o.name, "at": str(o.creation)[:10],
             "total": float(o.total or 0), "status": o.status or "",
             "city": (o.city or "").strip().title(), "track": o.track or "",
