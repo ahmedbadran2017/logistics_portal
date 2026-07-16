@@ -87,6 +87,35 @@
                 <span class="pf-stat-n text-violet-600">{{ d.points.month }}</span>
                 <span class="pf-stat-l">{{ t('bn.pts') }} / {{ d.points.target }}</span>
               </RouterLink>
+              <!-- The number that says whether the work was any good. A confirm
+                   is a promise; only a parcel the customer took is money. -->
+              <div v-if="d.delivery?.allTime?.rate !== null && d.delivery?.allTime?.shipped"
+                   class="pf-stat" :class="dlvClass" :title="t('px.perf.dlvHint')">
+                <span class="pf-stat-n" :class="dlvText">{{ d.delivery.allTime.rate }}%</span>
+                <span class="pf-stat-l">{{ t('px.perf.dlvRate') }}</span>
+              </div>
+            </div>
+
+            <!-- delivered vs returned, spelled out -->
+            <div v-if="d.delivery?.allTime?.shipped" class="flex items-center gap-2.5 flex-wrap">
+              <div class="flex-1 min-w-[200px] max-w-[320px]">
+                <div class="flex h-2 rounded-full overflow-hidden bg-stone-100">
+                  <div class="bg-emerald-500 transition-all duration-700"
+                       :style="{ width: d.delivery.allTime.rate + '%' }" />
+                  <div class="bg-rose-400 transition-all duration-700"
+                       :style="{ width: d.delivery.allTime.returnRate + '%' }" />
+                </div>
+                <div class="flex items-center gap-3 mt-1.5 text-[10.5px] tabular-nums">
+                  <span class="text-emerald-600 font-semibold">
+                    <Icon name="package-check" :size="10" class="inline -mt-px me-0.5" />{{ d.delivery.allTime.delivered }} {{ t('px.perf.dlvTaken') }}
+                  </span>
+                  <span class="text-rose-500 font-semibold">
+                    <Icon name="rotate-ccw" :size="10" class="inline -mt-px me-0.5" />{{ d.delivery.allTime.returned }} {{ t('px.perf.dlvBack') }}
+                  </span>
+                  <span v-if="d.delivery.month?.rate !== null && d.delivery.month?.shipped"
+                        class="text-stone-400">{{ t('px.perf.dlvMonth') }} {{ d.delivery.month.rate }}%</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -195,6 +224,16 @@ const loadError = ref("");
 
 const firstName = computed(() => (fullName.value || "").split(/\s+/)[0] || "");
 const hit = computed(() => d.value && d.value.today >= d.value.target);
+// 65.3% is the measured company average; 71% is the best agent's.
+const dlvClass = computed(() => {
+  const r = d.value?.delivery?.allTime?.rate;
+  if (r === null || r === undefined) return "";
+  return r >= 70 ? "pf-stat-good" : r >= 63 ? "" : "pf-stat-bad";
+});
+const dlvText = computed(() => {
+  const r = d.value?.delivery?.allTime?.rate;
+  return r >= 70 ? "text-emerald-600" : r >= 63 ? "text-stone-900" : "text-rose-600";
+});
 const remaining = computed(() => Math.max(0, (d.value?.target || 0) - (d.value?.today || 0)));
 const weekTotal = computed(() =>
   (d.value?.trend || []).reduce((s, x) => s + x.total, 0));
@@ -301,6 +340,8 @@ onMounted(async () => {
   box-shadow: inset 0 0 0 1px rgb(231 229 228);
 }
 .pf-stat-link { transition: transform .15s ease, box-shadow .15s ease; }
+.pf-stat-good { box-shadow: inset 0 0 0 1px rgb(167 243 208); }
+.pf-stat-bad { box-shadow: inset 0 0 0 1px rgb(253 164 175); }
 .pf-stat-link:hover { transform: translateY(-1px); box-shadow: inset 0 0 0 1px rgb(196 181 253); }
 .pf-stat-n { font-size: 17px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .pf-stat-l { font-size: 10px; font-weight: 600; color: rgb(168 162 158); white-space: nowrap; }

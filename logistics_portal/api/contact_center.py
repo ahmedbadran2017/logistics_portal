@@ -67,14 +67,16 @@ _ROLE_GROUP = {"confirmation": "cc", "picker": "floor"}
 _MONEY_DEFAULTS = {
     "on": 0,                  # off until the manager sets the numbers
     "currency": "MAD",
-    "perPoint": {"cc": 2.5, "floor": 4.0},   # MAD per point earned
+    "perPoint": {"cc": 1.0, "floor": 4.0},   # MAD per point earned
     "monthlyCap": {"cc": 1500, "floor": 1500},
     # Quality gate: no payout above the base until the agent clears it.
     # cc is gated on confirm rate — a number the agent actually controls.
     # floor has NO honest per-person quality signal yet (same-day measures the
     # dispatcher's list timing, not the picker's work), so it stays off.
     "gateOn": {"cc": 1, "floor": 0},
-    "gatePct": {"cc": 70, "floor": 0},
+    # 65.3% is the measured company average — a gate above it would fail most
+    # of the team on day one. 60 asks the laggards to reach the middle.
+    "gatePct": {"cc": 60, "floor": 0},
     # Streak: +N% per 5 consecutive working days, capped.
     "streakStepPct": 10,
     "streakCapPct": 30,
@@ -87,15 +89,36 @@ _MONEY_DEFAULTS = {
 }
 
 _BONUS_DEFAULTS = {
-    "targets": {"cc": 400, "floor": 300},
+    # Priced off June: the best agent earns ~1,374 points, the smallest ~100.
+    "targets": {"cc": 1200, "floor": 300},
     "money": dict(_MONEY_DEFAULTS),
+    # Weights, priced against a real completed month (June): the top agent
+    # lands near the cap and the rest spread out beneath. The first cut of
+    # these was ~13x too generous — every single agent hit the 1,500 cap,
+    # including the one delivering 50.4%, and a cap everybody reaches is not a
+    # cap, it is a salary. One point ≈ one MAD at the default perPoint.
     "points": {
-        "cf.confirm": 1.0, "cf.cancel": 0.5, "cf.duplicate": 0.5,
-        "cf.dna": 0.25, "cf.followup": 0.25, "cf.onhold": 0.25,
-        "rs.redeliver": 3.0, "rs.reship": 3.0, "rs.returnreq": 1.0,
-        "rs.dna": 0.25, "rs.cancel": 1.0, "rs.resolve": 0.5,
-        "cs.resolve": 2.0, "cs.reply": 0.5, "cs.create": 0.5,
-        "cs.take": 0.25, "cs.hold": 0.0, "cs.reopen": 0.0,
+        # The work.
+        "cf.confirm": 0.1, "cf.cancel": 0.05, "cf.duplicate": 0.05,
+        "cf.dna": 0.02, "cf.followup": 0.02, "cf.onhold": 0.02,
+        "rs.redeliver": 0.5, "rs.reship": 0.5, "rs.returnreq": 0.1,
+        "rs.dna": 0.02, "rs.cancel": 0.1, "rs.resolve": 0.1,
+        "cs.resolve": 0.3, "cs.reply": 0.05, "cs.create": 0.05,
+        "cs.take": 0.02, "cs.hold": 0.0, "cs.reopen": 0.0,
+        # THE OUTCOME. A confirm is a promise; a delivered parcel is the money.
+        # Paying most of the reward here aligns the agent by construction:
+        # confirm carelessly and the parcel comes back — no point. Cancel
+        # carelessly and no parcel ships — no point. The only way to earn is
+        # orders that actually arrive. Measured on 90 days of live data, agents
+        # range from 71.0% delivered to 58.1% on comparable volumes and basket
+        # sizes — a 13-point spread worth real money.
+        # Credited in the month the parcel LANDED, not the month of the call:
+        # that is when the cash arrived.
+        # Four times a confirm: the outcome is what the company is buying.
+        "cf.delivered": 0.4,
+        # A returned parcel is not a penalty — it is simply an unearned point.
+        # Fining it on top would push agents to cancel anything doubtful.
+        "cf.returned": 0.0,
         # Floor: the live top picker moves ~3,100 orders a month.
         "pick.picked": 0.1,
     },
@@ -241,12 +264,50 @@ def _cc_board(month, pts):
                                                "actions": 0})
             a[lane] += pts[key] * int(r.n or 0)
             a["actions"] += int(r.n or 0)
-    return sorted(
-        ({"agent": u.split("@")[0], "user": u,
-          "cols": [round(a["cf"], 1), round(a["rs"], 1), round(a["cs"], 1)],
-          "points": round(a["cf"] + a["rs"] + a["cs"], 1),
-          "actions": a["actions"]} for u, a in per_agent.items()),
-        key=lambda x: -x["points"])
+    # The outcome points: parcels that LANDED this month, per agent. Credited
+    # to the month of delivery — that is when the money arrived, whenever the
+    # call happened.
+    d_rate = pts.get("cf.delivered", 0)
+    outcome = {}
+    if d_rate:
+        for r in frappe.db.sql(
+                """SELECT so.custom_allocated_to u,
+                          SUM(dn.custom_track_shipment_status = 'Delivered') d,
+                          SUM(dn.custom_track_shipment_status IN
+                              ('Delivery Exception', 'Failed Attempt')) f
+                   FROM `tabSales Order` so
+                   JOIN `tabDelivery Note Item` dni
+                     ON dni.against_sales_order = so.name AND dni.docstatus = 1
+                   JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
+                   WHERE so.docstatus = 1 AND COALESCE(so.custom_allocated_to,'') != ''
+                     AND dn.posting_date >= %(start)s
+                     AND dn.posting_date < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
+                     AND dn.custom_track_shipment_status IN
+                         ('Delivered', 'Delivery Exception', 'Failed Attempt')
+                   GROUP BY u""",
+                {"start": f"{month}-01"}, as_dict=True):
+            outcome[r.u] = {"delivered": int(r.d or 0), "returned": int(r.f or 0)}
+            per_agent.setdefault(r.u, {"cf": 0.0, "rs": 0.0, "cs": 0.0,
+                                       "actions": 0})
+
+    rows = []
+    for u, a in per_agent.items():
+        o = outcome.get(u, {"delivered": 0, "returned": 0})
+        shipped = o["delivered"] + o["returned"]
+        dpts = o["delivered"] * d_rate
+        rows.append({
+            "agent": u.split("@")[0], "user": u,
+            "cols": [round(a["cf"], 1), round(a["rs"], 1), round(a["cs"], 1),
+                     round(dpts, 1)],
+            "points": round(a["cf"] + a["rs"] + a["cs"] + dpts, 1),
+            "actions": a["actions"],
+            # The two numbers the agent has to see. A careless confirm is a
+            # return, and a return is a round trip paid for nothing.
+            "delivered": o["delivered"], "returned": o["returned"],
+            "deliveryRate": round(o["delivered"] * 100.0 / shipped, 1) if shipped else None,
+            "returnRate": round(o["returned"] * 100.0 / shipped, 1) if shipped else None,
+        })
+    return sorted(rows, key=lambda x: -x["points"])
 
 
 def _floor_board(month, pts):
@@ -287,35 +348,49 @@ def _floor_sameday_pct(month):
     return round(int(r[1] or 0) * 100.0 / n, 1) if n else 0.0
 
 
+def delivery_rate(user, month=None):
+    """Of the parcels this agent's orders produced, how many were actually
+    taken. THE quality number for a confirmation agent — and the one they
+    should see: a careless confirm becomes a return, and a return costs the
+    round trip.
+
+    Not confirm rate, which rewards the opposite of quality: an agent who
+    confirms everything scores 100%.
+    """
+    where = "AND dn.posting_date >= %(start)s AND dn.posting_date < DATE_ADD(%(start)s, INTERVAL 1 MONTH)" if month else ""
+    vals = {"u": user}
+    if month:
+        vals["start"] = f"{month}-01"
+    r = frappe.db.sql(
+        f"""SELECT SUM(dn.custom_track_shipment_status = 'Delivered') d,
+                   SUM(dn.custom_track_shipment_status IN
+                       ('Delivery Exception', 'Failed Attempt')) f
+            FROM `tabSales Order` so
+            JOIN `tabDelivery Note Item` dni
+              ON dni.against_sales_order = so.name AND dni.docstatus = 1
+            JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
+            WHERE so.docstatus = 1 AND so.custom_allocated_to = %(u)s
+              AND dn.custom_track_shipment_status IN
+                  ('Delivered', 'Delivery Exception', 'Failed Attempt')
+              {where}""", vals, as_dict=True)[0]
+    d, f = int(r.d or 0), int(r.f or 0)
+    n = d + f
+    return {"delivered": d, "returned": f, "shipped": n,
+            "rate": round(d * 100.0 / n, 1) if n else None,
+            "returnRate": round(f * 100.0 / n, 1) if n else None}
+
+
 def _quality_pct(user, group, month):
     """The number the gate reads. Only where the person actually controls it.
 
-    cc: confirm rate — confirms over the decisions that closed an order.
+    cc: DELIVERY rate — of what they confirmed and shipped, what stuck.
     floor: None. Same-day would be the obvious candidate and it is NOT honest:
     the dispatcher creates the pick lists, so same-day measures HIS timing.
     Gating a picker's pay on it would dock them for someone else's work.
     """
     if group != "cc":
         return None
-    rows = frappe.db.sql(
-        """SELECT c.content, COUNT(*) n FROM `tabComment` c
-           WHERE c.owner = %(u)s AND c.reference_doctype = 'Sales Order'
-             AND c.creation >= %(start)s
-             AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
-             AND c.content LIKE 'Confirmation: %%'
-           GROUP BY c.content""",
-        {"u": user, "start": f"{month}-01 00:00:00"}, as_dict=True)
-    conf = canc = 0
-    for r in rows:
-        if "(bulk)" in r.content or " bulk " in r.content:
-            continue
-        a = (r.content.split(": ", 1)[1] or "").split(" ", 1)[0].strip("()—-→ ")
-        if a == "confirm":
-            conf += int(r.n or 0)
-        elif a == "cancel":
-            canc += int(r.n or 0)
-    closed = conf + canc
-    return round(conf * 100.0 / closed, 1) if closed else None
+    return delivery_rate(user, month)["rate"]
 
 
 def _streak_days(user, group, month):
@@ -444,8 +519,8 @@ def bonus(month=None, group=None):
                   "pay": a.get("pay")}
             break
 
-    cols = (["nav.confirmation", "nav.rescue", "nav.tickets"] if group == "cc"
-            else ["bn.colOrders"])
+    cols = (["nav.confirmation", "nav.rescue", "nav.tickets", "bn.colDelivered"]
+            if group == "cc" else ["bn.colOrders"])
     return {"available": True, "month": month, "group": group,
             "groups": list(GROUPS) if role == "manager" else [my_group],
             "cols": cols, "target": s["targets"][group], "agents": agents,

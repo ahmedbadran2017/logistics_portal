@@ -491,6 +491,22 @@ def me(user=None):
                                           nowdate()[:7])
     except Exception:
         data["points"] = None
+
+    # The number that decides whether the work was any good. A confirm is a
+    # promise; only a parcel the customer actually took is money — and a
+    # careless confirm becomes a return that costs the round trip. The agent
+    # sees it on their own page, this month and lifetime, because they cannot
+    # correct what they cannot see.
+    data["delivery"] = None
+    if data["kind"] == "agent":
+        try:
+            from logistics_portal.api.contact_center import delivery_rate
+            data["delivery"] = {
+                "month": delivery_rate(target_user, nowdate()[:7]),
+                "allTime": delivery_rate(target_user),
+            }
+        except Exception:
+            pass
     return data
 
 
