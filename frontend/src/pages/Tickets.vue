@@ -169,7 +169,7 @@
                       :class="noteFor === r.id && noteAction === 'reply' ? 'ring-2' : ''"
                       @click="openNote(r, 'reply')"><Icon name="corner-down-left" :size="15" /></button>
               <button class="cs-act cs-act-soft text-stone-500" :disabled="busy === r.id" :title="t('cs.actHold')"
-                      @click="act(r, 'hold')"><Icon name="pause" :size="15" /></button>
+                      @click="act(r, 'hold')"><Icon name="circle-pause" :size="15" /></button>
               <button class="cs-act cs-act-main" :disabled="busy === r.id"
                       :class="noteFor === r.id && noteAction === 'resolve' ? 'ring-2 ring-white' : ''"
                       @click="openNote(r, 'resolve')">

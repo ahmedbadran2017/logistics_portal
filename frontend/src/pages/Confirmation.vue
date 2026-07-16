@@ -21,7 +21,7 @@
           </div>
           <div class="cf-stat">
             <span class="cf-stat-n text-rose-500">{{ data.mine.cancel }}</span>
-            <span class="cf-stat-l"><Icon name="x" :size="10" class="inline -mt-px me-0.5" />{{ t('cf.actCancel') }}</span>
+            <span class="cf-stat-l"><Icon name="circle-x" :size="10" class="inline -mt-px me-0.5" />{{ t('cf.actCancel') }}</span>
           </div>
         </div>
       </div>
@@ -159,11 +159,11 @@
             </button>
             <button class="cf-act cf-act-soft text-amber-700" :disabled="busy === r.order" :title="t('cf.actDna')" @click="act(r, 'dna')"><Icon name="phone-off" :size="15" /></button>
             <button class="cf-act cf-act-soft text-sky-700" :disabled="busy === r.order" :title="t('cf.actFollowup')" @click="act(r, 'followup')"><Icon name="clock" :size="15" /></button>
-            <button class="cf-act cf-act-soft text-stone-500" :disabled="busy === r.order" :title="t('cf.actOnhold')" @click="act(r, 'onhold')"><Icon name="pause" :size="15" /></button>
+            <button class="cf-act cf-act-soft text-stone-500" :disabled="busy === r.order" :title="t('cf.actOnhold')" @click="act(r, 'onhold')"><Icon name="circle-pause" :size="15" /></button>
             <button class="cf-act cf-act-soft text-violet-600" :disabled="busy === r.order" :title="t('cf.actDuplicate')" @click="act(r, 'duplicate')"><Icon name="copy" :size="15" /></button>
             <button class="cf-act cf-act-soft text-rose-600" :disabled="busy === r.order"
                     :class="cancelFor === r.order ? 'ring-2' : ''"
-                    @click="cancelFor = cancelFor === r.order ? '' : r.order"><Icon name="x" :size="15" /></button>
+                    @click="cancelFor = cancelFor === r.order ? '' : r.order"><Icon name="circle-x" :size="15" /></button>
           </div>
           <!-- already decided: the outcome + an undo -->
           <div v-else class="flex items-center gap-2 flex-wrap">

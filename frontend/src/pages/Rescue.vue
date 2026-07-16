@@ -132,7 +132,7 @@
                     @click="openReason(r, 'returnreq')"><Icon name="rotate-ccw" :size="15" /></button>
             <button class="rs-act rs-act-soft text-stone-500" :disabled="busy === r.id" :title="t('rs.actCancel')"
                     :class="reasonFor === r.id && reasonAction === 'cancel' ? 'ring-2' : ''"
-                    @click="openReason(r, 'cancel')"><Icon name="x" :size="15" /></button>
+                    @click="openReason(r, 'cancel')"><Icon name="circle-x" :size="15" /></button>
           </div>
         </div>
 
