@@ -476,27 +476,14 @@ def me(user=None):
     data["user"] = target_user
     data["role"] = role
 
-    # This month's bonus standing, so the agent sees the reward too.
+    # This month's bonus standing, so the reward is on the same screen as the
+    # work. None when the role has no scorable board — the page then shows no
+    # tile rather than a dead link to a board that would reject them.
     try:
-        from logistics_portal.api.contact_center import _bonus_settings
-        s = _bonus_settings()
-        pts = s["points"]
-        total = 0.0
-        for lane, cfg in _LANES.items():
-            for r in frappe.db.sql(
-                    """SELECT c.content, COUNT(*) n FROM `tabComment` c
-                       WHERE c.owner = %(u)s AND c.reference_doctype = %(dt)s
-                         AND c.creation >= %(start)s AND c.content LIKE %(pfx)s
-                       GROUP BY c.content""",
-                    {"u": target_user, "dt": cfg["dt"],
-                     "start": nowdate()[:8] + "01 00:00:00",
-                     "pfx": cfg["prefix"] + ": %"}, as_dict=True):
-                if "(bulk)" in r.content or " bulk " in r.content:
-                    continue
-                key = f"{lane}.{_comment_action(r.content, cfg['prefix'])}"
-                if key in pts:
-                    total += pts[key] * int(r.n or 0)
-        data["points"] = {"month": round(total, 1), "target": s["monthlyTarget"]}
+        from logistics_portal.api.contact_center import (bonus_group_for,
+                                                         bonus_points_for)
+        data["points"] = bonus_points_for(target_user, bonus_group_for(role),
+                                          nowdate()[:7])
     except Exception:
         data["points"] = None
     return data

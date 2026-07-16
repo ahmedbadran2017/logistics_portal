@@ -125,6 +125,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "Queue", label: "nav.queue", icon: "list-checks" },
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         ],
       },
     ],

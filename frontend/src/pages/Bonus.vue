@@ -5,11 +5,20 @@
         <h1 class="text-[20px] font-bold text-stone-900 tracking-tight">{{ t('bn.title') }}</h1>
         <p class="text-[12.5px] text-stone-500 mt-0.5">{{ t('bn.intro') }}</p>
       </div>
-      <div class="flex items-center gap-1">
-        <button v-for="m in months" :key="m.key"
-                class="h-8 px-3 rounded-lg text-[12px] font-semibold ring-1 transition-colors"
-                :class="month === m.key ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200'"
-                @click="month = m.key; load()">{{ m.label }}</button>
+      <div class="flex items-center gap-2 flex-wrap">
+        <!-- group switch (manager only — the server sends one group otherwise) -->
+        <div v-if="(d?.groups || []).length > 1" class="flex items-center gap-1">
+          <button v-for="g in d.groups" :key="g"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold ring-1 transition-colors"
+                  :class="group === g ? 'bg-violet-600 text-white ring-violet-600' : 'bg-white text-stone-600 ring-stone-200'"
+                  @click="group = g; load()">{{ t('bn.grp_' + g) }}</button>
+        </div>
+        <div class="flex items-center gap-1">
+          <button v-for="m in months" :key="m.key"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold ring-1 transition-colors"
+                  :class="month === m.key ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200'"
+                  @click="month = m.key; load()">{{ m.label }}</button>
+        </div>
       </div>
     </header>
 
@@ -24,26 +33,36 @@
       <div class="text-[11.5px] text-stone-400 font-mono mt-1 max-w-[420px] mx-auto break-words">{{ loadError }}</div>
     </div>
 
+    <!-- roles whose work has no per-person source yet -->
+    <div v-else-if="d && !d.available" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-10 text-center">
+      <span class="inline-flex w-12 h-12 rounded-2xl items-center justify-center bg-stone-100 text-stone-400 mb-2.5">
+        <Icon name="wallet" :size="22" />
+      </span>
+      <div class="text-[13.5px] font-semibold text-stone-800">{{ t('bn.noScheme') }}</div>
+      <div class="text-[12px] text-stone-400 mt-0.5 max-w-[420px] mx-auto">{{ t('bn.noSchemeHint') }}</div>
+    </div>
+
     <template v-else-if="d">
       <!-- my card -->
       <div class="bn-hero rounded-2xl p-5">
         <div class="flex items-center gap-4 flex-wrap">
           <span class="bn-ico"><Icon name="wallet" :size="20" /></span>
           <div class="flex-1 min-w-[220px]">
-            <div class="flex items-baseline gap-2">
-              <span class="text-[30px] font-extrabold text-stone-900 tabular-nums leading-none">{{ d.me.points }}</span>
+            <div class="flex items-baseline gap-2 flex-wrap">
+              <span class="text-[30px] font-extrabold text-stone-900 tabular-nums leading-none">{{ nPoints }}</span>
               <span class="text-[12px] text-stone-500">{{ t('bn.pts') }} / {{ d.target }}</span>
-              <span v-if="d.me.rank" class="ms-2 text-[11px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-full px-2.5 py-0.5">
+              <span v-if="d.me.rank" class="ms-1 text-[11px] font-bold rounded-full px-2.5 py-0.5"
+                    :class="d.me.rank === 1 ? 'text-amber-700 bg-amber-50 ring-1 ring-amber-200' : 'text-stone-600 bg-stone-100 ring-1 ring-stone-200'">
                 #{{ d.me.rank }}
               </span>
             </div>
             <div class="h-2 rounded-full bg-stone-100 overflow-hidden mt-2.5 max-w-[420px]">
-              <div class="h-full rounded-full transition-all duration-500"
+              <div class="h-full rounded-full transition-all duration-700"
                    :class="d.me.points >= d.target ? 'bg-emerald-500' : 'bg-amber-500'"
-                   :style="{ width: Math.min(100, d.me.points * 100 / d.target) + '%' }" />
+                   :style="{ width: pct + '%' }" />
             </div>
             <div class="text-[11px] text-stone-400 mt-1.5 tabular-nums">
-              {{ d.me.actions }} {{ t('bn.actions') }} · {{ Math.round(Math.min(100, d.me.points * 100 / d.target)) }}% {{ t('bn.ofTarget') }}
+              {{ d.me.actions }} {{ t('bn.actions') }} · {{ pct }}% {{ t('bn.ofTarget') }}
             </div>
           </div>
         </div>
@@ -54,16 +73,14 @@
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
           <Icon name="trending-up" :size="14" class="text-stone-400" />
           <span class="text-[12px] font-semibold text-stone-900">{{ t('cco.leaderboard') }}</span>
-          <span class="text-[11px] text-stone-400 tabular-nums">{{ d.month }}</span>
+          <span class="text-[11px] text-stone-400 tabular-nums">{{ d.month }} · {{ t('bn.grp_' + d.group) }}</span>
         </div>
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[620px] text-[12.5px]">
+          <table class="w-full min-w-[560px] text-[12.5px]">
             <thead>
               <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
                 <th class="text-start px-4 py-2.5">{{ t('cfr.thAgent') }}</th>
-                <th class="text-end px-3 py-2.5">{{ t('nav.confirmation') }}</th>
-                <th class="text-end px-3 py-2.5">{{ t('nav.rescue') }}</th>
-                <th class="text-end px-3 py-2.5">{{ t('nav.tickets') }}</th>
+                <th v-for="c in d.cols" :key="c" class="text-end px-3 py-2.5">{{ t(c) }}</th>
                 <th class="text-end px-4 py-2.5">{{ t('bn.thPoints') }}</th>
               </tr>
             </thead>
@@ -77,13 +94,13 @@
                     <span class="font-medium text-stone-900">{{ a.agent }}</span>
                   </span>
                 </td>
-                <td class="px-3 py-2.5 text-end tabular-nums text-stone-600">{{ a.cf || '—' }}</td>
-                <td class="px-3 py-2.5 text-end tabular-nums text-stone-600">{{ a.rs || '—' }}</td>
-                <td class="px-3 py-2.5 text-end tabular-nums text-stone-600">{{ a.cs || '—' }}</td>
+                <td v-for="(v, ci) in a.cols" :key="ci" class="px-3 py-2.5 text-end tabular-nums text-stone-600">
+                  {{ v || '—' }}
+                </td>
                 <td class="px-4 py-2.5 text-end">
                   <div class="inline-flex items-center gap-2">
                     <div class="w-[56px] h-1.5 rounded-full bg-stone-100 overflow-hidden">
-                      <div class="h-full rounded-full"
+                      <div class="h-full rounded-full transition-all duration-700"
                            :class="a.points >= d.target ? 'bg-emerald-500' : 'bg-amber-500'"
                            :style="{ width: Math.min(100, a.points * 100 / d.target) + '%' }" />
                     </div>
@@ -104,19 +121,19 @@
           <span class="text-[12px] font-semibold text-stone-900">{{ t('bn.schemeTitle') }}</span>
           <span class="text-[11px] text-stone-400">{{ t('bn.schemeHint') }}</span>
         </div>
-        <div class="flex items-center gap-2 flex-wrap">
-          <label class="inline-flex items-center gap-2 text-[12px] text-stone-600">
-            {{ t('bn.target') }}
-            <input v-model.number="scheme.monthlyTarget" type="number" min="1"
+        <div class="flex items-center gap-4 flex-wrap">
+          <label v-for="g in scheme.groups" :key="g" class="inline-flex items-center gap-2 text-[12px] text-stone-600">
+            {{ t('bn.target') }} — {{ t('bn.grp_' + g) }}
+            <input v-model.number="scheme.targets[g]" type="number" min="1"
                    class="w-24 h-9 ps-3 rounded-lg ring-1 ring-stone-200 text-[12.5px] tabular-nums focus:outline-none"
                    @input="dirty = true" />
           </label>
         </div>
-        <div class="grid sm:grid-cols-3 gap-x-4 gap-y-2">
+        <div class="grid sm:grid-cols-3 gap-x-4 gap-y-2 pt-1">
           <label v-for="(v, k) in scheme.points" :key="k"
                  class="flex items-center justify-between gap-2 text-[12px] text-stone-600">
             <span class="font-mono text-[11px]">{{ k }}</span>
-            <input v-model.number="scheme.points[k]" type="number" min="0" step="0.25"
+            <input v-model.number="scheme.points[k]" type="number" min="0" step="0.05"
                    class="w-20 h-8 ps-2.5 rounded-lg ring-1 ring-stone-200 text-[12px] tabular-nums focus:outline-none"
                    @input="dirty = true" />
           </label>
@@ -133,7 +150,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -153,6 +170,7 @@ const months = computed(() => {
 });
 
 const month = ref(fmt(now));
+const group = ref("");
 const d = ref(null);
 const loading = ref(true);
 const loadError = ref("");
@@ -160,12 +178,36 @@ const scheme = ref(null);
 const dirty = ref(false);
 const saving = ref(false);
 
+const pct = computed(() => {
+  if (!d.value?.target) return 0;
+  return Math.round(Math.min(100, (d.value.me.points * 100) / d.value.target));
+});
+
+// Count the points up — the number is the point of the page.
+const nPoints = ref(0);
+watch(d, (v) => {
+  if (!v?.available) return;
+  const from = nPoints.value;
+  const to = v.me.points;
+  const t0 = performance.now();
+  const step = (now2) => {
+    const p = Math.min(1, (now2 - t0) / 900);
+    const eased = 1 - Math.pow(1 - p, 3);
+    nPoints.value = Math.round((from + (to - from) * eased) * 10) / 10;
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+});
+
 async function load() {
   loading.value = true;
   loadError.value = "";
   try {
-    const res = await api("contact_center.bonus", { month: month.value });
+    const res = await api("contact_center.bonus", {
+      month: month.value, group: group.value || undefined,
+    });
     d.value = res;
+    if (res.group) group.value = res.group;
   } catch (e) {
     loadError.value = String(e.message || e);
   } finally {
@@ -185,7 +227,7 @@ async function saveScheme() {
   saving.value = true;
   try {
     const res = await apiPost("contact_center.save_bonus_settings", {
-      settings: { monthlyTarget: scheme.value.monthlyTarget, points: scheme.value.points },
+      settings: { targets: scheme.value.targets, points: scheme.value.points },
     });
     Object.assign(scheme.value, res);
     dirty.value = false;
