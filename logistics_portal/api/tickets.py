@@ -126,14 +126,22 @@ def _match_orders(phones):
             digits.setdefault(d, []).append(p)
     if not digits:
         return {}
+    # The SAME key as customers._KEY_SQL and confirmation._CUST_KEY: digits
+    # only, last 9. RIGHT(TRIM(phone), 9) is the key customers.py documents as
+    # broken, and it was still in use here: 2,292 submitted orders carry
+    # punctuation like "+212 691-190596", where TRIM leaves "91-190596" while
+    # the Python side of this very function strips to "691190596" — so the
+    # inbox row showed no order, and the agent opened the ticket with nothing
+    # linked to it.
+    key = ("RIGHT(REGEXP_REPLACE(COALESCE({c}, ''), '[^0-9]', ''), 9)")
+    d1 = key.format(c="custom_customer_phone")
+    d2 = key.format(c="custom_shipping_phone")
     rows = frappe.db.sql(
-        """SELECT name, customer_name, creation,
-                  RIGHT(TRIM(custom_customer_phone), 9) AS d1,
-                  RIGHT(TRIM(custom_shipping_phone), 9) AS d2
-           FROM `tabSales Order`
-           WHERE docstatus = 1
-             AND (RIGHT(TRIM(custom_customer_phone), 9) IN %(ds)s
-                  OR RIGHT(TRIM(custom_shipping_phone), 9) IN %(ds)s)""",
+        f"""SELECT name, customer_name, creation,
+                   {d1} AS d1, {d2} AS d2
+            FROM `tabSales Order`
+            WHERE docstatus = 1
+              AND ({d1} IN %(ds)s OR {d2} IN %(ds)s)""",
         {"ds": tuple(digits)}, as_dict=True)
     best = {}
     for r in rows:
@@ -355,7 +363,14 @@ def act(name, action, note=None):
         frappe.throw("This action needs a note (what was said / how it was fixed).")
 
     doc = frappe.get_doc("Issue", name)
-    updates = {"custom_agent": frappe.session.user}
+    updates = {}
+    # Ownership moves on `take`, or when an unowned ticket is picked up by
+    # whoever acts on it first — not on every touch. Reassigning on `reply`
+    # meant one colleague answering one message took the ticket out of the
+    # owner's "mine" tab and moved the whole ticket's credit, and its
+    # resolution time, onto themselves in the section report.
+    if action == "take" or not (doc.custom_agent or "").strip():
+        updates["custom_agent"] = frappe.session.user
     if action == "reply":
         updates["status"] = "Replied"
         if not doc.first_responded_on:
@@ -364,10 +379,14 @@ def act(name, action, note=None):
         updates["status"] = "On Hold"
     elif action == "resolve":
         updates["status"] = "Resolved"
+        updates["resolution_date"] = now_datetime()
         if not doc.first_responded_on:
             updates["first_responded_on"] = now_datetime()
     elif action == "reopen":
         updates["status"] = "Open"
+        # Reopening un-resolves it. Leaving the old stamp would keep the
+        # ticket counted as resolved on the day it first closed.
+        updates["resolution_date"] = None
     for k, v in updates.items():
         doc.db_set(k, v, update_modified=True)
     doc.add_comment("Comment",
@@ -386,6 +405,13 @@ def report(days=7):
     if not _is_cs_admin():
         frappe.throw("Only the portal manager or a section admin can open the "
                      "section report.", frappe.PermissionError)
+    # Resolution is dated by resolution_date, never by `modified`. Every
+    # action calls db_set(update_modified=True), so `modified` is "last
+    # touched", not "resolved": reopening and re-resolving a ticket on Friday
+    # rewrote Tuesday's 24h resolution into 96h and moved it to Friday's bar,
+    # though nothing about Tuesday's work changed. confirmation.report
+    # documents the same trap. COALESCE to modified for rows resolved before
+    # this stamp existed -- wrong for those, but it is what they have.
     days = min(max(int(days or 7), 1), 90)
     since = f"DATE_SUB(NOW(), INTERVAL {days} DAY)"
 
@@ -397,7 +423,8 @@ def report(days=7):
                        THEN TIMESTAMPDIFF(MINUTE, i.creation, i.first_responded_on) END) / 60, 1)
                        AS avg_first_h,
                    ROUND(AVG(CASE WHEN i.status IN ('Resolved', 'Closed')
-                       THEN TIMESTAMPDIFF(MINUTE, i.creation, i.modified) END) / 60, 1)
+                       THEN TIMESTAMPDIFF(MINUTE, i.creation,
+                            COALESCE(i.resolution_date, i.modified)) END) / 60, 1)
                        AS avg_reso_h
             FROM `tabIssue` i
             WHERE i.creation >= {since}
@@ -413,8 +440,10 @@ def report(days=7):
               SELECT DATE(creation) d, 1 opened, 0 resolved FROM `tabIssue`
                 WHERE creation >= {since}
               UNION ALL
-              SELECT DATE(modified) d, 0 opened, 1 resolved FROM `tabIssue`
-                WHERE status IN ('Resolved', 'Closed') AND modified >= {since}
+              SELECT DATE(COALESCE(resolution_date, modified)) d, 0 opened, 1 resolved
+                FROM `tabIssue`
+                WHERE status IN ('Resolved', 'Closed')
+                  AND COALESCE(resolution_date, modified) >= {since}
             ) x GROUP BY d ORDER BY d""", as_dict=True)
 
     return {

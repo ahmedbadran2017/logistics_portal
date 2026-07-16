@@ -189,17 +189,34 @@ def card(phone):
         return {"seg": "new", "orders": 0, "recent": [], "phone": phone}
     h = history_for([phone]).get(d, {})
     # The actual orders behind the counts — the agent reads them on the call.
+    # `track` used to be selected bare under GROUP BY so.name: neither grouped
+    # nor aggregated. On stock MariaDB that returns an arbitrary row -- an order
+    # whose parcel failed and then landed on a redelivery could show "Failed
+    # Attempt" while the counts above it, which DO aggregate properly, scored it
+    # delivered. Under ONLY_FULL_GROUP_BY it doesn't return at all, it errors,
+    # and the panel 500s. Now it states the rule explicitly: if any parcel for
+    # this order was delivered, the order was delivered.
+    #
+    # City comes from the linked Address. custom_shipping_city is filled on
+    # under 1% of orders, so this column was blank on nearly every row of the
+    # panel the agent reads during the call. confirmation._CITY does the same.
     orders = frappe.db.sql(
         f"""SELECT so.name, so.creation, so.grand_total total,
                    so.custom_sales_status status,
-                   so.custom_shipping_city city,
-                   dn.custom_track_shipment_status track
+                   COALESCE(NULLIF(TRIM(so.custom_shipping_city), ''),
+                            NULLIF(TRIM(addr.city), '')) city,
+                   CASE WHEN MAX(dn.custom_track_shipment_status = 'Delivered')
+                        THEN 'Delivered'
+                        ELSE MAX(dn.custom_track_shipment_status) END track
             FROM `tabSales Order` so
             LEFT JOIN `tabDelivery Note Item` dni
                    ON dni.against_sales_order = so.name AND dni.docstatus = 1
             LEFT JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
+            LEFT JOIN `tabAddress` addr ON addr.name =
+                   COALESCE(so.shipping_address_name, so.customer_address)
             WHERE so.docstatus = 1 AND {_KEY_SQL.format(t='so')} = %(d)s
-            GROUP BY so.name
+            GROUP BY so.name, so.creation, so.grand_total,
+                     so.custom_sales_status, so.custom_shipping_city, addr.city
             ORDER BY so.creation DESC LIMIT 20""", {"d": d}, as_dict=True)
     # NB: `recent`, not `orders` — h already carries "orders" as the COUNT, and
     # spreading a list over it silently replaced the number with an array.
@@ -285,9 +302,12 @@ def save_segment_settings(settings=None):
         out["exceptionCountsAsFailure"] = 1 if settings["exceptionCountsAsFailure"] else 0
     frappe.db.set_default(_SEG_KEY, json.dumps(out))
     frappe.db.commit()
-    # Every cached verdict was computed under the old rules.
+    # Every cached verdict was computed under the old rules — including the
+    # section dashboard's headline distribution, which is cached for an hour
+    # and would otherwise contradict the freshly re-segmented cards.
     frappe.cache().delete_keys("lp_cust:")
     frappe.cache().delete_value("lp_risky_phones")
+    frappe.cache().delete_value("lp_seg_dist")
     return {"ok": True, **out}
 
 

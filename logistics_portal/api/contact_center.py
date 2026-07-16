@@ -452,13 +452,27 @@ def _streak_days(user, group, month):
     if not days:
         return 0
     from datetime import date as _date, timedelta as _td
-    best = run = 1
+    run = 1
     prev = _date.fromisoformat(days[0])
     for d in days[1:]:
         cur = _date.fromisoformat(d)
         run = run + 1 if (cur - prev).days == 1 else 1
-        best = max(best, run)
         prev = cur
+    # A streak is only a streak if it reaches the end of the period being
+    # looked at. Returning the run that ends at the last day worked paid a 20%
+    # "streak" bonus to someone who worked the 1st to the 10th and then went on
+    # leave for three weeks. Two days' slack so a weekend or a day off doesn't
+    # wipe it out.
+    # For a PAST month the anchor is that month's last day, not today —
+    # otherwise reviewing March in July would show every streak as broken.
+    today = _date.fromisoformat(str(now_datetime())[:10])
+    if month == str(now_datetime())[:7]:
+        anchor = today
+    else:
+        y, m = (int(x) for x in month.split("-"))
+        anchor = (_date(y + (m == 12), (m % 12) + 1, 1) - _td(days=1))
+    if (anchor - prev).days > 2:
+        return 0
     return run   # the streak they're ON, not their best ever
 
 
@@ -485,9 +499,14 @@ def _payout(agent, group, s, month, kicker_on):
 
     gross = base * (1 + streak_pct / 100) if gate_pass else base
     kicker = float(m["kickerAmount"]) if (kicker_on and gate_pass) else 0
-    cap = float(m["monthlyCap"].get(group, 0)) or None
+    # `or None` here read a cap of 0 as "no cap" and paid out UNBOUNDED — the
+    # one knob where the fail-safe was inverted. A manager setting the cap to 0
+    # means "pay nothing this month", which is exactly what 0 now does. The
+    # settings validator already permits 0, and the input allows min="0".
+    raw_cap = m["monthlyCap"].get(group)
+    cap = float(raw_cap) if raw_cap is not None and str(raw_cap) != "" else None
     total = gross + kicker
-    capped = bool(cap and total > cap)
+    capped = bool(cap is not None and total > cap)
     if capped:
         total = cap
     return {

@@ -122,7 +122,10 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     # any order.
     d_rng = "custom_last_call_at IS NOT NULL AND " + rng.format(col="custom_last_call_at")
 
-    counts = {k: 0 for k in QUEUES}
+    # Seed the DONE tabs too: the board increments these optimistically
+    # after an action, and a window with no prior decisions would leave
+    # them absent -> `undefined++` -> NaN in the tab badge.
+    counts = {k: 0 for k in list(QUEUES) + list(DONE_QUEUES)}
     for r in frappe.db.sql(
             f"""SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
                 WHERE docstatus = 1 AND custom_sales_status IN %(sts)s
@@ -499,6 +502,16 @@ def update_contact(order, phone=None, city=None):
     frappe.get_doc("Sales Order", order).add_comment(
         "Comment", "Contact updated: " + "; ".join(log) + f" · by {frappe.session.user}")
     frappe.db.commit()
+    # The phone IS the customer identity (_CUST_KEY). Correcting a typo moves
+    # this order between two customers, so BOTH cached histories are now wrong:
+    # the old key still counts an order that left it, and the new one doesn't
+    # count the one that arrived. Bust both, not just the new number.
+    if "custom_customer_phone" in updates:
+        from logistics_portal.api.customers import bust
+        for ph in (updates["custom_customer_phone"], old.custom_customer_phone,
+                   old.custom_shipping_phone):
+            if ph:
+                bust(ph)
     return {"ok": True, "updated": log}
 
 
