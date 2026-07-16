@@ -25,6 +25,7 @@ const routes = [
 
       // Contact center (confirmation lane)
       { path: "confirmation", name: "Confirmation", component: () => import("@/pages/Confirmation.vue") },
+      { path: "confirmation/dashboard", name: "ConfirmationDashboard", component: () => import("@/pages/ConfirmationDashboard.vue") },
       { path: "confirmation/reports", name: "ConfirmationReports", component: () => import("@/pages/ConfirmationReports.vue") },
       { path: "confirmation/settings", name: "ConfirmationSettings", component: () => import("@/pages/ConfirmationSettings.vue") },
 

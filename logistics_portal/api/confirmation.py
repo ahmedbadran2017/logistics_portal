@@ -43,6 +43,22 @@ _ACTIONS = {
 # How long an order rests before it resurfaces at the top of its queue.
 _RETRY_HOURS = {"dna": 4, "followup": 24, "onhold": 48}
 
+# Money above this is not a Moroccan COD order, it is a typo or seed data.
+# Measured: the average real order is 233 MAD and every one of the 247,409
+# orders under 10k sums to 57.6M — while SEVEN rows (Turkish seed data, e.g.
+# SAL-ORD-2025-00942 at 489,990,000,000) carry 930 BILLION between them, some
+# of them sitting in the live Pending queue. Any total that includes them is
+# off by four orders of magnitude. Excluded from sums and COUNTED, never
+# silently dropped.
+_SANE_MAX = 100000
+
+# The city lives on the linked Address, not the order: custom_shipping_city is
+# filled on 2,167 of 247,500 orders (0.9%), the Address on 99.9%.
+_CITY = ("COALESCE(NULLIF(TRIM(so.custom_shipping_city), ''), "
+         "NULLIF(TRIM(addr.city), ''))")
+_CITY_JOIN = ("LEFT JOIN `tabAddress` addr ON addr.name = "
+              "COALESCE(so.shipping_address_name, so.customer_address)")
+
 
 def _gate():
     from logistics_portal.api.auth import resolve_role
@@ -184,7 +200,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
         f"""SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
                    COALESCE(NULLIF(so.custom_customer_phone,''),
                             so.custom_shipping_phone) AS phone,
-                   so.custom_shipping_city AS city,
+                   {_CITY} AS city,
                    so.custom_items_count AS item_count,
                    TIMESTAMPDIFF(HOUR, so.creation, NOW()) AS age_h,
                    COALESCE(so.custom_call_attempts, 0) AS attempts,
@@ -195,7 +211,8 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
                    COALESCE({s_r1}, 0) AS r1,
                    COALESCE({s_r2}, 0) AS r2,
                    {reason_col} AS reason
-            FROM `tabSales Order` so WHERE {where}
+            FROM `tabSales Order` so {_CITY_JOIN}
+            WHERE {where}
             ORDER BY {order_by}
             LIMIT %(limit)s OFFSET %(offset)s""", vals, as_dict=True)
 
@@ -660,8 +677,10 @@ def report(days=7, frm=None, to=None):
                        COUNT(*) orders,
                        SUM(so.custom_sales_status = 'Confirmed') confirmed,
                        SUM(CASE WHEN so.custom_sales_status = 'Confirmed'
+                                     AND so.grand_total <= %(sane)s
                                 THEN so.grand_total ELSE 0 END) confirmed_value,
                        SUM(CASE WHEN dn.custom_track_shipment_status = 'Delivered'
+                                     AND so.grand_total <= %(sane)s
                                 THEN so.grand_total ELSE 0 END) collected,
                        SUM(dn.custom_track_shipment_status = 'Delivered') delivered,
                        SUM(dn.custom_track_shipment_status IN
@@ -677,7 +696,7 @@ def report(days=7, frm=None, to=None):
                        ON dn.name = dni.parent AND dn.docstatus = 1
                 WHERE so.docstatus = 1 AND COALESCE(so.custom_allocated_to,'') != ''
                   AND {so_rng}
-                GROUP BY u""", rng_vals, as_dict=True):
+                GROUP BY u""", {"sane": _SANE_MAX, **rng_vals}, as_dict=True):
         money[r.u] = r
 
     agents = []
@@ -762,4 +781,145 @@ def report(days=7, frm=None, to=None):
                                  (max(hours) if hours else 20) + 1)],
         "ladder": ladder,
         "target": int(_cf_settings().get("dayTarget", 40)),
+    }
+
+
+@frappe.whitelist()
+def dashboard(days=30, frm=None, to=None, mine=0):
+    """The section's analytical view: the state of the queue RIGHT NOW and what
+    it is worth — as opposed to report(), which asks who did what last week.
+
+    Any agent may open it; `mine=1` narrows every number to their own orders,
+    so the same screen answers both "how is the section doing" and "how am I
+    doing inside it".
+    """
+    role = _gate()
+    days = min(max(int(days or 30), 1), 365)
+    rng, rng_vals = _range(days, frm, to)
+    mine = int(mine or 0)
+    me_cond = ""
+    if mine:
+        rng_vals["me"] = frappe.session.user
+        me_cond = " AND so.custom_allocated_to = %(me)s"
+    live = tuple(QUEUES.values())
+    s = _cf_settings()
+    sla_h = int(s.get("slaFirstCallH", 6))
+
+    # ── the live queue: what is waiting, and what is it worth ────────────
+    q = frappe.db.sql(
+        f"""SELECT so.custom_sales_status st, COUNT(*) n,
+                   COALESCE(SUM(CASE WHEN so.grand_total <= %(sane)s
+                                     THEN so.grand_total ELSE 0 END), 0) value,
+                   SUM(so.grand_total > %(sane)s) absurd,
+                   SUM(TIMESTAMPDIFF(HOUR, so.creation, NOW()) > %(sla)s
+                       AND COALESCE(so.custom_call_attempts, 0) = 0) late
+            FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.custom_sales_status IN %(live)s{me_cond}
+            GROUP BY st""",
+        {"live": live, "sla": sla_h, "sane": _SANE_MAX, **rng_vals}, as_dict=True)
+    queue = {r.st: {"n": int(r.n or 0), "value": round(float(r.value or 0)),
+                    "late": int(r.late or 0)} for r in q}
+    absurd = sum(int(r.absurd or 0) for r in q)
+
+    # ── how old is the pile ──────────────────────────────────────────────
+    aging = frappe.db.sql(
+        f"""SELECT CASE
+                     WHEN TIMESTAMPDIFF(HOUR, so.creation, NOW()) <= 6 THEN '0-6h'
+                     WHEN TIMESTAMPDIFF(HOUR, so.creation, NOW()) <= 24 THEN '6-24h'
+                     WHEN TIMESTAMPDIFF(HOUR, so.creation, NOW()) <= 72 THEN '1-3d'
+                     WHEN TIMESTAMPDIFF(HOUR, so.creation, NOW()) <= 168 THEN '3-7d'
+                     ELSE '7d+' END bucket,
+                   COUNT(*) n,
+                   COALESCE(SUM(CASE WHEN so.grand_total <= %(sane)s
+                                     THEN so.grand_total ELSE 0 END), 0) value
+            FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.custom_sales_status IN %(live)s{me_cond}
+            GROUP BY bucket""",
+        {"live": live, "sane": _SANE_MAX, **rng_vals}, as_dict=True)
+    order = ["0-6h", "6-24h", "1-3d", "3-7d", "7d+"]
+    ag = {r.bucket: r for r in aging}
+    aging_rows = [{"bucket": b,
+                   "n": int(ag[b].n or 0) if b in ag else 0,
+                   "value": round(float(ag[b].value or 0)) if b in ag else 0}
+                  for b in order]
+
+    # ── WHO is waiting: the segment mix of the live queue ────────────────
+    # Nothing else in the company can answer this. 6,775 customers have taken
+    # 2+ parcels and kept none; knowing how many of them are in today's queue
+    # (and what they are worth) is the difference between shipping revenue and
+    # shipping returns.
+    from logistics_portal.api.customers import digits, history_for
+    rows = frappe.db.sql(
+        f"""SELECT COALESCE(NULLIF(so.custom_customer_phone, ''),
+                            so.custom_shipping_phone) phone,
+                   LEAST(so.grand_total, %(sane)s) total
+            FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.custom_sales_status IN %(live)s{me_cond}
+            ORDER BY so.creation DESC LIMIT 400""",
+        {"live": live, "sane": _SANE_MAX, **rng_vals}, as_dict=True)
+    hist = history_for([r.phone for r in rows if r.phone]) if rows else {}
+    seg_mix = {}
+    for r in rows:
+        h = hist.get(digits(r.phone)) if r.phone else None
+        k = (h or {}).get("seg", "new")
+        b = seg_mix.setdefault(k, {"n": 0, "value": 0})
+        b["n"] += 1
+        b["value"] += float(r.total or 0)
+    for b in seg_mix.values():
+        b["value"] = round(b["value"])
+    seg_sampled = len(rows)
+
+    # ── the oldest orders still waiting ──────────────────────────────────
+    top = frappe.db.sql(
+        f"""SELECT so.name, so.customer_name customer, so.grand_total total,
+                   so.custom_sales_status st, {_CITY} city,
+                   so.custom_allocated_to agent,
+                   TIMESTAMPDIFF(HOUR, so.creation, NOW()) age_h,
+                   COALESCE(so.custom_call_attempts, 0) attempts
+            FROM `tabSales Order` so {_CITY_JOIN}
+            WHERE so.docstatus = 1 AND so.custom_sales_status IN %(live)s{me_cond}
+            ORDER BY so.creation LIMIT 20""",
+        {"live": live, **rng_vals}, as_dict=True)
+
+    # ── where the queue is, geographically ───────────────────────────────
+    cities = frappe.db.sql(
+        f"""SELECT COALESCE({_CITY}, '(none)') city, COUNT(*) n
+            FROM `tabSales Order` so {_CITY_JOIN}
+            WHERE so.docstatus = 1 AND so.custom_sales_status IN %(live)s{me_cond}
+            GROUP BY city ORDER BY n DESC LIMIT 8""",
+        {"live": live, **rng_vals}, as_dict=True)
+
+    # ── the outcome of the window's intake ───────────────────────────────
+    so_rng = rng.format(col="so.creation")
+    intake = frappe.db.sql(
+        f"""SELECT so.custom_sales_status st, COUNT(*) n
+            FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND {so_rng}{me_cond}
+            GROUP BY st""", rng_vals, as_dict=True)
+
+    total_late = sum(v["late"] for v in queue.values())
+    total_n = sum(v["n"] for v in queue.values())
+    return {
+        "mine": mine, "canSeeAll": role == "manager" or _is_cf_admin(),
+        "slaHours": sla_h,
+        "queue": queue,
+        "queueTotal": total_n,
+        "queueValue": sum(v["value"] for v in queue.values()),
+        # Never a silent drop: say how many rows the sums refused, and why.
+        "absurd": absurd, "saneMax": _SANE_MAX,
+        "sla": {"late": total_late, "ok": max(0, total_n - total_late)},
+        "aging": aging_rows,
+        "segMix": seg_mix, "segSampled": seg_sampled,
+        "topPending": [{
+            "order": r.name, "customer": r.customer or "",
+            "total": float(r.total or 0), "status": r.st or "",
+            "city": (r.city or "").strip().title(),
+            "agent": (r.agent or "").split("@")[0],
+            "ageH": int(r.age_h or 0), "attempts": int(r.attempts or 0),
+        } for r in top],
+        "cities": [{"city": (r.city or "").strip().title(), "n": int(r.n or 0)}
+                   for r in cities],
+        "intake": [{"status": r.st or "(none)", "n": int(r.n or 0)}
+                   for r in sorted(intake, key=lambda x: -int(x.n or 0))],
+        "serverNow": str(now_datetime())[:19],
     }

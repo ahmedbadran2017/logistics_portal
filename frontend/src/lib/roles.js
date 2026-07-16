@@ -26,6 +26,7 @@ export const ROLE_CONFIG = {
         section: "nav.confirmSection",
         items: [
           { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
+          { to: "ConfirmationDashboard", label: "nav.cfDashboard", icon: "gauge" },
           { to: "ConfirmationReports", label: "nav.cfReports", icon: "trending-up" },
           { to: "ConfirmationSettings", label: "nav.cfSettings", icon: "settings" },
         ],
@@ -160,6 +161,7 @@ export const ROLE_CONFIG = {
         section: "nav.confirmSection",
         items: [
           { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
+          { to: "ConfirmationDashboard", label: "nav.cfDashboard", icon: "gauge" },
           { to: "ConfirmationReports", label: "nav.cfReports", icon: "trending-up" },
           { to: "ConfirmationSettings", label: "nav.cfSettings", icon: "settings" },
         ],
