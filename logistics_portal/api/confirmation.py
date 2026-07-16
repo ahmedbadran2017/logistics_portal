@@ -85,8 +85,8 @@ def _range(days, frm, to):
 @frappe.whitelist()
 def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     """The queues + counts + my day so far, one call."""
-    _gate()
-    if tab not in QUEUES and tab not in DONE_QUEUES and tab not in ("backlog", "monitor"):
+    role = _gate()
+    if tab not in QUEUES and tab not in DONE_QUEUES and tab != "monitor":
         tab = "pending"
     days = min(max(int(days or 30), 1), 365)
     limit = min(max(int(limit or 30), 1), 100)
@@ -116,14 +116,6 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
         for k, v in QUEUES.items():
             if v == r.s:
                 counts[k] = int(r.n or 0)
-    # Orders that aged past the working window (2,900 were invisible) — an
-    # explicit tab with bulk-expire instead of a silent cutoff. Meaningless
-    # against a hand-picked range, so it's only counted on the rolling window.
-    counts["backlog"] = 0 if custom_range else int(frappe.db.sql(
-        """SELECT COUNT(*) FROM `tabSales Order`
-           WHERE docstatus = 1 AND custom_sales_status IN %(sts)s
-             AND creation < DATE_SUB(NOW(), INTERVAL %(days)s DAY)""",
-        {"sts": tuple(QUEUES.values()), "days": days})[0][0])
     # Done tabs: keyed on when the DECISION was taken (custom_last_call_at),
     # not when the order arrived — the agent looks for "what I did today",
     # and a 40-day-old order confirmed an hour ago has to be in reach.
@@ -158,10 +150,6 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
                  "so.custom_last_call_at IS NOT NULL",
                  rng.format(col="so.custom_last_call_at")]
         vals["status"] = DONE_QUEUES[tab]
-    elif tab == "backlog":
-        conds = ["so.docstatus = 1", "so.custom_sales_status IN %(statuses)s",
-                 "so.creation < DATE_SUB(NOW(), INTERVAL %(days)s DAY)"]
-        vals["statuses"] = tuple(QUEUES.values())
     else:
         conds = ["so.docstatus = 1", "so.custom_sales_status = %(status)s",
                  rng.format(col="so.creation")]
@@ -178,7 +166,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     # deferral first); pending is simply oldest-first.
     if tab in DONE_QUEUES:
         order_by = "so.custom_last_call_at DESC"  # newest decision first
-    elif tab in ("pending", "backlog", "monitor"):
+    elif tab in ("pending", "monitor"):
         order_by = "so.creation"
     else:
         order_by = "COALESCE(so.custom_next_call_at, so.creation), so.creation"
@@ -235,8 +223,22 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
             if r.content.startswith(f"Confirmation: {k}"):
                 mine[k] += int(r.n or 0)
 
+    cf_s = _cf_settings()
+    my_total = sum(mine.values())
+    points = None
+    try:
+        from logistics_portal.api.contact_center import (bonus_group_for,
+                                                         bonus_points_for)
+        from frappe.utils import nowdate
+        points = bonus_points_for(frappe.session.user,
+                                  bonus_group_for(role), nowdate()[:7])
+    except Exception:
+        pass
+
     return {
         "tab": tab, "counts": counts, "total": int(total or 0),
+        "myTotal": my_total, "myTarget": int(cf_s.get("dayTarget", 40)),
+        "points": points,
         "rows": [{
             "order": r.name, "customer": r.customer or "",
             "total": float(r.total or 0), "phone": (r.phone or "").strip(),
@@ -475,6 +477,9 @@ _CF_DEFAULTS = {
     "retryFollowup": 24,
     "retryOnhold": 48,
     "slaFirstCallH": 6,   # a Pending order untouched longer than this is late
+    "dayTarget": 40,      # decisions per agent per day — NOT the floor's
+                          # dayTarget (200 on production: that counts orders
+                          # picked in a warehouse, not calls made at a desk)
     "reasons": ["Prix trop élevé", "Commande par erreur", "Ne répond plus",
                 "Adresse hors zone", "Commande dupliquée", "A changé d'avis"],
     "admins": [],         # section admins (user emails)
@@ -527,6 +532,11 @@ def save_cf_settings(settings=None):
             if not (1 <= v <= 168):
                 frappe.throw(f"{k} must be between 1 and 168 hours.")
             out[k] = v
+    if "dayTarget" in settings:
+        v = int(settings["dayTarget"])
+        if not (1 <= v <= 500):
+            frappe.throw("dayTarget must be between 1 and 500 decisions.")
+        out["dayTarget"] = v
     if "reasons" in settings:
         reasons = [str(r).strip()[:60] for r in (settings["reasons"] or []) if str(r).strip()]
         if not reasons:

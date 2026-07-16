@@ -800,6 +800,8 @@ export default {
     contactSaved: "Contact mis à jour",
     contactFail: "Échec de la mise à jour",
     tabMonitor: "Surveillance",
+    targetHit: "objectif atteint",
+    targetGo: "encore {n} aujourd'hui",
     tabBacklog: "Arriéré",
     tabConfirmed: "Confirmées",
     tabCancelled: "Annulées",

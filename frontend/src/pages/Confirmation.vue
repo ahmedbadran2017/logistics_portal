@@ -10,7 +10,7 @@
             <p class="text-[12.5px] text-stone-500 mt-1.5">{{ t('cf.intro') }}</p>
           </div>
         </div>
-        <div v-if="data" class="flex items-stretch gap-2">
+        <div v-if="data" class="flex items-center gap-2 flex-wrap">
           <div class="cf-stat">
             <span class="cf-stat-n text-emerald-600">{{ data.mine.confirm }}</span>
             <span class="cf-stat-l"><Icon name="check-circle" :size="10" class="inline -mt-px me-0.5" />{{ t('cf.actConfirm') }}</span>
@@ -23,6 +23,27 @@
             <span class="cf-stat-n text-rose-500">{{ data.mine.cancel }}</span>
             <span class="cf-stat-l"><Icon name="circle-x" :size="10" class="inline -mt-px me-0.5" />{{ t('cf.actCancel') }}</span>
           </div>
+
+          <!-- my day, on the same line: how far to the target, what it's worth -->
+          <RouterLink v-if="data.myTarget" :to="{ name: 'Performance' }" class="cf-prog" :title="t('px.perf.dailyTarget')">
+            <div class="flex items-baseline gap-1">
+              <span class="text-[17px] font-extrabold tabular-nums leading-none"
+                    :class="hitTarget ? 'text-emerald-600' : 'text-stone-900'">{{ data.myTotal }}</span>
+              <span class="text-[10.5px] text-stone-400 tabular-nums">/ {{ data.myTarget }}</span>
+              <Icon v-if="hitTarget" name="check-circle" :size="11" class="text-emerald-600" />
+            </div>
+            <div class="h-1.5 rounded-full bg-stone-200/70 overflow-hidden mt-1.5 w-[92px]">
+              <div class="h-full rounded-full transition-all duration-700"
+                   :class="hitTarget ? 'bg-emerald-500' : 'bg-[var(--accent-500)]'"
+                   :style="{ width: dayPct + '%' }" />
+            </div>
+            <span class="cf-stat-l mt-1">{{ hitTarget ? t('cf.targetHit') : t('cf.targetGo', String(togo)).replace('{n}', togo) }}</span>
+          </RouterLink>
+
+          <RouterLink v-if="data.points" :to="{ name: 'Bonus' }" class="cf-stat cf-stat-link">
+            <span class="cf-stat-n text-violet-600">{{ data.points.month }}</span>
+            <span class="cf-stat-l"><Icon name="wallet" :size="10" class="inline -mt-px me-0.5" />{{ t('bn.pts') }} / {{ data.points.target }}</span>
+          </RouterLink>
         </div>
       </div>
     </header>
@@ -315,7 +336,6 @@ const TABS = [
   { key: "followup", label: "cf.tabFollowup", icon: "clock", onColor: "bg-sky-100 text-sky-700" },
   { key: "onhold", label: "cf.tabOnhold", icon: "pause", onColor: "bg-stone-200 text-stone-600" },
   { key: "monitor", label: "cf.tabMonitor", icon: "shield-alert", onColor: "bg-rose-100 text-rose-700" },
-  { key: "backlog", label: "cf.tabBacklog", icon: "archive", onColor: "bg-stone-200 text-stone-700", group: "cleanup" },
   { key: "confirmed", label: "cf.tabConfirmed", icon: "check-circle", onColor: "bg-emerald-100 text-emerald-700", group: "done" },
   { key: "cancelled", label: "cf.tabCancelled", icon: "x", onColor: "bg-rose-100 text-rose-700", group: "done" },
   { key: "duplicated", label: "cf.tabDuplicated", icon: "copy", onColor: "bg-violet-100 text-violet-700", group: "done" },
@@ -372,6 +392,13 @@ async function load() {
 onMounted(load);
 
 const isDone = computed(() => DONE.includes(tab.value));
+const dayPct = computed(() => {
+  const d = data.value;
+  if (!d?.myTarget) return 0;
+  return Math.min(100, Math.round((d.myTotal * 100) / d.myTarget));
+});
+const hitTarget = computed(() => (data.value?.myTotal || 0) >= (data.value?.myTarget || 1));
+const togo = computed(() => Math.max(0, (data.value?.myTarget || 0) - (data.value?.myTotal || 0)));
 
 // Who is this customer? The chip is on the card; the whole history is one
 // click behind it. Nothing here blocks an order — the team decides.
@@ -587,6 +614,15 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
   background: rgb(255 255 255 / 0.75); backdrop-filter: blur(4px);
   box-shadow: inset 0 0 0 1px rgb(231 229 228 / 0.9), 0 1px 2px rgb(0 0 0 / 0.03);
 }
+.cf-prog {
+  display: flex; flex-direction: column; align-items: flex-start;
+  padding: 8px 12px; border-radius: 14px;
+  background: rgb(255 255 255 / 0.75);
+  box-shadow: inset 0 0 0 1px rgb(231 229 228 / 0.9), 0 1px 2px rgb(0 0 0 / 0.03);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.cf-prog:hover, .cf-stat-link:hover { transform: translateY(-1px); box-shadow: inset 0 0 0 1px rgb(214 211 209); }
+.cf-stat-link { transition: transform .15s ease, box-shadow .15s ease; }
 .cf-stat-n { font-size: 21px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
 .cf-stat-l { font-size: 10px; font-weight: 600; color: rgb(168 162 158); margin-top: 4px; white-space: nowrap; }
 
@@ -688,6 +724,10 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
   width: 38px; background: rgb(250 250 249);
   box-shadow: inset 0 0 0 1px rgb(231 229 228);
   --tw-ring-color: currentColor;
+  /* Without this the button stays display:block and Tailwind's preflight makes
+     the svg display:block too — so text-align can't reach it and every icon
+     pins to the left edge. Every other *-soft button in the app has it. */
+  display: inline-flex; align-items: center; justify-content: center;
 }
 .cf-act-soft:hover { background: white; transform: scale(1.06); box-shadow: inset 0 0 0 1px currentColor; }
 

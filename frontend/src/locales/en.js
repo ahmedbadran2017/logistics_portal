@@ -799,6 +799,8 @@ export default {
     contactSaved: "Contact updated",
     contactFail: "Couldn't update contact",
     tabMonitor: "Monitoring",
+    targetHit: "target hit",
+    targetGo: "{n} to go today",
     tabBacklog: "Backlog",
     tabConfirmed: "Confirmed",
     tabCancelled: "Cancelled",

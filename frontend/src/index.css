@@ -425,3 +425,7 @@ html[data-theme="dark"] .seg-good { background: rgba(6,78,59,.35); color: #6ee7b
 html[data-theme="dark"] .seg-watch { background: rgba(113,63,18,.3); color: #fde047; }
 html[data-theme="dark"] .seg-risk { background: rgba(124,45,18,.3); color: #fdba74; }
 html[data-theme="dark"] .seg-black { background: rgba(136,19,55,.3); color: #fda4af; }
+html[data-theme="dark"] .cf-prog {
+  background: rgba(28,25,23,.7) !important;
+  box-shadow: inset 0 0 0 1px #44403c !important;
+}

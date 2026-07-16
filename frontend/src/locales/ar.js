@@ -799,6 +799,8 @@ export default {
     contactSaved: "اتحدثت بيانات التواصل",
     contactFail: "تعذّر التحديث",
     tabMonitor: "المراقبة",
+    targetHit: "الهدف اتحقق",
+    targetGo: "فاضل {n} النهارده",
     tabBacklog: "المتراكم",
     tabConfirmed: "المؤكدة",
     tabCancelled: "الملغية",
