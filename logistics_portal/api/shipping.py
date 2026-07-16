@@ -255,8 +255,12 @@ def tracking(days=14, state="", q="", limit=30, offset=0):
                      LEFT JOIN `tabAddress` addr
                         ON addr.name = COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address)"""
 
+        # The COUNT reads no column from any of these joins, so it only needs
+        # them when the search box is filtering on dni.so. Measured on the live
+        # data: 75.6ms with the joins, 26.8ms without, same answer.
+        count_join = so_join if qcond else ""
         total = frappe.db.sql(
-            f"""SELECT COUNT(*) FROM `tabDelivery Note` dn {so_join}
+            f"""SELECT COUNT(*) FROM `tabDelivery Note` dn {count_join}
                 WHERE {window} AND dn.custom_track_shipment_status IN %(states)s{qcond}""",
             vals)[0][0]
 
@@ -306,19 +310,26 @@ def exceptions(days=14, limit=50, offset=0, tab="open"):
         if has_action:
             tab_cond = ("AND COALESCE(dn.custom_exception_action,'') != ''" if tab == "handled"
                         else "AND COALESCE(dn.custom_exception_action,'') = ''")
+        # `base` is used three times per load. Only the rows query reads dni /
+        # so / addr; the two COUNTs select nothing from them and every filter
+        # sits on dn, so they run against dn alone. Same answers, a third of
+        # the time on the live data.
+        where = f"""WHERE dn.docstatus = 1
+                    AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)
+                    AND dn.custom_track_shipment_status IN ('Delivery Exception', 'Failed Attempt')
+                    {tab_cond}"""
         base = f"""FROM `tabDelivery Note` dn
                   LEFT JOIN (SELECT parent, MAX(against_sales_order) AS so
                              FROM `tabDelivery Note Item` GROUP BY parent) dni ON dni.parent = dn.name
                   LEFT JOIN `tabSales Order` so ON so.name = dni.so
                   LEFT JOIN `tabAddress` addr
                      ON addr.name = COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address)
-                  WHERE dn.docstatus = 1
-                    AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)
-                    AND dn.custom_track_shipment_status IN ('Delivery Exception', 'Failed Attempt')
-                    {tab_cond}"""
-        total = frappe.db.sql(f"SELECT COUNT(*) {base}", vals)[0][0]
+                  {where}"""
+        count_base = f"FROM `tabDelivery Note` dn {where}"
+        total = frappe.db.sql(f"SELECT COUNT(*) {count_base}", vals)[0][0]
         failed = frappe.db.sql(
-            f"SELECT COUNT(*) {base} AND dn.custom_track_shipment_status = 'Failed Attempt'", vals)[0][0]
+            f"SELECT COUNT(*) {count_base} AND dn.custom_track_shipment_status = 'Failed Attempt'",
+            vals)[0][0]
         rows = frappe.db.sql(
             f"""SELECT dn.name, dn.custom_awb AS awb, dn.customer_name AS customer,
                        dn.custom_track_shipment_status AS raw, dn.grand_total AS value,

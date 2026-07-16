@@ -503,7 +503,7 @@ def bonus_points_for(user, group, month):
     if not group:
         return None
     s = _bonus_settings()
-    board = (_cc_board if group == "cc" else _floor_board)(month, s["points"])
+    board = _board(group, month, s["points"])
     for a in board:
         if a["user"] == user:
             return {"month": a["points"], "target": s["targets"][group]}
@@ -530,7 +530,7 @@ def bonus(month=None, group=None):
         frappe.throw("You can only see your own board.", frappe.PermissionError)
 
     s = _bonus_settings()
-    agents = (_cc_board if group == "cc" else _floor_board)(month, s["points"])
+    agents = _board(group, month, s["points"])
 
     # Money, if the manager has switched the scheme on.
     money = s["money"]
