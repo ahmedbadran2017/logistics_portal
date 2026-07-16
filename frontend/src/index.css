@@ -387,3 +387,6 @@ html[data-theme="dark"] .pf-streak {
   color: #fcd34d !important;
 }
 html[data-theme="dark"] .pf-bar-off { background: #3a3530 !important; }
+
+/* Confirmation: terminal-state chip */
+html[data-theme="dark"] .cf-done { background: rgba(28,25,23,.6) !important; }

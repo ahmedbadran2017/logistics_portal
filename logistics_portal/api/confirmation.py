@@ -20,6 +20,15 @@ QUEUES = {
     "followup": "Follow Up",
     "onhold": "On Hold",
 }
+# Where an order GOES when the lane is done with it. The agent has to be able
+# to look at their own decisions — to check one, to answer "what did I do with
+# this customer", to catch a mistake — so every terminal state is a tab too,
+# not a black hole the order falls into.
+DONE_QUEUES = {
+    "confirmed": "Confirmed",
+    "cancelled": "Cancelled",
+    "duplicated": "Duplicated",
+}
 _ACTIONS = {
     "confirm": "Confirmed",
     "dna": "Did not Answer",
@@ -28,6 +37,8 @@ _ACTIONS = {
     "cancel": "Cancelled",
     # Desk parity: agents mark ~23 duplicate orders a month there.
     "duplicate": "Duplicated",
+    # Undo: pull a wrongly-decided order back into the pending queue.
+    "reopen": "Pending",
 }
 # How long an order rests before it resurfaces at the top of its queue.
 _RETRY_HOURS = {"dna": 4, "followup": 24, "onhold": 48}
@@ -46,7 +57,7 @@ def _gate():
 def board(tab="pending", days=30, q="", limit=30, offset=0):
     """The four queues + counts + my day so far, one call."""
     _gate()
-    if tab not in QUEUES and tab != "backlog":
+    if tab not in QUEUES and tab not in DONE_QUEUES and tab != "backlog":
         tab = "pending"
     days = min(max(int(days or 30), 1), 90)
     limit = min(max(int(limit or 30), 1), 100)
@@ -70,8 +81,25 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
            WHERE docstatus = 1 AND custom_sales_status IN %(sts)s
              AND creation < DATE_SUB(NOW(), INTERVAL %(days)s DAY)""",
         {"sts": tuple(QUEUES.values()), "days": days})[0][0])
+    # Done tabs: keyed on when the DECISION was taken (custom_last_call_at),
+    # not when the order arrived — the agent looks for "what I did today",
+    # and a 40-day-old order confirmed an hour ago has to be in reach.
+    for r in frappe.db.sql(
+            """SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
+               WHERE docstatus = 1 AND custom_sales_status IN %(sts)s
+                 AND COALESCE(custom_last_call_at, modified)
+                     >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)""",
+            {"sts": tuple(DONE_QUEUES.values()), "days": days}, as_dict=True):
+        for k, v in DONE_QUEUES.items():
+            if v == r.s:
+                counts[k] = int(r.n or 0)
 
-    if tab == "backlog":
+    if tab in DONE_QUEUES:
+        conds = ["so.docstatus = 1", "so.custom_sales_status = %(status)s",
+                 """COALESCE(so.custom_last_call_at, so.modified)
+                    >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)"""]
+        vals["status"] = DONE_QUEUES[tab]
+    elif tab == "backlog":
         conds = ["so.docstatus = 1", "so.custom_sales_status IN %(statuses)s",
                  "so.creation < DATE_SUB(NOW(), INTERVAL %(days)s DAY)"]
         vals["statuses"] = tuple(QUEUES.values())
@@ -89,8 +117,17 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
                           vals)[0][0]
     # Retry queues surface what's DUE first (next_call in the past, oldest
     # deferral first); pending is simply oldest-first.
-    order_by = ("COALESCE(so.custom_next_call_at, so.creation), so.creation"
-                if tab not in ("pending", "backlog") else "so.creation")
+    if tab in DONE_QUEUES:
+        order_by = "COALESCE(so.custom_last_call_at, so.modified) DESC"  # newest decision first
+    elif tab in ("pending", "backlog"):
+        order_by = "so.creation"
+    else:
+        order_by = "COALESCE(so.custom_next_call_at, so.creation), so.creation"
+    # custom_cancellation_reason is the desk's field — absent on sites that
+    # never had it, so only select it when the meta says it exists.
+    reason_col = ("so.custom_cancellation_reason"
+                  if frappe.get_meta("Sales Order").has_field("custom_cancellation_reason")
+                  else "NULL")
     rows = frappe.db.sql(
         f"""SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
                    COALESCE(NULLIF(so.custom_customer_phone,''),
@@ -101,7 +138,9 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
                    COALESCE(so.custom_call_attempts, 0) AS attempts,
                    so.custom_last_call_at AS last_call,
                    so.custom_next_call_at AS next_call,
-                   so.custom_confirmation_agent AS agent
+                   so.custom_confirmation_agent AS agent,
+                   so.custom_sales_status AS status,
+                   {reason_col} AS reason
             FROM `tabSales Order` so WHERE {where}
             ORDER BY {order_by}
             LIMIT %(limit)s OFFSET %(offset)s""", vals, as_dict=True)
@@ -147,8 +186,12 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
             "nextCall": str(r.next_call)[:16] if r.next_call else "",
             "agent": (r.agent or "").split("@")[0],
             "due": bool(r.next_call and str(r.next_call) <= str(now_datetime())),
-            # First-call SLA: never touched and older than the target.
-            "slaBreached": bool(int(r.attempts or 0) == 0
+            "status": r.status or "",
+            "reason": (r.reason or "").strip(),
+            # First-call SLA: never touched and older than the target. Only
+            # meaningful while the order is still ours to call.
+            "slaBreached": bool(tab not in DONE_QUEUES
+                                and int(r.attempts or 0) == 0
                                 and int(r.age_h or 0) > sla_h),
         } for r in rows],
         "mine": mine,
@@ -174,8 +217,23 @@ def act(order, action, note=None):
     if so.docstatus != 1:
         frappe.throw("Order is not submitted.")
     if so.custom_sales_status not in QUEUES.values():
-        frappe.throw(f"Order is {so.custom_sales_status or 'unset'} — outside the "
-                     "confirmation lane. Refresh the queue.")
+        # Reopening a decision the lane already took: allowed only while the
+        # order hasn't moved on physically. Once it's picked or shipped, the
+        # warehouse owns it and a status flip here would lie about reality.
+        if so.custom_sales_status not in DONE_QUEUES.values():
+            frappe.throw(f"Order is {so.custom_sales_status or 'unset'} — outside the "
+                         "confirmation lane. Refresh the queue.")
+        if action != "reopen":
+            frappe.throw(f"Order is already {so.custom_sales_status}. Reopen it "
+                         "first if the decision was wrong.")
+        stage = frappe.db.get_value("Sales Order", order, "custom_logistics_status")
+        if stage and stage not in ("Pending", ""):
+            frappe.throw(f"Can't reopen — the order is already {stage} in the "
+                         "warehouse.")
+        if frappe.db.exists("Pick List Item", {"sales_order": order, "docstatus": ["<", 2]}):
+            frappe.throw("Can't reopen — the order is already on a pick list.")
+    elif action == "reopen":
+        frappe.throw("The order is already in the queue.")
     note = (note or "").strip()
     if action == "cancel" and not note:
         frappe.throw("A cancel needs a reason.")
@@ -210,7 +268,7 @@ def act(order, action, note=None):
                     + (f" — {note}" if note else "")
                     + f" · by {frappe.session.user}")
     frappe.db.commit()
-    if action in ("confirm", "cancel"):
+    if action in ("confirm", "cancel", "reopen"):
         # The order entered / left the logistics pool.
         for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
             frappe.cache().delete_value(k)

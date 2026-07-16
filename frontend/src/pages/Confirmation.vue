@@ -105,9 +105,17 @@
               <span v-if="r.agent" class="text-stone-400">{{ r.agent }}</span>
               <span v-if="r.nextCall" class="text-stone-400">→ {{ r.nextCall.slice(5) }}</span>
             </div>
-            <div v-if="r.itemsText" class="text-[11.5px] text-stone-500 truncate max-w-[560px] mt-1"
-                 :title="r.itemsText" dir="auto">
-              <Icon name="package" :size="11" class="inline -mt-px me-1 text-stone-300" />{{ r.itemsText }}
+            <!-- what's in the order: one line, click for the whole thing -->
+            <button v-if="r.itemsText" class="flex items-center gap-1 text-[11.5px] text-stone-500 mt-1 max-w-[560px] group/it text-start"
+                    @click="toggleDetail(r)">
+              <Icon name="package" :size="11" class="shrink-0 text-stone-300" />
+              <span class="truncate" dir="auto">{{ r.itemsText }}</span>
+              <Icon :name="detailFor === r.order ? 'chevron-up' : 'chevron-down'" :size="11"
+                    class="shrink-0 text-[var(--accent-500)] opacity-60 group-hover/it:opacity-100" />
+            </button>
+            <!-- the decision that closed it -->
+            <div v-if="isDone && r.reason" class="text-[11.5px] text-stone-500 mt-1 truncate max-w-[560px]" dir="auto">
+              <Icon name="corner-down-left" :size="11" class="inline -mt-px me-1 text-stone-300" />{{ r.reason }}
             </div>
           </div>
           <!-- contact -->
@@ -125,7 +133,7 @@
             </button>
           </div>
           <!-- decisions -->
-          <div class="flex items-center gap-1.5 flex-wrap">
+          <div v-if="!isDone" class="flex items-center gap-1.5 flex-wrap">
             <button class="cf-act cf-act-confirm" :disabled="busy === r.order" @click="act(r, 'confirm')">
               <Icon name="check" :size="14" class="inline -mt-px me-1" />{{ t('cf.actConfirm') }}
             </button>
@@ -137,7 +145,66 @@
                     :class="cancelFor === r.order ? 'ring-2' : ''"
                     @click="cancelFor = cancelFor === r.order ? '' : r.order"><Icon name="x" :size="15" /></button>
           </div>
+          <!-- already decided: the outcome + an undo -->
+          <div v-else class="flex items-center gap-2 flex-wrap">
+            <span class="cf-done" :class="doneClass(r.status)">
+              <Icon :name="doneIcon(r.status)" :size="12" />
+              {{ t('cf.st' + tab) }}
+              <span v-if="r.lastCall" class="font-mono opacity-70">{{ r.lastCall.slice(5) }}</span>
+            </span>
+            <button class="cf-act cf-act-soft text-amber-700" :disabled="busy === r.order"
+                    :title="t('cf.actReopen')" @click="act(r, 'reopen')">
+              <Icon name="rotate-ccw" :size="15" />
+            </button>
+          </div>
         </div>
+
+        <!-- the whole order, on demand -->
+        <Transition name="cfslide">
+          <div v-if="detailFor === r.order" class="mt-3 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-3">
+            <div v-if="detailLoading" class="text-[12px] text-stone-400 text-center py-4">…</div>
+            <div v-else-if="detailError" class="text-[12px] text-rose-500 text-center py-3 font-mono">{{ detailError }}</div>
+            <template v-else-if="detail">
+              <!-- line items with their pictures — the agent describes them on the call -->
+              <div class="space-y-1.5">
+                <div v-for="(it, i) in detail.items" :key="i"
+                     class="flex items-center gap-2.5 bg-white rounded-lg p-2 ring-1 ring-stone-200/60">
+                  <img v-if="it.image" :src="it.image" alt="" loading="lazy"
+                       class="w-10 h-10 rounded-md object-cover bg-stone-100 shrink-0" />
+                  <span v-else class="w-10 h-10 rounded-md bg-stone-100 text-stone-300 grid place-items-center shrink-0">
+                    <Icon name="package" :size="15" />
+                  </span>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[12px] font-medium text-stone-900 truncate" dir="auto">{{ it.name }}</div>
+                    <div class="text-[10.5px] text-stone-400 font-mono">{{ it.real_sku || it.sku }}</div>
+                  </div>
+                  <div class="text-[12px] text-stone-500 tabular-nums shrink-0">
+                    <span class="font-bold text-stone-800">{{ it.qty }}×</span> {{ fmtMAD(it.price) }}
+                  </div>
+                  <div class="text-[12.5px] font-bold text-stone-900 tabular-nums w-[74px] text-end shrink-0">
+                    {{ fmtMAD(it.line) }}
+                  </div>
+                </div>
+              </div>
+              <!-- money + destination, straight from the order -->
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2.5 pt-2.5 border-t border-stone-200/70 text-[11.5px] tabular-nums">
+                <span class="text-stone-500">{{ t('cf.dSubtotal') }} <b class="text-stone-800">{{ fmtMAD(detail.subtotal) }}</b></span>
+                <span v-if="detail.discount" class="text-stone-500">{{ t('cf.dDiscount') }} <b class="text-rose-600">−{{ fmtMAD(detail.discount) }}</b></span>
+                <span v-if="detail.taxes" class="text-stone-500">{{ t('cf.dShipping') }} <b class="text-stone-800">{{ fmtMAD(detail.taxes) }}</b></span>
+                <span class="text-stone-500">{{ t('cf.dTotal') }} <b class="text-[13px] text-stone-900">{{ fmtMAD(detail.total) }}</b> MAD</span>
+                <span v-if="detail.created" class="text-stone-400 ms-auto font-mono">{{ detail.created }}</span>
+              </div>
+              <div v-if="detail.address_line || detail.city" class="flex items-start gap-1.5 mt-2 text-[11.5px] text-stone-600" dir="auto">
+                <Icon name="map-pin" :size="12" class="mt-0.5 shrink-0 text-stone-300" />
+                <span>{{ [detail.address_line, detail.city, detail.governorate].filter(Boolean).join(' · ') }}</span>
+              </div>
+              <RouterLink :to="{ name: 'OrderDetail', params: { name: r.order } }"
+                          class="inline-flex items-center gap-1 text-[11.5px] font-semibold text-[var(--accent-600)] hover:underline mt-2">
+                {{ t('cf.dFull') }}<Icon name="chevron-right" :size="12" class="flip-rtl" />
+              </RouterLink>
+            </template>
+          </div>
+        </Transition>
 
         <!-- cancel reason -->
         <Transition name="cfslide">
@@ -186,7 +253,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -201,7 +268,12 @@ const TABS = [
   { key: "followup", label: "cf.tabFollowup", icon: "clock", onColor: "bg-sky-100 text-sky-700" },
   { key: "onhold", label: "cf.tabOnhold", icon: "pause", onColor: "bg-stone-200 text-stone-600" },
   { key: "backlog", label: "cf.tabBacklog", icon: "archive", onColor: "bg-stone-200 text-stone-700" },
+  { key: "confirmed", label: "cf.tabConfirmed", icon: "check-circle", onColor: "bg-emerald-100 text-emerald-700" },
+  { key: "cancelled", label: "cf.tabCancelled", icon: "x", onColor: "bg-rose-100 text-rose-700" },
+  { key: "duplicated", label: "cf.tabDuplicated", icon: "copy", onColor: "bg-violet-100 text-violet-700" },
 ];
+// Tabs where the lane is done deciding — read-only rows with an undo.
+const DONE = ["confirmed", "cancelled", "duplicated"];
 
 const tab = ref("pending");
 const q = ref("");
@@ -245,6 +317,45 @@ async function load() {
 }
 onMounted(load);
 
+const isDone = computed(() => DONE.includes(tab.value));
+
+// The order itself, pulled on demand — the agent has the customer on the line
+// and needs to say what's in the box, so it opens in place rather than
+// navigating away from the queue.
+const detailFor = ref("");
+const detail = ref(null);
+const detailLoading = ref(false);
+const detailError = ref("");
+
+async function toggleDetail(r) {
+  if (detailFor.value === r.order) { detailFor.value = ""; return; }
+  detailFor.value = r.order;
+  detail.value = null;
+  detailError.value = "";
+  detailLoading.value = true;
+  try {
+    const res = await api("orders.detail", { name: r.order });
+    if (detailFor.value !== r.order) return;   // they moved on
+    if (!res || !res.items) { detailError.value = t("cf.dFail"); return; }
+    detail.value = res;
+  } catch (e) {
+    detailError.value = String(e.message || e);
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+function doneClass(status) {
+  if (status === "Confirmed") return "text-emerald-700 bg-emerald-50 ring-emerald-200";
+  if (status === "Cancelled") return "text-rose-700 bg-rose-50 ring-rose-200";
+  return "text-violet-700 bg-violet-50 ring-violet-200";
+}
+function doneIcon(status) {
+  if (status === "Confirmed") return "check-circle";
+  if (status === "Cancelled") return "x";
+  return "copy";
+}
+
 const selected = ref(new Set());
 const bulkReason = ref("");
 const bulkBusy = ref(false);
@@ -287,10 +398,16 @@ async function act(r, action, note) {
       if (action === "dna") data.value.counts.dna++;
       if (action === "followup" && tab.value !== "followup") data.value.counts.followup++;
       if (action === "onhold" && tab.value !== "onhold") data.value.counts.onhold++;
+      // The row moves to a terminal tab — or back to pending on an undo.
+      if (action === "confirm") data.value.counts.confirmed++;
+      if (action === "cancel") data.value.counts.cancelled++;
+      if (action === "duplicate") data.value.counts.duplicated++;
+      if (action === "reopen") data.value.counts.pending++;
       if (data.value.mine && action in data.value.mine) data.value.mine[action]++;
     }
     cancelFor.value = "";
     cancelReason.value = "";
+    if (detailFor.value === r.order) detailFor.value = "";
     success(t(`cf.done_${action}`), r.order + (res.attempts ? ` · ${t('cf.attempts')} ${res.attempts}` : ""));
   } catch (e) {
     warn(t("cf.actFail"), String(e.message || e));
@@ -412,6 +529,12 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
   color: rgb(180 83 9);
   background: linear-gradient(135deg, rgb(255 251 235), rgb(254 243 199));
   box-shadow: inset 0 0 0 1px rgb(252 211 77);
+}
+.cf-done {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 38px; padding: 0 12px; border-radius: 12px;
+  font-size: 12px; font-weight: 700; white-space: nowrap;
+  background: white; box-shadow: inset 0 0 0 1px currentColor;
 }
 .cf-due-badge {
   font-size: 10px; font-weight: 800; letter-spacing: .02em;
