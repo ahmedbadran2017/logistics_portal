@@ -372,6 +372,13 @@ def _agent_me(user, days=7):
             break
 
     from logistics_portal.api.settings import get_ops
+    # The pace window: the configured floor day, WIDENED to cover every hour
+    # the person actually worked. The contact centre isn't bound by floor
+    # hours — a decision at 03:00 is real work and has to appear, or the chart
+    # reads empty while the ring says 7.
+    lo, hi = int(get_ops("floorStart") or 8), int(get_ops("floorEnd") or 20)
+    if hours:
+        lo, hi = min(lo, min(hours)), max(hi, max(hours))
     return {
         "kind": "agent",
         "today": today_total, "wins": today_wins,
@@ -380,9 +387,7 @@ def _agent_me(user, days=7):
         "rate": rate, "rateLabel": "confirmRate",
         "rank": rank, "of": len(ranked),
         "streak": streak,
-        "hours": [{"h": h, "n": hours.get(h, 0)}
-                  for h in range(int(get_ops("floorStart") or 8),
-                                 int(get_ops("floorEnd") or 20) + 1)],
+        "hours": [{"h": h, "n": hours.get(h, 0)} for h in range(lo, hi + 1)],
         "trend": trend,
         "best": best,
         "recent": recent,
