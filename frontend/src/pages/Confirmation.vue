@@ -113,6 +113,12 @@
             <div class="flex items-center gap-2 flex-wrap">
               <span class="text-[13.5px] font-bold text-stone-900 truncate max-w-[220px]">{{ r.customer || '—' }}</span>
               <span class="font-mono text-[11px] text-stone-400">{{ r.order }}</span>
+              <button v-if="r.cust && r.cust.seg !== 'new'" class="seg-chip" :class="'seg-' + r.cust.seg"
+                      :title="t('seg.explain_' + r.cust.seg)" @click="toggleCust(r)">
+                <Icon :name="segIcon(r.cust.seg)" :size="10" />
+                {{ t('seg.' + r.cust.seg) }}
+                <span v-if="r.cust.rate !== null" class="opacity-70 tabular-nums">{{ r.cust.rate }}%</span>
+              </button>
               <span v-if="r.due" class="cf-due-badge">{{ t('cf.due') }}</span>
               <span v-else-if="r.slaBreached" class="cf-due-badge">{{ t('cf.slaLate') }}</span>
             </div>
@@ -178,6 +184,33 @@
             </button>
           </div>
         </div>
+
+        <!-- who this customer is: every order they ever made -->
+        <Transition name="cfslide">
+          <div v-if="custFor === r.order" class="mt-3 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-3">
+            <div v-if="custLoading" class="text-[12px] text-stone-400 text-center py-4">…</div>
+            <template v-else-if="cust">
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] tabular-nums pb-2.5 mb-2.5 border-b border-stone-200/70">
+                <span class="text-stone-500">{{ t('seg.hOrders') }} <b class="text-stone-800">{{ cust.orders }}</b></span>
+                <span class="text-stone-500">{{ t('seg.hDelivered') }} <b class="text-emerald-600">{{ cust.delivered }}</b></span>
+                <span class="text-stone-500">{{ t('seg.hFailed') }} <b class="text-rose-600">{{ cust.failed }}</b></span>
+                <span class="text-stone-500">{{ t('seg.hCancelled') }} <b class="text-stone-700">{{ cust.cancelled }}</b></span>
+                <span v-if="cust.lifetime" class="text-stone-500">{{ t('seg.hLifetime') }} <b class="text-stone-900">{{ fmtMAD(cust.lifetime) }}</b> MAD</span>
+              </div>
+              <div class="space-y-1">
+                <div v-for="o in cust.orders_list" :key="o.order"
+                     class="flex items-center gap-2 text-[11.5px] bg-white rounded-lg px-2.5 py-1.5 ring-1 ring-stone-200/60">
+                  <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="trackDot(o.track, o.status)" />
+                  <span class="font-mono text-stone-700 shrink-0">{{ o.order }}</span>
+                  <span class="text-stone-400 tabular-nums shrink-0">{{ o.at }}</span>
+                  <span v-if="o.city" class="text-stone-400 truncate">{{ o.city }}</span>
+                  <span class="ms-auto text-stone-500 shrink-0">{{ o.track || o.status }}</span>
+                  <span class="font-semibold text-stone-800 tabular-nums shrink-0 w-[64px] text-end">{{ fmtMAD(o.total) }}</span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </Transition>
 
         <!-- the whole order, on demand -->
         <Transition name="cfslide">
@@ -281,6 +314,7 @@ const TABS = [
   { key: "dna", label: "cf.tabDna", icon: "phone-off", onColor: "bg-amber-100 text-amber-700" },
   { key: "followup", label: "cf.tabFollowup", icon: "clock", onColor: "bg-sky-100 text-sky-700" },
   { key: "onhold", label: "cf.tabOnhold", icon: "pause", onColor: "bg-stone-200 text-stone-600" },
+  { key: "monitor", label: "cf.tabMonitor", icon: "shield-alert", onColor: "bg-rose-100 text-rose-700" },
   { key: "backlog", label: "cf.tabBacklog", icon: "archive", onColor: "bg-stone-200 text-stone-700", group: "cleanup" },
   { key: "confirmed", label: "cf.tabConfirmed", icon: "check-circle", onColor: "bg-emerald-100 text-emerald-700", group: "done" },
   { key: "cancelled", label: "cf.tabCancelled", icon: "x", onColor: "bg-rose-100 text-rose-700", group: "done" },
@@ -338,6 +372,40 @@ async function load() {
 onMounted(load);
 
 const isDone = computed(() => DONE.includes(tab.value));
+
+// Who is this customer? The chip is on the card; the whole history is one
+// click behind it. Nothing here blocks an order — the team decides.
+const custFor = ref("");
+const cust = ref(null);
+const custLoading = ref(false);
+
+async function toggleCust(r) {
+  if (custFor.value === r.order) { custFor.value = ""; return; }
+  custFor.value = r.order;
+  cust.value = null;
+  custLoading.value = true;
+  try {
+    const res = await api("customers.card", { phone: r.phone });
+    if (custFor.value !== r.order) return;
+    cust.value = { ...res, orders_list: res.orders || [] };
+  } catch (e) {
+    warn(t("cf.loadFail"), String(e.message || e));
+    custFor.value = "";
+  } finally {
+    custLoading.value = false;
+  }
+}
+
+function segIcon(seg) {
+  return { vip: "sparkles", good: "check-circle", watch: "clock",
+           risk: "alert-triangle", black: "shield-alert" }[seg] || "user";
+}
+function trackDot(track, status) {
+  if (track === "Delivered") return "bg-emerald-500";
+  if (track === "Delivery Exception" || track === "Failed Attempt") return "bg-rose-500";
+  if (status === "Cancelled") return "bg-stone-300";
+  return "bg-amber-400";
+}
 
 // The order itself, pulled on demand — the agent has the customer on the line
 // and needs to say what's in the box, so it opens in place rather than
@@ -445,6 +513,7 @@ async function act(r, action, note) {
     cancelFor.value = "";
     cancelReason.value = "";
     if (detailFor.value === r.order) detailFor.value = "";
+    if (custFor.value === r.order) custFor.value = "";
     success(t(`cf.done_${action}`), r.order + (res.attempts ? ` · ${t('cf.attempts')} ${res.attempts}` : ""));
   } catch (e) {
     warn(t("cf.actFail"), String(e.message || e));

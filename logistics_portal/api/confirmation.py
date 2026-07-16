@@ -53,6 +53,11 @@ def _gate():
     return role
 
 
+# The customer key, identical to customers.py: digits only, last 9.
+_CUST_KEY = ("RIGHT(REGEXP_REPLACE(COALESCE(NULLIF(so.custom_customer_phone, ''),"
+             " so.custom_shipping_phone), '[^0-9]', ''), 9)")
+
+
 def _range(days, frm, to):
     """The window the board looks at.
 
@@ -81,7 +86,7 @@ def _range(days, frm, to):
 def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     """The queues + counts + my day so far, one call."""
     _gate()
-    if tab not in QUEUES and tab not in DONE_QUEUES and tab != "backlog":
+    if tab not in QUEUES and tab not in DONE_QUEUES and tab not in ("backlog", "monitor"):
         tab = "pending"
     days = min(max(int(days or 30), 1), 365)
     limit = min(max(int(limit or 30), 1), 100)
@@ -132,7 +137,23 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
             if v == r.s:
                 counts[k] = int(r.n or 0)
 
-    if tab in DONE_QUEUES:
+    # Monitoring: live orders whose customer has taken 2+ parcels and kept
+    # none of them. Nothing is blocked — the team looks and decides. Measured:
+    # this group still takes delivery 27% of the time.
+    from logistics_portal.api.customers import risky_phones
+    risky = tuple(risky_phones()) or ("",)
+    counts["monitor"] = int(frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.custom_sales_status IN %(sts)s
+              AND {_CUST_KEY} IN %(risky)s""",
+        {"sts": tuple(QUEUES.values()), "risky": risky})[0][0])
+
+    if tab == "monitor":
+        conds = ["so.docstatus = 1", "so.custom_sales_status IN %(statuses)s",
+                 f"{_CUST_KEY} IN %(risky)s"]
+        vals["statuses"] = tuple(QUEUES.values())
+        vals["risky"] = risky
+    elif tab in DONE_QUEUES:
         conds = ["so.docstatus = 1", "so.custom_sales_status = %(status)s",
                  "so.custom_last_call_at IS NOT NULL",
                  rng.format(col="so.custom_last_call_at")]
@@ -157,7 +178,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     # deferral first); pending is simply oldest-first.
     if tab in DONE_QUEUES:
         order_by = "so.custom_last_call_at DESC"  # newest decision first
-    elif tab in ("pending", "backlog"):
+    elif tab in ("pending", "backlog", "monitor"):
         order_by = "so.creation"
     else:
         order_by = "COALESCE(so.custom_next_call_at, so.creation), so.creation"
@@ -194,6 +215,11 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
                    GROUP BY parent""", (tuple(r.name for r in rows),)):
             items_text[parent] = (txt or "")[:240]
 
+    # Who is this customer? One batched lookup for the page — the agent sees
+    # the verdict BEFORE the call, not after the parcel comes back.
+    from logistics_portal.api.customers import digits, history_for
+    hist = history_for([r.phone for r in rows if r.phone]) if rows else {}
+
     sla_h = _cf_settings().get("slaFirstCallH", 6)
 
     today = str(now_datetime())[:10]
@@ -226,6 +252,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
             "due": bool(r.next_call and str(r.next_call) <= str(now_datetime())),
             "status": r.status or "",
             "reason": (r.reason or "").strip(),
+            "cust": hist.get(digits(r.phone)) if r.phone else None,
             # First-call SLA: never touched and older than the target. Only
             # meaningful while the order is still ours to call.
             "slaBreached": bool(tab not in DONE_QUEUES
@@ -307,6 +334,13 @@ def act(order, action, note=None):
                     + f" · by {frappe.session.user}")
     frappe.db.commit()
     if action in ("confirm", "cancel", "reopen"):
+        # This customer's counts just moved.
+        try:
+            from logistics_portal.api.customers import bust
+            bust(frappe.db.get_value("Sales Order", order, "custom_customer_phone")
+                 or frappe.db.get_value("Sales Order", order, "custom_shipping_phone"))
+        except Exception:
+            pass
         # The order entered / left the logistics pool.
         for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
             frappe.cache().delete_value(k)
