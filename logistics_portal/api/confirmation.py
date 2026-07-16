@@ -311,8 +311,13 @@ def act(order, action, note=None):
     elif action == "reopen":
         frappe.throw("The order is already in the queue.")
     note = (note or "").strip()
-    if action == "cancel" and not note:
-        frappe.throw("A cancel needs a reason.")
+    if action == "cancel":
+        if not note:
+            frappe.throw("A cancel needs a reason.")
+        opts = reason_options()
+        if opts and note not in opts:
+            frappe.throw("Pick a reason from the list — free text here would "
+                         "invent a category the reports can't group.")
 
     now = now_datetime()
     attempts = int(so.custom_call_attempts or 0)
@@ -332,9 +337,9 @@ def act(order, action, note=None):
         updates["custom_next_call_at"] = None
     if action == "cancel" and frappe.get_meta("Sales Order").has_field(
             "custom_cancellation_reason"):
-        # The desk stores the reason in this field (272 edits/14d) — keep the
-        # desk reports seeing portal cancels too, not just the comment trail.
-        updates["custom_cancellation_reason"] = note[:140]
+        # Validated against the Select above, so the desk's reports and the
+        # existing dashboard group portal cancels alongside desk ones.
+        updates["custom_cancellation_reason"] = note
     frappe.db.set_value("Sales Order", order, updates, update_modified=True)
 
     doc = frappe.get_doc("Sales Order", order)
@@ -416,6 +421,9 @@ def bulk_cancel(orders=None, reason=None):
     reason = (reason or "").strip()
     if not reason:
         frappe.throw("A bulk cancel needs a reason.")
+    opts = reason_options()
+    if opts and reason not in opts:
+        frappe.throw("Pick a reason from the list.")
     now = now_datetime()
     has_reason_field = frappe.get_meta("Sales Order").has_field(
         "custom_cancellation_reason")
@@ -430,7 +438,7 @@ def bulk_cancel(orders=None, reason=None):
                    "custom_allocated_to": frappe.session.user,
                    "custom_last_call_at": now, "custom_next_call_at": None}
         if has_reason_field:
-            updates["custom_cancellation_reason"] = reason[:140]
+            updates["custom_cancellation_reason"] = reason
         frappe.db.set_value("Sales Order", name, updates, update_modified=True)
         frappe.get_doc("Sales Order", name).add_comment(
             "Comment", f"Confirmation: cancel — {reason} · bulk by {frappe.session.user}")
@@ -489,8 +497,12 @@ _CF_DEFAULTS = {
     "dayTarget": 40,      # decisions per agent per day — NOT the floor's
                           # dayTarget (200 on production: that counts orders
                           # picked in a warehouse, not calls made at a desk)
-    "reasons": ["Prix trop élevé", "Commande par erreur", "Ne répond plus",
-                "Adresse hors zone", "Commande dupliquée", "A changé d'avis"],
+    # `reasons` is the manager's QUICK-PICK subset of the real vocabulary —
+    # never a list of our own words. The vocabulary itself lives on the Select
+    # field custom_cancellation_reason (15 options the desk, the existing
+    # dashboard and every historical report already group by). Empty = show
+    # them all.
+    "reasons": [],
     "admins": [],         # section admins (user emails)
 }
 
@@ -509,6 +521,15 @@ def _cf_settings():
     return out
 
 
+def reason_options():
+    """The cancellation vocabulary, straight off the Select field. Writing
+    anything else invents a junk category in every report that groups by it."""
+    f = frappe.get_meta("Sales Order").get_field("custom_cancellation_reason")
+    if not f or not f.options:
+        return []
+    return [o.strip() for o in f.options.split("\n") if o.strip()]
+
+
 def _is_cf_admin():
     from logistics_portal.api.auth import resolve_role
     if resolve_role(frappe.session.user) == "manager":
@@ -520,7 +541,10 @@ def _is_cf_admin():
 def cf_settings():
     _gate()
     s = _cf_settings()
-    return {**s, "canEdit": _is_cf_admin()}
+    opts = reason_options()
+    return {**s, "canEdit": _is_cf_admin(), "reasonOptions": opts,
+            # No subset chosen = the whole vocabulary.
+            "reasons": [r for r in (s.get("reasons") or []) if r in opts] or opts}
 
 
 @frappe.whitelist()
@@ -547,10 +571,17 @@ def save_cf_settings(settings=None):
             frappe.throw("dayTarget must be between 1 and 500 decisions.")
         out["dayTarget"] = v
     if "reasons" in settings:
-        reasons = [str(r).strip()[:60] for r in (settings["reasons"] or []) if str(r).strip()]
+        opts = reason_options()
+        reasons = [str(r).strip() for r in (settings["reasons"] or []) if str(r).strip()]
+        bad = [r for r in reasons if r not in opts]
+        if bad:
+            frappe.throw("Not a cancellation reason on the Sales Order: "
+                         + ", ".join(bad[:3])
+                         + ". The list comes from the field itself — add it "
+                           "there first if it's genuinely new.")
         if not reasons:
             frappe.throw("Keep at least one cancel reason.")
-        out["reasons"] = reasons[:20]
+        out["reasons"] = reasons
     if "admins" in settings:
         from logistics_portal.api.auth import resolve_role
         if resolve_role(frappe.session.user) != "manager":
@@ -567,64 +598,128 @@ def save_cf_settings(settings=None):
 
 
 @frappe.whitelist()
-def report(days=7):
-    """The section's own report: per-agent decisions, confirm rate, attempts,
-    cancel-reason breakdown and the day-by-day funnel. Manager or section
-    admin (agents see their own numbers on the workspace itself)."""
+def report(days=7, frm=None, to=None):
+    """The section's report. Manager or section admin.
+
+    Everything here is counted from the SAME sources the desk's own
+    confirmation dashboard uses, so the two can never disagree:
+      - decisions from the Comment trail this workspace writes
+      - the agent from custom_allocated_to (the field the company runs on)
+      - cancel reasons from custom_cancellation_reason (the Select)
+      - revenue split into CONFIRMED vs actually COLLECTED — a confirm that
+        comes back as a refused parcel is not revenue, and the old dashboard's
+        single "Revenue" column couldn't tell the difference.
+    """
     _gate()
     if not _is_cf_admin():
         frappe.throw("Only the portal manager or a section admin can open the "
                      "section report.", frappe.PermissionError)
-    days = min(max(int(days or 7), 1), 90)
-    since = f"DATE_SUB(NOW(), INTERVAL {days} DAY)"
+    days = min(max(int(days or 7), 1), 365)
+    rng, rng_vals = _range(days, frm, to)
+    # Two windows, on purpose — the desk's own dashboard learned this too
+    # ("Agents Leaderboard" vs "Agent Performance (By Order Creation Date)"):
+    #   c_rng   ACTIVITY: decisions taken in the period. Answers "what did the
+    #           team do this week".
+    #   so_rng  COHORT: orders that ARRIVED in the period. Answers "of the work
+    #           that came in, how much turned into money".
+    # A window on `modified` would answer neither: it sweeps in every order
+    # merely touched, and inflated a single agent to 33,651 orders in 30 days.
+    c_rng = rng.format(col="c.creation")
+    so_rng = rng.format(col="so.creation")
 
-    # Per-agent decision counts from the Comment trail the workspace writes.
+    # ── per-agent decisions, from the trail ──────────────────────────────
     per_agent = {}
     for r in frappe.db.sql(
-            f"""SELECT c.owner, c.content FROM `tabComment` c
+            f"""SELECT c.owner, c.content, COUNT(*) n FROM `tabComment` c
                 WHERE c.reference_doctype = 'Sales Order'
-                  AND c.content LIKE 'Confirmation: %%'
-                  AND c.creation >= {since}""", as_dict=True):
+                  AND c.content LIKE 'Confirmation: %%' AND {c_rng}
+                GROUP BY c.owner, c.content""", rng_vals, as_dict=True):
+        bulk = "(bulk)" in r.content or " bulk " in r.content
         action = (r.content.split("Confirmation: ", 1)[1] or "").split(" ", 1)[0]
         action = action.strip("()—- ")
         a = per_agent.setdefault(r.owner, {"confirm": 0, "cancel": 0, "dna": 0,
                                            "followup": 0, "onhold": 0,
-                                           "duplicate": 0})
+                                           "duplicate": 0, "reopen": 0,
+                                           "bulk": 0})
         if action in a:
-            a[action] += 1
+            a[action] += int(r.n or 0)
+        if bulk:
+            a["bulk"] += int(r.n or 0)
+
+    # ── per-agent money, on the COHORT of orders that arrived in the window.
+    # NB: `collected` is the money that actually reached us — a confirm whose
+    # parcel comes back refused is not revenue, and the desk dashboard's single
+    # "Revenue" column cannot tell the two apart. `leak` is deliberately NOT
+    # computed per agent: an order confirmed but never shipped is usually the
+    # warehouse or the clock, not the agent, and blaming them for it would be
+    # a lie with their bonus attached. stickRate (delivered / shipped) is the
+    # part they own. ─────────────────────────────────────────────────────
+    money = {}
+    for r in frappe.db.sql(
+            f"""SELECT so.custom_allocated_to u,
+                       COUNT(*) orders,
+                       SUM(so.custom_sales_status = 'Confirmed') confirmed,
+                       SUM(CASE WHEN so.custom_sales_status = 'Confirmed'
+                                THEN so.grand_total ELSE 0 END) confirmed_value,
+                       SUM(CASE WHEN dn.custom_track_shipment_status = 'Delivered'
+                                THEN so.grand_total ELSE 0 END) collected,
+                       SUM(dn.custom_track_shipment_status = 'Delivered') delivered,
+                       SUM(dn.custom_track_shipment_status IN
+                           ('Delivery Exception', 'Failed Attempt')) failed,
+                       AVG(CASE WHEN so.custom_last_call_at IS NOT NULL
+                                THEN TIMESTAMPDIFF(MINUTE, so.creation,
+                                                   so.custom_last_call_at) END) resp_min,
+                       AVG(COALESCE(so.custom_call_attempts, 0)) attempts
+                FROM `tabSales Order` so
+                LEFT JOIN `tabDelivery Note Item` dni
+                       ON dni.against_sales_order = so.name AND dni.docstatus = 1
+                LEFT JOIN `tabDelivery Note` dn
+                       ON dn.name = dni.parent AND dn.docstatus = 1
+                WHERE so.docstatus = 1 AND COALESCE(so.custom_allocated_to,'') != ''
+                  AND {so_rng}
+                GROUP BY u""", rng_vals, as_dict=True):
+        money[r.u] = r
 
     agents = []
-    for user, a in per_agent.items():
+    for user in set(list(per_agent) + list(money)):
+        a = per_agent.get(user, {"confirm": 0, "cancel": 0, "dna": 0,
+                                 "followup": 0, "onhold": 0, "duplicate": 0,
+                                 "reopen": 0, "bulk": 0})
+        m = money.get(user)
         decided = a["confirm"] + a["cancel"]
-        stats = frappe.db.sql(
-            f"""SELECT AVG(custom_call_attempts), COUNT(*) FROM `tabSales Order`
-                WHERE custom_allocated_to = %s
-                  AND custom_sales_status = 'Confirmed'
-                  AND custom_last_call_at >= {since}""", (user,))[0]
+        shipped = int((m.delivered if m else 0) or 0) + int((m.failed if m else 0) or 0)
         agents.append({
             "agent": user.split("@")[0], "user": user, **a,
-            "total": sum(a.values()),
-            "confirmRate": round(a["confirm"] * 100.0 / decided, 1) if decided else 0,
-            "avgAttempts": round(float(stats[0] or 0), 1),
+            "total": a["confirm"] + a["cancel"] + a["dna"] + a["followup"]
+                     + a["onhold"] + a["duplicate"],
+            "confirmRate": round(a["confirm"] * 100.0 / decided, 1) if decided else None,
+            "avgAttempts": round(float((m.attempts if m else 0) or 0), 1),
+            # How fast the first human touch lands after the order arrives.
+            "respH": round(float((m.resp_min if m else 0) or 0) / 60, 1) if m and m.resp_min else None,
+            "confirmedValue": round(float((m.confirmed_value if m else 0) or 0)),
+            # The money that actually arrived. A confirm that bounces is not revenue.
+            "collected": round(float((m.collected if m else 0) or 0)),
+            "delivered": int((m.delivered if m else 0) or 0),
+            "failedParcels": int((m.failed if m else 0) or 0),
+            # Of what they confirmed AND shipped, how much stuck.
+            "stickRate": round(int((m.delivered if m else 0) or 0) * 100.0 / shipped, 1)
+                         if shipped else None,
         })
     agents.sort(key=lambda x: -x["total"])
 
-    # Cancel reasons breakdown (reason text sits between '—' and '· by').
-    reasons = {}
-    for r in frappe.db.sql(
-            f"""SELECT c.content FROM `tabComment` c
-                WHERE c.reference_doctype = 'Sales Order'
-                  AND c.content LIKE 'Confirmation: cancel%%'
-                  AND c.creation >= {since}""", as_dict=True):
-        txt = r.content
-        reason = ""
-        if "—" in txt:
-            reason = txt.split("—", 1)[1].split("· by", 1)[0].strip()
-        reasons[reason or "(no reason)"] = reasons.get(reason or "(no reason)", 0) + 1
-    reason_rows = sorted(({"reason": k, "n": v} for k, v in reasons.items()),
-                         key=lambda x: -x["n"])[:12]
+    # ── cancel reasons, from the Select the whole company groups by ──────
+    reason_rows = []
+    if frappe.get_meta("Sales Order").has_field("custom_cancellation_reason"):
+        reason_rows = [{"reason": r[0] or "(none)", "n": int(r[1] or 0)}
+                       for r in frappe.db.sql(
+            f"""SELECT COALESCE(NULLIF(so.custom_cancellation_reason, ''), '(none)'),
+                       COUNT(*) n
+                FROM `tabSales Order` so
+                WHERE so.docstatus = 1 AND so.custom_sales_status = 'Cancelled'
+                  AND {so_rng}
+                GROUP BY 1 ORDER BY n DESC LIMIT 15""", rng_vals)]
 
-    # Day-by-day funnel: how many orders ENTERED each terminal state.
+    # ── day by day ───────────────────────────────────────────────────────
     funnel = frappe.db.sql(
         f"""SELECT DATE(c.creation) d,
                    SUM(c.content LIKE 'Confirmation: confirm%%') conf,
@@ -632,13 +727,39 @@ def report(days=7):
                    SUM(c.content LIKE 'Confirmation: dna%%') dna
             FROM `tabComment` c
             WHERE c.reference_doctype = 'Sales Order'
-              AND c.content LIKE 'Confirmation: %%' AND c.creation >= {since}
-            GROUP BY DATE(c.creation) ORDER BY d""", as_dict=True)
+              AND c.content LIKE 'Confirmation: %%' AND {c_rng}
+            GROUP BY DATE(c.creation) ORDER BY d""", rng_vals, as_dict=True)
 
+    # ── the hour of the day the work actually happens ────────────────────
+    hours = {int(r[0]): int(r[1]) for r in frappe.db.sql(
+        f"""SELECT HOUR(c.creation), COUNT(*) FROM `tabComment` c
+            WHERE c.reference_doctype = 'Sales Order'
+              AND c.content LIKE 'Confirmation: %%' AND {c_rng}
+            GROUP BY HOUR(c.creation)""", rng_vals)}
+
+
+    # ── the chase ladder the automation ran before we ever called ────────
+    ladder = None
+    if frappe.get_meta("Sales Order").has_field("custom_first_reminder"):
+        ladder = frappe.db.sql(
+            f"""SELECT SUM(so.custom_first_reminder = 1) r1,
+                       SUM(so.custom_second_reminder = 1) r2,
+                       COUNT(*) n
+                FROM `tabSales Order` so
+                WHERE so.docstatus = 1 AND {so_rng}""", rng_vals, as_dict=True)[0]
+        ladder = {"r1": int(ladder.r1 or 0), "r2": int(ladder.r2 or 0),
+                  "n": int(ladder.n or 0)}
+
+    from logistics_portal.api.settings import get_ops
     return {
-        "days": days,
+        "days": days, "frm": frm or "", "to": to or "",
         "agents": agents,
         "reasons": reason_rows,
         "funnel": [{"date": str(f.d), "confirm": int(f.conf or 0),
                     "cancel": int(f.canc or 0), "dna": int(f.dna or 0)} for f in funnel],
+        "hours": [{"h": h, "n": hours.get(h, 0)}
+                  for h in range(min(hours) if hours else 8,
+                                 (max(hours) if hours else 20) + 1)],
+        "ladder": ladder,
+        "target": int(_cf_settings().get("dayTarget", 40)),
     }
