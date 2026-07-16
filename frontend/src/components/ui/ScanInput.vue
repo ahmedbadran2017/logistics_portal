@@ -43,6 +43,10 @@
         <span>scan debug · {{ log.length }} events</span>
         <button type="button" class="underline" tabindex="-1" @click.prevent="log = []">clear</button>
       </div>
+      <!-- What the DEVICE says it is. The TC26's CSS width can't be derived
+           from the spec sheet — 720px at 293ppi lands between two Android
+           density buckets — so let it answer for itself. -->
+      <div class="text-stone-500 mb-1.5 pb-1.5 border-b border-white/10 break-all">{{ device }}</div>
       <div v-if="!log.length" class="text-stone-500">Scan once — every raw event lands here.</div>
       <div v-for="(l, i) in log" :key="i" class="whitespace-pre-wrap break-all">{{ l }}</div>
     </div>
@@ -72,6 +76,7 @@ const softKeyboard = ref(false);
 // no console to open, and what the wedge actually sends is the whole question.
 const debug = ref(false);
 const log = ref([]);
+const device = ref("");
 function logEvent(type, detail) {
   if (!debug.value) return;
   const t = new Date().toISOString().slice(14, 23);
@@ -240,6 +245,17 @@ function vibrate(p) {
 onMounted(() => {
   try {
     debug.value = new URLSearchParams(window.location.search).get("scandebug") === "1";
+    if (debug.value) {
+      const m = /Chrome\/(\d+)/.exec(navigator.userAgent);
+      device.value = [
+        `css ${window.innerWidth}x${window.innerHeight}`,
+        `dpr ${window.devicePixelRatio}`,
+        `phys ${Math.round(window.innerWidth * window.devicePixelRatio)}px`,
+        `chrome ${m ? m[1] : "?"}`,
+        `standalone ${window.matchMedia("(display-mode: standalone)").matches}`,
+        `coarse ${window.matchMedia("(pointer: coarse)").matches}`,
+      ].join(" · ");
+    }
   } catch (_) { /* no URL access, no debug */ }
   if (props.autofocus) refocus();
   document.addEventListener("keydown", captureKeys, true);
