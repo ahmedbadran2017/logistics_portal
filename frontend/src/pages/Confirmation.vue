@@ -43,31 +43,49 @@
           </span>
         </button>
       </div>
-      <div class="relative ms-auto">
-        <Icon name="search" :size="13" class="absolute start-3 top-1/2 -translate-y-1/2 text-stone-400" />
-        <input v-model="q" :placeholder="t('cf.searchPh')" @input="debouncedLoad"
-               class="h-10 w-[240px] ps-9 pe-3 text-[12.5px] bg-white rounded-xl ring-1 ring-stone-200/80 focus:ring-2 outline-none transition-shadow"
-               style="--tw-ring-color: var(--accent-300)" />
+      <div class="flex items-center gap-2 ms-auto flex-wrap">
+        <DateRange v-model:days="days" v-model:frm="frm" v-model:to="to" @change="page = 1; load()" />
+        <div class="relative">
+          <Icon name="search" :size="13" class="absolute start-3 top-1/2 -translate-y-1/2 text-stone-400" />
+          <input v-model="q" :placeholder="t('cf.searchPh')" @input="debouncedLoad"
+                 class="h-10 w-[240px] ps-9 pe-3 text-[12.5px] bg-white rounded-xl ring-1 ring-stone-200/80 focus:ring-2 outline-none transition-shadow"
+                 style="--tw-ring-color: var(--accent-300)" />
+        </div>
       </div>
     </div>
 
-    <!-- backlog bulk bar -->
-    <div v-if="tab === 'backlog' && !loading && rows.length"
+    <!-- bulk bar — on every tab, with the actions that tab honestly allows -->
+    <div v-if="!loading && rows.length"
          class="flex items-center gap-2.5 flex-wrap bg-white rounded-2xl ring-1 ring-stone-200/80 px-4 py-3">
       <label class="inline-flex items-center gap-2 text-[12.5px] font-medium text-stone-700 cursor-pointer">
-        <input type="checkbox" :checked="selected.size === rows.length" class="w-4 h-4"
+        <input type="checkbox" :checked="selected.size === rows.length && rows.length > 0" class="w-4 h-4"
                style="accent-color: var(--accent-600)" @change="toggleAll" />
         {{ t('rs.selectPage') }}
       </label>
       <span class="text-[12px] text-stone-400 tabular-nums">{{ selected.size }} {{ t('rs.selectedN') }}</span>
       <div class="flex items-center gap-2 ms-auto flex-wrap">
-        <input v-model="bulkReason" :placeholder="t('cf.cancelPh')" maxlength="120"
-               class="h-9 w-[220px] ps-3 pe-3 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] focus:outline-none" />
-        <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-rose-700 bg-rose-50 ring-1 ring-rose-200 hover:bg-rose-100 disabled:opacity-40 transition-colors"
-                :disabled="!selected.size || !bulkReason.trim() || bulkBusy" @click="bulkCancel">
-          <Icon name="x" :size="13" class="inline -mt-px me-1" />{{ t('cf.bulkCancel') }}
+        <!-- done tabs: undo a batch of wrong decisions -->
+        <button v-if="isDone"
+                class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-amber-700 bg-amber-50 ring-1 ring-amber-200 hover:bg-amber-100 disabled:opacity-40 transition-colors"
+                :disabled="!selected.size || bulkBusy" @click="bulkAct('reopen')">
+          <Icon name="rotate-ccw" :size="13" class="inline -mt-px me-1" />{{ t('cf.bulkReopen') }}
         </button>
+        <!-- working queues: kill or de-duplicate a batch -->
+        <template v-else>
+          <input v-model="bulkReason" :placeholder="t('cf.cancelPh')" maxlength="120"
+                 class="h-9 w-[200px] ps-3 pe-3 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] focus:outline-none" />
+          <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-violet-700 bg-violet-50 ring-1 ring-violet-200 hover:bg-violet-100 disabled:opacity-40 transition-colors"
+                  :disabled="!selected.size || bulkBusy" @click="bulkAct('duplicate')">
+            <Icon name="copy" :size="13" class="inline -mt-px me-1" />{{ t('cf.bulkDuplicate') }}
+          </button>
+          <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-rose-700 bg-rose-50 ring-1 ring-rose-200 hover:bg-rose-100 disabled:opacity-40 transition-colors"
+                  :disabled="!selected.size || !bulkReason.trim() || bulkBusy" @click="bulkCancel">
+            <Icon name="x" :size="13" class="inline -mt-px me-1" />{{ t('cf.bulkCancel') }}
+          </button>
+        </template>
       </div>
+      <!-- Deliberately absent: bulk confirm. A confirmation means a customer
+           said yes on a call; there is no honest way to do that to 50 rows. -->
     </div>
 
     <!-- rows -->
@@ -85,7 +103,7 @@
            :class="r.due ? 'cf-card-due' : ''">
         <div class="flex items-center gap-3.5 flex-wrap">
           <!-- customer identity -->
-          <input v-if="tab === 'backlog'" type="checkbox" class="w-4 h-4 shrink-0"
+          <input type="checkbox" class="w-4 h-4 shrink-0"
                  style="accent-color: var(--accent-600)"
                  :checked="selected.has(r.order)" @change="toggleOne(r.order)" />
           <span class="cf-avatar" :class="r.due ? 'cf-avatar-due' : ''">{{ initial(r.customer) }}</span>
@@ -240,21 +258,15 @@
     </TransitionGroup>
 
     <!-- pager -->
-    <div v-if="!loading && total > pageSize" class="flex items-center justify-between px-1">
-      <span class="text-[11.5px] text-stone-500 tabular-nums">
-        {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, total) }} / {{ total }}
-      </span>
-      <div class="flex items-center gap-1">
-        <button class="pg-btn" :disabled="page <= 1" @click="page--; load()"><Icon name="chevron-left" :size="13" class="flip-rtl" /></button>
-        <button class="pg-btn" :disabled="page * pageSize >= total" @click="page++; load()"><Icon name="chevron-right" :size="13" class="flip-rtl" /></button>
-      </div>
-    </div>
+    <Pager v-if="!loading" v-model:page="page" v-model:pageSize="pageSize" :total="total" />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import Icon from "@/components/ui/Icon.vue";
+import Pager from "@/components/ui/Pager.vue";
+import DateRange from "@/components/ui/DateRange.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
@@ -278,7 +290,12 @@ const DONE = ["confirmed", "cancelled", "duplicated"];
 const tab = ref("pending");
 const q = ref("");
 const page = ref(1);
-const pageSize = 30;
+const pageSize = ref(20);
+const days = ref(30);
+const frm = ref("");
+const to = ref("");
+// The pager owns page/pageSize; a change to either has to refetch.
+watch([page, pageSize], () => load());
 const data = ref(null);
 const rows = ref([]);
 const total = ref(0);
@@ -302,8 +319,9 @@ async function load() {
   selected.value = new Set();
   try {
     const res = await api("confirmation.board", {
-      tab: tab.value, q: q.value, limit: pageSize,
-      offset: (page.value - 1) * pageSize,
+      tab: tab.value, q: q.value, limit: pageSize.value,
+      offset: (page.value - 1) * pageSize.value,
+      days: days.value, frm: frm.value || undefined, to: to.value || undefined,
     });
     data.value = res;
     rows.value = res.rows || [];
@@ -368,6 +386,23 @@ function toggleOne(order) {
   const s = new Set(selected.value);
   s.has(order) ? s.delete(order) : s.add(order);
   selected.value = s;
+}
+
+async function bulkAct(action) {
+  bulkBusy.value = true;
+  try {
+    const res = await apiPost("confirmation.bulk_act", {
+      orders: [...selected.value], action, reason: bulkReason.value,
+    });
+    success(t("cf.bulkDone"), `${res.done}`);
+    selected.value = new Set();
+    bulkReason.value = "";
+    load();
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    bulkBusy.value = false;
+  }
 }
 
 async function bulkCancel() {

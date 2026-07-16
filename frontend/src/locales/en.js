@@ -757,6 +757,11 @@ export default {
       title: "Pick lists",
     },
   },
+  pg: { prev: "Previous", next: "Next" },
+  dr: {
+    d1: "Today", d7: "Last 7 days", d30: "Last 30 days", d90: "Last 90 days",
+    custom: "Custom range", apply: "Apply", since: "since", until: "until",
+  },
   cf: {
     emptyHint: "New orders land here automatically — take a break or check the retry queues.",
     title: "Confirmation",
@@ -799,6 +804,8 @@ export default {
     dFull: "Open the full order",
     dFail: "Couldn't load the order",
     bulkCancel: "Cancel selection",
+    bulkDuplicate: "Mark duplicate",
+    bulkReopen: "Put back in the queue",
     bulkDone: "Batch cancelled",
     slaLate: "1ST CALL LATE",
     actDuplicate: "Duplicate order",

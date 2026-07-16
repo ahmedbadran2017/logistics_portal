@@ -53,30 +53,62 @@ def _gate():
     return role
 
 
+def _range(days, frm, to):
+    """The window the board looks at.
+
+    `days` is the rolling default the tabs are counted on. An explicit
+    from/to overrides it — the manager reviewing last month's cancels needs a
+    calendar range, not "the last N days from right now".
+    Returns (sql_condition_template, extra_vals) where the template takes a
+    {col} placeholder so each tab can point it at its own date column.
+    """
+    import re as _re
+    ok = lambda d: bool(d and _re.match(r"^\d{4}-\d{2}-\d{2}$", str(d).strip()))
+    if ok(frm) or ok(to):
+        conds, v = [], {}
+        if ok(frm):
+            conds.append("{col} >= %(frm)s")
+            v["frm"] = str(frm).strip() + " 00:00:00"
+        if ok(to):
+            conds.append("{col} <= %(to)s")
+            v["to"] = str(to).strip() + " 23:59:59"
+        return " AND ".join(conds), v
+    days = min(max(int(days or 30), 1), 365)
+    return "{col} >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)", {"days": days}
+
+
 @frappe.whitelist()
-def board(tab="pending", days=30, q="", limit=30, offset=0):
-    """The four queues + counts + my day so far, one call."""
+def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
+    """The queues + counts + my day so far, one call."""
     _gate()
     if tab not in QUEUES and tab not in DONE_QUEUES and tab != "backlog":
         tab = "pending"
-    days = min(max(int(days or 30), 1), 90)
+    days = min(max(int(days or 30), 1), 365)
     limit = min(max(int(limit or 30), 1), 100)
     offset = max(int(offset or 0), 0)
-    vals = {"days": days, "limit": limit, "offset": offset}
+    rng, rng_vals = _range(days, frm, to)
+    custom_range = "frm" in rng_vals or "to" in rng_vals
+    vals = {"days": days, "limit": limit, "offset": offset, **rng_vals}
+
+    # Each family of tabs is dated by its OWN column: the working queues by
+    # when the order arrived, the done tabs by when the decision was taken.
+    q_rng = rng.format(col="creation")
+    d_rng = rng.format(col="COALESCE(custom_last_call_at, modified)")
 
     counts = {k: 0 for k in QUEUES}
     for r in frappe.db.sql(
-            """SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
-               WHERE docstatus = 1 AND custom_sales_status IN %(sts)s
-                 AND creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)
-               GROUP BY custom_sales_status""",
-            {"sts": tuple(QUEUES.values()), "days": days}, as_dict=True):
+            f"""SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
+                WHERE docstatus = 1 AND custom_sales_status IN %(sts)s
+                  AND {q_rng}
+                GROUP BY custom_sales_status""",
+            {"sts": tuple(QUEUES.values()), **rng_vals}, as_dict=True):
         for k, v in QUEUES.items():
             if v == r.s:
                 counts[k] = int(r.n or 0)
-    # Orders that aged past the working window (2,900 were invisible) —
-    # an explicit tab with bulk-expire instead of a silent cutoff.
-    counts["backlog"] = int(frappe.db.sql(
+    # Orders that aged past the working window (2,900 were invisible) — an
+    # explicit tab with bulk-expire instead of a silent cutoff. Meaningless
+    # against a hand-picked range, so it's only counted on the rolling window.
+    counts["backlog"] = 0 if custom_range else int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabSales Order`
            WHERE docstatus = 1 AND custom_sales_status IN %(sts)s
              AND creation < DATE_SUB(NOW(), INTERVAL %(days)s DAY)""",
@@ -85,19 +117,18 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
     # not when the order arrived — the agent looks for "what I did today",
     # and a 40-day-old order confirmed an hour ago has to be in reach.
     for r in frappe.db.sql(
-            """SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
-               WHERE docstatus = 1 AND custom_sales_status IN %(sts)s
-                 AND COALESCE(custom_last_call_at, modified)
-                     >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)""",
-            {"sts": tuple(DONE_QUEUES.values()), "days": days}, as_dict=True):
+            f"""SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
+                WHERE docstatus = 1 AND custom_sales_status IN %(sts)s
+                  AND {d_rng}
+                GROUP BY custom_sales_status""",
+            {"sts": tuple(DONE_QUEUES.values()), **rng_vals}, as_dict=True):
         for k, v in DONE_QUEUES.items():
             if v == r.s:
                 counts[k] = int(r.n or 0)
 
     if tab in DONE_QUEUES:
         conds = ["so.docstatus = 1", "so.custom_sales_status = %(status)s",
-                 """COALESCE(so.custom_last_call_at, so.modified)
-                    >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)"""]
+                 rng.format(col="COALESCE(so.custom_last_call_at, so.modified)")]
         vals["status"] = DONE_QUEUES[tab]
     elif tab == "backlog":
         conds = ["so.docstatus = 1", "so.custom_sales_status IN %(statuses)s",
@@ -105,7 +136,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0):
         vals["statuses"] = tuple(QUEUES.values())
     else:
         conds = ["so.docstatus = 1", "so.custom_sales_status = %(status)s",
-                 "so.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)"]
+                 rng.format(col="so.creation")]
         vals["status"] = QUEUES[tab]
     if q and str(q).strip():
         vals["q"] = f"%{str(q).strip()}%"
@@ -274,6 +305,44 @@ def act(order, action, note=None):
             frappe.cache().delete_value(k)
         frappe.cache().delete_keys("lp_suggest")
     return {"ok": True, "order": order, "action": action, "attempts": attempts}
+
+
+@frappe.whitelist()
+def bulk_act(orders=None, action=None, reason=None):
+    """Mark a batch duplicate, or undo a batch of decisions.
+
+    Deliberately NOT here: bulk confirm. A confirmation asserts the customer
+    said yes on a call — there is no honest way to assert that for 50 rows at
+    once, and every downstream number (confirm rate, bonus, the picking pool)
+    would inherit the lie.
+    """
+    import json as _json
+    _gate()
+    if not _is_cf_admin():
+        frappe.throw("Only the portal manager or a confirmation section admin "
+                     "can act in bulk.", frappe.PermissionError)
+    if action not in ("duplicate", "reopen"):
+        frappe.throw("Unknown bulk action.")
+    if isinstance(orders, str):
+        orders = _json.loads(orders)
+    orders = [str(x).strip() for x in (orders or []) if str(x).strip()]
+    if not orders:
+        frappe.throw("Nothing selected.")
+    if len(orders) > 200:
+        frappe.throw("200 orders max per batch.")
+    reason = (reason or "").strip()
+    done, skipped = [], []
+    for name in orders:
+        try:
+            # Reuse the single-order path: it owns the reopen guards (a picked
+            # order can't be pulled back) and writes the same comment trail.
+            act(name, action, reason)
+            done.append(name)
+        except Exception:
+            skipped.append(name)
+            frappe.db.rollback()
+    frappe.db.commit()
+    return {"ok": True, "done": len(done), "skipped": skipped}
 
 
 @frappe.whitelist()

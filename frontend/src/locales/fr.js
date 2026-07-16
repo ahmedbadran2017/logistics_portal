@@ -757,6 +757,12 @@ export default {
       title: "Listes de prélèvement",
     },
   },
+  pg: { prev: "Précédent", next: "Suivant" },
+  dr: {
+    d1: "Aujourd'hui", d7: "7 derniers jours", d30: "30 derniers jours",
+    d90: "90 derniers jours",
+    custom: "Période personnalisée", apply: "Appliquer", since: "depuis", until: "jusqu'au",
+  },
   cf: {
     emptyHint: "Les nouvelles commandes arrivent ici automatiquement — faites une pause ou passez aux files de rappel.",
     title: "Confirmation",
@@ -799,6 +805,8 @@ export default {
     dFull: "Ouvrir la commande complète",
     dFail: "Impossible de charger la commande",
     bulkCancel: "Annuler la sélection",
+    bulkDuplicate: "Marquer dupliquées",
+    bulkReopen: "Remettre dans la file",
     bulkDone: "Lot annulé",
     slaLate: "1ᵉʳ APPEL EN RETARD",
     actDuplicate: "Commande dupliquée",
