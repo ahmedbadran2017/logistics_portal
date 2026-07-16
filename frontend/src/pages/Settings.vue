@@ -165,6 +165,36 @@
       </ul>
       <div v-else class="text-[12px] text-stone-400 py-4">{{ t('px.set.whEmpty') }}</div>
     </div>
+
+    <!-- Maintenance (manager): release reservations held by cancelled orders -->
+    <div v-if="role === 'manager'" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-5">
+      <div class="flex items-center gap-2 mb-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">
+        <Icon name="boxes" :size="15" /> {{ t('px.set.mntTitle') }}
+      </div>
+      <p class="text-[11.5px] text-stone-500 mb-3">{{ t('px.set.mntSub') }}</p>
+      <div v-if="mnt" class="flex items-center gap-3 flex-wrap">
+        <div class="flex-1 min-w-[220px]">
+          <div class="text-[13px] font-semibold text-stone-900 tabular-nums">
+            {{ mnt.remaining }} <span class="font-normal text-stone-500">{{ t('px.set.mntRemaining') }}</span>
+          </div>
+          <div v-if="mnt.running" class="text-[11.5px] text-emerald-600 tabular-nums mt-0.5">
+            {{ t('px.set.mntRunning') }} — {{ mnt.done }} {{ t('px.set.mntDone') }}<span v-if="mnt.failed"> · {{ mnt.failed }} {{ t('px.set.mntFailed') }}</span>
+          </div>
+          <div v-else-if="mnt.done" class="text-[11.5px] text-stone-400 tabular-nums mt-0.5">
+            {{ mnt.done }} {{ t('px.set.mntDone') }}<span v-if="mnt.failed"> · {{ mnt.failed }} {{ t('px.set.mntFailed') }}</span>
+          </div>
+        </div>
+        <button v-if="mnt.running"
+                class="h-9 px-4 rounded-lg text-[12px] font-semibold text-stone-500 bg-stone-100 ring-1 ring-stone-200"
+                @click="pollMnt"><Icon name="refresh-cw" :size="13" class="inline -mt-px me-1" />{{ t('common.refresh') }}</button>
+        <button v-else
+                class="h-9 px-4 rounded-lg text-[12px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-50"
+                :disabled="mntBusy || !mnt.remaining" @click="startMnt">
+          {{ mntBusy ? '…' : t('px.set.mntStart') }}
+        </button>
+      </div>
+      <div v-else class="text-[12px] text-stone-400 py-2">{{ t('px.set.deployHint') }}</div>
+    </div>
   </div>
 </template>
 
@@ -280,5 +310,33 @@ async function toggleZone(z) {
     whSaving.value = false;
   }
 }
-onMounted(() => { loadWarehouses(); loadOps(); });
+// Maintenance: release reservations held by Cancelled-status orders.
+const mnt = ref(null);
+const mntBusy = ref(false);
+
+async function pollMnt() {
+  try {
+    mnt.value = await api("maintenance.release_status");
+  } catch {
+    mnt.value = null;
+  }
+}
+
+async function startMnt() {
+  mntBusy.value = true;
+  try {
+    await apiPost("maintenance.release_start");
+    await pollMnt();
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    mntBusy.value = false;
+  }
+}
+
+onMounted(() => {
+  loadWarehouses();
+  loadOps();
+  if (role.value === "manager") pollMnt();
+});
 </script>

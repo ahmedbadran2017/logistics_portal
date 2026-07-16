@@ -632,6 +632,13 @@ export default {
       whSub: "Les zones de stock où puisent le moteur de préparation et le tableau des commandes. Désactivez une zone pour exclure son stock de la préparation (il apparaîtra en rupture). Les casiers d'allée sont toujours préparables ; les zones transit/défectueux sont toujours exclues.",
       whLoading: "Chargement des zones…",
       whEmpty: "Aucune zone configurable.",
+      mntTitle: "Maintenance du stock",
+      mntSub: "62k commandes annulées réservent encore du stock dans les emplacements (jamais clôturées). Ceci les clôture en arrière-plan — ERPNext recalcule les quantités réservées au fur et à mesure.",
+      mntRemaining: "commandes annulées réservant encore du stock",
+      mntStart: "Libérer les réservations",
+      mntRunning: "En cours en arrière-plan",
+      mntDone: "clôturées",
+      mntFailed: "échouées",
     },
     mani: {
       closing: "Clôture…",

@@ -632,6 +632,13 @@ export default {
       whSub: "Which stock zones the pick engine and Orders board draw from. Turn a zone off to keep its stock out of picking (it will show as out of stock). Aisle bins are always pickable; transit/defective zones are always excluded.",
       whLoading: "Loading zones…",
       whEmpty: "No configurable zones.",
+      mntTitle: "Stock maintenance",
+      mntSub: "62k cancelled orders still hold stock reservations in the bins (they were never Closed). This closes them in the background — ERPNext recomputes the reserved quantities as it goes.",
+      mntRemaining: "cancelled orders still reserving stock",
+      mntStart: "Release reservations",
+      mntRunning: "Running in the background",
+      mntDone: "closed",
+      mntFailed: "failed",
     },
     mani: {
       closing: "Closing…",
