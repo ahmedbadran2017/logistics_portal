@@ -276,17 +276,230 @@ def team():
     return {"leaderboard": _leaderboard()}
 
 
+# ── My Performance ─────────────────────────────────────────────────────────
+# Every number below comes from the trail the work itself writes: the lanes'
+# "Confirmation:/Rescue:/CS:" comments and the pickers' submitted pick lists.
+# Nothing is estimated — a metric with no source is simply absent.
+
+# Which comment prefixes each lane writes, and which of its actions count as
+# a "win" (the outcome the lane exists to produce).
+_LANES = {
+    "cf": {"prefix": "Confirmation", "dt": "Sales Order", "wins": ("confirm",)},
+    "rs": {"prefix": "Rescue", "dt": "Sales Order", "wins": ("redeliver", "reship")},
+    "cs": {"prefix": "CS", "dt": "Issue", "wins": ("resolve",)},
+}
+
+
+def _comment_action(content, prefix):
+    return (content.split(f"{prefix}: ", 1)[-1] or "").split(" ", 1)[0].strip("()—-→ ")
+
+
+def _agent_me(user, days=7):
+    """Contact-center agent: today's decisions, pace, rate, trend, rank."""
+    today = nowdate()
+    by_action, today_total, today_wins = {}, 0, 0
+    trend_map, hours, recent = {}, {}, []
+
+    for lane, cfg in _LANES.items():
+        rows = frappe.db.sql(
+            """SELECT c.content, c.creation, c.reference_name,
+                      DATE(c.creation) d, HOUR(c.creation) h
+               FROM `tabComment` c
+               WHERE c.owner = %(u)s AND c.reference_doctype = %(dt)s
+                 AND c.creation >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)
+                 AND c.content LIKE %(pfx)s
+               ORDER BY c.creation DESC""",
+            {"u": user, "dt": cfg["dt"], "days": days - 1,
+             "pfx": cfg["prefix"] + ": %"}, as_dict=True)
+        for r in rows:
+            if "(bulk)" in r.content or " bulk " in r.content:
+                continue
+            action = _comment_action(r.content, cfg["prefix"])
+            key = f"{lane}.{action}"
+            is_win = action in cfg["wins"]
+            d = str(r.d)
+            t = trend_map.setdefault(d, {"date": d, "total": 0, "wins": 0})
+            t["total"] += 1
+            t["wins"] += 1 if is_win else 0
+            if d == today:
+                by_action[key] = by_action.get(key, 0) + 1
+                today_total += 1
+                today_wins += 1 if is_win else 0
+                hours[int(r.h)] = hours.get(int(r.h), 0) + 1
+                if len(recent) < 12:
+                    recent.append({"ref": r.reference_name, "lane": lane,
+                                   "action": action, "win": is_win,
+                                   "at": str(r.creation)[11:16]})
+
+    # Confirm rate: the decisions that actually closed an order today.
+    closed = by_action.get("cf.confirm", 0) + by_action.get("cf.cancel", 0)
+    rate = round(by_action.get("cf.confirm", 0) * 100.0 / closed, 1) if closed else None
+
+    # Rank among everyone who worked a lane today (wins decide it).
+    board = {}
+    for lane, cfg in _LANES.items():
+        for r in frappe.db.sql(
+                """SELECT c.owner, c.content, COUNT(*) n FROM `tabComment` c
+                   WHERE c.reference_doctype = %(dt)s AND c.creation >= %(since)s
+                     AND c.content LIKE %(pfx)s
+                   GROUP BY c.owner, c.content""",
+                {"dt": cfg["dt"], "since": f"{today} 00:00:00",
+                 "pfx": cfg["prefix"] + ": %"}, as_dict=True):
+            if "(bulk)" in r.content or " bulk " in r.content:
+                continue
+            action = _comment_action(r.content, cfg["prefix"])
+            b = board.setdefault(r.owner, {"total": 0, "wins": 0})
+            b["total"] += int(r.n or 0)
+            if action in cfg["wins"]:
+                b["wins"] += int(r.n or 0)
+    ranked = sorted(board.items(), key=lambda x: (-x[1]["wins"], -x[1]["total"]))
+    rank = next((i + 1 for i, (u, _) in enumerate(ranked) if u == user), 0)
+
+    # Best day in the window — something to beat.
+    best = max(trend_map.values(), key=lambda x: x["total"], default=None)
+
+    trend = []
+    for i in range(days - 1, -1, -1):
+        d = add_days(today, -i)
+        trend.append(trend_map.get(d, {"date": d, "total": 0, "wins": 0}))
+
+    # Days worked in a row, ending today (0 if nothing done today yet).
+    streak = 0
+    for row in reversed(trend):
+        if row["total"] > 0:
+            streak += 1
+        else:
+            break
+
+    from logistics_portal.api.settings import get_ops
+    return {
+        "kind": "agent",
+        "today": today_total, "wins": today_wins,
+        "byAction": by_action,
+        "target": int(get_ops("dayTarget") or 40),
+        "rate": rate, "rateLabel": "confirmRate",
+        "rank": rank, "of": len(ranked),
+        "streak": streak,
+        "hours": [{"h": h, "n": hours.get(h, 0)}
+                  for h in range(int(get_ops("floorStart") or 8),
+                                 int(get_ops("floorEnd") or 20) + 1)],
+        "trend": trend,
+        "best": best,
+        "recent": recent,
+    }
+
+
+def _picker_me(user, days=7):
+    """Picker: distinct ORDERS on their submitted pick lists (a list is a
+    multi-order batch), attributed to the list's creation day — the same
+    definition the team leaderboard uses, so the two screens never disagree.
+
+    No hourly pace here: on the live floor a dispatcher creates the lists
+    through the day and they're submitted in one batch at night, so neither
+    timestamp marks when the picker actually worked. A chart of that would be
+    a chart of the batch job, not of the person.
+    """
+    today = nowdate()
+    rows = frappe.db.sql(
+        """SELECT DATE(pl.creation) d, COUNT(DISTINCT pli.sales_order) n
+           FROM `tabPick List` pl
+           JOIN `tabPick List Item` pli ON pli.parent = pl.name
+           WHERE pl.docstatus = 1
+             AND COALESCE(NULLIF(pl.custom_assigned_picker, ''), pl.owner) = %(u)s
+             AND pl.creation >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)
+           GROUP BY DATE(pl.creation)""",
+        {"u": user, "days": days - 1}, as_dict=True)
+    trend_map = {str(r.d): {"date": str(r.d), "total": int(r.n or 0),
+                            "wins": int(r.n or 0)} for r in rows}
+    trend = []
+    for i in range(days - 1, -1, -1):
+        d = add_days(today, -i)
+        trend.append(trend_map.get(d, {"date": d, "total": 0, "wins": 0}))
+
+    board = {r[0]: int(r[1]) for r in frappe.db.sql(
+        """SELECT COALESCE(NULLIF(pl.custom_assigned_picker, ''), pl.owner) u,
+                  COUNT(DISTINCT pli.sales_order) n
+           FROM `tabPick List` pl
+           JOIN `tabPick List Item` pli ON pli.parent = pl.name
+           WHERE pl.docstatus = 1 AND DATE(pl.creation) = CURDATE()
+             AND COALESCE(NULLIF(pl.custom_assigned_picker, ''), pl.owner)
+                 NOT IN ('Administrator', 'Guest')
+           GROUP BY u""")}
+    ranked = sorted(board.items(), key=lambda x: -x[1])
+    rank = next((i + 1 for i, (u, _) in enumerate(ranked) if u == user), 0)
+
+    best = max(trend, key=lambda x: x["total"], default=None)
+    streak = 0
+    for row in reversed(trend):
+        if row["total"] > 0:
+            streak += 1
+        else:
+            break
+
+    from logistics_portal.api.settings import get_ops
+    today_total = trend[-1]["total"] if trend else 0
+    return {
+        "kind": "picker",
+        "today": today_total, "wins": today_total,
+        "byAction": {"pick.picked": today_total},
+        "target": int(get_ops("dayTarget") or 40),
+        "rate": None, "rateLabel": "",
+        "rank": rank, "of": len(ranked),
+        "streak": streak,
+        "hours": [],
+        "trend": trend, "best": best if best and best["total"] else None,
+        "recent": [],
+    }
+
+
 @frappe.whitelist()
 def me(user=None):
-    """Personal stats for the My Performance screen."""
-    user = user or frappe.session.user
+    """Personal performance for the logged-in employee.
+
+    Role-aware: contact-center agents get their lane decisions, pickers get
+    their picked orders. A manager may look at any user; nobody else can.
+    """
+    from logistics_portal.api.auth import resolve_role
+    me_user = frappe.session.user
+    role = resolve_role(me_user)
+    if user and user != me_user:
+        if role != "manager":
+            frappe.throw("You can only see your own performance.",
+                         frappe.PermissionError)
+        target_user = user
+        role = resolve_role(user)
+    else:
+        target_user = me_user
+
+    data = (_agent_me(target_user) if role in ("confirmation", "manager")
+            else _picker_me(target_user))
+    data["user"] = target_user
+    data["role"] = role
+
+    # This month's bonus standing, so the agent sees the reward too.
     try:
-        today = frappe.db.count(
-            "Pick List", {"custom_assigned_picker": user, "modified": [">=", nowdate()]}
-        )
-        return {"todayCount": today, "avgTime": "—", "slaHit": 0, "rank": 0, "target": 40, "spark": [], "bests": []}
+        from logistics_portal.api.contact_center import _bonus_settings
+        s = _bonus_settings()
+        pts = s["points"]
+        total = 0.0
+        for lane, cfg in _LANES.items():
+            for r in frappe.db.sql(
+                    """SELECT c.content, COUNT(*) n FROM `tabComment` c
+                       WHERE c.owner = %(u)s AND c.reference_doctype = %(dt)s
+                         AND c.creation >= %(start)s AND c.content LIKE %(pfx)s
+                       GROUP BY c.content""",
+                    {"u": target_user, "dt": cfg["dt"],
+                     "start": nowdate()[:8] + "01 00:00:00",
+                     "pfx": cfg["prefix"] + ": %"}, as_dict=True):
+                if "(bulk)" in r.content or " bulk " in r.content:
+                    continue
+                key = f"{lane}.{_comment_action(r.content, cfg['prefix'])}"
+                if key in pts:
+                    total += pts[key] * int(r.n or 0)
+        data["points"] = {"month": round(total, 1), "target": s["monthlyTarget"]}
     except Exception:
-        return {}
+        data["points"] = None
+    return data
 
 
 # ---------------------------------------------------------------------------
