@@ -819,12 +819,15 @@ def report(days=7, frm=None, to=None):
 
 @frappe.whitelist()
 def dashboard(days=30, frm=None, to=None, mine=0):
-    """The section's analytical view: the state of the queue RIGHT NOW and what
-    it is worth — as opposed to report(), which asks who did what last week.
+    """The section's own dashboard.
 
-    Any agent may open it; `mine=1` narrows every number to their own orders,
-    so the same screen answers both "how is the section doing" and "how am I
-    doing inside it".
+    NOTE on the range: `days`/`frm`/`to` reach `intake` ONLY. queue, aging,
+    segMix, topPending and cities all describe the CURRENT state of the queue
+    -- what is waiting, right now, and how old it is. There is no snapshot
+    history to replay them from, so a range is not something they can honour;
+    asking for June would not make them show June, it would make them show now
+    under a header that says June. The screen marks those panels "right now"
+    rather than silently ignoring the picker.
     """
     role = _gate()
     days = min(max(int(days or 30), 1), 365)

@@ -13,6 +13,10 @@
         </div>
         <DateRange v-model:days="days" v-model:frm="frm" v-model:to="to" @change="load" />
       </div>
+      <!-- The range only reaches Intake. Queue / aging / segments / cities /
+           oldest all read the CURRENT state -- there is no snapshot history to
+           replay them from -- so the picker must not appear to control them. -->
+      <p class="text-[11px] text-stone-400 mt-1.5 max-w-[640px] leading-relaxed">{{ t('cfd.rangeNote') }}</p>
     </header>
 
     <div v-if="loading" class="space-y-3">
@@ -66,6 +70,7 @@
           <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
             <Icon name="users" :size="14" class="text-stone-400" />
             <span class="text-[12px] font-semibold text-stone-900">{{ t('cfd.segTitle') }}</span>
+            <span class="cfd-now">{{ t('cfd.liveNow') }}</span>
             <span class="text-[11px] text-stone-400 ms-auto">{{ t('cfd.segSample', String(d.segSampled)).replace('{n}', d.segSampled) }}</span>
           </div>
           <div class="p-3.5 space-y-2">
@@ -89,6 +94,7 @@
           <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
             <Icon name="clock" :size="14" class="text-stone-400" />
             <span class="text-[12px] font-semibold text-stone-900">{{ t('cfd.agingTitle') }}</span>
+            <span class="cfd-now">{{ t('cfd.liveNow') }}</span>
           </div>
           <div class="p-3.5">
             <div class="flex items-end gap-2 h-[130px]">
@@ -151,6 +157,7 @@
             <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
               <Icon name="map-pin" :size="14" class="text-stone-400" />
               <span class="text-[12px] font-semibold text-stone-900">{{ t('cfd.citiesTitle') }}</span>
+            <span class="cfd-now">{{ t('cfd.liveNow') }}</span>
             </div>
             <div class="p-3 space-y-1.5">
               <div v-for="c in d.cities" :key="c.city" class="flex items-center gap-2 text-[11.5px]">

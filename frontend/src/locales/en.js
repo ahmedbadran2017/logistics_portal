@@ -887,6 +887,8 @@ export default {
     days: "d",
   },
   cfd: {
+    liveNow: "right now",
+    rangeNote: "The date range drives Intake only — the queue panels describe this moment, and there is no history to replay them from.",
     title: "Confirmation — section dashboard",
     intro: "The state of the queue right now: who is waiting, how long, and what it is worth.",
     all: "The section", mine: "Mine",

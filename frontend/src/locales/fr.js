@@ -888,6 +888,8 @@ export default {
     days: "j",
   },
   cfd: {
+    liveNow: "en ce moment",
+    rangeNote: "La plage de dates ne pilote que l'Arrivée — les panneaux de file décrivent l'instant présent, et aucun historique ne permet de les rejouer.",
     title: "Confirmation — tableau du service",
     intro: "L'état de la file maintenant : qui attend, depuis combien de temps, et ce que ça vaut.",
     all: "Le service", mine: "Moi",
