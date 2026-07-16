@@ -176,10 +176,33 @@ def scan_pick(pick_list, code):
     # Atomic increment: two PDAs scanning the same line concurrently must not
     # read-modify-write the same value (a unit would vanish from the count).
     # The WHERE guard makes the bump conditional and the DB serializes it.
+    #
+    # picked_qty moves WITH the scan counter, and that is the whole point.
+    # ERPNext's own before_submit -> validate_picked_items throws
+    #   "Row {n} picked quantity is less than the required quantity"
+    # whenever `scan_mode` is on and picked_qty < stock_qty. scan_mode defaults
+    # to 1 on this site, so every list has it. We used to write only
+    # custom_scanned_qty, which left picked_qty at 0 forever: the board showed
+    # a full 1/1 and the submit was refused. It stayed hidden because the
+    # pickers were submitting from the desk, whose form fills picked_qty for
+    # them — the moment they worked a list through the portal it broke.
+    #
+    # Incremented by conversion_factor, not 1: picked_qty is compared against
+    # stock_qty, which is qty * conversion_factor. Every row on this site has
+    # a factor of 1, so this is the same number today — but if a UOM ever lands
+    # with a factor, picked_qty could never reach stock_qty and the picker
+    # would be locked out with no way to tell why.
+    #
+    # Guarded on BOTH counters: a list scanned before this shipped has
+    # custom_scanned_qty set and picked_qty at 0, and guarding on picked_qty
+    # alone would let those lines be scanned a second time.
     frappe.db.sql(
         """UPDATE `tabPick List Item`
-           SET custom_scanned_qty = COALESCE(custom_scanned_qty,0) + 1
-           WHERE parent=%s AND item_code=%s AND COALESCE(custom_scanned_qty,0) < qty
+           SET custom_scanned_qty = COALESCE(custom_scanned_qty,0) + 1,
+               picked_qty = COALESCE(picked_qty,0) + COALESCE(conversion_factor,1)
+           WHERE parent=%s AND item_code=%s
+             AND COALESCE(custom_scanned_qty,0) < qty
+             AND COALESCE(picked_qty,0) < stock_qty
            ORDER BY idx LIMIT 1""", (pick_list, item_code))
     if not frappe.db.sql("SELECT ROW_COUNT()")[0][0]:
         on = frappe.db.exists("Pick List Item", {"parent": pick_list, "item_code": item_code})
@@ -751,6 +774,24 @@ def submit_pick_list(name):
             and not pl.get("custom_assigned_picker"):
         pl.db_set("custom_assigned_picker", frappe.session.user, update_modified=False)
         pl.reload()
+    # Bring picked_qty up to what was actually scanned before ERPNext checks it.
+    # Two reasons this is here and not only in scan_pick:
+    #   - lists scanned on a PDA before this fix shipped are sitting on the
+    #     floor right now with custom_scanned_qty set and picked_qty at 0, and
+    #     nobody is going to re-scan them;
+    #   - report_short_pick pulls a whole order's lines off the list, so what
+    #     remains at submit is by construction fully picked.
+    # Never lowers anything: a line already at or above its scan count is left
+    # alone, so a desk-filled picked_qty is not clawed back.
+    frappe.db.sql(
+        """UPDATE `tabPick List Item`
+           SET picked_qty = COALESCE(custom_scanned_qty,0) * COALESCE(conversion_factor,1)
+           WHERE parent = %s
+             AND COALESCE(custom_scanned_qty,0) * COALESCE(conversion_factor,1)
+                 > COALESCE(picked_qty,0)""", (name,))
+    # submit() re-writes every child row from the in-memory doc, so the reload
+    # is what makes the line above count for anything.
+    pl.reload()
     pl.submit()
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")
