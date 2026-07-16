@@ -30,6 +30,11 @@ INDEXES = [
     # these.
     ("Comment", ["owner", "creation"], "lp_comment_owner_idx"),
     ("Comment", ["reference_doctype", "creation"], "lp_comment_dt_idx"),
+    # manifest_scan matches a scanned parcel by AWB. Neither column is a Link,
+    # so Frappe indexes neither — every scan was a full 119k Delivery Note scan
+    # with an operator standing at the handover station waiting for it.
+    ("Delivery Note", ["custom_awb"], "lp_dn_awb_idx"),
+    ("Delivery Note", ["custom_tracking_number"], "lp_dn_track_no_idx"),
 ]
 
 

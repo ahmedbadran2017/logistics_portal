@@ -115,24 +115,34 @@ def history_for(phones):
         s = _seg_settings()
         fail_states = (["Delivery Exception", "Failed Attempt"]
                        if s["exceptionCountsAsFailure"] else ["Failed Attempt"])
+        # Collapsed per order first, then per phone — because the two numbers
+        # need different grains and a flat GROUP BY can only serve one:
+        #   delivered/failed = PARCELS (what the segmentation was validated on)
+        #   lifetime         = MONEY, and money belongs to the order.
+        # The flat version counted grand_total once per Delivery Note LINE, so
+        # a 3-item order added 3× its value. The parcel counts were already
+        # guarded with COUNT(DISTINCT dn.name); lifetime was the one aggregate
+        # in the same SELECT that wasn't.
         rows = frappe.db.sql(
-            f"""SELECT {_KEY_SQL.format(t='so')} p,
-                       COUNT(DISTINCT so.name) orders,
-                       COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status = 'Delivered'
-                                           THEN dn.name END) delivered,
-                       COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status IN %(fail)s
-                                           THEN dn.name END) failed,
-                       COUNT(DISTINCT CASE WHEN so.custom_sales_status = 'Cancelled'
-                                           THEN so.name END) cancelled,
-                       MAX(so.creation) last_order,
-                       SUM(CASE WHEN dn.custom_track_shipment_status = 'Delivered'
-                                THEN so.grand_total ELSE 0 END) lifetime
-                FROM `tabSales Order` so
-                LEFT JOIN `tabDelivery Note Item` dni
-                       ON dni.against_sales_order = so.name AND dni.docstatus = 1
-                LEFT JOIN `tabDelivery Note` dn
-                       ON dn.name = dni.parent AND dn.docstatus = 1
-                WHERE so.docstatus = 1 AND {_KEY_SQL.format(t='so')} IN %(ph)s
+            f"""SELECT p, COUNT(*) orders,
+                       SUM(dpar) delivered, SUM(fpar) failed,
+                       SUM(st = 'Cancelled') cancelled,
+                       MAX(cr) last_order,
+                       SUM(CASE WHEN dpar > 0 THEN gt ELSE 0 END) lifetime
+                FROM (SELECT {_KEY_SQL.format(t='so')} p, so.name n,
+                             so.grand_total gt, so.custom_sales_status st,
+                             so.creation cr,
+                             COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status
+                                   = 'Delivered' THEN dn.name END) dpar,
+                             COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status
+                                   IN %(fail)s THEN dn.name END) fpar
+                      FROM `tabSales Order` so
+                      LEFT JOIN `tabDelivery Note Item` dni
+                             ON dni.against_sales_order = so.name AND dni.docstatus = 1
+                      LEFT JOIN `tabDelivery Note` dn
+                             ON dn.name = dni.parent AND dn.docstatus = 1
+                      WHERE so.docstatus = 1 AND {_KEY_SQL.format(t='so')} IN %(ph)s
+                      GROUP BY so.name, p) x
                 GROUP BY p""",
             {"ph": tuple(missing), "fail": tuple(fail_states)}, as_dict=True)
         found = set()

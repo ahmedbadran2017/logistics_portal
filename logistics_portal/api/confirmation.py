@@ -671,6 +671,12 @@ def report(days=7, frm=None, to=None):
     # warehouse or the clock, not the agent, and blaming them for it would be
     # a lie with their bonus attached. stickRate (delivered / shipped) is the
     # part they own. ─────────────────────────────────────────────────────
+    # Two queries, not one, and both at ORDER grain. The single query this
+    # replaces LEFT JOINed Delivery Note Item, which fans out one row PER LINE
+    # — so a 3-item order counted 3 orders, 3 confirms and 3× its grand_total.
+    # Every money number on this report was weighted by basket size. An order
+    # with no DN produced one row and stayed honest, which is exactly why it
+    # was invisible: the error grew with how well the order shipped.
     money = {}
     for r in frappe.db.sql(
             f"""SELECT so.custom_allocated_to u,
@@ -679,49 +685,63 @@ def report(days=7, frm=None, to=None):
                        SUM(CASE WHEN so.custom_sales_status = 'Confirmed'
                                      AND so.grand_total <= %(sane)s
                                 THEN so.grand_total ELSE 0 END) confirmed_value,
-                       SUM(CASE WHEN dn.custom_track_shipment_status = 'Delivered'
-                                     AND so.grand_total <= %(sane)s
-                                THEN so.grand_total ELSE 0 END) collected,
-                       SUM(dn.custom_track_shipment_status = 'Delivered') delivered,
-                       SUM(dn.custom_track_shipment_status IN
-                           ('Delivery Exception', 'Failed Attempt')) failed,
                        AVG(CASE WHEN so.custom_last_call_at IS NOT NULL
                                 THEN TIMESTAMPDIFF(MINUTE, so.creation,
                                                    so.custom_last_call_at) END) resp_min,
                        AVG(COALESCE(so.custom_call_attempts, 0)) attempts
                 FROM `tabSales Order` so
-                LEFT JOIN `tabDelivery Note Item` dni
-                       ON dni.against_sales_order = so.name AND dni.docstatus = 1
-                LEFT JOIN `tabDelivery Note` dn
-                       ON dn.name = dni.parent AND dn.docstatus = 1
                 WHERE so.docstatus = 1 AND COALESCE(so.custom_allocated_to,'') != ''
                   AND {so_rng}
                 GROUP BY u""", {"sane": _SANE_MAX, **rng_vals}, as_dict=True):
-        money[r.u] = r
+        money[r.u] = dict(r)
+
+    # Outcome + collected cash. Collapsed to one row per ORDER first: an order
+    # that failed once and landed on the redelivery is delivered, not both.
+    for r in frappe.db.sql(
+            f"""SELECT u, SUM(is_del) delivered, SUM(is_fail AND NOT is_del) failed,
+                       SUM(CASE WHEN is_del AND gt <= %(sane)s THEN gt ELSE 0 END) collected
+                FROM (SELECT so.custom_allocated_to u, so.name, so.grand_total gt,
+                             MAX(dn.custom_track_shipment_status = 'Delivered') is_del,
+                             MAX(dn.custom_track_shipment_status IN
+                                 ('Delivery Exception', 'Failed Attempt')) is_fail
+                      FROM `tabSales Order` so
+                      JOIN `tabDelivery Note Item` dni
+                        ON dni.against_sales_order = so.name AND dni.docstatus = 1
+                      JOIN `tabDelivery Note` dn
+                        ON dn.name = dni.parent AND dn.docstatus = 1
+                      WHERE so.docstatus = 1 AND COALESCE(so.custom_allocated_to,'') != ''
+                        AND {so_rng}
+                      GROUP BY so.name) x
+                GROUP BY u""", {"sane": _SANE_MAX, **rng_vals}, as_dict=True):
+        money.setdefault(r.u, {}).update(
+            {"delivered": r.delivered, "failed": r.failed, "collected": r.collected})
 
     agents = []
     for user in set(list(per_agent) + list(money)):
         a = per_agent.get(user, {"confirm": 0, "cancel": 0, "dna": 0,
                                  "followup": 0, "onhold": 0, "duplicate": 0,
                                  "reopen": 0, "bulk": 0})
-        m = money.get(user)
+        m = money.get(user) or {}
+        g = lambda k: m.get(k) or 0          # money rows are plain dicts, and an
+                                             # agent may appear in only one of
+                                             # the two queries above.
         decided = a["confirm"] + a["cancel"]
-        shipped = int((m.delivered if m else 0) or 0) + int((m.failed if m else 0) or 0)
+        shipped = int(g("delivered")) + int(g("failed"))
         agents.append({
             "agent": user.split("@")[0], "user": user, **a,
             "total": a["confirm"] + a["cancel"] + a["dna"] + a["followup"]
                      + a["onhold"] + a["duplicate"],
             "confirmRate": round(a["confirm"] * 100.0 / decided, 1) if decided else None,
-            "avgAttempts": round(float((m.attempts if m else 0) or 0), 1),
+            "avgAttempts": round(float(g("attempts")), 1),
             # How fast the first human touch lands after the order arrives.
-            "respH": round(float((m.resp_min if m else 0) or 0) / 60, 1) if m and m.resp_min else None,
-            "confirmedValue": round(float((m.confirmed_value if m else 0) or 0)),
+            "respH": round(float(g("resp_min")) / 60, 1) if g("resp_min") else None,
+            "confirmedValue": round(float(g("confirmed_value"))),
             # The money that actually arrived. A confirm that bounces is not revenue.
-            "collected": round(float((m.collected if m else 0) or 0)),
-            "delivered": int((m.delivered if m else 0) or 0),
-            "failedParcels": int((m.failed if m else 0) or 0),
+            "collected": round(float(g("collected"))),
+            "delivered": int(g("delivered")),
+            "failedParcels": int(g("failed")),
             # Of what they confirmed AND shipped, how much stuck.
-            "stickRate": round(int((m.delivered if m else 0) or 0) * 100.0 / shipped, 1)
+            "stickRate": round(int(g("delivered")) * 100.0 / shipped, 1)
                          if shipped else None,
         })
     agents.sort(key=lambda x: -x["total"])

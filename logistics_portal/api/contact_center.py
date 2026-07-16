@@ -240,6 +240,31 @@ def save_bonus_settings(settings=None):
     return {"ok": True, **out}
 
 
+def _board(group, month, pts):
+    """Cached board. The uncached board is 3 full-month tabComment GROUP BYs
+    plus a month-wide SO/DNI/DN join, and it is recomputed by the confirmation
+    board and My Performance on EVERY load just to read one agent's row. The
+    numbers move at the speed of a phone call, so 120s of staleness is free.
+    Keyed on the points too: change a weight in settings and the board is new.
+    """
+    import json as _json
+    key = "lp_bonus_board:" + group + ":" + month + ":" + str(
+        abs(hash(_json.dumps(pts, sort_keys=True))))
+    cache = frappe.cache()
+    hit = cache.get_value(key)
+    if hit is not None:
+        try:
+            return _json.loads(hit)
+        except Exception:
+            pass
+    rows = (_cc_board if group == "cc" else _floor_board)(month, pts)
+    try:
+        cache.set_value(key, _json.dumps(rows), expires_in_sec=120)
+    except Exception:
+        pass
+    return rows
+
+
 def _cc_board(month, pts):
     per_agent = {}
     for prefix, lane, dts in (("Confirmation", "cf", ("Sales Order",)),
@@ -271,10 +296,18 @@ def _cc_board(month, pts):
     outcome = {}
     if d_rate:
         for r in frappe.db.sql(
+                # COUNT(DISTINCT dn.name), never SUM/COUNT(*): the DN Item join
+                # fans out one row PER LINE, so a 3-item parcel counted 3× —
+                # and unevenly, since the inflation IS the basket size. An agent
+                # selling 3-packs earned 3× a colleague's points for the same
+                # parcel, which is the one thing the points table is designed
+                # not to do. A fifth of delivery notes carry 2+ lines, so this
+                # was never a rounding error.
                 """SELECT so.custom_allocated_to u,
-                          SUM(dn.custom_track_shipment_status = 'Delivered') d,
-                          SUM(dn.custom_track_shipment_status IN
-                              ('Delivery Exception', 'Failed Attempt')) f
+                          COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status
+                                = 'Delivered' THEN dn.name END) d,
+                          COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status IN
+                                ('Delivery Exception', 'Failed Attempt') THEN dn.name END) f
                    FROM `tabSales Order` so
                    JOIN `tabDelivery Note Item` dni
                      ON dni.against_sales_order = so.name AND dni.docstatus = 1
@@ -362,9 +395,13 @@ def delivery_rate(user, month=None):
     if month:
         vals["start"] = f"{month}-01"
     r = frappe.db.sql(
-        f"""SELECT SUM(dn.custom_track_shipment_status = 'Delivered') d,
-                   SUM(dn.custom_track_shipment_status IN
-                       ('Delivery Exception', 'Failed Attempt')) f
+        # DISTINCT dn.name — the DN Item join fans out per line, so without it
+        # a multi-item parcel counts once per item and the rate is weighted by
+        # basket size instead of by outcome. See _cc_board.
+        f"""SELECT COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status
+                         = 'Delivered' THEN dn.name END) d,
+                   COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status IN
+                         ('Delivery Exception', 'Failed Attempt') THEN dn.name END) f
             FROM `tabSales Order` so
             JOIN `tabDelivery Note Item` dni
               ON dni.against_sales_order = so.name AND dni.docstatus = 1
