@@ -493,6 +493,12 @@ export default {
     markRead: "Mark read",
     openOrder: "Open order",
   },
+  install: {
+    title: "Install on this device",
+    btn: "Install app",
+    how: "Chrome menu (⋮) → Add to home screen. It then opens from the launcher, no URL to type.",
+    dismiss: "Don't show again",
+  },
   trk: {
     title: "Tracking", subtitle: "parcels shipped in the last {n} days",
     loadFail: "Couldn't load tracking",

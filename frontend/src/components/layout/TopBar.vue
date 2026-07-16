@@ -26,8 +26,11 @@
       {{ t("common.live", "Live") }} {{ clock }}
     </div>
 
-    <!-- Lang switcher -->
-    <div class="inline-flex items-center gap-0.5 p-0.5 bg-stone-100/80 rounded-lg">
+    <!-- Lang switcher. Hidden on a PDA-sized screen: the pills are 24px and a
+         gloved thumb cannot hit them, the bar is only 52px tall so they cannot
+         grow, and language is set once and never touched again. It moves into
+         the menu drawer, where it has room to be a real target. -->
+    <div class="hidden sm:inline-flex lp-lang items-center gap-0.5 p-0.5 bg-stone-100/80 rounded-lg">
       <button
         v-for="opt in langs"
         :key="opt.v"

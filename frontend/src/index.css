@@ -542,3 +542,37 @@ html[data-theme="dark"] .role-select { background: #1c1917; color: #d6d3d1; }
 html[data-theme="dark"] .cfd-now {
   color: #d6d3d1; background: #292524; box-shadow: inset 0 0 0 1px #44403c;
 }
+
+/* ── Touch devices: the warehouse PDAs ────────────────────────────────
+   Measured on the floor screens at a PDA viewport: no page overflowed, but
+   Manifest alone had 17 controls under 44px and the language pills were 24px
+   tall — unhittable with a gloved thumb. `pointer: coarse` matches the PDAs
+   and phones and leaves every mouse-driven laptop exactly as it was, so this
+   costs the desk nothing.
+
+   44px is the floor from both Apple's and Google's touch guidance. Height
+   only: widths are already generous, and forcing min-width would wreck the
+   segmented controls. */
+@media (pointer: coarse) {
+  button,
+  [role="button"],
+  select,
+  a.lp-tap,
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-height: 44px;
+  }
+  /* Checkboxes have no text to grow around — grow the box itself. */
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-width: 22px;
+    width: 22px;
+    height: 22px;
+  }
+  /* The language pills sit in a 52px bar and are sized by their group, so a
+     44px floor would burst it. They are exempt because they LEAVE the bar
+     below `sm` and reappear in the drawer at full size. */
+  .lp-lang button { min-height: 0; }
+  /* A scanning screen is used at arm's length, one-handed, often gloved. */
+  .pager-btn { min-height: 44px; padding-inline: 14px; }
+}

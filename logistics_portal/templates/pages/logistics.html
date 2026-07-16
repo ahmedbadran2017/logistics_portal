@@ -1,8 +1,20 @@
 {%- block head %}
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#0f172a">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<!-- Kept in step with the in-app theme toggle by composables/useTheme.js. -->
+<meta name="theme-color" content="#ffffff">
 <title>Justyol Logistics</title>
+
+<!-- Installable on the floor PDAs: Chrome's menu → Add to home screen turns
+     this into a launcher icon that opens without browser chrome, so nobody
+     types the URL again. No service worker: Chrome dropped that requirement
+     for menu install in v108 (mobile). scope must end in a slash or it also
+     matches /logistics-anything, and start_url must sit inside scope. -->
+<link rel="manifest" href="/assets/logistics_portal/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/assets/logistics_portal/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Justyol">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap">

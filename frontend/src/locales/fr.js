@@ -493,6 +493,12 @@ export default {
     markRead: "Marquer comme lu",
     openOrder: "Ouvrir la commande",
   },
+  install: {
+    title: "Installer sur cet appareil",
+    btn: "Installer l'app",
+    how: "Menu Chrome (⋮) → Ajouter à l'écran d'accueil. Elle s'ouvre ensuite depuis le lanceur, sans URL à saisir.",
+    dismiss: "Ne plus afficher",
+  },
   trk: {
     title: "Suivi", subtitle: "colis expédiés sur les {n} derniers jours",
     loadFail: "Impossible de charger le suivi",

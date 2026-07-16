@@ -57,6 +57,25 @@
       </div>
     </nav>
 
+    <InstallApp />
+
+    <!-- Language, for the screens too small to carry it in the top bar. The
+         PDAs live here: full-size targets, set once, done. -->
+    <div class="sm:hidden p-2 border-t border-stone-100">
+      <div class="flex items-center gap-1.5">
+        <button
+          v-for="opt in langs"
+          :key="opt.v"
+          type="button"
+          class="flex-1 h-11 rounded-lg text-[13px] font-semibold transition-all"
+          :class="locale === opt.v
+            ? 'bg-[var(--accent-600)] text-white'
+            : 'bg-stone-100 text-stone-600 hover:bg-stone-200'"
+          @click="setLocale(opt.v)"
+        >{{ opt.l }}</button>
+      </div>
+    </div>
+
     <!-- Role switcher card -->
     <div class="p-2 border-t border-stone-100 relative">
       <button
@@ -111,6 +130,7 @@
 import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import InstallApp from "@/components/ui/InstallApp.vue";
 import { useAuth } from "@/composables/useAuth";
 import { useI18n } from "@/composables/useI18n";
 import { navFor } from "@/lib/roles";
@@ -120,7 +140,8 @@ defineEmits(["open-search"]);
 // Served by Frappe from the app's public/ dir; bound (not a static src) so vite
 // doesn't try to resolve it at build time.
 const logoSrc = "/assets/logistics_portal/justyol-logo.png";
-const { t } = useI18n();
+const { t, locale, setLocale } = useI18n();
+const langs = [{ v: "en", l: "EN" }, { v: "fr", l: "FR" }, { v: "ar", l: "ع" }];
 const { role, roles, fullName, hiddenPages, setActiveRole } = useAuth();
 const route = useRoute();
 const menuOpen = ref(false);
