@@ -44,6 +44,8 @@ const routes = [
       // Dispatcher
       { path: "assign", name: "Assign", component: () => import("@/pages/Assign.vue") },
       { path: "pipeline", name: "Pipeline", component: () => import("@/pages/Pipeline.vue") },
+      // Confirmed orders that never became a parcel — nothing else surfaces them.
+      { path: "stranded", name: "Stranded", component: () => import("@/pages/Stranded.vue") },
       // Confirmation-team review: same-customer clusters → one merged order.
       { path: "consolidation", name: "Consolidation", component: () => import("@/pages/Consolidation.vue") },
       { path: "team", name: "Team", component: () => import("@/pages/Team.vue") },

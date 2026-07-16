@@ -54,6 +54,7 @@ export const ROLE_CONFIG = {
           { to: "Pipeline", label: "nav.orders", icon: "shopping-bag" },
           { to: "Consolidation", label: "nav.consolidation", icon: "git-merge" },
           { to: "PickLists", label: "nav.picklists", icon: "package" },
+          { to: "Stranded", label: "nav.stranded", icon: "package-x" },
           { to: "PackStation", label: "nav.pack", icon: "tag" },
           { to: "Shipments", label: "nav.shipments", icon: "truck" },
           { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
@@ -95,6 +96,7 @@ export const ROLE_CONFIG = {
           { to: "Assign", label: "nav.assign", icon: "layout-grid" },
           { to: "Pipeline", label: "nav.orders", icon: "shopping-bag" },
           { to: "PickLists", label: "nav.picklists", icon: "package" },
+          { to: "Stranded", label: "nav.stranded", icon: "package-x" },
         ],
       },
       {
@@ -164,6 +166,7 @@ export const ROLE_CONFIG = {
           { to: "ConfirmationDashboard", label: "nav.cfDashboard", icon: "gauge" },
           { to: "ConfirmationReports", label: "nav.cfReports", icon: "trending-up" },
           { to: "ConfirmationSettings", label: "nav.cfSettings", icon: "settings" },
+          { to: "Stranded", label: "nav.stranded", icon: "package-x" },
         ],
       },
       {
