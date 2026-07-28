@@ -209,16 +209,16 @@ function firstServerMessage(j) {
   padding: 9px 14px;
   border: none;
   border-radius: 999px;
-  background: #0f1420;
+  background: #1c1917;
   color: #fff;
   font: 600 12.5px/1 "Inter", system-ui, sans-serif;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(15, 20, 32, 0.35);
+  box-shadow: 0 4px 14px rgba(28, 25, 23, 0.35);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .th-fab:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(15, 20, 32, 0.45);
+  box-shadow: 0 6px 18px rgba(28, 25, 23, 0.45);
 }
 .th-fab-icon {
   font-size: 13px;
@@ -227,7 +227,7 @@ function firstServerMessage(j) {
   position: fixed;
   inset: 0;
   z-index: 9001;
-  background: rgba(15, 20, 32, 0.45);
+  background: rgba(28, 25, 23, 0.45);
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
@@ -240,7 +240,7 @@ function firstServerMessage(j) {
   overflow-y: auto;
   background: #fff;
   border-radius: 14px;
-  box-shadow: 0 18px 50px rgba(15, 20, 32, 0.35);
+  box-shadow: 0 18px 50px rgba(28, 25, 23, 0.35);
   font-family: "Inter", system-ui, sans-serif;
 }
 .th-head {
@@ -248,29 +248,29 @@ function firstServerMessage(j) {
   align-items: flex-start;
   justify-content: space-between;
   padding: 16px 18px 12px;
-  border-bottom: 1px solid #eceef2;
+  border-bottom: 1px solid #e7e5e4;
 }
 .th-title {
   font-size: 14.5px;
   font-weight: 700;
-  color: #0f1420;
+  color: #1c1917;
 }
 .th-sub {
   font-size: 11.5px;
-  color: #8591aa;
+  color: #a8a29e;
   margin-top: 2px;
 }
 .th-x {
   border: none;
   background: none;
-  color: #8591aa;
+  color: #a8a29e;
   font-size: 14px;
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 6px;
 }
 .th-x:hover {
-  background: #eceef2;
+  background: #e7e5e4;
 }
 .th-body {
   padding: 14px 18px 18px;
@@ -281,23 +281,23 @@ function firstServerMessage(j) {
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #647090;
+  color: #78716c;
   margin: 10px 0 5px;
 }
 .th-input {
   width: 100%;
   box-sizing: border-box;
   padding: 8px 10px;
-  border: 1px solid #d5d9e2;
+  border: 1px solid #d6d3d1;
   border-radius: 8px;
   font: 400 13px/1.4 "Inter", system-ui, sans-serif;
-  color: #0f1420;
+  color: #1c1917;
   background: #fff;
   outline: none;
 }
 .th-input:focus {
-  border-color: #598dff;
-  box-shadow: 0 0 0 3px rgba(51, 102, 255, 0.15);
+  border-color: #e17f62;
+  box-shadow: 0 0 0 3px rgba(212, 93, 62, 0.18);
 }
 .th-textarea {
   resize: vertical;
@@ -312,10 +312,10 @@ function firstServerMessage(j) {
 .th-context {
   margin-top: 12px;
   padding: 7px 10px;
-  background: #f6f7f9;
+  background: #f5f5f4;
   border-radius: 8px;
   font-size: 11.5px;
-  color: #647090;
+  color: #78716c;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -334,22 +334,22 @@ function firstServerMessage(j) {
 .th-btn {
   padding: 8px 14px;
   border-radius: 8px;
-  border: 1px solid #d5d9e2;
+  border: 1px solid #d6d3d1;
   background: #fff;
-  color: #414960;
+  color: #44403c;
   font: 600 12.5px/1 "Inter", system-ui, sans-serif;
   cursor: pointer;
 }
 .th-btn:hover {
-  background: #f6f7f9;
+  background: #f5f5f4;
 }
 .th-btn-primary {
   border-color: transparent;
-  background: #3366ff;
+  background: #d45d3e;
   color: #fff;
 }
 .th-btn-primary:hover {
-  background: #1f47e6;
+  background: #c4492a;
 }
 .th-btn-primary:disabled {
   opacity: 0.5;
@@ -373,11 +373,11 @@ function firstServerMessage(j) {
 }
 .th-done-text {
   font-size: 13px;
-  color: #414960;
+  color: #44403c;
   margin-bottom: 14px;
 }
 .th-done-text a {
-  color: #1f47e6;
+  color: #c4492a;
   text-decoration: none;
   font-weight: 600;
 }
