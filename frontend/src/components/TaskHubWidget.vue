@@ -70,6 +70,25 @@
             placeholder="What happened? Steps, order numbers, links…"
           />
 
+          <label class="th-label">Attachments</label>
+          <input
+            ref="fileEl"
+            type="file"
+            multiple
+            accept="image/*,.pdf,.csv,.xlsx,.xls,.docx,.doc,.txt,.zip,.mp4,.mov,.webm"
+            style="display: none"
+            @change="onPickFiles"
+          />
+          <div class="th-files">
+            <button type="button" class="th-btn th-btn-sm" @click="fileEl && fileEl.click()">
+              📎 Add photo / file
+            </button>
+            <span v-for="(f, i) in files" :key="i" class="th-file-chip">
+              {{ f.name }}
+              <button type="button" class="th-file-x" @click="files.splice(i, 1)">✕</button>
+            </span>
+          </div>
+
           <div class="th-context">🔗 Will link to: <b>{{ contextLabel }}</b></div>
 
           <p v-if="error" class="th-error">{{ error }}</p>
@@ -109,6 +128,13 @@ const busy = ref(false);
 const sent = ref("");
 const error = ref("");
 const titleEl = ref(null);
+const fileEl = ref(null);
+const files = ref([]);
+
+function onPickFiles(e) {
+  files.value.push(...Array.from(e.target.files || []));
+  e.target.value = "";
+}
 
 const blank = () => ({
   title: "",
@@ -136,6 +162,7 @@ function close() {
 
 function reset() {
   Object.assign(form, blank());
+  files.value = [];
   sent.value = "";
   error.value = "";
 }
@@ -176,7 +203,35 @@ async function submit() {
     if (!resp.ok || j.exc) {
       throw new Error(firstServerMessage(j) || "HTTP " + resp.status);
     }
-    sent.value = j.message?.name || "OK";
+    const ticketName = j.message?.name || "OK";
+
+    // Upload attachments after the ticket exists; report partial failures.
+    let failedUploads = 0;
+    for (const f of files.value) {
+      try {
+        const fd = new FormData();
+        fd.append("file", f, f.name);
+        const up = await fetch(
+          "/api/method/task_hub.api.tickets.upload_attachment?name=" +
+            encodeURIComponent(ticketName),
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "X-Frappe-CSRF-Token": csrf() },
+            body: fd,
+          }
+        );
+        if (!up.ok) failedUploads++;
+      } catch {
+        failedUploads++;
+      }
+    }
+    files.value = [];
+    if (failedUploads) {
+      error.value = `Ticket ${ticketName} created, but ${failedUploads} file(s) failed to upload.`;
+    }
+
+    sent.value = ticketName;
     Object.assign(form, blank());
   } catch (e) {
     error.value = e.message || "Could not create the ticket.";
@@ -308,6 +363,42 @@ function firstServerMessage(j) {
 }
 .th-col {
   flex: 1;
+}
+.th-files {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.th-btn-sm {
+  padding: 6px 10px;
+  font-size: 11.5px;
+}
+.th-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 4px 8px;
+  background: #f5f5f4;
+  border: 1px solid #e7e5e4;
+  border-radius: 7px;
+  font-size: 11px;
+  color: #44403c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.th-file-x {
+  border: none;
+  background: none;
+  color: #a8a29e;
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0;
+}
+.th-file-x:hover {
+  color: #e11d48;
 }
 .th-context {
   margin-top: 12px;
