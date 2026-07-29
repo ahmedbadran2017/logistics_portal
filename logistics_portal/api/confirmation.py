@@ -52,6 +52,15 @@ _RETRY_HOURS = {"dna": 4, "followup": 24, "onhold": 48}
 # silently dropped.
 _SANE_MAX = 100000
 
+# The ONLY market this workspace serves. The ERPNext instance also carries
+# Maslak LTD and Justyol Holding (Turkey) and Justyol China — and their orders
+# sit in the exact same Pending/DNA/Follow-Up states. Without this filter the
+# confirmation queue was 40% foreign: 1,107 Maslak + 83 China orders mixed in
+# with 1,820 Morocco ones, including year-old Turkish seed data (Çiğdem
+# Oduncu, Bursa, İstanbul) the agents were being shown to call. Every SO query
+# in this lane is company-scoped through _CO.
+_CO = "Justyol Morocco"
+
 # The city lives on the linked Address, not the order: custom_shipping_city is
 # filled on 2,167 of 247,500 orders (0.9%), the Address on 99.9%.
 _CITY = ("COALESCE(NULLIF(TRIM(so.custom_shipping_city), ''), "
@@ -128,10 +137,11 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     counts = {k: 0 for k in list(QUEUES) + list(DONE_QUEUES)}
     for r in frappe.db.sql(
             f"""SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
-                WHERE docstatus = 1 AND custom_sales_status IN %(sts)s
+                WHERE docstatus = 1 AND company = %(co)s
+                  AND custom_sales_status IN %(sts)s
                   AND {q_rng}
                 GROUP BY custom_sales_status""",
-            {"sts": tuple(QUEUES.values()), **rng_vals}, as_dict=True):
+            {"sts": tuple(QUEUES.values()), "co": _CO, **rng_vals}, as_dict=True):
         for k, v in QUEUES.items():
             if v == r.s:
                 counts[k] = int(r.n or 0)
@@ -140,10 +150,11 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     # and a 40-day-old order confirmed an hour ago has to be in reach.
     for r in frappe.db.sql(
             f"""SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
-                WHERE docstatus = 1 AND custom_sales_status IN %(sts)s
+                WHERE docstatus = 1 AND company = %(co)s
+                  AND custom_sales_status IN %(sts)s
                   AND {d_rng}
                 GROUP BY custom_sales_status""",
-            {"sts": tuple(DONE_QUEUES.values()), **rng_vals}, as_dict=True):
+            {"sts": tuple(DONE_QUEUES.values()), "co": _CO, **rng_vals}, as_dict=True):
         for k, v in DONE_QUEUES.items():
             if v == r.s:
                 counts[k] = int(r.n or 0)
@@ -155,22 +166,27 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     risky = tuple(risky_phones()) or ("",)
     counts["monitor"] = int(frappe.db.sql(
         f"""SELECT COUNT(*) FROM `tabSales Order` so
-            WHERE so.docstatus = 1 AND so.custom_sales_status IN %(sts)s
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status IN %(sts)s
               AND {_CUST_KEY} IN %(risky)s""",
-        {"sts": tuple(QUEUES.values()), "risky": risky})[0][0])
+        {"sts": tuple(QUEUES.values()), "co": _CO, "risky": risky})[0][0])
 
+    vals["co"] = _CO
     if tab == "monitor":
-        conds = ["so.docstatus = 1", "so.custom_sales_status IN %(statuses)s",
+        conds = ["so.docstatus = 1", "so.company = %(co)s",
+                 "so.custom_sales_status IN %(statuses)s",
                  f"{_CUST_KEY} IN %(risky)s"]
         vals["statuses"] = tuple(QUEUES.values())
         vals["risky"] = risky
     elif tab in DONE_QUEUES:
-        conds = ["so.docstatus = 1", "so.custom_sales_status = %(status)s",
+        conds = ["so.docstatus = 1", "so.company = %(co)s",
+                 "so.custom_sales_status = %(status)s",
                  "so.custom_last_call_at IS NOT NULL",
                  rng.format(col="so.custom_last_call_at")]
         vals["status"] = DONE_QUEUES[tab]
     else:
-        conds = ["so.docstatus = 1", "so.custom_sales_status = %(status)s",
+        conds = ["so.docstatus = 1", "so.company = %(co)s",
+                 "so.custom_sales_status = %(status)s",
                  rng.format(col="so.creation")]
         vals["status"] = QUEUES[tab]
     if q and str(q).strip():
@@ -754,9 +770,10 @@ def report(days=7, frm=None, to=None):
                                                    so.custom_last_call_at) END) resp_min,
                        AVG(COALESCE(so.custom_call_attempts, 0)) attempts
                 FROM `tabSales Order` so
-                WHERE so.docstatus = 1 AND COALESCE(so.custom_allocated_to,'') != ''
+                WHERE so.docstatus = 1 AND so.company = %(co)s
+                  AND COALESCE(so.custom_allocated_to,'') != ''
                   AND {so_rng}
-                GROUP BY u""", {"sane": _SANE_MAX, **rng_vals}, as_dict=True):
+                GROUP BY u""", {"sane": _SANE_MAX, "co": _CO, **rng_vals}, as_dict=True):
         money[r.u] = dict(r)
 
     # Outcome + collected cash. Collapsed to one row per ORDER first: an order
@@ -773,10 +790,11 @@ def report(days=7, frm=None, to=None):
                         ON dni.against_sales_order = so.name AND dni.docstatus = 1
                       JOIN `tabDelivery Note` dn
                         ON dn.name = dni.parent AND dn.docstatus = 1
-                      WHERE so.docstatus = 1 AND COALESCE(so.custom_allocated_to,'') != ''
+                      WHERE so.docstatus = 1 AND so.company = %(co)s
+                        AND COALESCE(so.custom_allocated_to,'') != ''
                         AND {so_rng}
                       GROUP BY so.name) x
-                GROUP BY u""", {"sane": _SANE_MAX, **rng_vals}, as_dict=True):
+                GROUP BY u""", {"sane": _SANE_MAX, "co": _CO, **rng_vals}, as_dict=True):
         money.setdefault(r.u, {}).update(
             {"delivered": r.delivered, "failed": r.failed, "collected": r.collected})
 
@@ -818,9 +836,10 @@ def report(days=7, frm=None, to=None):
             f"""SELECT COALESCE(NULLIF(so.custom_cancellation_reason, ''), '(none)'),
                        COUNT(*) n
                 FROM `tabSales Order` so
-                WHERE so.docstatus = 1 AND so.custom_sales_status = 'Cancelled'
+                WHERE so.docstatus = 1 AND so.company = %(co)s
+                  AND so.custom_sales_status = 'Cancelled'
                   AND {so_rng}
-                GROUP BY 1 ORDER BY n DESC LIMIT 15""", rng_vals)]
+                GROUP BY 1 ORDER BY n DESC LIMIT 15""", {"co": _CO, **rng_vals})]
 
     # ── day by day ───────────────────────────────────────────────────────
     funnel = frappe.db.sql(
@@ -849,7 +868,8 @@ def report(days=7, frm=None, to=None):
                        SUM(so.custom_second_reminder = 1) r2,
                        COUNT(*) n
                 FROM `tabSales Order` so
-                WHERE so.docstatus = 1 AND {so_rng}""", rng_vals, as_dict=True)[0]
+                WHERE so.docstatus = 1 AND so.company = %(co)s
+                  AND {so_rng}""", {"co": _CO, **rng_vals}, as_dict=True)[0]
         ladder = {"r1": int(ladder.r1 or 0), "r2": int(ladder.r2 or 0),
                   "n": int(ladder.n or 0)}
 
@@ -883,6 +903,7 @@ def dashboard(days=30, frm=None, to=None, mine=0):
     role = _gate()
     days = min(max(int(days or 30), 1), 365)
     rng, rng_vals = _range(days, frm, to)
+    rng_vals["co"] = _CO   # every panel below is Morocco-only; see _CO.
     mine = int(mine or 0)
     me_cond = ""
     if mine:
@@ -901,7 +922,8 @@ def dashboard(days=30, frm=None, to=None, mine=0):
                    SUM(TIMESTAMPDIFF(HOUR, so.creation, NOW()) > %(sla)s
                        AND COALESCE(so.custom_call_attempts, 0) = 0) late
             FROM `tabSales Order` so
-            WHERE so.docstatus = 1 AND so.custom_sales_status IN %(live)s{me_cond}
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status IN %(live)s{me_cond}
             GROUP BY st""",
         {"live": live, "sla": sla_h, "sane": _SANE_MAX, **rng_vals}, as_dict=True)
     queue = {r.st: {"n": int(r.n or 0), "value": round(float(r.value or 0)),
@@ -920,7 +942,8 @@ def dashboard(days=30, frm=None, to=None, mine=0):
                    COALESCE(SUM(CASE WHEN so.grand_total <= %(sane)s
                                      THEN so.grand_total ELSE 0 END), 0) value
             FROM `tabSales Order` so
-            WHERE so.docstatus = 1 AND so.custom_sales_status IN %(live)s{me_cond}
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status IN %(live)s{me_cond}
             GROUP BY bucket""",
         {"live": live, "sane": _SANE_MAX, **rng_vals}, as_dict=True)
     order = ["0-6h", "6-24h", "1-3d", "3-7d", "7d+"]
@@ -941,7 +964,8 @@ def dashboard(days=30, frm=None, to=None, mine=0):
                             so.custom_shipping_phone) phone,
                    LEAST(so.grand_total, %(sane)s) total
             FROM `tabSales Order` so
-            WHERE so.docstatus = 1 AND so.custom_sales_status IN %(live)s{me_cond}
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status IN %(live)s{me_cond}
             ORDER BY so.creation DESC LIMIT 400""",
         {"live": live, "sane": _SANE_MAX, **rng_vals}, as_dict=True)
     hist = history_for([r.phone for r in rows if r.phone]) if rows else {}
@@ -964,7 +988,8 @@ def dashboard(days=30, frm=None, to=None, mine=0):
                    TIMESTAMPDIFF(HOUR, so.creation, NOW()) age_h,
                    COALESCE(so.custom_call_attempts, 0) attempts
             FROM `tabSales Order` so {_CITY_JOIN}
-            WHERE so.docstatus = 1 AND so.custom_sales_status IN %(live)s{me_cond}
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status IN %(live)s{me_cond}
             ORDER BY so.creation LIMIT 20""",
         {"live": live, **rng_vals}, as_dict=True)
 
@@ -972,7 +997,8 @@ def dashboard(days=30, frm=None, to=None, mine=0):
     cities = frappe.db.sql(
         f"""SELECT COALESCE({_CITY}, '(none)') city, COUNT(*) n
             FROM `tabSales Order` so {_CITY_JOIN}
-            WHERE so.docstatus = 1 AND so.custom_sales_status IN %(live)s{me_cond}
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status IN %(live)s{me_cond}
             GROUP BY city ORDER BY n DESC LIMIT 8""",
         {"live": live, **rng_vals}, as_dict=True)
 
@@ -981,7 +1007,8 @@ def dashboard(days=30, frm=None, to=None, mine=0):
     intake = frappe.db.sql(
         f"""SELECT so.custom_sales_status st, COUNT(*) n
             FROM `tabSales Order` so
-            WHERE so.docstatus = 1 AND {so_rng}{me_cond}
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND {so_rng}{me_cond}
             GROUP BY st""", rng_vals, as_dict=True)
 
     total_late = sum(v["late"] for v in queue.values())
