@@ -228,16 +228,33 @@
         </div>
 
         <!-- Logistics activity (real audit trail) -->
-        <div v-if="isLive && !activityEvents.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-6 text-center">
-          <div class="text-[13px] font-semibold text-stone-900 mb-1">{{ t("od.activity") }}</div>
-          <div class="text-[12px] text-stone-400">{{ t("od.noActivity") }}</div>
-        </div>
-        <div v-if="activityEvents.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+        <div v-if="isLive" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
           <div class="flex items-center justify-between mb-4">
             <div class="text-[13px] font-semibold text-stone-900">{{ t("od.activity") }}</div>
-            <span class="text-[10.5px] text-stone-400">{{ t("od.whoWhatWhen") }}</span>
+            <button
+              class="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-[11.5px] font-medium text-stone-600 bg-stone-50 ring-1 ring-stone-200 hover:bg-stone-100 transition-colors"
+              @click="noteOpen = !noteOpen"
+            ><Icon name="message-circle" :size="13" />{{ t("od.addNote") }}</button>
           </div>
-          <ol class="relative">
+
+          <!-- compose box -->
+          <div v-if="noteOpen" class="mb-4">
+            <textarea
+              v-model="noteText"
+              :placeholder="t('od.notePh')"
+              rows="2" maxlength="1000" dir="auto"
+              class="w-full px-3 py-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12.5px] focus:outline-none focus:ring-stone-400 resize-y"
+            />
+            <div class="flex items-center justify-end gap-2 mt-1.5">
+              <button class="h-8 px-3 rounded-lg text-[12px] font-medium text-stone-500 hover:text-stone-800"
+                      @click="noteOpen = false; noteText = ''">{{ t('common.cancel') }}</button>
+              <button class="h-8 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-50"
+                      :disabled="!noteText.trim() || savingNote" @click="saveNote">{{ t('od.postNote') }}</button>
+            </div>
+          </div>
+
+          <div v-if="!activityEvents.length && !noteOpen" class="text-[12px] text-stone-400 py-2">{{ t("od.noActivity") }}</div>
+          <ol v-else-if="activityEvents.length" class="relative">
             <li v-for="(e, i) in activityEvents" :key="i" class="relative flex gap-3 pb-3.5 last:pb-0">
               <span v-if="i < activityEvents.length - 1" class="absolute top-6 w-px left-[11px] bg-stone-200" style="bottom:0" />
               <span class="relative z-10 w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
@@ -324,14 +341,42 @@ import {
   ORDERS, CHANNELS, STAGE, SLA, STAGE_LABEL, SLA_LABEL, TRACK_LABEL,
   byId, fmtMAD, CARRIER, CITY, WAREHOUSE, MANIFEST,
 } from "@/lib/handoffData";
-import { api, liveOr } from "@/lib/resource";
+import { api, apiPost, liveOr } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
+import { useToast } from "@/composables/useToast";
 import { useSkuLink } from "@/composables/useSkuLink";
 
 const { t } = useI18n();
 
 // ── Real logistics activity feed (Version log + comments + doc events) ──
 const activityEvents = ref([]);
+
+// ── Add a note — the ERPNext comment box, from the portal ──
+const { success, warn } = useToast();
+const noteOpen = ref(false);
+const noteText = ref("");
+const savingNote = ref(false);
+async function saveNote() {
+  const text = noteText.value.trim();
+  if (!text) return;
+  savingNote.value = true;
+  try {
+    const res = await apiPost("orders.add_note", { name: props.name, text });
+    // Show it immediately at the top of the feed — same shape the API returns.
+    activityEvents.value = [
+      { when: res.when, kind: "comment", title: "Comment", detail: text,
+        actor: res.actor },
+      ...activityEvents.value,
+    ];
+    noteText.value = "";
+    noteOpen.value = false;
+    success(t("od.noteSaved"));
+  } catch (e) {
+    warn(t("od.noteFail"), String(e.message || e));
+  } finally {
+    savingNote.value = false;
+  }
+}
 const ACT_META = {
   submit: { icon: "check-circle", hex: "#10b981" },
   status: { icon: "git-branch", hex: "#7c3aed" },

@@ -454,6 +454,7 @@ export default {
     documents: "المستندات", awbLabel: "البوليصة", packingSlip: "قائمة التعبئة", invoice: "الفاتورة",
     activity: "نشاط التجهيز والشحن", whoWhatWhen: "مَن · ماذا · متى",
     noActivity: "لا يوجد نشاط لوجستي مسجَّل لهذا الطلب بعد.",
+    addNote: "أضف تعليق", notePh: "اكتب تعليق على الأوردر ده…", postNote: "نشر", noteSaved: "اتضاف التعليق", noteFail: "تعذّر إضافة التعليق",
     trackingNo: "رقم التتبع", awb: "البوليصة", deliveryNote: "إذن التسليم", zone: "المنطقة", trackLive: "تتبع مباشر",
     linkedDocs: "المستندات المرتبطة", docChain: "سلسلة مستندات ERPNext",
     fulfillStatus: "حالة التجهيز", unassigned: "غير مُسند",

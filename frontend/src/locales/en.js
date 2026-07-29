@@ -454,6 +454,7 @@ export default {
     documents: "Documents", awbLabel: "AWB label", packingSlip: "Packing slip", invoice: "Invoice",
     activity: "Fulfillment activity", whoWhatWhen: "who · what · when",
     noActivity: "No logistics activity recorded yet for this order.",
+    addNote: "Add note", notePh: "Write a note about this order…", postNote: "Post", noteSaved: "Note added", noteFail: "Couldn't add the note",
     trackingNo: "Tracking no.", awb: "AWB", deliveryNote: "Delivery Note", zone: "Zone", trackLive: "Track live",
     linkedDocs: "Linked documents", docChain: "ERPNext document chain",
     fulfillStatus: "Fulfillment status", unassigned: "Unassigned",

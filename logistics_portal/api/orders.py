@@ -1022,6 +1022,38 @@ _ACT_FIELDS = {
 
 
 @frappe.whitelist()
+def add_note(name, text):
+    """Write a free-text comment onto an order — the ERPNext comment box, from
+    the portal. It lands in the same tabComment trail the activity feed reads,
+    so it shows up in this order's timeline and in ERPNext itself. Any portal
+    role may leave a note; it is attributed to them and timestamped."""
+    from logistics_portal.api.auth import resolve_role
+    if not resolve_role(frappe.session.user):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    # Same #-tolerant resolve the activity feed uses: orders come through as
+    # "#250923" or "250923" or "SAL-ORD-...".
+    nm = (name or "").lstrip("#")
+    order = None
+    for c in (name, nm, f"#{nm}"):
+        if c and frappe.db.exists("Sales Order", c):
+            order = c
+            break
+    if not order:
+        frappe.throw("Unknown order.")
+    text = (text or "").strip()
+    if not text:
+        frappe.throw("Empty note.")
+    if len(text) > 1000:
+        text = text[:1000]
+    # add_comment escapes the content, so a note can't inject markup into the
+    # feed (which strips HTML on the way out anyway).
+    frappe.get_doc("Sales Order", order).add_comment("Comment", text)
+    frappe.db.commit()
+    return {"ok": True, "when": str(now_datetime())[:16],
+            "actor": frappe.session.user}
+
+
+@frappe.whitelist()
 def activity(name):
     """Merged logistics activity feed for one order: field transitions from the
     Version log + comments + linked-document events, newest first."""

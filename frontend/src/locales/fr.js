@@ -454,6 +454,7 @@ export default {
     documents: "Documents", awbLabel: "Étiquette AWB", packingSlip: "Bon de colisage", invoice: "Facture",
     activity: "Activité logistique", whoWhatWhen: "qui · quoi · quand",
     noActivity: "Aucune activité logistique enregistrée pour cette commande.",
+    addNote: "Ajouter une note", notePh: "Écrire une note sur cette commande…", postNote: "Publier", noteSaved: "Note ajoutée", noteFail: "Impossible d'ajouter la note",
     trackingNo: "N° de suivi", awb: "AWB", deliveryNote: "Bon de livraison", zone: "Zone", trackLive: "Suivi en direct",
     linkedDocs: "Documents liés", docChain: "Chaîne documentaire ERPNext",
     fulfillStatus: "Statut de préparation", unassigned: "Non assignée",
