@@ -120,6 +120,20 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     custom_range = "frm" in rng_vals or "to" in rng_vals
     vals = {"days": days, "limit": limit, "offset": offset, **rng_vals}
 
+    # Each agent sees ONLY the orders allocated to them; a manager or a section
+    # admin sees the whole section. custom_allocated_to is set on 100% of the
+    # live queue (auto-assigned at intake — measured: 0 unassigned of 1,832),
+    # so scoping never hides an order from everyone. Threaded into every count
+    # and row query below via me_q / me_so.
+    mine_only = role != "manager" and not _is_cf_admin()
+    me_q = me_so = ""
+    if mine_only:
+        me = frappe.session.user
+        rng_vals["me"] = me   # counts queries spread rng_vals
+        vals["me"] = me
+        me_q = " AND custom_allocated_to = %(me)s"       # no alias (count scans)
+        me_so = " AND so.custom_allocated_to = %(me)s"   # so.-aliased queries
+
     # Each family of tabs is dated by its OWN column: the working queues by
     # when the order arrived, the done tabs by when the decision was taken.
     q_rng = rng.format(col="creation")
@@ -138,7 +152,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     for r in frappe.db.sql(
             f"""SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
                 WHERE docstatus = 1 AND company = %(co)s
-                  AND custom_sales_status IN %(sts)s
+                  AND custom_sales_status IN %(sts)s{me_q}
                   AND {q_rng}
                 GROUP BY custom_sales_status""",
             {"sts": tuple(QUEUES.values()), "co": _CO, **rng_vals}, as_dict=True):
@@ -151,7 +165,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     for r in frappe.db.sql(
             f"""SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
                 WHERE docstatus = 1 AND company = %(co)s
-                  AND custom_sales_status IN %(sts)s
+                  AND custom_sales_status IN %(sts)s{me_q}
                   AND {d_rng}
                 GROUP BY custom_sales_status""",
             {"sts": tuple(DONE_QUEUES.values()), "co": _CO, **rng_vals}, as_dict=True):
@@ -167,9 +181,10 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     counts["monitor"] = int(frappe.db.sql(
         f"""SELECT COUNT(*) FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s
-              AND so.custom_sales_status IN %(sts)s
+              AND so.custom_sales_status IN %(sts)s{me_so}
               AND {_CUST_KEY} IN %(risky)s""",
-        {"sts": tuple(QUEUES.values()), "co": _CO, "risky": risky})[0][0])
+        {"sts": tuple(QUEUES.values()), "co": _CO, "risky": risky,
+         **({"me": frappe.session.user} if mine_only else {})})[0][0])
 
     vals["co"] = _CO
     if tab == "monitor":
@@ -189,6 +204,10 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
                  "so.custom_sales_status = %(status)s",
                  rng.format(col="so.creation")]
         vals["status"] = QUEUES[tab]
+    # Agent scope on the rows AND the search: an agent searching still only
+    # reaches their own orders. (me is already in vals from the block above.)
+    if mine_only:
+        conds.append("so.custom_allocated_to = %(me)s")
     if q and str(q).strip():
         vals["q"] = f"%{str(q).strip()}%"
         conds.append("""(so.name LIKE %(q)s OR so.customer_name LIKE %(q)s
@@ -314,6 +333,27 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     }
 
 
+def _own_guard(role, orders):
+    """A plain agent may only act on orders allocated to them; a manager or
+    section admin may act on any. Every write path calls this, so the per-agent
+    scope is enforced on the API, not just hidden in the board's row filter —
+    an agent can't reach a colleague's order by posting its id directly."""
+    if role == "manager" or _is_cf_admin():
+        return
+    names = [orders] if isinstance(orders, str) else list(orders or [])
+    names = [str(n).strip() for n in names if str(n).strip()]
+    if not names:
+        return
+    foreign = frappe.db.sql(
+        """SELECT name FROM `tabSales Order`
+           WHERE name IN %(n)s AND COALESCE(custom_allocated_to,'') != %(me)s
+           LIMIT 1""",
+        {"n": tuple(names), "me": frappe.session.user})
+    if foreign:
+        frappe.throw("You can only act on orders assigned to you.",
+                     frappe.PermissionError)
+
+
 @frappe.whitelist()
 def act(order, action, note=None):
     """One call decision. confirm → enters the logistics pool; cancel needs a
@@ -321,6 +361,7 @@ def act(order, action, note=None):
     attempt counter."""
     role = _gate()
     order = (order or "").strip()
+    _own_guard(role, order)
     if action not in _ACTIONS:
         frappe.throw("Unknown action.")
     if not frappe.db.exists("Sales Order", order):
@@ -502,10 +543,11 @@ def update_contact(order, phone=None, city=None, address_line=None):
     reader stay in step. If the order has no Address at all, one is created and
     linked, which is itself one of the failure modes.
     """
-    _gate()
+    role = _gate()
     order = (order or "").strip()
     if not frappe.db.exists("Sales Order", order):
         frappe.throw("Unknown order.")
+    _own_guard(role, order)
     phone = (phone or "").strip()
     city = (city or "").strip()
     address_line = (address_line or "").strip()
@@ -904,7 +946,11 @@ def dashboard(days=30, frm=None, to=None, mine=0):
     days = min(max(int(days or 30), 1), 365)
     rng, rng_vals = _range(days, frm, to)
     rng_vals["co"] = _CO   # every panel below is Morocco-only; see _CO.
-    mine = int(mine or 0)
+    # A plain agent is ALWAYS scoped to their own orders — the "mine" toggle is
+    # theirs to leave on, not a way to see the whole section. Only a manager or
+    # section admin may drop the scope (mine=0). Same rule as the board.
+    can_see_all = role == "manager" or _is_cf_admin()
+    mine = int(mine or 0) or (0 if can_see_all else 1)
     me_cond = ""
     if mine:
         rng_vals["me"] = frappe.session.user
