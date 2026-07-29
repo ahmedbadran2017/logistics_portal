@@ -23,6 +23,14 @@ from frappe.utils import add_to_date, now_datetime
 
 _OPEN_STATUSES = ("Open", "Replied", "On Hold")
 
+# Morocco only. The instance carries China / Maslak / Holding orders too, and
+# — critically — the China company holds 11,330 orders for Moroccan customers
+# (dropship), sharing 8,349 phone keys with the Morocco company. Without this
+# scope, _match_orders could link a ticket to the customer's CHINA order
+# instead of their Morocco one, and the agent would be looking at the wrong
+# parcel.
+_CO = "Justyol Morocco"
+
 
 def _gate():
     from logistics_portal.api.auth import resolve_role
@@ -140,9 +148,9 @@ def _match_orders(phones):
         f"""SELECT name, customer_name, creation,
                    {d1} AS d1, {d2} AS d2
             FROM `tabSales Order`
-            WHERE docstatus = 1
+            WHERE docstatus = 1 AND company = %(co)s
               AND ({d1} IN %(ds)s OR {d2} IN %(ds)s)""",
-        {"ds": tuple(digits)}, as_dict=True)
+        {"ds": tuple(digits), "co": _CO}, as_dict=True)
     best = {}
     for r in rows:
         for d in (r.d1, r.d2):
@@ -179,15 +187,16 @@ def board(tab="inbox", days=7, q="", limit=30, offset=0):
             {"days": days, "csbtn": "%خدمة العملاء%"})[0][0])
     counts["open"] = int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabIssue`
-           WHERE status IN %(sts)s""", {"sts": _OPEN_STATUSES})[0][0])
+           WHERE company = %(co)s AND status IN %(sts)s""",
+        {"sts": _OPEN_STATUSES, "co": _CO})[0][0])
     counts["mine"] = int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabIssue`
-           WHERE status IN %(sts)s AND custom_agent = %(me)s""",
-        {"sts": _OPEN_STATUSES, "me": frappe.session.user})[0][0])
+           WHERE company = %(co)s AND status IN %(sts)s AND custom_agent = %(me)s""",
+        {"sts": _OPEN_STATUSES, "me": frappe.session.user, "co": _CO})[0][0])
     counts["resolved"] = int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabIssue`
-           WHERE status IN ('Resolved', 'Closed')
-             AND modified >= DATE_SUB(NOW(), INTERVAL 7 DAY)""")[0][0])
+           WHERE company = %(co)s AND status IN ('Resolved', 'Closed')
+             AND modified >= DATE_SUB(NOW(), INTERVAL 7 DAY)""", {"co": _CO})[0][0])
 
     rows, total = [], 0
     if tab == "inbox" and _has_wa():
@@ -220,8 +229,8 @@ def board(tab="inbox", days=7, q="", limit=30, offset=0):
                 "order": so.name if so else "", "customer": so.customer_name if so else "",
             })
     elif tab != "inbox":
-        conds = ["1=1"]
-        vals = {"limit": limit, "offset": offset, "me": frappe.session.user}
+        conds = ["i.company = %(co)s"]
+        vals = {"limit": limit, "offset": offset, "me": frappe.session.user, "co": _CO}
         if tab == "open":
             conds.append("i.status IN ('Open', 'Replied', 'On Hold')")
         elif tab == "mine":
@@ -427,24 +436,24 @@ def report(days=7):
                             COALESCE(i.resolution_date, i.modified)) END) / 60, 1)
                        AS avg_reso_h
             FROM `tabIssue` i
-            WHERE i.creation >= {since}
-            GROUP BY user ORDER BY handled DESC""", as_dict=True)
+            WHERE i.company = %(co)s AND i.creation >= {since}
+            GROUP BY user ORDER BY handled DESC""", {"co": _CO}, as_dict=True)
 
     cats = frappe.db.sql(
         f"""SELECT COALESCE(NULLIF(custom_category, ''), '(none)') AS cat, COUNT(*) n
-            FROM `tabIssue` WHERE creation >= {since}
-            GROUP BY cat ORDER BY n DESC LIMIT 12""", as_dict=True)
+            FROM `tabIssue` WHERE company = %(co)s AND creation >= {since}
+            GROUP BY cat ORDER BY n DESC LIMIT 12""", {"co": _CO}, as_dict=True)
 
     funnel = frappe.db.sql(
         f"""SELECT d, SUM(opened) opened, SUM(resolved) resolved FROM (
               SELECT DATE(creation) d, 1 opened, 0 resolved FROM `tabIssue`
-                WHERE creation >= {since}
+                WHERE company = %(co)s AND creation >= {since}
               UNION ALL
               SELECT DATE(COALESCE(resolution_date, modified)) d, 0 opened, 1 resolved
                 FROM `tabIssue`
-                WHERE status IN ('Resolved', 'Closed')
+                WHERE company = %(co)s AND status IN ('Resolved', 'Closed')
                   AND COALESCE(resolution_date, modified) >= {since}
-            ) x GROUP BY d ORDER BY d""", as_dict=True)
+            ) x GROUP BY d ORDER BY d""", {"co": _CO}, as_dict=True)
 
     return {
         "days": days,

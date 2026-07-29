@@ -15,6 +15,12 @@ import frappe
 from frappe.utils import add_to_date, now_datetime
 
 TABS = ("exceptions", "failed", "notdelivered", "stale", "backlog")
+# Morocco only. The instance also carries China / Maslak / Holding, whose
+# orders share this database. Carrier exceptions happen to be Morocco-only in
+# practice (Cathedis is the Moroccan carrier), but the SO-backed "Not
+# Delivered" tab is not, so every query here is company-scoped for safety.
+_CO = "Justyol Morocco"
+
 _DN_TRACK = {"exceptions": "Delivery Exception", "failed": "Failed Attempt"}
 _STALE_TRACKS = ("Out For Delivery", "In Transit", "Pending")
 _STALE_DAYS = 7
@@ -123,15 +129,18 @@ _DN_SELECT = """
 
 
 def _dn_where(tab, vals):
+    vals["co"] = _CO
     if tab == "backlog":
         # The pile OLDER than the working window — 17k untriaged parcels were
         # invisible when every queue clipped at `days`. Worked by bulk triage.
         vals["backtracks"] = _BACKLOG_TRACKS
         return " AND ".join([
-            "dn.docstatus = 1", "COALESCE(dn.custom_exception_action,'') = ''",
+            "dn.docstatus = 1", "dn.company = %(co)s",
+            "COALESCE(dn.custom_exception_action,'') = ''",
             "dn.custom_track_shipment_status IN %(backtracks)s",
             "dn.posting_date < DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"])
-    conds = ["dn.docstatus = 1", "COALESCE(dn.custom_exception_action,'') = ''",
+    conds = ["dn.docstatus = 1", "dn.company = %(co)s",
+             "COALESCE(dn.custom_exception_action,'') = ''",
              "dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"]
     if tab in _DN_TRACK:
         conds.append("dn.custom_track_shipment_status = %(track)s")
@@ -163,14 +172,17 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
             v)[0][0])
     counts["notdelivered"] = int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabSales Order`
-           WHERE docstatus = 1 AND custom_sales_status = 'Not Delivered'
+           WHERE docstatus = 1 AND company = %(co)s
+             AND custom_sales_status = 'Not Delivered'
              AND creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)""",
-        {"days": max(days, 60)})[0][0])
+        {"days": max(days, 60), "co": _CO})[0][0])
 
     if tab == "notdelivered":
-        conds = ["so.docstatus = 1", "so.custom_sales_status = 'Not Delivered'",
+        conds = ["so.docstatus = 1", "so.company = %(co)s",
+                 "so.custom_sales_status = 'Not Delivered'",
                  "so.creation >= DATE_SUB(NOW(), INTERVAL %(ndays)s DAY)"]
         vals["ndays"] = max(days, 60)
+        vals["co"] = _CO
         if q and str(q).strip():
             vals["q"] = f"%{str(q).strip()}%"
             conds.append("""(so.name LIKE %(q)s OR so.customer_name LIKE %(q)s
