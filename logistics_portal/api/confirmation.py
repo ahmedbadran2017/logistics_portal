@@ -204,6 +204,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
                    COALESCE(NULLIF(so.custom_customer_phone,''),
                             so.custom_shipping_phone) AS phone,
                    {_CITY} AS city,
+                   addr.address_line1 AS address_line,
                    so.custom_items_count AS item_count,
                    TIMESTAMPDIFF(HOUR, so.creation, NOW()) AS age_h,
                    COALESCE(so.custom_call_attempts, 0) AS attempts,
@@ -273,6 +274,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
             # `r.items` resolves to the dict METHOD and int(method) TypeErrors
             # (same trap that blanked the Settings zones panel once).
             "city": (r.city or "").strip().title(), "items": int(r.item_count or 1),
+            "addressLine": (r.address_line or "").strip(),
             "itemsText": items_text.get(r.name, ""),
             "ageH": int(r.age_h or 0), "attempts": int(r.attempts or 0),
             "lastCall": str(r.last_call)[:16] if r.last_call else "",
@@ -471,20 +473,32 @@ def bulk_cancel(orders=None, reason=None):
 
 
 @frappe.whitelist()
-def update_contact(order, phone=None, city=None):
-    """Fix the customer's phone / city before confirming — the #1 reason
-    deliveries fail later. Logged old → new on the order."""
+def update_contact(order, phone=None, city=None, address_line=None):
+    """Fix the customer's phone / full address before confirming — the #1
+    reason deliveries fail later (Cathedis rejects unknown cities and bad
+    numbers). Logged old → new on the order.
+
+    The street + city live on the linked Address (99.9% of orders), NOT on the
+    Sales Order — custom_shipping_city is filled on under 1%. Cathedis reads
+    the Address (its failures say "Address None not found"), so the edit has to
+    land there. We write BOTH: the Address is the real source, and the SO's
+    custom_shipping_city is mirrored so the board (_CITY) and every downstream
+    reader stay in step. If the order has no Address at all, one is created and
+    linked, which is itself one of the failure modes.
+    """
     _gate()
     order = (order or "").strip()
     if not frappe.db.exists("Sales Order", order):
         frappe.throw("Unknown order.")
     phone = (phone or "").strip()
     city = (city or "").strip()
-    if not phone and not city:
+    address_line = (address_line or "").strip()
+    if not phone and not city and not address_line:
         frappe.throw("Nothing to update.")
     old = frappe.db.get_value(
         "Sales Order", order,
-        ["custom_customer_phone", "custom_shipping_phone", "custom_shipping_city"],
+        ["custom_customer_phone", "custom_shipping_phone", "custom_shipping_city",
+         "shipping_address_name", "customer_address", "customer", "customer_name"],
         as_dict=True)
     updates, log = {}, []
     if phone:
@@ -496,6 +510,43 @@ def update_contact(order, phone=None, city=None):
         updates["custom_shipping_city"] = city
         if (old.custom_shipping_city or "—") != city:
             log.append(f"city {old.custom_shipping_city or '—'} → {city}")
+
+    # ── the Address: where the carrier actually reads the delivery from ──
+    addr_name = old.shipping_address_name or old.customer_address
+    if (city or address_line or phone):
+        if addr_name and frappe.db.exists("Address", addr_name):
+            adoc = frappe.get_doc("Address", addr_name)
+            if address_line and (adoc.address_line1 or "") != address_line:
+                log.append(f"address {(adoc.address_line1 or '—')} → {address_line}")
+                adoc.address_line1 = address_line
+            if city and (adoc.city or "").strip() != city:
+                adoc.city = city
+            if phone:
+                adoc.phone = phone
+            adoc.flags.ignore_permissions = True
+            adoc.save(ignore_permissions=True)
+        elif address_line or city:
+            # No Address on the order — Cathedis logs this as "Address None
+            # not found". Build one and link it so the parcel has somewhere to
+            # go, instead of failing silently at label time.
+            adoc = frappe.get_doc({
+                "doctype": "Address",
+                "address_title": old.customer_name or old.customer or order,
+                "address_type": "Shipping",
+                "address_line1": address_line or (city or order),
+                "city": city or "",
+                "phone": phone or "",
+                "country": "Morocco",
+                "links": [{"link_doctype": "Customer", "link_name": old.customer}]
+                         if old.customer else [],
+            })
+            adoc.flags.ignore_permissions = True
+            adoc.insert(ignore_permissions=True)
+            updates["shipping_address_name"] = adoc.name
+            if not old.customer_address:
+                updates["customer_address"] = adoc.name
+            log.append(f"address created ({adoc.name})")
+
     if not log:
         return {"ok": True, "unchanged": True}
     frappe.db.set_value("Sales Order", order, updates, update_modified=True)

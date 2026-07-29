@@ -305,13 +305,22 @@
 
         <!-- contact edit -->
         <Transition name="cfslide">
-          <div v-if="editFor === r.order" class="flex items-center gap-2 flex-wrap bg-stone-50 rounded-xl p-2.5 mt-3">
-            <input v-model="editPhone" :placeholder="t('cf.phonePh')" maxlength="20"
-                   class="h-9 w-[180px] ps-3 pe-3 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] font-mono focus:outline-none" />
-            <input v-model="editCity" :placeholder="t('cf.cityPh')" maxlength="60"
-                   class="h-9 w-[180px] ps-3 pe-3 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] focus:outline-none" />
-            <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-50"
-                    :disabled="savingContact" @click="saveContact(r)">{{ t('px.common.save') }}</button>
+          <div v-if="editFor === r.order" class="bg-stone-50 rounded-xl p-2.5 mt-3 space-y-2">
+            <div class="text-[10.5px] font-semibold uppercase tracking-wide text-stone-400">{{ t('cf.editAddrTitle') }}</div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <input v-model="editPhone" :placeholder="t('cf.phonePh')" maxlength="20"
+                     class="h-9 w-[180px] ps-3 pe-3 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] font-mono focus:outline-none" dir="ltr" />
+              <input v-model="editCity" :placeholder="t('cf.cityPh')" maxlength="60"
+                     class="h-9 w-[180px] ps-3 pe-3 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] focus:outline-none" dir="auto" />
+            </div>
+            <!-- The street lives on the linked Address — the field the carrier
+                 reads. City above is mirrored to the Address too. -->
+            <div class="flex items-center gap-2 flex-wrap">
+              <input v-model="editAddress" :placeholder="t('cf.addressPh')" maxlength="180"
+                     class="h-9 flex-1 min-w-[220px] ps-3 pe-3 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] focus:outline-none" dir="auto" />
+              <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-50"
+                      :disabled="savingContact" @click="saveContact(r)">{{ t('px.common.save') }}</button>
+            </div>
           </div>
         </Transition>
       </div>
@@ -366,6 +375,7 @@ const cancelReason = ref("");
 const editFor = ref("");
 const editPhone = ref("");
 const editCity = ref("");
+const editAddress = ref("");
 const savingContact = ref(false);
 
 let qTimer = null;
@@ -558,6 +568,7 @@ function toggleEdit(r) {
   editFor.value = r.order;
   editPhone.value = r.phone || "";
   editCity.value = r.city || "";
+  editAddress.value = r.addressLine || "";
 }
 
 async function saveContact(r) {
@@ -565,10 +576,12 @@ async function saveContact(r) {
   try {
     const res = await apiPost("confirmation.update_contact", {
       order: r.order, phone: editPhone.value, city: editCity.value,
+      address_line: editAddress.value,
     });
     if (!res.unchanged) {
       r.phone = editPhone.value.trim() || r.phone;
       r.city = editCity.value.trim() || r.city;
+      r.addressLine = editAddress.value.trim() || r.addressLine;
       success(t("cf.contactSaved"), (res.updated || []).join(" · "));
     }
     editFor.value = "";
