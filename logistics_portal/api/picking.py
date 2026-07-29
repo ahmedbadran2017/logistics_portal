@@ -538,6 +538,105 @@ def _pick_list_activity(name, pl):
     return events
 
 
+# The to-pick pool predicate, identical to suggest_batches: submitted Confirmed
+# Morocco orders in Pending logistics state, not already on any open pick list.
+_POOL_WHERE = """so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
+                 AND so.company = 'Justyol Morocco'
+                 AND so.custom_logistics_status = 'Pending'
+                 AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+                 AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
+                                 JOIN `tabPick List` p ON p.name = pli.parent
+                                 WHERE pli.sales_order = so.name AND p.docstatus < 2)"""
+
+_CAND_CITY = ("COALESCE(NULLIF(TRIM(so.custom_shipping_city), ''), "
+              "NULLIF(TRIM(addr.city), ''))")
+_CAND_CITY_JOIN = ("LEFT JOIN `tabAddress` addr ON addr.name = "
+                   "COALESCE(so.shipping_address_name, so.customer_address)")
+
+
+@frappe.whitelist()
+def pick_candidates(items="any", supplier="", city="", limit=200):
+    """Orders eligible for a new pick list, filtered by size / supplier / city,
+    plus the facets to build those filters. The dispatcher builds ~45 lists a
+    day by hand; this lets them scope a batch (single-item blitz, one supplier,
+    one city, capped) instead of hand-picking rows.
+
+    The unit is always the WHOLE order. `supplier` matches orders whose EVERY
+    line is that supplier — never a subset — so an order is never split across
+    two lists (21.5% of the pool spans >1 supplier, and splitting one would
+    leave half a parcel that can't ship). Dispatcher / manager only.
+    """
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Only a dispatcher or manager can create pick lists.",
+                     frappe.PermissionError)
+    items = (items or "any").strip()
+    supplier = (supplier or "").strip()
+    city = (city or "").strip()
+    limit = min(max(int(limit or 200), 1), 500)
+
+    # One grouped pass over the pool: per order, its line count, its supplier
+    # set, its city and value. Facets come from the same rows.
+    rows = frappe.db.sql(
+        f"""SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
+                   {_CAND_CITY} AS city,
+                   COUNT(*) AS line_count,
+                   SUM(GREATEST(soi.qty - soi.delivered_qty, 0)) AS units,
+                   COUNT(DISTINCT COALESCE(NULLIF(i.default_supplier,''),'(none)')) AS sup_count,
+                   MAX(COALESCE(NULLIF(i.default_supplier,''),'(none)')) AS one_supplier
+            FROM `tabSales Order` so
+            JOIN `tabSales Order Item` soi ON soi.parent = so.name
+            JOIN `tabItem` i ON i.name = soi.item_code
+            {_CAND_CITY_JOIN}
+            WHERE {_POOL_WHERE}
+            GROUP BY so.name, so.customer_name, so.grand_total, city
+            ORDER BY so.creation""", as_dict=True)
+
+    # Facets over the UNFILTERED pool, so the dropdowns show everything on offer.
+    sup_facet, city_facet = {}, {}
+    for r in rows:
+        # A supplier is offered only when it can own a whole order alone; an
+        # order that mixes suppliers contributes to none (it can't be a
+        # single-supplier batch anyway).
+        if int(r.sup_count or 0) == 1:
+            sup_facet[r.one_supplier] = sup_facet.get(r.one_supplier, 0) + 1
+        if r.city:
+            city_facet[r.city] = city_facet.get(r.city, 0) + 1
+
+    def keep(r):
+        lc = int(r.line_count or 0)
+        if items == "single" and lc != 1:
+            return False
+        if items == "multi" and lc <= 1:
+            return False
+        if supplier and not (int(r.sup_count or 0) == 1 and r.one_supplier == supplier):
+            return False
+        if city and (r.city or "") != city:
+            return False
+        return True
+
+    matched = [r for r in rows if keep(r)]
+    page = matched[:limit]
+    return {
+        "rows": [{
+            "order": r.name, "customer": r.customer or "",
+            "city": (r.city or "").strip().title() or "—",
+            "value": float(r.total or 0),
+            "lines": int(r.line_count or 0), "units": int(r.units or 0),
+            "supplier": r.one_supplier if int(r.sup_count or 0) == 1 else "mixed",
+        } for r in page],
+        "matched": len(matched), "shown": len(page),
+        "matchedUnits": sum(int(r.units or 0) for r in matched),
+        "poolTotal": len(rows),
+        "suppliers": sorted(
+            [{"name": k, "orders": v} for k, v in sup_facet.items() if k != "(none)"],
+            key=lambda x: -x["orders"]),
+        "cities": sorted(
+            [{"name": k.strip().title(), "orders": v} for k, v in city_facet.items()],
+            key=lambda x: -x["orders"])[:20],
+    }
+
+
 @frappe.whitelist()
 def create_pick_list_from_orders(orders, picker=None):
     """Create ONE draft (combined) Pick List from selected Confirmed orders.

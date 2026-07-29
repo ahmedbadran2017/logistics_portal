@@ -51,6 +51,13 @@
             <Icon name="package" :size="14" /> {{ t("pl.sbBtn") }}
           </button>
           <button
+            v-if="activeStage === 'to_pick' && mode === 'live'"
+            class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
+            @click="cplModal && cplModal.open()"
+          >
+            <Icon name="layout-grid" :size="14" /> {{ t("cpl.btn") }}
+          </button>
+          <button
             class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
             :class="exporting ? 'opacity-60 pointer-events-none' : ''"
             @click="exportCsv"
@@ -503,6 +510,7 @@
     </div>
 
     <SuggestBatchesModal ref="sbModal" @created="load('to_pick')" />
+    <CreatePickListModal ref="cplModal" @created="load('to_pick')" />
     <SkuLookupModal ref="skuModal" />
 
     <!-- Orders blocked by an out-of-stock SKU (restock worklist click) -->
@@ -699,6 +707,7 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import SuggestBatchesModal from "@/components/SuggestBatchesModal.vue";
+import CreatePickListModal from "@/components/CreatePickListModal.vue";
 import SkuLookupModal from "@/components/SkuLookupModal.vue";
 import { WAREHOUSE, fmtMAD } from "@/lib/handoffData";
 import { api, apiPost, liveOr } from "@/lib/resource";
@@ -708,6 +717,7 @@ import { useI18n } from "@/composables/useI18n";
 const router = useRouter();
 const route = useRoute();
 const sbModal = ref(null);
+const cplModal = ref(null);
 const { success, warn } = useToast();
 const { t, locale } = useI18n();
 
