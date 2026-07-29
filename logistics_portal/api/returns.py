@@ -435,23 +435,44 @@ def _putaway_condition(col):
 @frappe.whitelist()
 def restock_summary(limit=30):
     """What's sitting in the Return Zone right now: totals + the most valuable
-    items first, plus the list of valid shelf targets for the move dropdown."""
+    items first, plus the list of valid shelf targets for the move dropdown.
+
+    Units are the headline number — they're exact (a straight SUM of actual_qty)
+    and they're what drives the restock work. The MAD figure is secondary and
+    priced at the item's SELLING rate, not Bin.stock_value: on the live data
+    stock_value is unreliable here — 35% of the pieces carry zero valuation
+    (dropship items never got a purchase cost), and where it is set it runs to
+    ~2x the selling price. Selling rate covers every piece and reflects what
+    the returned stock is actually worth to recover. It's approximate by
+    nature, so it's labelled as an estimate, not banked as fact.
+    """
     _recv_gate()
     limit = min(max(int(limit or 30), 1), 100)
-    tot = frappe.db.sql(
-        """SELECT COUNT(DISTINCT item_code), COALESCE(SUM(actual_qty),0),
-                  COALESCE(SUM(stock_value),0)
-           FROM `tabBin` WHERE warehouse = %s AND actual_qty > 0""",
-        (RETURN_ZONE,))[0]
+
+    # Per-item selling rate = the average line rate the item has actually sold
+    # at (rate > 0 only, so unpriced lines don't drag the average to zero).
     rows = frappe.db.sql(
-        """SELECT b.item_code, b.actual_qty AS qty, b.stock_value AS value,
+        """SELECT b.item_code, b.actual_qty AS qty,
                   it.custom_sku AS sku,
-                  COALESCE(NULLIF(it.item_name,''), b.item_code) AS name, it.image
+                  COALESCE(NULLIF(it.item_name,''), b.item_code) AS name, it.image,
+                  COALESCE((SELECT AVG(soi.rate) FROM `tabSales Order Item` soi
+                            WHERE soi.item_code = b.item_code AND soi.rate > 0), 0) AS sell_rate
            FROM `tabBin` b
            LEFT JOIN `tabItem` it ON it.name = b.item_code
-           WHERE b.warehouse = %s AND b.actual_qty > 0
-           ORDER BY b.stock_value DESC LIMIT %s""",
-        (RETURN_ZONE, limit), as_dict=True)
+           WHERE b.warehouse = %s AND b.actual_qty > 0""",
+        (RETURN_ZONE,), as_dict=True)
+
+    total_qty = sum(int(r.qty or 0) for r in rows)
+    for r in rows:
+        r["est_value"] = round(float(r.sell_rate or 0) * int(r.qty or 0))
+    total_value = sum(r["est_value"] for r in rows)
+    # Priced = pieces we could put a selling rate on; the rest have never sold,
+    # so their value is genuinely unknown rather than zero — surface the gap
+    # instead of hiding it in the total.
+    unpriced_units = sum(int(r.qty or 0) for r in rows if not (r.sell_rate or 0))
+
+    rows.sort(key=lambda r: -r["est_value"])
+    top = rows[:limit]
 
     cond, args = _putaway_condition("name")
     targets = [w[0] for w in frappe.db.sql(
@@ -459,11 +480,12 @@ def restock_summary(limit=30):
         tuple(args))]
 
     return {
-        "items": int(tot[0] or 0), "qty": int(tot[1] or 0),
-        "value": round(float(tot[2] or 0)),
+        "items": len(rows), "qty": int(total_qty),
+        "value": int(total_value), "valueEstimated": True,
+        "unpricedUnits": int(unpriced_units),
         "rows": [{"itemCode": r.item_code, "sku": r.sku or "", "name": r.name,
-                  "qty": int(r.qty or 0), "value": round(float(r.value or 0)),
-                  "image": r.image or ""} for r in rows],
+                  "qty": int(r.qty or 0), "value": r["est_value"],
+                  "image": r.image or ""} for r in top],
         "targets": targets,
         "adjustWh": ADJUST_WH,
     }

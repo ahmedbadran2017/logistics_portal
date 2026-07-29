@@ -10,11 +10,24 @@
         <span class="w-[150px] h-8 rounded-lg bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
       </div>
       <div v-else-if="summary" class="flex items-center gap-2 flex-wrap">
-        <span class="inline-flex items-center gap-1.5 text-[12px] font-semibold text-stone-700 bg-white ring-1 ring-stone-200 rounded-lg px-2.5 h-8 tabular-nums">
-          {{ summary.qty }} {{ t('recv.units') }}
+        <!-- Units: the exact, reliable headline — a straight sum of what's on
+             the floor, and what the restock work is measured in. -->
+        <span class="inline-flex items-baseline gap-1.5 text-white bg-stone-900 rounded-lg px-3 h-9 tabular-nums">
+          <span class="text-[16px] font-bold">{{ summary.qty }}</span>
+          <span class="text-[11.5px] font-medium opacity-80">{{ t('recv.units') }}</span>
         </span>
-        <span class="inline-flex items-center gap-1.5 text-[12px] font-semibold text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-lg px-2.5 h-8 tabular-nums">
-          {{ fmt(summary.value) }} MAD {{ t('restock.stuck') }}
+        <!-- Value: secondary and explicitly an estimate — priced at selling
+             rate, since Bin.stock_value is unreliable in this zone. -->
+        <span v-if="summary.value"
+              class="inline-flex items-center gap-1.5 text-[12px] font-medium text-stone-500 bg-white ring-1 ring-stone-200 rounded-lg px-2.5 h-9 tabular-nums"
+              :title="t('restock.valueNote')">
+          ≈ {{ fmt(summary.value) }} MAD {{ t('restock.stuck') }}
+          <Icon name="info" :size="12" class="text-stone-300" />
+        </span>
+        <span v-if="summary.unpricedUnits"
+              class="inline-flex items-center text-[11px] text-stone-400 px-1"
+              :title="t('restock.unpricedNote')">
+          +{{ summary.unpricedUnits }} {{ t('restock.unpriced') }}
         </span>
       </div>
     </header>
