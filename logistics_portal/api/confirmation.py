@@ -145,19 +145,28 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     custom_range = "frm" in rng_vals or "to" in rng_vals
     vals = {"days": days, "limit": limit, "offset": offset, **rng_vals}
 
-    # Each agent sees ONLY the orders allocated to them; a manager or a section
-    # admin sees the whole section. custom_allocated_to is set on 100% of the
-    # live queue (auto-assigned at intake — measured: 0 unassigned of 1,832),
-    # so scoping never hides an order from everyone. Threaded into every count
-    # and row query below via me_q / me_so.
+    # Each agent sees ONLY their own orders; a manager or section admin sees the
+    # whole section. "Their own" = the ERPNext assignment (_assign), the field
+    # the team actually divides work by and the one the desk's "Assigned to me"
+    # view uses. It diverges from custom_allocated_to (the intake round-robin):
+    # of the live Not-Delivered set the two agreed on 1 order of 19, so scoping
+    # by custom_allocated_to showed each agent a different queue than the desk.
+    # _assign is set on 100% of the live queue too, so nothing is orphaned.
+    # NB _assign is a JSON array string ('["a@x.com"]'); match the QUOTED email
+    # so one address can't substring-match another. The DONE tabs stay keyed on
+    # custom_allocated_to (me_done) — act() stamps it with the acting agent, so
+    # those tabs remain a true "what I decided" trail, not "assigned to me".
     mine_only = role != "manager" and not _is_cf_admin()
-    me_q = me_so = ""
+    me_q = me_so = me_done = ""
     if mine_only:
         me = frappe.session.user
-        rng_vals["me"] = me   # counts queries spread rng_vals
+        rng_vals["me"] = me           # counts queries spread rng_vals
+        rng_vals["me_like"] = f'%"{me}"%'
         vals["me"] = me
-        me_q = " AND custom_allocated_to = %(me)s"       # no alias (count scans)
-        me_so = " AND so.custom_allocated_to = %(me)s"   # so.-aliased queries
+        vals["me_like"] = f'%"{me}"%'
+        me_q = " AND _assign LIKE %(me_like)s"       # no alias (count scans)
+        me_so = " AND so._assign LIKE %(me_like)s"   # so.-aliased queries
+        me_done = " AND custom_allocated_to = %(me)s"  # done tabs: the actor
 
     # Each family of tabs is dated by its OWN column: the working queues by
     # when the order arrived, the done tabs by when the decision was taken.
@@ -192,7 +201,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     for r in frappe.db.sql(
             f"""SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
                 WHERE docstatus = 1 AND company = %(co)s
-                  AND custom_sales_status IN %(sts)s{me_q}
+                  AND custom_sales_status IN %(sts)s{me_done}
                   AND {d_rng}
                 GROUP BY custom_sales_status""",
             {"sts": tuple(_AUTOMATION_DONE.values()), "co": _CO, **rng_vals}, as_dict=True):
@@ -206,7 +215,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     counts["duplicated"] = int(frappe.db.sql(
         f"""SELECT COUNT(*) FROM `tabSales Order`
             WHERE docstatus = 1 AND company = %(co)s
-              AND custom_sales_status = 'Duplicated'{me_q}
+              AND custom_sales_status = 'Duplicated'{me_done}
               AND {q_rng}""",
         {"co": _CO, **rng_vals})[0][0])
 
@@ -221,7 +230,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
               AND so.custom_sales_status IN %(sts)s{me_so}
               AND {_CUST_KEY} IN %(risky)s""",
         {"sts": tuple(QUEUES.values()), "co": _CO, "risky": risky,
-         **({"me": frappe.session.user} if mine_only else {})})[0][0])
+         **({"me_like": f'%"{frappe.session.user}"%'} if mine_only else {})})[0][0])
 
     # Not Delivered: shipped-then-failed parcels the confirmation team calls
     # back to arrange a redelivery/reship or to cancel. Post-shipment work
@@ -269,9 +278,15 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
                  rng.format(col="so.creation")]
         vals["status"] = QUEUES[tab]
     # Agent scope on the rows AND the search: an agent searching still only
-    # reaches their own orders. (me is already in vals from the block above.)
+    # reaches their own orders. Working queues scope by the ERPNext assignment
+    # (_assign, what the desk divides work by); the done tabs by the actor
+    # (custom_allocated_to, what act() stamped) so they stay a "what I did"
+    # trail. (both me / me_like are already in vals from the block above.)
     if mine_only:
-        conds.append("so.custom_allocated_to = %(me)s")
+        if tab in _AUTOMATION_DONE or tab == "duplicated":
+            conds.append("so.custom_allocated_to = %(me)s")
+        else:
+            conds.append("so._assign LIKE %(me_like)s")
     if q and str(q).strip():
         vals["q"] = f"%{str(q).strip()}%"
         conds.append("""(so.name LIKE %(q)s OR so.customer_name LIKE %(q)s
@@ -410,11 +425,18 @@ def _own_guard(role, orders):
     names = [str(n).strip() for n in names if str(n).strip()]
     if not names:
         return
+    # Foreign only if the agent is NEITHER the assignee (_assign, the working
+    # queue's owner) NOR the actor (custom_allocated_to, stamped by act() on the
+    # done tabs). Either claim lets them act, so reopening an order they decided
+    # still works even when its ERPNext assignment points at someone else.
     foreign = frappe.db.sql(
         """SELECT name FROM `tabSales Order`
-           WHERE name IN %(n)s AND COALESCE(custom_allocated_to,'') != %(me)s
+           WHERE name IN %(n)s
+             AND COALESCE(custom_allocated_to,'') != %(me)s
+             AND (_assign IS NULL OR _assign NOT LIKE %(me_like)s)
            LIMIT 1""",
-        {"n": tuple(names), "me": frappe.session.user})
+        {"n": tuple(names), "me": frappe.session.user,
+         "me_like": f'%"{frappe.session.user}"%'})
     if foreign:
         frappe.throw("You can only act on orders assigned to you.",
                      frappe.PermissionError)
@@ -1030,8 +1052,10 @@ def dashboard(days=30, frm=None, to=None, mine=0):
     mine = int(mine or 0) or (0 if can_see_all else 1)
     me_cond = ""
     if mine:
-        rng_vals["me"] = frappe.session.user
-        me_cond = " AND so.custom_allocated_to = %(me)s"
+        rng_vals["me_like"] = f'%"{frappe.session.user}"%'
+        # By the ERPNext assignment, same as the board — the dashboard must
+        # describe the queue the agent actually owns, not the intake round-robin.
+        me_cond = " AND so._assign LIKE %(me_like)s"
     live = tuple(QUEUES.values())
     s = _cf_settings()
     sla_h = int(s.get("slaFirstCallH", 6))
