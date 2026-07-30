@@ -345,6 +345,7 @@ export default {
     perSku: "1 par SKU",
     perPiece: "1 par pièce",
     print: "Imprimer les étiquettes",
+    printOne: "Imprimer ce SKU uniquement",
     printBlocked: "La fenêtre d'impression a été bloquée — autorisez les pop-ups et réessayez.",
     noSkuRow: "Pas encore de SKU — attribuez-en un dans le catalogue avant l'étiquetage.",
   },

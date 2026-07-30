@@ -345,6 +345,7 @@ export default {
     perSku: "1 per SKU",
     perPiece: "1 per piece",
     print: "Print labels",
+    printOne: "Print this SKU only",
     printBlocked: "The print window was blocked — allow pop-ups and try again.",
     noSkuRow: "No SKU yet — assign one in the catalog before it can be labelled.",
   },

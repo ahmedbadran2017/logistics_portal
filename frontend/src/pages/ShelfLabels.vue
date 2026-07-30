@@ -130,9 +130,20 @@
           <!-- live barcode preview -->
           <div v-if="!it.noSku" class="hidden sm:block flex-shrink-0" v-html="previewSvg(it.sku)" />
 
-          <span class="text-[13px] font-bold text-stone-900 tabular-nums flex-shrink-0 w-12 text-right">
+          <span class="text-[13px] font-bold text-stone-900 tabular-nums flex-shrink-0 w-10 text-right">
             {{ it.qty }}<span class="text-[10px] font-medium text-stone-400 ml-0.5">×</span>
           </span>
+
+          <!-- per-item print -->
+          <button
+            v-if="!it.noSku"
+            class="h-9 w-9 rounded-lg ring-1 ring-stone-200 text-stone-600 hover:bg-stone-50 flex items-center justify-center flex-shrink-0"
+            :title="t('shelfLabels.printOne')"
+            @click="printOne(it)"
+          >
+            <Icon name="printer" :size="15" />
+          </button>
+          <span v-else class="w-9 flex-shrink-0" />
         </li>
       </ul>
     </div>
@@ -209,15 +220,18 @@ async function loadShelf(s) {
   }
 }
 
-function print() {
+function sheet(items) {
   const size = sizes.find((s) => s.key === sizeKey.value) || sizes[0];
-  const ok = printShelfLabels({
-    shelf: shelf.value.shelf,
-    items: shelf.value.items,
-    copies: copies.value,
-    size,
-  });
+  const ok = printShelfLabels({ shelf: shelf.value.shelf, items, copies: copies.value, size });
   if (!ok) toast.error(t("shelfLabels.printBlocked"));
+}
+
+// Whole shelf, or a single item — both honour the copies toggle and size.
+function print() {
+  sheet(shelf.value.items);
+}
+function printOne(it) {
+  sheet([it]);
 }
 
 function hideImg(e) {
