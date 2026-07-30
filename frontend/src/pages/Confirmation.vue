@@ -97,8 +97,11 @@
         </button>
         <!-- working queues: kill or de-duplicate a batch -->
         <template v-else>
-          <input v-model="bulkReason" :placeholder="t('cf.cancelPh')" maxlength="120"
-                 class="h-9 w-[200px] ps-3 pe-3 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] focus:outline-none" />
+          <div class="w-[220px]">
+            <ReasonSelect v-model="bulkReason" :options="data?.reasons || []"
+                          :placeholder="t('cf.cancelPh')" :search-placeholder="t('cf.reasonSearch')"
+                          :none-text="t('cf.reasonNone')" />
+          </div>
           <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-violet-700 bg-violet-50 ring-1 ring-violet-200 hover:bg-violet-100 disabled:opacity-40 transition-colors"
                   :disabled="!selected.size || bulkBusy" @click="bulkAct('duplicate')">
             <Icon name="copy" :size="13" class="inline -mt-px me-1" />{{ t('cf.bulkDuplicate') }}
@@ -300,17 +303,16 @@
 
         <!-- cancel reason -->
         <Transition name="cfslide">
-          <div v-if="cancelFor === r.order" class="space-y-2 bg-rose-50/70 rounded-xl p-2.5 mt-3">
-            <div v-if="data?.reasons?.length" class="flex flex-wrap gap-1.5">
-              <button v-for="rs in data.reasons" :key="rs"
-                      class="h-7 px-2.5 rounded-full text-[11.5px] font-medium ring-1 transition-all"
-                      :class="cancelReason === rs ? 'text-white bg-rose-600 ring-rose-600 shadow-sm' : 'text-rose-700 bg-white ring-rose-200 hover:bg-rose-100'"
-                      @click="cancelReason = rs">{{ rs }}</button>
-            </div>
+          <div v-if="cancelFor === r.order" class="bg-rose-50/70 rounded-xl p-2.5 mt-3">
             <div class="flex items-center gap-2">
-              <input v-model="cancelReason" :placeholder="t('cf.cancelPh')" maxlength="120"
-                     class="flex-1 h-9 ps-3 pe-3 rounded-lg bg-white ring-1 ring-rose-200 text-[12.5px] focus:outline-none" />
-              <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 transition-colors"
+              <!-- One shared vocabulary, chosen not typed — every cancel groups
+                   cleanly in the reports. Fed from the reasons set in Settings. -->
+              <div class="flex-1 min-w-0">
+                <ReasonSelect v-model="cancelReason" :options="data?.reasons || []"
+                              :placeholder="t('cf.cancelPh')" :search-placeholder="t('cf.reasonSearch')"
+                              :none-text="t('cf.reasonNone')" />
+              </div>
+              <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 transition-colors shrink-0"
                       :disabled="!cancelReason.trim() || busy === r.order"
                       @click="submitCancel(r)">{{ t('cf.cancelConfirm') }}</button>
             </div>
@@ -350,6 +352,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import Pager from "@/components/ui/Pager.vue";
 import DateRange from "@/components/ui/DateRange.vue";
+import ReasonSelect from "@/components/ui/ReasonSelect.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";

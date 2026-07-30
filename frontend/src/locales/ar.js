@@ -889,6 +889,8 @@ export default {
     actOnhold: "تعليق",
     actCancel: "إلغاء",
     cancelPh: "سبب الإلغاء (إجباري)…",
+    reasonSearch: "دوّر على سبب…",
+    reasonNone: "مفيش سبب مطابق",
     cancelConfirm: "إلغاء الأوردر",
     editContact: "تعديل العنوان / التليفون",
     phonePh: "التليفون…",

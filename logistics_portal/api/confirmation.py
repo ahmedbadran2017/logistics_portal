@@ -377,7 +377,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
                                 and int(r.age_h or 0) > sla_h),
         } for r in rows],
         "mine": mine,
-        "reasons": _cf_settings().get("reasons", []),
+        "reasons": effective_reasons(),
         "serverNow": str(now_datetime())[:19],
     }
 
@@ -716,6 +716,17 @@ def reason_options():
     if not f or not f.options:
         return []
     return [o.strip() for o in f.options.split("\n") if o.strip()]
+
+
+def effective_reasons():
+    """The list the cancel box actually offers: the manager's quick-pick subset,
+    or the whole vocabulary when no subset is set. Same fallback cf_settings()
+    uses — the board must never hand back an empty list, or the picker has
+    nothing to choose and the UI drops to free text (the exact thing we're
+    unifying away)."""
+    opts = reason_options()
+    sub = [r for r in (_cf_settings().get("reasons") or []) if r in opts]
+    return sub or opts
 
 
 def _is_cf_admin():

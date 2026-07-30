@@ -889,6 +889,8 @@ export default {
     actOnhold: "On hold",
     actCancel: "Cancel",
     cancelPh: "Why is it cancelled? (required)…",
+    reasonSearch: "Search a reason…",
+    reasonNone: "No matching reason",
     cancelConfirm: "Cancel order",
     editContact: "Edit address / phone",
     phonePh: "Phone…",

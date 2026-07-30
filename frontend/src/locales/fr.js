@@ -890,6 +890,8 @@ export default {
     actOnhold: "En attente",
     actCancel: "Annuler",
     cancelPh: "Motif d'annulation (obligatoire)…",
+    reasonSearch: "Rechercher un motif…",
+    reasonNone: "Aucun motif correspondant",
     cancelConfirm: "Annuler la commande",
     editContact: "Modifier adresse / téléphone",
     phonePh: "Téléphone…",
