@@ -69,6 +69,29 @@
             rows="3"
             placeholder="What happened? Steps, order numbers, links…"
           />
+          <div v-if="!aiHidden" class="th-ai">
+            <button
+              v-if="!aiPreview"
+              type="button"
+              class="th-btn th-btn-sm"
+              :disabled="aiBusy || !form.description.trim()"
+              @click="aiPolish"
+            >
+              {{ aiBusy ? "✨ Rewriting…" : "✨ Rewrite in English" }}
+            </button>
+            <div v-else class="th-ai-preview">
+              <div class="th-ai-tag">✨ AI suggestion</div>
+              <div class="th-ai-text">{{ aiPreview }}</div>
+              <div class="th-ai-actions">
+                <button type="button" class="th-btn th-btn-sm th-btn-primary" @click="aiApply">
+                  Use suggestion
+                </button>
+                <button type="button" class="th-btn th-btn-sm" @click="aiPreview = ''">
+                  Keep original
+                </button>
+              </div>
+            </div>
+          </div>
 
           <label class="th-label">Attachments</label>
           <input
@@ -240,6 +263,48 @@ async function submit() {
   }
 }
 
+// AI rewrite — same task_hub endpoint the Hub SPA uses. If the server says the
+// feature is off (no key / toggle disabled), the button hides itself quietly.
+const aiBusy = ref(false);
+const aiPreview = ref("");
+const aiHidden = ref(false);
+
+async function aiPolish() {
+  if (aiBusy.value || !form.description.trim()) return;
+  aiBusy.value = true;
+  try {
+    const resp = await fetch("/api/method/task_hub.api.ai.polish_description", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Frappe-CSRF-Token": csrf(),
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ text: form.description.trim() }),
+    });
+    const j = await resp.json().catch(() => ({}));
+    if (!resp.ok || j.exc) {
+      const msg = firstServerMessage(j) || "";
+      if (msg.includes("not available")) {
+        aiHidden.value = true;
+        return;
+      }
+      throw new Error(msg || "HTTP " + resp.status);
+    }
+    aiPreview.value = (j.message && j.message.polished) || "";
+  } catch (e) {
+    error.value = e.message || "AI rewrite failed — please try again.";
+  } finally {
+    aiBusy.value = false;
+  }
+}
+
+function aiApply() {
+  if (aiPreview.value) form.description = aiPreview.value;
+  aiPreview.value = "";
+}
+
 function firstServerMessage(j) {
   try {
     const arr = JSON.parse(j._server_messages || "[]");
@@ -373,6 +438,34 @@ function firstServerMessage(j) {
 .th-btn-sm {
   padding: 6px 10px;
   font-size: 11.5px;
+}
+.th-ai {
+  margin-top: 6px;
+}
+.th-ai-preview {
+  border: 1px solid #f0c6b8;
+  background: #fdf5f2;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.th-ai-tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #c4492a;
+  margin-bottom: 6px;
+}
+.th-ai-text {
+  font-size: 12.5px;
+  color: #292524;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.th-ai-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
 }
 .th-file-chip {
   display: inline-flex;
