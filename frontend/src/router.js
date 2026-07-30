@@ -79,6 +79,7 @@ const routes = [
       { path: "count", name: "CycleCount", component: () => import("@/pages/CycleCount.vue") },
       { path: "inventory", name: "Inventory", component: () => import("@/pages/Inventory.vue") },
       { path: "sku", name: "SkuLookup", component: () => import("@/pages/SkuLookup.vue") },
+      { path: "shelf-labels", name: "ShelfLabels", component: () => import("@/pages/ShelfLabels.vue") },
       { path: "catalog", name: "CatalogHub", component: () => import("@/pages/CatalogHub.vue") },
 
       // Team

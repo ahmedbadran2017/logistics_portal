@@ -176,3 +176,79 @@ def _require_manager():
     from logistics_portal.api.auth import resolve_role
     if resolve_role(frappe.session.user) != "manager":
         frappe.throw("Only a manager can change pickable warehouses.", frappe.PermissionError)
+
+
+# ---------------------------------------------------------------------------
+# Shelf label studio — reprint SKU barcodes for stock whose labels have faded
+# or were never there. Works one shelf at a time: pick a shelf, get its items
+# with live piece counts, print Code-128(custom_sku) labels that the floor
+# scanner reads straight back. The barcode is rendered client-side.
+# ---------------------------------------------------------------------------
+def _floor_gate():
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in (
+            "manager", "dispatcher", "picker", "returns"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+
+
+# A shelf bin: single letter, 1–2 digits, optional trailing letter (e.g. H14A),
+# under Justyol Morocco. Same shape the pick engine treats as a real shelf.
+_SHELF_REGEXP = "warehouse REGEXP '^[A-Z][0-9]{1,2}[A-Z]? - JM$'"
+
+
+@frappe.whitelist()
+def label_shelves():
+    """Every shelf currently holding stock, grouped by zone (leading letter),
+    for the shelf picker. Only shelves with stock — you can't label an empty
+    one."""
+    _floor_gate()
+    rows = frappe.db.sql(
+        f"""SELECT warehouse, COUNT(DISTINCT item_code) skus, SUM(actual_qty) units
+            FROM `tabBin`
+            WHERE {_SHELF_REGEXP} AND actual_qty > 0
+            GROUP BY warehouse ORDER BY warehouse""", as_dict=True)
+    zones = {}
+    for r in rows:
+        shelf = r.warehouse.replace(" - JM", "")
+        zone = shelf[0]
+        zones.setdefault(zone, []).append(
+            {"shelf": shelf, "warehouse": r.warehouse,
+             "skus": int(r.skus or 0), "units": int(r.units or 0)})
+    return {"zones": [{"zone": z, "shelves": zones[z]} for z in sorted(zones)]}
+
+
+@frappe.whitelist()
+def shelf_items(warehouse):
+    """The items sitting on one shelf, with piece counts and the SKU to print.
+    Items with no custom_sku are returned flagged, not dropped — the operator
+    needs to see they exist and can't be labelled until a SKU is assigned."""
+    _floor_gate()
+    warehouse = (warehouse or "").strip()
+    if not warehouse:
+        frappe.throw("No shelf given.")
+    # Confirm it's a real shelf bin, not an arbitrary warehouse name posted in.
+    if not frappe.db.sql(
+            f"SELECT 1 FROM `tabBin` WHERE warehouse = %s AND {_SHELF_REGEXP} LIMIT 1",
+            (warehouse,)):
+        frappe.throw("Not a shelf.")
+    rows = frappe.db.sql(
+        """SELECT b.item_code, b.actual_qty AS qty,
+                  i.custom_sku AS sku,
+                  COALESCE(NULLIF(i.item_name,''), b.item_code) AS name, i.image
+           FROM `tabBin` b
+           LEFT JOIN `tabItem` i ON i.name = b.item_code
+           WHERE b.warehouse = %s AND b.actual_qty > 0
+           ORDER BY i.custom_sku""", (warehouse,), as_dict=True)
+    items = [{
+        "itemCode": r.item_code, "sku": (r.sku or "").strip(),
+        "name": r.name, "qty": int(r.qty or 0), "image": r.image or "",
+        "noSku": not (r.sku or "").strip(),
+    } for r in rows]
+    return {
+        "shelf": warehouse.replace(" - JM", ""),
+        "warehouse": warehouse,
+        "items": items,
+        "skus": len(items),
+        "units": sum(i["qty"] for i in items),
+        "noSkuCount": sum(1 for i in items if i["noSku"]),
+    }
