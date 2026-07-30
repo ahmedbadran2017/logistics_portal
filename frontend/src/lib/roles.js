@@ -15,6 +15,7 @@ export const ROLE_CONFIG = {
         section: "nav.overview",
         items: [
           { to: "Cockpit", label: "nav.cockpit", icon: "gauge" },
+          { to: "TeamPerformance", label: "nav.teamPerf", icon: "award" },
           { to: "FloorBoard", label: "nav.floor", icon: "trending-up" },
           { to: "ContactCenter", label: "nav.contactCenter", icon: "message-circle" },
           { to: "SlaBoard", label: "nav.sla", icon: "shield-alert" },
