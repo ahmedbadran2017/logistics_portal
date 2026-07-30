@@ -29,6 +29,14 @@ DONE_QUEUES = {
     "cancelled": "Cancelled",
     "duplicated": "Duplicated",
 }
+# Of the done tabs, these two are also produced by the WhatsApp automation at
+# scale, so they're dated by the human decision time (custom_last_call_at) to
+# keep the automation's mass out of the tab. "Duplicated" is human-only and is
+# dated by creation instead — see the counts + row queries below.
+_AUTOMATION_DONE = {
+    "confirmed": "Confirmed",
+    "cancelled": "Cancelled",
+}
 _ACTIONS = {
     "confirm": "Confirmed",
     "dna": "Did not Answer",
@@ -159,19 +167,31 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
         for k, v in QUEUES.items():
             if v == r.s:
                 counts[k] = int(r.n or 0)
-    # Done tabs: keyed on when the DECISION was taken (custom_last_call_at),
-    # not when the order arrived — the agent looks for "what I did today",
-    # and a 40-day-old order confirmed an hour ago has to be in reach.
+    # Confirmed & Cancelled carry the automation's mass (176k / 59k on prod):
+    # keyed on when the DECISION was taken (custom_last_call_at), not when the
+    # order arrived — the agent looks for "what I did today", and a 40-day-old
+    # order confirmed an hour ago has to be in reach. A COALESCE(..., creation)
+    # fallback would instead dump 167k automation-confirmed orders into the tab.
     for r in frappe.db.sql(
             f"""SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
                 WHERE docstatus = 1 AND company = %(co)s
                   AND custom_sales_status IN %(sts)s{me_q}
                   AND {d_rng}
                 GROUP BY custom_sales_status""",
-            {"sts": tuple(DONE_QUEUES.values()), "co": _CO, **rng_vals}, as_dict=True):
-        for k, v in DONE_QUEUES.items():
+            {"sts": tuple(_AUTOMATION_DONE.values()), "co": _CO, **rng_vals}, as_dict=True):
+        for k, v in _AUTOMATION_DONE.items():
             if v == r.s:
                 counts[k] = int(r.n or 0)
+    # Duplicated is a human/desk-only decision — the automation never mass-
+    # produces it (23 on prod). Its rows also predate custom_last_call_at, so
+    # the custom_last_call_at filter used above hid every one of them. Date it
+    # by creation, like a working queue, so the tab actually shows its orders.
+    counts["duplicated"] = int(frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tabSales Order`
+            WHERE docstatus = 1 AND company = %(co)s
+              AND custom_sales_status = 'Duplicated'{me_q}
+              AND {q_rng}""",
+        {"co": _CO, **rng_vals})[0][0])
 
     # Monitoring: live orders whose customer has taken 2+ parcels and kept
     # none of them. Nothing is blocked — the team looks and decides. Measured:
@@ -193,12 +213,18 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
                  f"{_CUST_KEY} IN %(risky)s"]
         vals["statuses"] = tuple(QUEUES.values())
         vals["risky"] = risky
-    elif tab in DONE_QUEUES:
+    elif tab in _AUTOMATION_DONE:
         conds = ["so.docstatus = 1", "so.company = %(co)s",
                  "so.custom_sales_status = %(status)s",
                  "so.custom_last_call_at IS NOT NULL",
                  rng.format(col="so.custom_last_call_at")]
-        vals["status"] = DONE_QUEUES[tab]
+        vals["status"] = _AUTOMATION_DONE[tab]
+    elif tab == "duplicated":
+        # Human-only decision with legacy rows that predate custom_last_call_at
+        # — date by creation (mirrors the count above) so the tab isn't empty.
+        conds = ["so.docstatus = 1", "so.company = %(co)s",
+                 "so.custom_sales_status = 'Duplicated'",
+                 rng.format(col="so.creation")]
     else:
         conds = ["so.docstatus = 1", "so.company = %(co)s",
                  "so.custom_sales_status = %(status)s",
@@ -218,8 +244,10 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
                           vals)[0][0]
     # Retry queues surface what's DUE first (next_call in the past, oldest
     # deferral first); pending is simply oldest-first.
-    if tab in DONE_QUEUES:
+    if tab in _AUTOMATION_DONE:
         order_by = "so.custom_last_call_at DESC"  # newest decision first
+    elif tab == "duplicated":
+        order_by = "so.creation DESC"             # newest duplicate first
     elif tab in ("pending", "monitor"):
         order_by = "so.creation"
     else:
