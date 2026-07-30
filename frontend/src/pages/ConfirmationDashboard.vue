@@ -163,8 +163,9 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-stone-50">
-                <tr v-for="o in d.topPending" :key="o.order" class="hover:bg-stone-50">
-                  <td class="px-4 py-2 font-mono text-[11.5px] text-stone-700">{{ o.order }}</td>
+                <tr v-for="o in d.topPending" :key="o.order"
+                    class="hover:bg-stone-50 cursor-pointer" @click="openOrder(o.order)">
+                  <td class="px-4 py-2 font-mono text-[11.5px] text-[var(--accent-700)] hover:underline">{{ o.order }}</td>
                   <td class="px-2 py-2 text-stone-800 truncate max-w-[150px]">{{ o.customer || '—' }}</td>
                   <td class="px-2 py-2 text-stone-500 truncate max-w-[110px]">{{ o.city || '—' }}</td>
                   <td class="px-2 py-2"><span class="cfd-st">{{ o.status }}</span></td>
@@ -223,6 +224,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import DateRange from "@/components/ui/DateRange.vue";
 import { api } from "@/lib/resource";
@@ -230,6 +232,13 @@ import { fmtMAD } from "@/lib/handoffData";
 import { useI18n } from "@/composables/useI18n";
 
 const { t } = useI18n();
+const router = useRouter();
+
+// Open an order from the "waiting longest" table. Vue Router encodes the "#"
+// in the order name (e.g. "#121247" -> %23121247), so it's safe as a param.
+function openOrder(order) {
+  if (order) router.push({ name: "OrderDetail", params: { name: order } });
+}
 
 const SEG_ORDER = ["black", "risk", "watch", "new", "good", "vip"];
 const days = ref(30);
