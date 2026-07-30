@@ -64,6 +64,35 @@
         </span>
       </div>
 
+      <!-- Held OUT of the KPIs above so they measure the callable backlog: the
+           parked legacy On-Hold pile, and orders whose status lies (already
+           shipped/delivered but still tagged live). Shown, never dropped. -->
+      <div v-if="d.parked?.n || d.movedButOnHold"
+           class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
+          <Icon name="archive" :size="14" class="text-stone-400" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('cfd.parkedTitle') }}</span>
+          <span class="text-[11px] text-stone-400 ms-auto">{{ t('cfd.parkedBadge') }}</span>
+        </div>
+        <div class="p-3.5 flex flex-wrap items-center gap-x-8 gap-y-3">
+          <div v-if="d.parked?.n">
+            <div class="flex items-baseline gap-1.5">
+              <span class="text-[22px] font-extrabold text-stone-900 tabular-nums">{{ d.parked.n }}</span>
+              <span class="text-[11.5px] text-stone-400">{{ t('cfd.parkedUnit') }}</span>
+            </div>
+            <div class="text-[11px] text-stone-500 tabular-nums">
+              {{ fmtMAD(d.parked.value) }} MAD · {{ t('cfd.parkedOld', String(d.parked.oldestDays)).replace('{d}', d.parked.oldestDays) }}
+            </div>
+          </div>
+          <div v-if="d.movedButOnHold"
+               class="flex items-start gap-2 text-[11.5px] text-amber-800 bg-amber-50 ring-1 ring-amber-200/70 rounded-lg px-3 py-2">
+            <Icon name="alert-triangle" :size="14" class="text-amber-500 shrink-0 mt-0.5" />
+            <span>{{ t('cfd.movedFlag', String(d.movedButOnHold)).replace('{n}', d.movedButOnHold) }}</span>
+          </div>
+          <p class="text-[10.5px] text-stone-400 basis-full leading-relaxed">{{ t('cfd.parkedHint') }}</p>
+        </div>
+      </div>
+
       <div class="grid lg:grid-cols-2 gap-3">
         <!-- WHO is waiting. Nothing else in the company can answer this. -->
         <section class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">

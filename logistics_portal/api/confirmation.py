@@ -76,6 +76,23 @@ _CITY = ("COALESCE(NULLIF(TRIM(so.custom_shipping_city), ''), "
 _CITY_JOIN = ("LEFT JOIN `tabAddress` addr ON addr.name = "
               "COALESCE(so.shipping_address_name, so.customer_address)")
 
+# The confirmation lane only owns an order while the warehouse hasn't taken it.
+# Once it's picked/shipped/delivered the logistics status moves past Pending, and
+# a "waiting to be called" panel that still counts it is lying — 181 such orders
+# on prod (23 already Delivered) sat in the live queue tagged On Hold. Same rule
+# as act()'s reopen guard: "once it's picked or shipped, the warehouse owns it."
+_IN_HAND = ("(so.custom_logistics_status IS NULL OR "
+            "so.custom_logistics_status IN ('Pending', ''))")
+
+# A parked hold: On Hold that never went through the portal's call flow — no
+# attempt logged, no retry timer — so the 48h On-Hold retry can never resurface
+# it. On prod this is a legacy pile (a Nov-2025 batch, ~1,576 orders) that
+# otherwise drowns every SLA metric on the dashboard. It's counted on its own
+# card, OUT of the live queue, not silently dropped.
+_PARKED = ("so.custom_sales_status = 'On Hold' AND "
+           "COALESCE(so.custom_call_attempts, 0) = 0 AND "
+           "so.custom_next_call_at IS NULL")
+
 
 def _gate():
     from logistics_portal.api.auth import resolve_role
@@ -1018,6 +1035,11 @@ def dashboard(days=30, frm=None, to=None, mine=0):
     live = tuple(QUEUES.values())
     s = _cf_settings()
     sla_h = int(s.get("slaFirstCallH", 6))
+    # Every "waiting" panel below describes the ACTIONABLE queue: still in the
+    # lane's hands (not yet picked/shipped) and not a parked legacy hold. The
+    # two excluded piles are reported separately (parked / movedButOnHold) so
+    # nothing vanishes — the SLA metrics just stop being drowned by them.
+    active = f"AND {_IN_HAND} AND NOT ({_PARKED})"
 
     # ── the live queue: what is waiting, and what is it worth ────────────
     q = frappe.db.sql(
@@ -1029,7 +1051,7 @@ def dashboard(days=30, frm=None, to=None, mine=0):
                        AND COALESCE(so.custom_call_attempts, 0) = 0) late
             FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s
-              AND so.custom_sales_status IN %(live)s{me_cond}
+              AND so.custom_sales_status IN %(live)s {active}{me_cond}
             GROUP BY st""",
         {"live": live, "sla": sla_h, "sane": _SANE_MAX, **rng_vals}, as_dict=True)
     queue = {r.st: {"n": int(r.n or 0), "value": round(float(r.value or 0)),
@@ -1049,7 +1071,7 @@ def dashboard(days=30, frm=None, to=None, mine=0):
                                      THEN so.grand_total ELSE 0 END), 0) value
             FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s
-              AND so.custom_sales_status IN %(live)s{me_cond}
+              AND so.custom_sales_status IN %(live)s {active}{me_cond}
             GROUP BY bucket""",
         {"live": live, "sane": _SANE_MAX, **rng_vals}, as_dict=True)
     order = ["0-6h", "6-24h", "1-3d", "3-7d", "7d+"]
@@ -1071,7 +1093,7 @@ def dashboard(days=30, frm=None, to=None, mine=0):
                    LEAST(so.grand_total, %(sane)s) total
             FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s
-              AND so.custom_sales_status IN %(live)s{me_cond}
+              AND so.custom_sales_status IN %(live)s {active}{me_cond}
             ORDER BY so.creation DESC LIMIT 400""",
         {"live": live, "sane": _SANE_MAX, **rng_vals}, as_dict=True)
     hist = history_for([r.phone for r in rows if r.phone]) if rows else {}
@@ -1095,7 +1117,7 @@ def dashboard(days=30, frm=None, to=None, mine=0):
                    COALESCE(so.custom_call_attempts, 0) attempts
             FROM `tabSales Order` so {_CITY_JOIN}
             WHERE so.docstatus = 1 AND so.company = %(co)s
-              AND so.custom_sales_status IN %(live)s{me_cond}
+              AND so.custom_sales_status IN %(live)s {active}{me_cond}
             ORDER BY so.creation LIMIT 20""",
         {"live": live, **rng_vals}, as_dict=True)
 
@@ -1104,7 +1126,7 @@ def dashboard(days=30, frm=None, to=None, mine=0):
         f"""SELECT COALESCE({_CITY}, '(none)') city, COUNT(*) n
             FROM `tabSales Order` so {_CITY_JOIN}
             WHERE so.docstatus = 1 AND so.company = %(co)s
-              AND so.custom_sales_status IN %(live)s{me_cond}
+              AND so.custom_sales_status IN %(live)s {active}{me_cond}
             GROUP BY city ORDER BY n DESC LIMIT 8""",
         {"live": live, **rng_vals}, as_dict=True)
 
@@ -1116,6 +1138,28 @@ def dashboard(days=30, frm=None, to=None, mine=0):
             WHERE so.docstatus = 1 AND so.company = %(co)s
               AND {so_rng}{me_cond}
             GROUP BY st""", rng_vals, as_dict=True)
+
+    # ── the two piles held OUT of the live queue, reported on their own ──
+    # Parked holds: On Hold with no attempt and no timer — a legacy pile the
+    # retry can't resurface. Shown so the manager can decide (cancel/archive),
+    # never counted as "waiting to be called".
+    parked = frappe.db.sql(
+        f"""SELECT COUNT(*) n,
+                   COALESCE(SUM(LEAST(so.grand_total, %(sane)s)), 0) value,
+                   MAX(TIMESTAMPDIFF(DAY, so.creation, NOW())) oldest_d
+            FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND {_IN_HAND} AND {_PARKED}{me_cond}""",
+        {"sane": _SANE_MAX, **rng_vals}, as_dict=True)[0]
+    # A live-status order the warehouse already moved (picked/shipped/delivered)
+    # while its sales-status stayed On Hold/Pending — a stale label, not waiting
+    # work. Surfaced as a data-health count for the manager to get corrected.
+    moved = int(frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status IN %(live)s
+              AND NOT {_IN_HAND}{me_cond}""",
+        {"live": live, **rng_vals})[0][0])
 
     total_late = sum(v["late"] for v in queue.values())
     total_n = sum(v["n"] for v in queue.values())
@@ -1141,5 +1185,9 @@ def dashboard(days=30, frm=None, to=None, mine=0):
                    for r in cities],
         "intake": [{"status": r.st or "(none)", "n": int(r.n or 0)}
                    for r in sorted(intake, key=lambda x: -int(x.n or 0))],
+        # The two piles held out of the live queue (see above).
+        "parked": {"n": int(parked.n or 0), "value": round(float(parked.value or 0)),
+                   "oldestDays": int(parked.oldest_d or 0)},
+        "movedButOnHold": moved,
         "serverNow": str(now_datetime())[:19],
     }
