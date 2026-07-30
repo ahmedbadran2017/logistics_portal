@@ -119,7 +119,7 @@ def _range(days, frm, to):
 def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     """The queues + counts + my day so far, one call."""
     role = _gate()
-    if tab not in QUEUES and tab not in DONE_QUEUES and tab != "monitor":
+    if tab not in QUEUES and tab not in DONE_QUEUES and tab not in ("monitor", "notdelivered"):
         tab = "pending"
     days = min(max(int(days or 30), 1), 365)
     limit = min(max(int(limit or 30), 1), 100)
@@ -206,6 +206,21 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
         {"sts": tuple(QUEUES.values()), "co": _CO, "risky": risky,
          **({"me": frappe.session.user} if mine_only else {})})[0][0])
 
+    # Not Delivered: shipped-then-failed parcels the confirmation team calls
+    # back to arrange a redelivery/reship or to cancel. Post-shipment work
+    # shared with the Rescue lane — the SAME rescue.act engine runs the
+    # decisions (the frontend calls it for this tab), so there's one set of
+    # transitions, not two. Surfaced per-agent here like the rest of the lane;
+    # a 60-day floor keeps a six-week-old failure reachable, matching Rescue.
+    nd_rng = (rng.format(col="creation") if custom_range
+              else "creation >= DATE_SUB(NOW(), INTERVAL %(ndays)s DAY)")
+    nd_vals = {"co": _CO, "ndays": max(days, 60), **rng_vals}
+    counts["notdelivered"] = int(frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tabSales Order`
+            WHERE docstatus = 1 AND company = %(co)s
+              AND custom_sales_status = 'Not Delivered'{me_q}
+              AND {nd_rng}""", nd_vals)[0][0])
+
     vals["co"] = _CO
     if tab == "monitor":
         conds = ["so.docstatus = 1", "so.company = %(co)s",
@@ -225,6 +240,12 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
         conds = ["so.docstatus = 1", "so.company = %(co)s",
                  "so.custom_sales_status = 'Duplicated'",
                  rng.format(col="so.creation")]
+    elif tab == "notdelivered":
+        conds = ["so.docstatus = 1", "so.company = %(co)s",
+                 "so.custom_sales_status = 'Not Delivered'",
+                 (rng.format(col="so.creation") if custom_range
+                  else "so.creation >= DATE_SUB(NOW(), INTERVAL %(ndays)s DAY)")]
+        vals["ndays"] = max(days, 60)
     else:
         conds = ["so.docstatus = 1", "so.company = %(co)s",
                  "so.custom_sales_status = %(status)s",

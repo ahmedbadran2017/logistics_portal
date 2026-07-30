@@ -77,8 +77,10 @@
       </div>
     </div>
 
-    <!-- bulk bar — on every tab, with the actions that tab honestly allows -->
-    <div v-if="!loading && rows.length"
+    <!-- bulk bar — on every tab, with the actions that tab honestly allows.
+         Hidden on Not-Delivered: those are per-customer redelivery calls, with
+         no honest batch equivalent (same reasoning as the absent bulk confirm). -->
+    <div v-if="!loading && rows.length && !isNd"
          class="flex items-center gap-2.5 flex-wrap bg-white rounded-2xl ring-1 ring-stone-200/80 px-4 py-3">
       <label class="inline-flex items-center gap-2 text-[12.5px] font-medium text-stone-700 cursor-pointer">
         <input type="checkbox" :checked="selected.size === rows.length && rows.length > 0" class="w-4 h-4"
@@ -126,7 +128,7 @@
            :class="r.due ? 'cf-card-due' : ''">
         <div class="flex items-center gap-3.5 flex-wrap">
           <!-- customer identity -->
-          <input type="checkbox" class="w-4 h-4 shrink-0"
+          <input v-if="!isNd" type="checkbox" class="w-4 h-4 shrink-0"
                  style="accent-color: var(--accent-600)"
                  :checked="selected.has(r.order)" @change="toggleOne(r.order)" />
           <span class="cf-avatar" :class="r.due ? 'cf-avatar-due' : ''">{{ initial(r.customer) }}</span>
@@ -183,8 +185,20 @@
               <Icon name="edit" :size="13" />
             </button>
           </div>
+          <!-- Not-Delivered decisions (shipped-then-failed): Rescue's action set,
+               run through rescue.act so the transitions live in one place. -->
+          <div v-if="isNd" class="flex items-center gap-1.5 flex-wrap">
+            <button class="cf-act cf-act-confirm" :disabled="busy === r.order" :title="t('rs.actRedeliverHint')" @click="ndAct(r, 'redeliver')">
+              <Icon name="refresh-cw" :size="14" class="inline -mt-px me-1" />{{ t('rs.actRedeliver') }}
+            </button>
+            <button class="cf-act cf-act-soft text-violet-700" :disabled="busy === r.order" :title="t('rs.actReshipHint')" @click="ndAct(r, 'reship')"><Icon name="send" :size="15" /></button>
+            <button class="cf-act cf-act-soft text-amber-700" :disabled="busy === r.order" :title="t('cf.actDna')" @click="ndAct(r, 'dna')"><Icon name="phone-off" :size="15" /></button>
+            <button :title="t('rs.actCancel')" class="cf-act cf-act-soft text-rose-600" :disabled="busy === r.order"
+                    :class="cancelFor === r.order ? 'ring-2' : ''"
+                    @click="cancelFor = cancelFor === r.order ? '' : r.order"><Icon name="circle-x" :size="15" /></button>
+          </div>
           <!-- decisions -->
-          <div v-if="!isDone" class="flex items-center gap-1.5 flex-wrap">
+          <div v-else-if="!isDone" class="flex items-center gap-1.5 flex-wrap">
             <button class="cf-act cf-act-confirm" :disabled="busy === r.order" @click="act(r, 'confirm')">
               <Icon name="check" :size="14" class="inline -mt-px me-1" />{{ t('cf.actConfirm') }}
             </button>
@@ -298,7 +312,7 @@
                      class="flex-1 h-9 ps-3 pe-3 rounded-lg bg-white ring-1 ring-rose-200 text-[12.5px] focus:outline-none" />
               <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 transition-colors"
                       :disabled="!cancelReason.trim() || busy === r.order"
-                      @click="act(r, 'cancel', cancelReason)">{{ t('cf.cancelConfirm') }}</button>
+                      @click="submitCancel(r)">{{ t('cf.cancelConfirm') }}</button>
             </div>
           </div>
         </Transition>
@@ -349,6 +363,7 @@ const TABS = [
   { key: "followup", label: "cf.tabFollowup", icon: "clock", onColor: "bg-sky-100 text-sky-700" },
   { key: "onhold", label: "cf.tabOnhold", icon: "pause", onColor: "bg-stone-200 text-stone-600" },
   { key: "monitor", label: "cf.tabMonitor", icon: "shield-alert", onColor: "bg-rose-100 text-rose-700" },
+  { key: "notdelivered", label: "cf.tabNotDelivered", icon: "package-x", onColor: "bg-orange-100 text-orange-700" },
   { key: "confirmed", label: "cf.tabConfirmed", icon: "check-circle", onColor: "bg-emerald-100 text-emerald-700", group: "done" },
   { key: "cancelled", label: "cf.tabCancelled", icon: "x", onColor: "bg-rose-100 text-rose-700", group: "done" },
   { key: "duplicated", label: "cf.tabDuplicated", icon: "copy", onColor: "bg-violet-100 text-violet-700", group: "done" },
@@ -406,6 +421,10 @@ async function load() {
 onMounted(load);
 
 const isDone = computed(() => DONE.includes(tab.value));
+// The Not-Delivered tab is a live tab, but its orders are already shipped — the
+// decisions (redeliver / reship / DNA / cancel) are Rescue's, run through the
+// same rescue.act engine rather than the confirmation actions.
+const isNd = computed(() => tab.value === "notdelivered");
 const dayPct = computed(() => {
   const d = data.value;
   if (!d?.myTarget) return 0;
@@ -561,6 +580,42 @@ async function act(r, action, note) {
   } finally {
     busy.value = "";
   }
+}
+
+// A Not-Delivered decision, through the shared Rescue engine. Mirrors
+// Rescue.vue: DNA keeps the row in the queue with a fresh retry timer; every
+// other decision removes it. The id is the Sales Order.
+async function ndAct(r, action, note) {
+  busy.value = r.order;
+  try {
+    const res = await apiPost("rescue.act", { id: r.order, action, note });
+    if (action !== "dna") {
+      rows.value = rows.value.filter((x) => x.order !== r.order);
+      total.value = Math.max(0, total.value - 1);
+      if (data.value?.counts) {
+        data.value.counts.notdelivered = Math.max(0, (data.value.counts.notdelivered || 1) - 1);
+        if (action === "cancel") data.value.counts.cancelled++;
+      }
+      if (detailFor.value === r.order) detailFor.value = "";
+      if (custFor.value === r.order) custFor.value = "";
+    }
+    cancelFor.value = "";
+    cancelReason.value = "";
+    success(t(`rs.done_${action}`),
+            r.order + (res.order ? ` → ${res.order}` : "")
+            + (res.attempts ? ` · ${t('cf.attempts')} ${res.attempts}` : ""));
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    busy.value = "";
+  }
+}
+
+// The cancel panel is shared; route it to the right engine for the tab.
+function submitCancel(r) {
+  return isNd.value
+    ? ndAct(r, "cancel", cancelReason.value)
+    : act(r, "cancel", cancelReason.value);
 }
 
 function toggleEdit(r) {
