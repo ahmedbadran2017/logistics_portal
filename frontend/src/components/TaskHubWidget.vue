@@ -4,11 +4,14 @@
     <button
       v-if="!open"
       class="th-fab"
-      :title="`Report to Task Hub (${portal})`"
-      @click="open = true"
+      :title="`My tasks · report to Task Hub (${portal})`"
+      @click="openPanel"
     >
       <span class="th-fab-icon">⚑</span>
-      <span class="th-fab-label">Report</span>
+      <span class="th-fab-label">Tasks</span>
+      <span v-if="counts.assigned_open" class="th-fab-badge" :class="{ hot: counts.breached }">
+        {{ counts.assigned_open > 99 ? "99+" : counts.assigned_open }}
+      </span>
     </button>
 
     <!-- Modal -->
@@ -16,13 +19,87 @@
       <div class="th-modal">
         <div class="th-head">
           <div>
-            <div class="th-title">New Task Hub ticket</div>
-            <div class="th-sub">{{ portal }} portal · goes to the central hub</div>
+            <div class="th-title">Task Hub</div>
+            <div class="th-sub">{{ portal }} portal · your work, in one place</div>
           </div>
           <button class="th-x" @click="close">✕</button>
         </div>
 
-        <div v-if="sent" class="th-done">
+        <!-- tabs: your open work, or raise something new -->
+        <div class="th-tabs">
+          <button :class="{ on: tab === 'tasks' }" @click="switchTab('tasks')">
+            My tasks
+            <span v-if="counts.assigned_open" class="th-tabcount">{{ counts.assigned_open }}</span>
+          </button>
+          <button :class="{ on: tab === 'new' }" @click="switchTab('new')">Report</button>
+        </div>
+
+        <!-- ── My tasks ─────────────────────────────────────────────── -->
+        <div v-if="tab === 'tasks'" class="th-body">
+          <div class="th-scope">
+            <button :class="{ on: scope === 'all' }" @click="setScope('all')">All</button>
+            <button :class="{ on: scope === 'assigned' }" @click="setScope('assigned')">
+              Assigned to me
+            </button>
+            <button :class="{ on: scope === 'reported' }" @click="setScope('reported')">
+              I reported
+            </button>
+            <a class="th-hublink" href="/taskhub" target="_blank" rel="noopener">Open hub →</a>
+          </div>
+
+          <p v-if="tasksError" class="th-error">{{ tasksError }}</p>
+          <p v-if="loadingTasks && !tasks.length" class="th-muted">Loading…</p>
+          <p v-else-if="!tasks.length" class="th-muted">Nothing open — you're clear.</p>
+
+          <div v-for="tk in tasks" :key="tk.name" class="th-task">
+            <button class="th-task-head" @click="toggleTask(tk)">
+              <span class="th-dot" :style="{ background: prioColor(tk.priority) }" />
+              <span class="th-task-main">
+                <span class="th-task-title">{{ tk.title }}</span>
+                <span class="th-task-meta">
+                  {{ tk.name }} · {{ tk.stage || tk.status }}
+                  <template v-if="tk.due_date"> · due {{ tk.due_date }}</template>
+                  <b v-if="tk.sla_breached" class="th-late"> · late</b>
+                </span>
+              </span>
+            </button>
+
+            <!-- inline detail: enough to act without leaving the portal -->
+            <div v-if="expanded === tk.name" class="th-task-body">
+              <p v-if="detail && detail.ticket.description" class="th-task-desc">
+                {{ plain(detail.ticket.description) }}
+              </p>
+
+              <div class="th-row">
+                <div class="th-col">
+                  <label class="th-label">Status</label>
+                  <select class="th-input" :value="tk.status" :disabled="acting"
+                          @change="onStatus(tk, $event.target.value)">
+                    <option>Open</option>
+                    <option>In Progress</option>
+                    <option>In Review</option>
+                    <option>Resolved</option>
+                  </select>
+                </div>
+              </div>
+
+              <div v-if="detail && detail.comments.length" class="th-comments">
+                <div v-for="(c, i) in detail.comments.slice(-3)" :key="i" class="th-comment">
+                  <b>{{ String(c.author).split("@")[0] }}</b>: {{ c.message }}
+                </div>
+              </div>
+
+              <div class="th-files" style="margin-top: 8px">
+                <input v-model="commentText" class="th-input" placeholder="Add a comment…"
+                       @keydown.enter="onComment(tk)" />
+                <button class="th-btn th-btn-sm" :disabled="acting || !commentText.trim()"
+                        @click="onComment(tk)">Send</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="tab === 'new' && sent" class="th-done">
           <div class="th-done-icon">✓</div>
           <div class="th-done-text">
             Ticket <b>{{ sent }}</b> created.
@@ -31,7 +108,7 @@
           <button class="th-btn th-btn-primary" @click="reset">Report another</button>
         </div>
 
-        <div v-else class="th-body">
+        <div v-else-if="tab === 'new'" class="th-body">
           <label class="th-label">Title *</label>
           <input
             ref="titleEl"
@@ -137,7 +214,7 @@
 // host portal, own CSRF + fetch, scoped styles. Copy this file into any portal
 // and mount <TaskHubWidget portal="Logistics" /> once in App.vue.
 // Canonical copy lives in the task_hub repo: integration/TaskHubWidget.vue.
-import { ref, reactive, computed, watch, nextTick } from "vue";
+import { ref, reactive, computed, watch, nextTick, onMounted } from "vue";
 
 const props = defineProps({
   // Which portal this widget is embedded in — one of the Hub's source portals.
@@ -158,6 +235,148 @@ function onPickFiles(e) {
   files.value.push(...Array.from(e.target.files || []));
   e.target.value = "";
 }
+
+// ── My tasks ───────────────────────────────────────────────────────────
+// A purchasing (or any) employee shouldn't have to leave their portal to
+// see what's on their plate: this panel reads the same Hub APIs the SPA
+// uses, so status and comments stay in one system.
+const tab = ref("tasks");
+const scope = ref("all");
+const tasks = ref([]);
+const counts = reactive({ assigned_open: 0, reported_open: 0, breached: 0 });
+const loadingTasks = ref(false);
+const tasksError = ref("");
+const expanded = ref("");
+const detail = ref(null);
+const commentText = ref("");
+const acting = ref(false);
+
+const PRIO_COLORS = {
+  Urgent: "#e11d48", High: "#ea580c", Medium: "#0891b2", Low: "#64748b",
+};
+function prioColor(p) {
+  return PRIO_COLORS[p] || PRIO_COLORS.Low;
+}
+
+// Descriptions are stored as HTML by the hub; render them as plain text
+// here rather than injecting markup into the host portal.
+function plain(html) {
+  const d = document.createElement("div");
+  d.innerHTML = html || "";
+  return (d.textContent || "").trim().slice(0, 600);
+}
+
+async function hubCall(method, body) {
+  const resp = await fetch(`/api/method/task_hub.api.${method}`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Frappe-CSRF-Token": csrf(),
+      Accept: "application/json",
+    },
+    body: JSON.stringify(body || {}),
+  });
+  const j = await resp.json().catch(() => ({}));
+  if (!resp.ok || j.exc) {
+    throw new Error(firstServerMessage(j) || "HTTP " + resp.status);
+  }
+  return j.message;
+}
+
+async function loadTasks() {
+  loadingTasks.value = true;
+  tasksError.value = "";
+  try {
+    const res = await hubCall("tickets.my_tasks", { scope: scope.value, limit: 25 });
+    tasks.value = res.tasks || [];
+    counts.assigned_open = res.assigned_open || 0;
+    counts.reported_open = res.reported_open || 0;
+    counts.breached = res.breached || 0;
+  } catch (e) {
+    tasksError.value = e.message || "Couldn't load your tasks.";
+  } finally {
+    loadingTasks.value = false;
+  }
+}
+
+// Badge only — cheap enough to run on mount in every portal page load.
+async function loadCounts() {
+  try {
+    const res = await hubCall("tickets.my_tasks", { scope: "assigned", limit: 1 });
+    counts.assigned_open = res.assigned_open || 0;
+    counts.reported_open = res.reported_open || 0;
+    counts.breached = res.breached || 0;
+  } catch {
+    /* the widget stays silent if the hub isn't reachable */
+  }
+}
+
+function openPanel() {
+  open.value = true;
+  if (tab.value === "tasks") loadTasks();
+}
+
+function switchTab(next) {
+  tab.value = next;
+  if (next === "tasks" && !tasks.value.length) loadTasks();
+}
+
+function setScope(next) {
+  scope.value = next;
+  expanded.value = "";
+  loadTasks();
+}
+
+async function toggleTask(tk) {
+  if (expanded.value === tk.name) {
+    expanded.value = "";
+    return;
+  }
+  expanded.value = tk.name;
+  detail.value = null;
+  commentText.value = "";
+  try {
+    detail.value = await hubCall("tickets.get_ticket", { name: tk.name });
+  } catch (e) {
+    tasksError.value = e.message;
+  }
+}
+
+async function onStatus(tk, status) {
+  if (acting.value || status === tk.status) return;
+  acting.value = true;
+  try {
+    await hubCall("tickets.update_status", { name: tk.name, status });
+    tk.status = status;
+    // A resolved task leaves the open list — refresh so the badge agrees.
+    if (["Resolved", "Closed", "Cancelled"].includes(status)) {
+      expanded.value = "";
+      await loadTasks();
+    }
+  } catch (e) {
+    tasksError.value = e.message;
+  } finally {
+    acting.value = false;
+  }
+}
+
+async function onComment(tk) {
+  const msg = commentText.value.trim();
+  if (!msg || acting.value) return;
+  acting.value = true;
+  try {
+    await hubCall("tickets.add_comment", { name: tk.name, message: msg });
+    commentText.value = "";
+    detail.value = await hubCall("tickets.get_ticket", { name: tk.name });
+  } catch (e) {
+    tasksError.value = e.message;
+  } finally {
+    acting.value = false;
+  }
+}
+
+onMounted(loadCounts);
 
 const blank = () => ({
   title: "",
@@ -256,6 +475,7 @@ async function submit() {
 
     sent.value = ticketName;
     Object.assign(form, blank());
+    loadCounts();
   } catch (e) {
     error.value = e.message || "Could not create the ticket.";
   } finally {
@@ -564,5 +784,153 @@ function firstServerMessage(j) {
   color: #c4492a;
   text-decoration: none;
   font-weight: 600;
+}
+
+/* ── tabs + my-tasks list ─────────────────────────────────────────── */
+.th-fab-badge {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #d45d3e;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+}
+.th-fab-badge.hot {
+  background: #e11d48;
+}
+.th-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 18px;
+  border-bottom: 1px solid #e7e5e4;
+}
+.th-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 10px;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  font: 600 12.5px/1 "Inter", system-ui, sans-serif;
+  color: #78716c;
+  cursor: pointer;
+}
+.th-tabs button.on {
+  color: #c4492a;
+  border-bottom-color: #d45d3e;
+}
+.th-tabcount {
+  min-width: 16px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: #f5f5f4;
+  font-size: 10px;
+  color: #57534e;
+}
+.th-scope {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.th-scope button {
+  padding: 4px 9px;
+  border: 1px solid #e7e5e4;
+  border-radius: 999px;
+  background: #fff;
+  font: 600 11px/1 "Inter", system-ui, sans-serif;
+  color: #78716c;
+  cursor: pointer;
+}
+.th-scope button.on {
+  background: #fdf1ed;
+  border-color: #f0c6b8;
+  color: #c4492a;
+}
+.th-hublink {
+  margin-inline-start: auto;
+  font-size: 11px;
+  color: #d45d3e;
+  text-decoration: none;
+}
+.th-muted {
+  font-size: 12.5px;
+  color: #a8a29e;
+  padding: 10px 0;
+  margin: 0;
+}
+.th-task {
+  border: 1px solid #e7e5e4;
+  border-radius: 10px;
+  margin-bottom: 7px;
+  overflow: hidden;
+}
+.th-task-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 11px;
+  border: none;
+  background: #fff;
+  text-align: start;
+  cursor: pointer;
+}
+.th-task-head:hover {
+  background: #fafaf9;
+}
+.th-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  margin-top: 5px;
+  flex: none;
+}
+.th-task-main {
+  min-width: 0;
+  flex: 1;
+}
+.th-task-title {
+  display: block;
+  font: 600 12.5px/1.35 "Inter", system-ui, sans-serif;
+  color: #1c1917;
+}
+.th-task-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: #a8a29e;
+}
+.th-late {
+  color: #e11d48;
+}
+.th-task-body {
+  padding: 10px 11px 12px;
+  border-top: 1px solid #f5f5f4;
+  background: #fafaf9;
+}
+.th-task-desc {
+  margin: 0 0 9px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #44403c;
+  white-space: pre-wrap;
+}
+.th-comments {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid #e7e5e4;
+}
+.th-comment {
+  font-size: 11.5px;
+  color: #57534e;
+  line-height: 1.5;
+  margin-bottom: 4px;
 }
 </style>
