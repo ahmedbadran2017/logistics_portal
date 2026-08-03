@@ -586,6 +586,8 @@ export default {
     items_any: "Toutes", items_single: "Un article", items_multi: "Plusieurs articles",
     supplierLabel: "Fournisseur", anySupplier: "Tous les fournisseurs",
     cityLabel: "Ville", anyCity: "Toutes les villes",
+    skuLabel: "SKU", skuPh: "Scannez ou tapez un SKU…",
+    zoneLabel: "Zone", anyZone: "Toutes les zones", zone: "Zone",
     capLabel: "Max commandes dans la liste", capHint: "commandes",
     loading: "Comptage des correspondances…",
     willCreate: "commandes iront sur la liste",

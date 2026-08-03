@@ -586,6 +586,8 @@ export default {
     items_any: "الكل", items_single: "صنف واحد", items_multi: "أكتر من صنف",
     supplierLabel: "المورّد", anySupplier: "كل المورّدين",
     cityLabel: "المدينة", anyCity: "كل المدن",
+    skuLabel: "SKU", skuPh: "امسح أو اكتب SKU…",
+    zoneLabel: "الزون", anyZone: "كل الزونات", zone: "زون",
     capLabel: "أقصى عدد أوردرات في القائمة", capHint: "أوردر",
     loading: "بيحسب المطابق…",
     willCreate: "أوردر هيتحطوا في القائمة",

@@ -586,6 +586,8 @@ export default {
     items_any: "Any", items_single: "Single-item", items_multi: "Multi-item",
     supplierLabel: "Supplier", anySupplier: "Any supplier",
     cityLabel: "City", anyCity: "Any city",
+    skuLabel: "SKU", skuPh: "Scan or type a SKU…",
+    zoneLabel: "Zone", anyZone: "Any zone", zone: "Zone",
     capLabel: "Max orders in the list", capHint: "orders",
     loading: "Counting matches…",
     willCreate: "orders will go on the list",

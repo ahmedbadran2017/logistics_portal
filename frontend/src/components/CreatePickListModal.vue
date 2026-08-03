@@ -50,6 +50,25 @@
                 <option v-for="c in facets.cities" :key="c.name" :value="c.name">{{ c.name }} ({{ c.orders }})</option>
               </select>
             </div>
+            <!-- SKU -->
+            <div>
+              <div class="text-[11px] font-semibold uppercase tracking-wide text-stone-400 mb-1.5">{{ t("cpl.skuLabel") }}</div>
+              <div class="relative">
+                <input v-model="sku" :placeholder="t('cpl.skuPh')" @input="reload"
+                       class="w-full h-9 ps-3 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] font-mono focus:outline-none focus:ring-stone-400" />
+                <button v-if="sku" :title="t('common.close')" class="absolute end-2 top-1/2 -translate-y-1/2 text-stone-300 hover:text-stone-600" @click="sku = ''; reload()">
+                  <Icon name="x" :size="13" />
+                </button>
+              </div>
+            </div>
+            <!-- zone -->
+            <div>
+              <div class="text-[11px] font-semibold uppercase tracking-wide text-stone-400 mb-1.5">{{ t("cpl.zoneLabel") }}</div>
+              <select v-model="zone" class="w-full h-9 ps-3 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] focus:outline-none focus:ring-stone-400" @change="reload">
+                <option value="">{{ t("cpl.anyZone") }}</option>
+                <option v-for="z in facets.zones" :key="z.zone" :value="z.zone">{{ t("cpl.zone") }} {{ z.zone }} ({{ z.orders }})</option>
+              </select>
+            </div>
           </div>
 
           <!-- cap -->
@@ -144,13 +163,15 @@ const open = ref(false);
 const items = ref("any");
 const supplier = ref("");
 const city = ref("");
+const sku = ref("");
+const zone = ref("");
 const cap = ref(20);
 const picker = ref("");
 
 const rows = ref([]);
 const matched = ref(0);
 const matchedUnits = ref(0);
-const facets = reactive({ suppliers: [], cities: [] });
+const facets = reactive({ suppliers: [], cities: [], zones: [] });
 const pickers = ref([]);
 const loading = ref(false);
 const loadError = ref("");
@@ -167,16 +188,18 @@ async function load() {
   try {
     const r = await api("picking.pick_candidates", {
       items: items.value, supplier: supplier.value || undefined,
-      city: city.value || undefined,
+      city: city.value || undefined, sku: sku.value || undefined,
+      zone: zone.value || undefined,
     });
     rows.value = r.rows || [];
     matched.value = r.matched || 0;
     matchedUnits.value = r.matchedUnits || 0;
     // Facets are only refreshed when nothing is filtered, so the dropdowns
     // don't collapse to the current selection.
-    if (!supplier.value && !city.value && items.value === "any") {
+    if (!supplier.value && !city.value && !sku.value && !zone.value && items.value === "any") {
       facets.suppliers = r.suppliers || [];
       facets.cities = r.cities || [];
+      facets.zones = r.zones || [];
     }
     loadError.value = "";
   } catch (e) {
@@ -189,7 +212,7 @@ async function load() {
 
 async function openModal() {
   open.value = true;
-  items.value = "any"; supplier.value = ""; city.value = ""; cap.value = 20; picker.value = "";
+  items.value = "any"; supplier.value = ""; city.value = ""; sku.value = ""; zone.value = ""; cap.value = 20; picker.value = "";
   await load();
   try {
     const pk = await api("picking.pickers");

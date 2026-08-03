@@ -578,16 +578,18 @@ _CAND_CITY_JOIN = ("LEFT JOIN `tabAddress` addr ON addr.name = "
 
 
 @frappe.whitelist()
-def pick_candidates(items="any", supplier="", city="", limit=200):
-    """Orders eligible for a new pick list, filtered by size / supplier / city,
-    plus the facets to build those filters. The dispatcher builds ~45 lists a
-    day by hand; this lets them scope a batch (single-item blitz, one supplier,
-    one city, capped) instead of hand-picking rows.
+def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=200):
+    """Orders eligible for a new pick list, filtered by size / supplier / city /
+    SKU / warehouse zone, plus the facets to build those filters. The dispatcher
+    builds ~45 lists a day by hand; this lets them scope a batch (single-item
+    blitz, one supplier, one city, one SKU, one aisle, capped) instead of
+    hand-picking rows.
 
     The unit is always the WHOLE order. `supplier` matches orders whose EVERY
     line is that supplier — never a subset — so an order is never split across
-    two lists (21.5% of the pool spans >1 supplier, and splitting one would
-    leave half a parcel that can't ship). Dispatcher / manager only.
+    two lists. `sku` keeps orders that CONTAIN that SKU; `zone` keeps orders with
+    an item stocked in that shelf zone (the picker walks one aisle). Both are
+    "contains", so the whole order is still picked. Dispatcher / manager only.
     """
     from logistics_portal.api.auth import resolve_role
     if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
@@ -596,24 +598,43 @@ def pick_candidates(items="any", supplier="", city="", limit=200):
     items = (items or "any").strip()
     supplier = (supplier or "").strip()
     city = (city or "").strip()
+    sku = (sku or "").strip()
+    zone = (zone or "").strip().upper()[:1]
     limit = min(max(int(limit or 200), 1), 500)
 
     # One grouped pass over the pool: per order, its line count, its supplier
-    # set, its city and value. Facets come from the same rows.
+    # set, its city and value, and whether it carries the searched SKU.
     rows = frappe.db.sql(
         f"""SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
                    {_CAND_CITY} AS city,
                    COUNT(*) AS line_count,
                    SUM(GREATEST(soi.qty - soi.delivered_qty, 0)) AS units,
                    COUNT(DISTINCT COALESCE(NULLIF(i.default_supplier,''),'(none)')) AS sup_count,
-                   MAX(COALESCE(NULLIF(i.default_supplier,''),'(none)')) AS one_supplier
+                   MAX(COALESCE(NULLIF(i.default_supplier,''),'(none)')) AS one_supplier,
+                   MAX(CASE WHEN %(sku)s <> '' AND (i.custom_sku = %(sku)s
+                            OR soi.item_code = %(sku)s) THEN 1 ELSE 0 END) AS sku_hit
             FROM `tabSales Order` so
             JOIN `tabSales Order Item` soi ON soi.parent = so.name
             JOIN `tabItem` i ON i.name = soi.item_code
             {_CAND_CITY_JOIN}
             WHERE {_POOL_WHERE}
             GROUP BY so.name, so.customer_name, so.grand_total, city
-            ORDER BY so.creation""", as_dict=True)
+            ORDER BY so.creation""", {"sku": sku}, as_dict=True)
+
+    # Order -> shelf zones (leading letter of the stocked shelf bin), for the
+    # zone facet and filter. One cheap pass over the pool (~0.04s on prod).
+    order_zones, zone_facet = {}, {}
+    for zr in frappe.db.sql(
+        f"""SELECT soi.parent AS so, LEFT(b.warehouse, 1) AS zone
+            FROM `tabSales Order Item` soi
+            JOIN `tabSales Order` so ON so.name = soi.parent
+            JOIN `tabBin` b ON b.item_code = soi.item_code AND b.actual_qty > 0
+                 AND b.warehouse REGEXP '^[A-Z][0-9]{{1,2}}[A-Z]? - JM$'
+            WHERE {_POOL_WHERE}""", as_dict=True):
+        order_zones.setdefault(zr.so, set()).add(zr.zone)
+    for zs in order_zones.values():
+        for z in zs:
+            zone_facet[z] = zone_facet.get(z, 0) + 1
 
     # Facets over the UNFILTERED pool, so the dropdowns show everything on offer.
     sup_facet, city_facet = {}, {}
@@ -636,6 +657,10 @@ def pick_candidates(items="any", supplier="", city="", limit=200):
             return False
         if city and (r.city or "") != city:
             return False
+        if sku and not int(r.sku_hit or 0):
+            return False
+        if zone and zone not in order_zones.get(r.name, set()):
+            return False
         return True
 
     matched = [r for r in rows if keep(r)]
@@ -657,6 +682,9 @@ def pick_candidates(items="any", supplier="", city="", limit=200):
         "cities": sorted(
             [{"name": k.strip().title(), "orders": v} for k, v in city_facet.items()],
             key=lambda x: -x["orders"])[:20],
+        "zones": sorted(
+            [{"zone": k, "orders": v} for k, v in zone_facet.items()],
+            key=lambda x: x["zone"]),
     }
 
 
