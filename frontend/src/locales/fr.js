@@ -143,6 +143,8 @@ export default {
     notOnList: "Pas sur cette liste",
     itemDone: "Toutes les unités de cet article sont déjà triées",
     orderDone: "Commande complète — étiquette imprimée",
+    noLabel: "Trié, mais sans étiquette",
+    noLabelHint: "Tous les articles sont là, mais ce colis n'a pas d'étiquette transporteur — son AWB n'est jamais revenu (souvent une ville d'expédition en arabe). Un dispatcher doit corriger la ville et relancer l'AWB avant l'expédition.",
     wallDone: "Bac entièrement trié 🎉",
     printAgain: "Réimprimer l'étiquette",
     loadFail: "Échec du chargement",

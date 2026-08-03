@@ -1745,6 +1745,19 @@ def sort_scan(pick_list, code):
               "sku": r.get("sku"), "name": r.get("name"),
               "orderRemaining": max(0, left), "orderComplete": left <= 0}
     if left <= 0:
+        awb, lbl = frappe.db.get_value(
+            "Sales Order", row.so, ["custom_awb", "custom_label_url"])
+        if not (awb or lbl):
+            # All items are sorted, but this parcel has NO carrier label — its
+            # AWB never came back (measured root cause: a shipping CITY entered
+            # in Arabic that Cathedis can't match). Do NOT flip it to 'Label
+            # Printed': that would hand a label-less parcel to the driver as if
+            # it were ready. Surface it so a dispatcher fixes the city / retries
+            # the AWB. The item count still shows complete on the wall.
+            result["orderComplete"] = True
+            result["noLabel"] = True
+            frappe.db.commit()
+            return result
         # Conditional flip — exactly ONE scanner wins the status change, so the
         # auto-print fires once even if two devices complete the order together.
         frappe.db.sql(
@@ -1753,7 +1766,7 @@ def sort_scan(pick_list, code):
                      IN ('Label Generated','Picked','Pending','')""", (row.so,))
         won = bool(frappe.db.sql("SELECT ROW_COUNT()")[0][0])
         result["orderComplete"] = won
-        result["labelUrl"] = frappe.db.get_value("Sales Order", row.so, "custom_label_url") or ""
+        result["labelUrl"] = lbl or ""
         frappe.cache().delete_value("lp_board_summary")
     frappe.db.commit()
     return result

@@ -108,6 +108,11 @@
           >
             <Icon name="printer" :size="14" /> {{ t('sort.printAgain') }}
           </button>
+          <div v-else-if="o.noLabel"
+               class="mt-2.5 flex items-start gap-2 rounded-lg bg-amber-50 ring-1 ring-amber-200/70 px-3 py-2 text-[11.5px] text-amber-800">
+            <Icon name="alert-triangle" :size="14" class="text-amber-500 shrink-0 mt-0.5" />
+            <span>{{ t('sort.noLabelHint') }}</span>
+          </div>
         </div>
       </div>
     </template>
@@ -203,7 +208,13 @@ async function onScanItem(raw) {
     o.sorted = o.items.reduce((a, x) => a + x.sorted, 0);
     flash.value = o.order;
     setTimeout(() => { if (flash.value === o.order) flash.value = ""; }, 900);
-    if (res.orderComplete) {
+    if (res.orderComplete && res.noLabel) {
+      // Items all sorted but the parcel has no carrier label — don't print,
+      // flag it so a dispatcher fixes the city / retries the AWB.
+      o.done = true;
+      o.noLabel = true;
+      warn(t("sort.noLabel"), o.order);
+    } else if (res.orderComplete) {
       o.done = true;
       o.labelUrl = res.labelUrl || o.labelUrl;
       printedToday.value += 1;
@@ -220,6 +231,7 @@ async function onScanItem(raw) {
 
 function slotClass(o) {
   if (flash.value === o.order) return "ring-2 ring-[var(--accent-500)] shadow-md";
+  if (o.noLabel) return "ring-amber-300 bg-amber-50/40";
   if (o.done) return "ring-emerald-300 bg-emerald-50/30";
   return "ring-stone-200/70";
 }
