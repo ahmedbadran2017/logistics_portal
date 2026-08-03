@@ -85,9 +85,21 @@
               <span class="font-mono text-[13.5px] font-bold text-stone-900">{{ o.order }}</span>
               <span class="block text-[11.5px] text-stone-500 truncate">{{ o.customer }}<span v-if="o.city" class="capitalize"> · {{ o.city }}</span></span>
             </div>
-            <span class="text-[14px] font-bold tabular-nums flex-shrink-0" :class="o.done ? 'text-emerald-600' : 'text-stone-800'">
-              {{ o.sorted }}/{{ o.qty }}
-            </span>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <!-- Two stages: sorted (items scanned) vs printed (the label
+                   actually spooled). Blue = sorted but label not confirmed out,
+                   green = both done. -->
+              <span v-if="o.printed" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200">
+                <Icon name="printer" :size="10" />{{ t('sort.badgePrinted') }}
+              </span>
+              <span v-else-if="o.done && o.labelUrl" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-sky-700 bg-sky-50 ring-1 ring-sky-200">
+                <Icon name="check" :size="10" />{{ t('sort.badgeSorted') }}
+              </span>
+              <span class="text-[14px] font-bold tabular-nums"
+                    :class="o.printed ? 'text-emerald-600' : o.done ? 'text-sky-600' : 'text-stone-800'">
+                {{ o.sorted }}/{{ o.qty }}
+              </span>
+            </div>
           </div>
           <div class="space-y-1.5">
             <div v-for="it in o.items" :key="it.itemCode" class="flex items-center gap-2.5">
@@ -103,10 +115,11 @@
           </div>
           <button
             v-if="o.done && o.labelUrl"
-            class="mt-2.5 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
-            @click="printLabel(o.order)"
+            class="mt-2.5 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5 transition-colors"
+            :class="o.printed ? 'bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50' : 'bg-sky-600 text-white hover:bg-sky-700'"
+            @click="printLabel(o.order, () => { o.printed = true; })"
           >
-            <Icon name="printer" :size="14" /> {{ t('sort.printAgain') }}
+            <Icon name="printer" :size="14" /> {{ o.printed ? t('sort.printAgain') : t('sort.printNow') }}
           </button>
           <div v-else-if="o.noLabel"
                class="mt-2.5 flex items-start gap-2 rounded-lg bg-amber-50 ring-1 ring-amber-200/70 px-3 py-2 text-[11.5px] text-amber-800">
@@ -154,9 +167,16 @@ onMounted(async () => {
   scanner.value?.refocus();
 });
 
+// Orders that load already 'Label Printed' were printed in an earlier session —
+// show them green, not blue. Fresh completions get `printed` from afterprint.
+function normalizeWall(w) {
+  if (w && w.orders) w.orders.forEach((o) => { o.printed = o.status === "Label Printed"; });
+  return w;
+}
+
 async function openWall(name) {
   try {
-    wall.value = await api("picking.sorting_detail", { pick_list: name });
+    wall.value = normalizeWall(await api("picking.sorting_detail", { pick_list: name }));
     scanner.value?.refocus();
   } catch (e) {
     warn(t("sort.loadFail"), String(e.message || e));
@@ -175,7 +195,7 @@ async function onScanList(raw) {
   if (hit) return openWall(hit.name);
   // Maybe an older list not in the window — try it anyway.
   try {
-    wall.value = await api("picking.sorting_detail", { pick_list: code });
+    wall.value = normalizeWall(await api("picking.sorting_detail", { pick_list: code }));
   } catch (e) {
     scanner.value?.showError(t("sort.unknownList"));
   }
@@ -215,10 +235,11 @@ async function onScanItem(raw) {
       o.noLabel = true;
       warn(t("sort.noLabel"), o.order);
     } else if (res.orderComplete) {
+      // Stage 1: sorted (slot goes blue). Stage 2: printed — set only when the
+      // browser confirms the label spooled (afterprint), turning it green.
       o.done = true;
       o.labelUrl = res.labelUrl || o.labelUrl;
-      printedToday.value += 1;
-      if (o.labelUrl) printLabel(o.order);
+      if (o.labelUrl) printLabel(o.order, () => { o.printed = true; printedToday.value += 1; });
       success(t("sort.orderDone"), o.order);
     } else {
       scanner.value?.showSuccess(`${o.order} · ${o.sorted}/${o.qty}`);
@@ -232,7 +253,8 @@ async function onScanItem(raw) {
 function slotClass(o) {
   if (flash.value === o.order) return "ring-2 ring-[var(--accent-500)] shadow-md";
   if (o.noLabel) return "ring-amber-300 bg-amber-50/40";
-  if (o.done) return "ring-emerald-300 bg-emerald-50/30";
+  if (o.printed) return "ring-emerald-300 bg-emerald-50/30";       // both stages done
+  if (o.done) return "ring-sky-300 bg-sky-50/40";                  // sorted, label not confirmed out
   return "ring-stone-200/70";
 }
 
@@ -245,13 +267,27 @@ function onImgError(e) { if (e && e.target) e.target.style.display = "none"; }
 // threw and fell back to window.open, which a post-scan callback gets popup-
 // blocked, so nothing printed. Same-origin, print() actually reaches the
 // browser; whether a dialog shows is the station's own print setting.
-function printLabel(order) {
+// `onSpooled` fires when the browser's afterprint event confirms the job was
+// sent to the printer — the automatic "label out" signal that turns the slot
+// green. If print() throws (printer offline etc.) we fall back to a tab and
+// never call it, so the slot stays blue and the failure is visible.
+function printLabel(order, onSpooled) {
   if (!order) return;
   const url = `/api/method/logistics_portal.api.picking.label_pdf?order=${encodeURIComponent(order)}`;
   try {
     let f = document.getElementById("lp-print-frame");
     if (!f) { f = document.createElement("iframe"); f.id = "lp-print-frame"; f.style.display = "none"; document.body.appendChild(f); }
-    f.onload = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { window.open(url, "_blank"); } };
+    f.onload = () => {
+      const w = f.contentWindow;
+      try {
+        if (onSpooled) {
+          const done = () => { w.removeEventListener("afterprint", done); onSpooled(); };
+          w.addEventListener("afterprint", done);
+        }
+        w.focus();
+        w.print();
+      } catch (e) { window.open(url, "_blank"); }
+    };
     f.src = url;
   } catch (e) { window.open(url, "_blank"); }
 }

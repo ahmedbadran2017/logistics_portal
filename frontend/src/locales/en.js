@@ -149,6 +149,9 @@ export default {
     noLabelHint: "Items are all here, but this parcel has no carrier label — its AWB never came back (often an Arabic shipping city). A dispatcher must fix the city and retry the AWB before it can ship.",
     wallDone: "Tote fully sorted 🎉",
     printAgain: "Print label again",
+    printNow: "Print label",
+    badgeSorted: "Sorted",
+    badgePrinted: "Printed",
     loadFail: "Couldn't load",
   },
   recv: {

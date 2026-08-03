@@ -149,6 +149,9 @@ export default {
     noLabelHint: "Tous les articles sont là, mais ce colis n'a pas d'étiquette transporteur — son AWB n'est jamais revenu (souvent une ville d'expédition en arabe). Un dispatcher doit corriger la ville et relancer l'AWB avant l'expédition.",
     wallDone: "Bac entièrement trié 🎉",
     printAgain: "Réimprimer l'étiquette",
+    printNow: "Imprimer l'étiquette",
+    badgeSorted: "Trié",
+    badgePrinted: "Imprimé",
     loadFail: "Échec du chargement",
   },
   recv: {
