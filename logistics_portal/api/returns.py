@@ -433,9 +433,9 @@ def _putaway_condition(col):
 
 
 @frappe.whitelist()
-def restock_summary(limit=30):
-    """What's sitting in the Return Zone right now: totals + the most valuable
-    items first, plus the list of valid shelf targets for the move dropdown.
+def restock_summary(limit=500, q=""):
+    """What's sitting in the Return Zone right now: totals + EVERY item (most
+    valuable first), plus the list of valid shelf targets for the move dropdown.
 
     Units are the headline number — they're exact (a straight SUM of actual_qty)
     and they're what drives the restock work. The MAD figure is secondary and
@@ -445,9 +445,15 @@ def restock_summary(limit=30):
     ~2x the selling price. Selling rate covers every piece and reflects what
     the returned stock is actually worth to recover. It's approximate by
     nature, so it's labelled as an estimate, not banked as fact.
+
+    The list used to be capped at the top 30 by value, so on the live zone 207
+    of 237 items (every cheap or never-sold return) were invisible unless
+    scanned — they piled up unrestocked. It now returns the whole zone, with an
+    optional `q` filter (SKU / name / code) for the operator to jump to one.
     """
     _recv_gate()
-    limit = min(max(int(limit or 30), 1), 100)
+    limit = min(max(int(limit or 500), 1), 1000)
+    q = (q or "").strip().lower()
 
     # Per-item selling rate = the average line rate the item has actually sold
     # at (rate > 0 only, so unpriced lines don't drag the average to zero).
@@ -472,7 +478,16 @@ def restock_summary(limit=30):
     unpriced_units = sum(int(r.qty or 0) for r in rows if not (r.sell_rate or 0))
 
     rows.sort(key=lambda r: -r["est_value"])
-    top = rows[:limit]
+    # Totals (items / qty / value / unpriced) describe the WHOLE zone; the list
+    # can be narrowed by the operator's search without changing the headline.
+    listed = rows
+    if q:
+        listed = [r for r in rows
+                  if q in (r.sku or "").lower()
+                  or q in (r.name or "").lower()
+                  or q in (r.item_code or "").lower()]
+    matched = len(listed)
+    top = listed[:limit]
 
     cond, args = _putaway_condition("name")
     targets = [w[0] for w in frappe.db.sql(
@@ -483,6 +498,7 @@ def restock_summary(limit=30):
         "items": len(rows), "qty": int(total_qty),
         "value": int(total_value), "valueEstimated": True,
         "unpricedUnits": int(unpriced_units),
+        "matched": matched, "shown": len(top),
         "rows": [{"itemCode": r.item_code, "sku": r.sku or "", "name": r.name,
                   "qty": int(r.qty or 0), "value": r["est_value"],
                   "image": r.image or ""} for r in top],

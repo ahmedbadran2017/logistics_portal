@@ -316,6 +316,7 @@ export default {
     unpriced: "never sold",
     unpricedNote: "Pieces with no sales history — their value is unknown, not zero.",
     scanPh: "Scan a returned piece…",
+    searchZone: "Search SKU or name…",
     inZone: "in the Return Zone",
     qty: "Qty",
     all: "All",

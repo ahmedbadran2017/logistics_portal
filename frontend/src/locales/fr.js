@@ -316,6 +316,7 @@ export default {
     unpriced: "jamais vendu",
     unpricedNote: "Pièces sans historique de vente — leur valeur est inconnue, pas nulle.",
     scanPh: "Scannez une pièce retournée…",
+    searchZone: "Rechercher SKU ou nom…",
     inZone: "dans la zone retours",
     qty: "Qté",
     all: "Tout",

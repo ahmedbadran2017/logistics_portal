@@ -125,9 +125,17 @@
       <div v-for="n in 6" :key="n" class="h-[56px] rounded-lg bg-stone-50 ring-1 ring-stone-200/60 animate-pulse" />
     </div>
     <div v-else-if="summary" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
-      <div class="px-4 py-2.5 border-b border-stone-100 flex items-center justify-between">
+      <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
         <span class="text-[12px] font-semibold text-stone-900">{{ t('restock.zoneTitle') }}</span>
-        <span class="text-[11px] text-stone-400 tabular-nums">{{ summary.items }} {{ t('consol.items') }}</span>
+        <div class="relative ms-auto">
+          <Icon name="search" :size="12" class="absolute start-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
+          <input v-model="zoneQ" :placeholder="t('restock.searchZone')" @input="debouncedZone"
+                 class="h-8 w-[180px] ps-7 pe-2 text-[12px] bg-stone-50 rounded-lg ring-1 ring-stone-200 focus:ring-2 outline-none transition-shadow"
+                 style="--tw-ring-color: var(--accent-300)" />
+        </div>
+        <span class="text-[11px] text-stone-400 tabular-nums">
+          {{ zoneQ ? (summary.matched + ' / ' + summary.items) : summary.items }} {{ t('consol.items') }}
+        </span>
       </div>
       <div class="divide-y divide-stone-50 max-h-[420px] overflow-y-auto">
         <button
@@ -185,6 +193,7 @@ const qty = ref(1);
 const target = ref("");
 const busy = ref("");
 const moved = ref([]);
+const zoneQ = ref("");
 
 // The move button unlocks only for a shelf the server will accept — the
 // backend re-validates anyway, this just keeps the UI honest while typing.
@@ -196,12 +205,17 @@ const targetValid = computed(() => {
 
 async function load() {
   try {
-    summary.value = await api("returns.restock_summary");
+    summary.value = await api("returns.restock_summary", { q: zoneQ.value || undefined });
   } catch (e) {
     warn(t("restock.loadFail"), String(e.message || e));
   } finally {
     loadingSummary.value = false;
   }
+}
+let zoneTimer = null;
+function debouncedZone() {
+  clearTimeout(zoneTimer);
+  zoneTimer = setTimeout(load, 300);
 }
 onMounted(async () => {
   await load();
