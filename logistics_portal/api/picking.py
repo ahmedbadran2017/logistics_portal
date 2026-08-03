@@ -538,12 +538,35 @@ def _pick_list_activity(name, pl):
     return events
 
 
+# The effective shipping city: the SO field first, else the linked Address —
+# 76% of the pool carries the city only on the Address, so the SO field alone
+# isn't enough to judge it.
+_EFF_CITY = ("COALESCE(NULLIF(TRIM(so.custom_shipping_city), ''), "
+             "(SELECT NULLIF(TRIM(a.city), '') FROM `tabAddress` a "
+             "WHERE a.name = COALESCE(so.shipping_address_name, so.customer_address)))")
+
+# Explicit Arabic letters (a codepoint range isn't reliable across MariaDB
+# collations; this class is verified on prod).
+_ARABIC_CLASS = "[ابتثجحخدذرزسشصضطظعغفقكلمنهوىيءآأإةؤئ]"
+
+# A city Cathedis can't turn into an AWB: empty, Arabic, or containing digits
+# (a phone number typed into the city box). Measured: 79% of no-AWB orders have
+# an Arabic city vs 4% of the ones that got an AWB. These are HELD OUT of the
+# pick pool and routed to the City-check queue, so a label-less parcel never
+# reaches a picker. Small unmatched LATIN towns are NOT blocked here — they
+# usually ship; they're only warned in the queue.
+_BAD_CITY = (f"({_EFF_CITY} IS NULL "
+             f"OR {_EFF_CITY} REGEXP '{_ARABIC_CLASS}' "
+             f"OR {_EFF_CITY} REGEXP '[0-9]')")
+
 # The to-pick pool predicate, identical to suggest_batches: submitted Confirmed
-# Morocco orders in Pending logistics state, not already on any open pick list.
-_POOL_WHERE = """so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
+# Morocco orders in Pending logistics state, not already on any open pick list,
+# and with a city Cathedis can actually label.
+_POOL_WHERE = f"""so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
                  AND so.company = 'Justyol Morocco'
                  AND so.custom_logistics_status = 'Pending'
                  AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+                 AND NOT {_BAD_CITY}
                  AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
                                  JOIN `tabPick List` p ON p.name = pli.parent
                                  WHERE pli.sales_order = so.name AND p.docstatus < 2)"""
@@ -1228,7 +1251,7 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
         # derived table full-scanned every Pick List row on each call (455ms on
         # production); the correlated probe uses lp_pli_so_idx (58ms, same rows).
         rows = frappe.db.sql(
-            """SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
+            f"""SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
                       so.creation, soi.item_code,
                       COALESCE(NULLIF(soi.item_name,''), soi.item_code) AS item_name,
                       GREATEST(soi.qty - soi.delivered_qty, 0) AS qty
@@ -1237,6 +1260,7 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
                WHERE so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
                  AND so.custom_logistics_status = 'Pending'
                  AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+                 AND NOT {_BAD_CITY}
                  AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
                                  JOIN `tabPick List` p ON p.name = pli.parent
                                  WHERE pli.sales_order = so.name AND p.docstatus < 2)

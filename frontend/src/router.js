@@ -46,6 +46,8 @@ const routes = [
       { path: "pipeline", name: "Pipeline", component: () => import("@/pages/Pipeline.vue") },
       // Confirmed orders that never became a parcel — nothing else surfaces them.
       { path: "stranded", name: "Stranded", component: () => import("@/pages/Stranded.vue") },
+      // Orders whose shipping city can't be turned into a carrier label (Arabic / junk).
+      { path: "city-check", name: "CityCheck", component: () => import("@/pages/CityCheck.vue") },
       // Confirmation-team review: same-customer clusters → one merged order.
       { path: "consolidation", name: "Consolidation", component: () => import("@/pages/Consolidation.vue") },
       { path: "team", name: "Team", component: () => import("@/pages/Team.vue") },
