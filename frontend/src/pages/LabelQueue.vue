@@ -182,7 +182,7 @@ async function print(order) {
     warn("لا توجد بوليصة لهذا الأوردر بعد", "استخدم Retry AWB من لوحة الطلبات");
     return;
   }
-  printLabel(row.labelUrl);
+  printLabel(order);
   try {
     await apiPost("shipping.mark_labels_printed", { orders: [order] });
     row.printed = true;
@@ -198,9 +198,12 @@ function printAll() {
   else warn("لا توجد بوالص جاهزة للطباعة");
 }
 
-// Same hidden-iframe thermal print used by the sorting station.
-function printLabel(url) {
-  if (!url) return;
+// Same-origin label print (see PackStation): stream the stored label PDF via
+// picking.label_pdf so the hidden iframe can print it — the raw carrier URL is
+// cross-origin and a browser won't print a cross-origin frame.
+function printLabel(order) {
+  if (!order) return;
+  const url = `/api/method/logistics_portal.api.picking.label_pdf?order=${encodeURIComponent(order)}`;
   try {
     let f = document.getElementById("lp-print-frame");
     if (!f) { f = document.createElement("iframe"); f.id = "lp-print-frame"; f.style.display = "none"; document.body.appendChild(f); }

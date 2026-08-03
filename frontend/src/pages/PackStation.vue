@@ -104,7 +104,7 @@
           <button
             v-if="o.done && o.labelUrl"
             class="mt-2.5 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
-            @click="printLabel(o.labelUrl)"
+            @click="printLabel(o.order)"
           >
             <Icon name="printer" :size="14" /> {{ t('sort.printAgain') }}
           </button>
@@ -207,7 +207,7 @@ async function onScanItem(raw) {
       o.done = true;
       o.labelUrl = res.labelUrl || o.labelUrl;
       printedToday.value += 1;
-      printLabel(o.labelUrl);
+      if (o.labelUrl) printLabel(o.order);
       success(t("sort.orderDone"), o.order);
     } else {
       scanner.value?.showSuccess(`${o.order} · ${o.sorted}/${o.qty}`);
@@ -226,10 +226,16 @@ function slotClass(o) {
 
 function onImgError(e) { if (e && e.target) e.target.style.display = "none"; }
 
-// Thermal label prints from the browser dialog: load it in a hidden iframe and
-// pop the print dialog; if the label is cross-origin, fall back to a new tab.
-function printLabel(url) {
-  if (!url) return;
+// Auto-print the parcel label. The carrier label is saved as a private File on
+// the order; we stream it through picking.label_pdf, i.e. from the portal's OWN
+// origin. That matters: the raw label URL is on the carrier (cross-origin), and
+// a browser refuses to print a cross-origin iframe — the old code's print()
+// threw and fell back to window.open, which a post-scan callback gets popup-
+// blocked, so nothing printed. Same-origin, print() actually reaches the
+// browser; whether a dialog shows is the station's own print setting.
+function printLabel(order) {
+  if (!order) return;
+  const url = `/api/method/logistics_portal.api.picking.label_pdf?order=${encodeURIComponent(order)}`;
   try {
     let f = document.getElementById("lp-print-frame");
     if (!f) { f = document.createElement("iframe"); f.id = "lp-print-frame"; f.style.display = "none"; document.body.appendChild(f); }

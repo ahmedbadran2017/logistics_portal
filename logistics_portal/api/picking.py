@@ -1760,6 +1760,38 @@ def sort_scan(pick_list, code):
 
 
 @frappe.whitelist()
+def label_pdf(order):
+    """Stream a parcel's carrier label PDF from the portal's OWN origin so the
+    sorting station can AUTO-print it in a hidden iframe.
+
+    The label is a cross-origin Cathedis URL (custom_label_url), and a browser
+    refuses to print a cross-origin frame — the old code's iframe.print() threw
+    and fell back to window.open, which a post-scan callback gets popup-blocked,
+    so nothing printed. But the same PDF is also saved as a private File on the
+    Sales Order when the label is generated; served from here it's same-origin,
+    so iframe.print() works. Gated to sorters; we read the File server-side, so
+    the private-file HTTP permission check never blocks a packer."""
+    _sort_gate()
+    order = (order or "").strip()
+    if not order:
+        frappe.throw("No order.")
+    # The newest label PDF attached to this order (prefer the Cathedis label).
+    fname = frappe.db.get_value(
+        "File", {"attached_to_doctype": "Sales Order", "attached_to_name": order,
+                 "file_name": ["like", "%Label%.pdf"]},
+        "name", order_by="creation desc") or frappe.db.get_value(
+        "File", {"attached_to_doctype": "Sales Order", "attached_to_name": order,
+                 "file_name": ["like", "%.pdf"]},
+        "name", order_by="creation desc")
+    if not fname:
+        frappe.throw("No label attached to this order yet.")
+    content = frappe.get_doc("File", fname).get_content()
+    frappe.local.response.filename = order.replace("#", "") + ".pdf"
+    frappe.local.response.filecontent = content
+    frappe.local.response.type = "pdf"
+
+
+@frappe.whitelist()
 def report_short_pick(pick_list, order, item_code=None):
     """The picker can't find an item on the shelf. Chosen ops flow: pull that
     ORDER off the draft pick list (back to the problem pool, cool-down 24h so
