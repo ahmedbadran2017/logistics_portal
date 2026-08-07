@@ -1362,12 +1362,28 @@ def _do_merge(names, force=0):
     base.add_comment("Comment", "Merged from " + ", ".join(names))
 
     for d in docs:
-        # add_comment bumps `modified` on the DB row, so cancelling the copy
-        # we loaded earlier raises TimestampMismatchError ("Document has been
-        # modified after you have opened it"). Cancel a FRESH copy, comment last.
-        fresh = frappe.get_doc("Sales Order", d.name)
-        fresh.flags.ignore_permissions = True
-        fresh.cancel()
+        # Cancel each original. A background touch (the Shopify/YouCan sync,
+        # which keeps writing to these rows) can bump `modified` in the split
+        # second between loading the doc and cancelling it, so cancel's own
+        # "is this the latest?" check throws TimestampMismatchError ("Document
+        # has been modified after you have opened it"). We hold the merge lock
+        # and have already validated every doc's state, so this is a false
+        # conflict: reload and retry. The check runs before any write, so a
+        # failed attempt leaves nothing partial (no rollback needed, which would
+        # also undo the new order we just created).
+        fresh = None
+        for attempt in range(3):
+            fresh = frappe.get_doc("Sales Order", d.name)
+            if fresh.docstatus == 2:
+                break  # already cancelled
+            fresh.flags.ignore_permissions = True
+            fresh.flags.ignore_version = True
+            try:
+                fresh.cancel()
+                break
+            except frappe.TimestampMismatchError:
+                if attempt == 2:
+                    raise
         fresh.add_comment("Comment", f"Merged into {base.name}")
         fresh.db_set("custom_sales_status", "Duplicated", update_modified=False)
 
