@@ -110,6 +110,13 @@ const router = createRouter({
 });
 
 router.beforeEach(async (to, from, next) => {
+  // Remember which list an order was opened from, so the detail page's Back
+  // returns there (Orders / Consolidation / Stranded …) instead of falling
+  // through to the role's home. Chained detail→detail keeps the original list.
+  if (to.name === "OrderDetail" && from.name && from.name !== "OrderDetail") {
+    try { sessionStorage.setItem("lp_order_ref", from.fullPath); } catch (_) { /* private mode */ }
+  }
+
   const { init, isLoggedIn, role, hiddenPages } = useAuth();
   await init();
 

@@ -406,8 +406,15 @@ const props = defineProps({
 const router = useRouter();
 const openSku = useSkuLink();
 function goBack() {
-  if (window.history.length > 1) router.back();
-  else router.push({ name: "Queue" });
+  // Return to the list the order was opened from (Orders / Consolidation /
+  // Stranded …), remembered by the router guard. Fall back to browser history,
+  // then to the Orders board — never the role's home.
+  let ref = "";
+  try { ref = sessionStorage.getItem("lp_order_ref") || ""; } catch (_) { /* private mode */ }
+  const here = router.currentRoute.value.fullPath;
+  if (ref && ref !== here) { router.push(ref); return; }
+  if (window.history.length > 1) { router.back(); return; }
+  router.push({ name: "Pipeline" });
 }
 
 const STAGE_SEQ = ["pending", "picking", "picked", "labelgen", "label", "shipped", "transit", "exception", "delivered", "returned"];
