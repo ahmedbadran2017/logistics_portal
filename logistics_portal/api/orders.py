@@ -492,9 +492,13 @@ def _row(r, **extra):
 def _pickable_bin_subquery():
     from logistics_portal.api.warehouses import pickable_condition
     cond, args = pickable_condition("b.warehouse")
-    # Available to pick = actual - reserved (a reserved unit is spoken for).
-    sql = ("SELECT DISTINCT item_code FROM `tabBin` b "
-           "WHERE (b.actual_qty - b.reserved_qty) > 0 AND " + cond)
+    # Available to pick = actual - reserved (a reserved unit is spoken for),
+    # summed per item so availability can be compared to the ORDERED quantity —
+    # not just "has a unit". An item with 2 free but 5 ordered is short, not
+    # ready, and used to slip into the ready tab as "missing items".
+    sql = ("SELECT item_code, SUM(b.actual_qty - b.reserved_qty) AS aq "
+           "FROM `tabBin` b WHERE (b.actual_qty - b.reserved_qty) > 0 AND " + cond +
+           " GROUP BY item_code")
     return sql, args
 
 
@@ -520,7 +524,8 @@ def _pick_availability():
             SELECT so.name AS so, so.grand_total AS val, so.creation AS created,
                    soi.item_code AS code,
                    COALESCE(NULLIF(soi.item_name,''), soi.item_code) AS item_name,
-                   MAX(CASE WHEN pk.item_code IS NOT NULL THEN 1 ELSE 0 END) AS avail
+                   SUM(GREATEST(soi.qty - soi.delivered_qty, 0)) AS need,
+                   MAX(COALESCE(pk.aq, 0)) AS avail_qty
             FROM `tabSales Order` so
             JOIN `tabSales Order Item` soi ON soi.parent = so.name
             LEFT JOIN ({pk_sql}) pk ON pk.item_code = soi.item_code
@@ -539,12 +544,17 @@ def _pick_availability():
     today = nowdate()
     per = {}
     for r in rows:
-        d = per.setdefault(r.so, {"n": 0, "avail": 0, "missing": [], "miss_codes": [],
-                                  "val": float(r.val or 0), "created": r.created})
+        d = per.setdefault(r.so, {"n": 0, "enough": 0, "some": 0, "missing": [],
+                                  "miss_codes": [], "val": float(r.val or 0),
+                                  "created": r.created})
         d["n"] += 1
-        if r.avail:
-            d["avail"] += 1
+        need, aq = float(r.need or 0), float(r.avail_qty or 0)
+        if aq > 0:
+            d["some"] += 1
+        if aq >= need:
+            d["enough"] += 1
         else:
+            # short OR zero — the line can't be fully picked, so it's "missing".
             if len(d["missing"]) < 6:
                 d["missing"].append(r.item_name)
             d["miss_codes"].append((r.code, r.item_name))
@@ -554,9 +564,9 @@ def _pick_availability():
     miss_by_order = {}  # order -> [(missing item_code, item_name)] for SKU-rescue
     stuck_oos = stuck_partial = 0.0
     for name, d in per.items():
-        if d["avail"] >= d["n"]:
+        if d["enough"] >= d["n"]:
             ready.append(name); continue
-        blocked = d["avail"] == 0
+        blocked = d["some"] == 0   # nothing at all in stock (vs short = some)
         (oos if blocked else partial).append(name)
         missing[name] = d["missing"]
         miss_by_order[name] = d["miss_codes"]
