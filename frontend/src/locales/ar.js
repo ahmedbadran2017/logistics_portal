@@ -43,6 +43,7 @@ export default {
     ticketsSection: "خدمة العملاء",
     contactCenter: "مركز الاتصال",
     contactSection: "مركز الاتصال",
+    ccOverview: "نظرة عامة على الاتصال",
     contactcenter: "مركز الاتصال",
     exchanges: "التبديلات",
     tickets: "التذاكر",
@@ -518,6 +519,7 @@ export default {
   cmd: {
     pages: "الصفحات",
     orders: "الأوردرات",
+    openOrder: "افتح الأوردر",
   },
   notif: {
     title: "الإشعارات",

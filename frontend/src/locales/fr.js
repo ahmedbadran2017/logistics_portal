@@ -43,6 +43,7 @@ export default {
     ticketsSection: "Service client",
     contactCenter: "Centre de contact",
     contactSection: "Centre de contact",
+    ccOverview: "Aperçu du contact",
     contactcenter: "Centre de contact",
     exchanges: "Échanges",
     tickets: "Tickets",
@@ -518,6 +519,7 @@ export default {
   cmd: {
     pages: "Pages",
     orders: "Commandes",
+    openOrder: "Ouvrir la commande",
   },
   notif: {
     title: "Notifications",

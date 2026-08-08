@@ -89,12 +89,6 @@ const query = ref("");
 const active = ref("");
 const inputEl = ref(null);
 
-// A few demo orders so the palette matches AWB / order queries.
-const DEMO_ORDERS = [
-  { no: "#242638", awb: "LD007744422" },
-  { no: "#240682", awb: "LD007748688" },
-  { no: "#242128", awb: "AWB-51433" },
-];
 
 const pages = computed(() => {
   const items = navItemsFor(role.value, hiddenPages.value);
@@ -119,17 +113,22 @@ const pages = computed(() => {
   }));
 });
 
-const orders = computed(() =>
-  DEMO_ORDERS.map((o, i) => ({
-    id: `o-${i}`,
+// No client-side order index — offer to open exactly what was typed (order
+// name or AWB) as a direct jump. Honest: no fabricated results, and empty
+// until the user types something.
+const orders = computed(() => {
+  const q = query.value.trim();
+  if (!q) return [];
+  return [{
+    id: "o-open",
     kind: "order",
     to: "OrderDetail",
-    param: o.no,
+    param: q,
     icon: "shopping-bag",
-    title: o.no,
-    sub: o.awb,
-  }))
-);
+    title: q,
+    sub: t("cmd.openOrder", "Open order"),
+  }];
+});
 
 function match(item, q) {
   if (!q) return true;

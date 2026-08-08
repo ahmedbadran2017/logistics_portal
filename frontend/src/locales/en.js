@@ -44,6 +44,7 @@ export default {
     contactCenter: "Contact Center",
     contactcenter: "Contact Center",
     contactSection: "Contact Center",
+    ccOverview: "Contact overview",
     exchanges: "Exchanges",
     tickets: "Tickets",
     tsReports: "Section reports",
@@ -518,6 +519,7 @@ export default {
   cmd: {
     pages: "Pages",
     orders: "Orders",
+    openOrder: "Open order",
   },
   notif: {
     title: "Notifications",
