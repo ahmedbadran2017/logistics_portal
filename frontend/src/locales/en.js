@@ -43,6 +43,7 @@ export default {
     ticketsSection: "Customer service",
     contactCenter: "Contact Center",
     contactcenter: "Contact Center",
+    contactSection: "Contact Center",
     exchanges: "Exchanges",
     tickets: "Tickets",
     tsReports: "Section reports",

@@ -93,6 +93,7 @@
         @open-notif="notifOpen = true"
       />
       <main class="flex-1 overflow-y-auto bg-[#f5f5f4]">
+        <LaneTabs />
         <router-view v-slot="{ Component }">
           <component :is="Component" :key="$route.fullPath" />
         </router-view>
@@ -110,6 +111,7 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import Sidebar from "./Sidebar.vue";
 import TopBar from "./TopBar.vue";
+import LaneTabs from "./LaneTabs.vue";
 import CommandPalette from "@/components/ui/CommandPalette.vue";
 import NotifCenter from "@/components/ui/NotifCenter.vue";
 import OfflineBanner from "@/components/ui/OfflineBanner.vue";

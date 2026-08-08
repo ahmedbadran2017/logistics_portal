@@ -76,6 +76,7 @@ import Icon from "@/components/ui/Icon.vue";
 import { useAuth } from "@/composables/useAuth";
 import { useI18n } from "@/composables/useI18n";
 import { navItemsFor } from "@/lib/roles";
+import { LANES } from "@/lib/laneTabs";
 
 const props = defineProps({ open: { type: Boolean, default: false } });
 const emit = defineEmits(["close"]);
@@ -95,16 +96,28 @@ const DEMO_ORDERS = [
   { no: "#242128", awb: "AWB-51433" },
 ];
 
-const pages = computed(() =>
-  navItemsFor(role.value, hiddenPages.value).map((it, i) => ({
+const pages = computed(() => {
+  const items = navItemsFor(role.value, hiddenPages.value);
+  const present = new Set(items.map((i) => i.to));
+  const h = new Set(hiddenPages.value || []);
+  // Lane sub-views (dashboard / reports / settings …) are in-page tabs now, not
+  // sidebar rows — keep them searchable whenever the lane is available here.
+  const laneTabs = [];
+  for (const lane of LANES) {
+    if (!present.has(lane.tabs[0].to)) continue;
+    for (const tab of lane.tabs.slice(1)) {
+      if (!h.has(tab.to) && !present.has(tab.to)) laneTabs.push(tab);
+    }
+  }
+  return [...items, ...laneTabs].map((it, i) => ({
     id: `p-${i}`,
     kind: "page",
     to: it.to,
     icon: it.icon,
     title: t(it.label),
     sub: "",
-  }))
-);
+  }));
+});
 
 const orders = computed(() =>
   DEMO_ORDERS.map((o, i) => ({

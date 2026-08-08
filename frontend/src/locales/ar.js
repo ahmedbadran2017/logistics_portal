@@ -42,6 +42,7 @@ export default {
     rescuesettings: "إعدادات القسم",
     ticketsSection: "خدمة العملاء",
     contactCenter: "مركز الاتصال",
+    contactSection: "مركز الاتصال",
     contactcenter: "مركز الاتصال",
     exchanges: "التبديلات",
     tickets: "التذاكر",

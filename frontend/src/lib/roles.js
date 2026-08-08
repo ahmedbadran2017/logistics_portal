@@ -25,29 +25,13 @@ export const ROLE_CONFIG = {
         ],
       },
       {
-        section: "nav.confirmSection",
+        // One entry per lane; each lane's dashboard/reports/settings live as
+        // in-page tabs (see lib/laneTabs.js), not sidebar rows.
+        section: "nav.contactSection",
         items: [
           { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
-          { to: "ConfirmationDashboard", label: "nav.cfDashboard", icon: "gauge" },
-          { to: "ConfirmationReports", label: "nav.cfReports", icon: "trending-up" },
-          { to: "ConfirmationSettings", label: "nav.cfSettings", icon: "settings" },
-        ],
-      },
-      {
-        section: "nav.rescueSection",
-        items: [
           { to: "Rescue", label: "nav.rescue", icon: "route" },
-          { to: "RescueReports", label: "nav.rsReports", icon: "trending-up" },
-          { to: "RescueSettings", label: "nav.rsSettings", icon: "settings" },
-        ],
-      },
-      {
-        section: "nav.ticketsSection",
-        items: [
           { to: "Tickets", label: "nav.tickets", icon: "message-circle" },
-          { to: "Exchanges", label: "nav.exchanges", icon: "refresh-cw" },
-          { to: "TicketsReports", label: "nav.tsReports", icon: "trending-up" },
-          { to: "TicketsSettings", label: "nav.tsSettings", icon: "settings" },
         ],
       },
       {
@@ -166,36 +150,19 @@ export const ROLE_CONFIG = {
     home: "Confirmation",
     nav: [
       {
-        section: "nav.confirmSection",
+        // One entry per lane; sub-views are in-page tabs (lib/laneTabs.js).
+        section: "nav.contactSection",
         items: [
           { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
-          { to: "ConfirmationDashboard", label: "nav.cfDashboard", icon: "gauge" },
-          { to: "ConfirmationReports", label: "nav.cfReports", icon: "trending-up" },
-          { to: "ConfirmationSettings", label: "nav.cfSettings", icon: "settings" },
-          { to: "Stranded", label: "nav.stranded", icon: "package-x" },
-        ],
-      },
-      {
-        section: "nav.rescueSection",
-        items: [
           { to: "Rescue", label: "nav.rescue", icon: "route" },
-          { to: "RescueReports", label: "nav.rsReports", icon: "trending-up" },
-          { to: "RescueSettings", label: "nav.rsSettings", icon: "settings" },
-        ],
-      },
-      {
-        section: "nav.ticketsSection",
-        items: [
           { to: "Tickets", label: "nav.tickets", icon: "message-circle" },
-          { to: "Exchanges", label: "nav.exchanges", icon: "refresh-cw" },
-          { to: "TicketsReports", label: "nav.tsReports", icon: "trending-up" },
-          { to: "TicketsSettings", label: "nav.tsSettings", icon: "settings" },
         ],
       },
       {
         section: "nav.operations",
         items: [
           { to: "Consolidation", label: "nav.consolidation", icon: "git-merge" },
+          { to: "Stranded", label: "nav.stranded", icon: "package-x" },
           { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
         ],
       },

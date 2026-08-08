@@ -42,6 +42,7 @@ export default {
     rescuesettings: "Réglages du service",
     ticketsSection: "Service client",
     contactCenter: "Centre de contact",
+    contactSection: "Centre de contact",
     contactcenter: "Centre de contact",
     exchanges: "Échanges",
     tickets: "Tickets",
