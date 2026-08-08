@@ -26,53 +26,11 @@
 
     <!-- Grouped nav -->
     <nav class="flex-1 px-2 overflow-y-auto pb-3">
-      <template v-for="(group, gi) in renderGroups" :key="group.cc ? '__cc' : group.section">
-        <!-- Contact-Center switcher: one dropdown for the three lanes -->
-        <div v-if="group.cc" :class="gi > 0 ? 'mt-4' : ''">
-          <div class="relative px-1 mb-1.5">
-            <button
-              type="button"
-              class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg bg-stone-50 hover:bg-stone-100 ring-1 ring-stone-200/70 transition-colors"
-              @click="ccMenuOpen = !ccMenuOpen"
-            >
-              <Icon :name="CC_ICON[activeCCGroup?.section] || 'phone'" :size="15" class="text-[var(--accent-600)] flex-shrink-0" />
-              <span class="flex-1 text-start text-[12px] font-semibold text-stone-800 truncate">{{ t(activeCCGroup?.section) }}</span>
-              <Icon name="chevron-down" :size="13" class="text-stone-400 flex-shrink-0 transition-transform" :class="ccMenuOpen ? 'rotate-180' : ''" />
-            </button>
-            <div
-              v-if="ccMenuOpen"
-              class="absolute top-full mt-1 inset-x-1 bg-white rounded-xl shadow-floating ring-1 ring-stone-200/70 overflow-hidden py-1 z-40 animate-menu"
-            >
-              <button
-                v-for="g in ccGroups"
-                :key="g.section"
-                type="button"
-                class="w-full flex items-center gap-2.5 px-2.5 py-1.5 text-start"
-                :class="g.section === activeCC ? 'bg-stone-100' : 'hover:bg-stone-50'"
-                @click="pickCC(g.section)"
-              >
-                <Icon :name="CC_ICON[g.section] || 'phone'" :size="14" :class="g.section === activeCC ? 'text-[var(--accent-600)]' : 'text-stone-400'" />
-                <span class="flex-1 text-[12.5px] font-medium text-stone-900 truncate">{{ t(g.section) }}</span>
-                <Icon v-if="g.section === activeCC" name="check" :size="14" class="text-[var(--accent-600)] flex-shrink-0" />
-              </button>
-            </div>
-          </div>
-          <div v-if="activeCCGroup" class="space-y-px">
-            <router-link v-for="item in activeCCGroup.items" :key="item.label" :to="{ name: item.to }" custom v-slot="{ navigate }">
-              <a
-                class="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] font-medium cursor-pointer group transition-colors"
-                :class="isActive(item) ? 'bg-[var(--accent-50)] text-[var(--accent-700)]' : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'"
-                @click="navigate"
-              >
-                <Icon :name="item.icon" :size="16" :class="isActive(item) ? 'text-[var(--accent-600)]' : 'text-stone-400 group-hover:text-stone-600'" />
-                <span class="flex-1 truncate">{{ t(item.label) }}</span>
-              </a>
-            </router-link>
-          </div>
-        </div>
-
-        <!-- Normal group -->
-        <div v-else :class="gi > 0 ? 'mt-4' : ''">
+      <!-- Every section is a first-class top-level group — the Contact-Center
+           lanes (Confirmation / Rescue / CS) each stand on their own route,
+           no umbrella switcher. Cross-lane navigation lives in the admin hub. -->
+      <template v-for="(group, gi) in nav" :key="group.section">
+        <div :class="gi > 0 ? 'mt-4' : ''">
           <div class="px-3 mb-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">
             {{ t(group.section) }}
           </div>
@@ -162,7 +120,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, watchEffect } from "vue";
+import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import InstallApp from "@/components/ui/InstallApp.vue";
@@ -171,16 +129,6 @@ import { useI18n } from "@/composables/useI18n";
 import { navFor } from "@/lib/roles";
 
 defineEmits(["open-search"]);
-
-// The three Contact-Center lanes are each a self-contained workspace; instead
-// of stacking all three in the sidebar, they collapse behind one dropdown so
-// only the active lane's items show. Everything else renders as normal groups.
-const CC_SECTIONS = ["nav.confirmSection", "nav.rescueSection", "nav.ticketsSection"];
-const CC_ICON = {
-  "nav.confirmSection": "phone",
-  "nav.rescueSection": "life-buoy",
-  "nav.ticketsSection": "message-circle",
-};
 
 // Served by Frappe from the app's public/ dir; bound (not a static src) so vite
 // doesn't try to resolve it at build time.
@@ -192,42 +140,6 @@ const route = useRoute();
 const menuOpen = ref(false);
 
 const nav = computed(() => navFor(role.value, hiddenPages.value));
-
-// The Contact-Center groups present for this role, and whether the switcher
-// applies (needs at least two lanes; with one it just renders normally).
-const ccGroups = computed(() => nav.value.filter((g) => CC_SECTIONS.includes(g.section)));
-const ccSwitch = computed(() => ccGroups.value.length >= 2);
-
-// Render list: normal groups pass through; the CC lanes collapse to a single
-// {cc:true} marker inserted where the first CC group sat, so position is kept.
-const renderGroups = computed(() => {
-  const out = [];
-  let ccPlaced = false;
-  for (const g of nav.value) {
-    if (ccSwitch.value && CC_SECTIONS.includes(g.section)) {
-      if (!ccPlaced) { out.push({ cc: true }); ccPlaced = true; }
-    } else {
-      out.push(g);
-    }
-  }
-  return out;
-});
-
-const activeCC = ref(localStorage.getItem("lp_cc_center") || "");
-const ccMenuOpen = ref(false);
-// Keep the active lane valid, and follow the route: opening a page inside a
-// lane switches the dropdown to it, so deep links and search jumps line up.
-watchEffect(() => {
-  const secs = ccGroups.value.map((g) => g.section);
-  const onRoute = ccGroups.value.find((g) => g.items.some((i) => i.to === route.name));
-  if (onRoute) { activeCC.value = onRoute.section; return; }
-  if (!secs.includes(activeCC.value)) activeCC.value = secs[0] || "";
-});
-watch(activeCC, (v) => { if (v) localStorage.setItem("lp_cc_center", v); });
-watch(() => route.name, () => { ccMenuOpen.value = false; });
-const activeCCGroup = computed(() =>
-  ccGroups.value.find((g) => g.section === activeCC.value) || ccGroups.value[0] || null);
-function pickCC(section) { activeCC.value = section; ccMenuOpen.value = false; }
 
 const initials = computed(() =>
   (fullName.value || "?").split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase()
