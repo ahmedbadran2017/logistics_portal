@@ -239,7 +239,9 @@ def floor():
 
         now = now_datetime()
         elapsed = max(1.0, (now.hour + now.minute / 60.0) - f_start)
-        target = int(ops["dayTarget"])
+        # Floor board is a live PACE signal → the per-hour standard, not the
+        # daily scorecard number (those are two different knobs now).
+        target = int(ops["hourlyStandard"])
 
         def station(name, count):
             rate = round(count / elapsed, 1)
@@ -379,11 +381,14 @@ def _agent_me(user, days=7):
     lo, hi = int(get_ops("floorStart") or 8), int(get_ops("floorEnd") or 20)
     if hours:
         lo, hi = min(lo, min(hours)), max(hi, max(hours))
+    # A contact-centre agent is measured in DECISIONS/day, which is the
+    # confirmation lane's own target — never the warehouse floor's dayTarget.
+    from logistics_portal.api.confirmation import _cf_settings
     return {
         "kind": "agent",
         "today": today_total, "wins": today_wins,
         "byAction": by_action,
-        "target": int(get_ops("dayTarget") or 40),
+        "target": int(_cf_settings().get("dayTarget", 40)),
         "rate": rate, "rateLabel": "confirmRate",
         "rank": rank, "of": len(ranked),
         "streak": streak,
@@ -447,7 +452,7 @@ def _picker_me(user, days=7):
         "kind": "picker",
         "today": today_total, "wins": today_total,
         "byAction": {"pick.picked": today_total},
-        "target": int(get_ops("dayTarget") or 40),
+        "target": int(get_ops("dayTarget") or 320),
         "rate": None, "rateLabel": "",
         "rank": rank, "of": len(ranked),
         "streak": streak,
@@ -598,7 +603,7 @@ def _leaderboard(limit=8):
             name = (r.picker or "").split("@")[0].capitalize()
         orders = int(r.orders or 0)
         days = max(1, int(r.days or 1))
-        target = int(frappe.db.get_default("lp_floor_target") or 40)
+        target = int(frappe.db.get_default("lp_day_target") or 320)
         out.append({
             "id": pid or r.picker,
             "name": name,

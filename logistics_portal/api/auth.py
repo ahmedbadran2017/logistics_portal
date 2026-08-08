@@ -204,7 +204,7 @@ def team_members(q=""):
     members.sort(key=lambda r: (order.get(r["role"], 9), r["name"]))
     return {"members": members, "matches": matches[:8],
             "roles": sorted(VALID_ROLES),
-            "target": int(frappe.db.get_default("lp_floor_target") or 40)}
+            "target": int(frappe.db.get_default("lp_day_target") or 320)}
 
 
 @frappe.whitelist()
@@ -227,15 +227,17 @@ def set_member_role(user, role=""):
 
 @frappe.whitelist()
 def set_floor_target(value):
-    """The daily per-person order target (floor board pace + leaderboard)."""
+    """The per-person orders-shipped-per-DAY target — the picker scorecard and
+    team leaderboard measure each person against it. (The floor board's hourly
+    pace is a separate knob, hourlyStandard, edited on the Settings page.)"""
     _require_manager()
     try:
         v = int(value)
     except Exception:
         frappe.throw("Target must be a number.")
-    if not (1 <= v <= 500):
-        frappe.throw("Target must be between 1 and 500.")
-    frappe.db.set_default("lp_floor_target", v)
+    if not (1 <= v <= 2000):
+        frappe.throw("Target must be between 1 and 2000.")
+    frappe.db.set_default("lp_day_target", v)
     frappe.cache().delete_value("lp_leaderboard")
     return {"ok": True, "target": v}
 

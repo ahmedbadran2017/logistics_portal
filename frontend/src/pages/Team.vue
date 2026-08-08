@@ -8,10 +8,10 @@
         </h1>
         <p class="text-[12.5px] text-stone-500 mt-1">{{ t('px.team.sub') }}</p>
       </div>
-      <!-- daily target control (drives the floor board pace + leaderboard) -->
+      <!-- per-person orders-shipped-per-day target (scorecard + leaderboard) -->
       <div v-if="mgmt" class="flex items-center gap-2 bg-white ring-1 ring-stone-200 rounded-lg px-3 h-9">
         <span class="text-[11.5px] font-medium text-stone-500">{{ t('px.team.target') }}</span>
-        <input v-model.number="targetEdit" type="number" min="1" max="500"
+        <input v-model.number="targetEdit" type="number" min="1" max="2000"
                class="w-[56px] h-7 text-[13px] font-semibold text-stone-900 tabular-nums text-center bg-stone-50 rounded-md ring-1 ring-stone-200 outline-none focus:ring-stone-400" />
         <button v-if="targetEdit !== mgmt.target"
                 class="h-7 px-2.5 rounded-md text-[11.5px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-50"

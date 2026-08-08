@@ -238,8 +238,10 @@ const opsSaving = ref(false);
 const opsFields = [
   { key: "cutoff", type: "time", label: "Manifest cutoff",
     hint: "Carrier hand-off deadline — countdowns, today's cycle boundary, cutoff %" },
-  { key: "dayTarget", type: "num", min: 1, max: 500, unit: "orders",
-    label: "Daily target / person", hint: "Floor board pace + leaderboard target" },
+  { key: "dayTarget", type: "num", min: 1, max: 2000, unit: "orders",
+    label: "Daily target / person", hint: "Picker scorecard + leaderboard — orders shipped per person per day" },
+  { key: "hourlyStandard", type: "num", min: 1, max: 200, unit: "orders/h",
+    label: "Hourly pace standard", hint: "Floor board live pace bar — orders per hour per picker" },
   { key: "floorStart", type: "num", min: 0, max: 23, unit: "h",
     label: "Floor day starts", hint: "Hourly-rate denominators and the intake chart" },
   { key: "floorEnd", type: "num", min: 1, max: 23, unit: "h",
