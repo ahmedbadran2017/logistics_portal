@@ -3,6 +3,7 @@ import { useAuth } from "@/composables/useAuth";
 import { homeRouteFor } from "@/lib/roles";
 
 const AppLayout = () => import("@/components/layout/AppLayout.vue");
+const LaneShell = () => import("@/components/layout/LaneShell.vue");
 
 const routes = [
   { path: "/logistics/login", name: "Login", component: () => import("@/pages/auth/Login.vue"), meta: { guest: true } },
@@ -23,22 +24,39 @@ const routes = [
       { path: "labels", name: "LabelQueue", component: () => import("@/pages/LabelQueue.vue") },
       { path: "manifest", name: "Manifest", component: () => import("@/pages/Manifest.vue") },
 
-      // Contact center (confirmation lane)
-      { path: "confirmation", name: "Confirmation", component: () => import("@/pages/Confirmation.vue") },
-      { path: "confirmation/dashboard", name: "ConfirmationDashboard", component: () => import("@/pages/ConfirmationDashboard.vue") },
-      { path: "confirmation/reports", name: "ConfirmationReports", component: () => import("@/pages/ConfirmationReports.vue") },
-      { path: "confirmation/settings", name: "ConfirmationSettings", component: () => import("@/pages/ConfirmationSettings.vue") },
-
-      // Contact center (rescue lane)
-      { path: "rescue", name: "Rescue", component: () => import("@/pages/Rescue.vue") },
-      { path: "rescue/reports", name: "RescueReports", component: () => import("@/pages/RescueReports.vue") },
-      { path: "rescue/settings", name: "RescueSettings", component: () => import("@/pages/RescueSettings.vue") },
-      // Contact center (customer-service tickets lane)
-      { path: "tickets", name: "Tickets", component: () => import("@/pages/Tickets.vue") },
-      { path: "tickets/reports", name: "TicketsReports", component: () => import("@/pages/TicketsReports.vue") },
-      { path: "tickets/settings", name: "TicketsSettings", component: () => import("@/pages/TicketsSettings.vue") },
+      // Contact center — each lane is a self-contained nested group: the lane
+      // shell (its tab bar + nested view) owns the lane's sub-pages. Route NAMES
+      // are unchanged so every {name:…} link keeps working; only the tree nests.
+      {
+        path: "confirmation",
+        component: LaneShell,
+        children: [
+          { path: "", name: "Confirmation", component: () => import("@/pages/Confirmation.vue") },
+          { path: "dashboard", name: "ConfirmationDashboard", component: () => import("@/pages/ConfirmationDashboard.vue") },
+          { path: "reports", name: "ConfirmationReports", component: () => import("@/pages/ConfirmationReports.vue") },
+          { path: "settings", name: "ConfirmationSettings", component: () => import("@/pages/ConfirmationSettings.vue") },
+        ],
+      },
+      {
+        path: "rescue",
+        component: LaneShell,
+        children: [
+          { path: "", name: "Rescue", component: () => import("@/pages/Rescue.vue") },
+          { path: "reports", name: "RescueReports", component: () => import("@/pages/RescueReports.vue") },
+          { path: "settings", name: "RescueSettings", component: () => import("@/pages/RescueSettings.vue") },
+        ],
+      },
+      {
+        path: "tickets",
+        component: LaneShell,
+        children: [
+          { path: "", name: "Tickets", component: () => import("@/pages/Tickets.vue") },
+          { path: "exchanges", name: "Exchanges", component: () => import("@/pages/Exchanges.vue") },
+          { path: "reports", name: "TicketsReports", component: () => import("@/pages/TicketsReports.vue") },
+          { path: "settings", name: "TicketsSettings", component: () => import("@/pages/TicketsSettings.vue") },
+        ],
+      },
       { path: "contact-center", name: "ContactCenter", component: () => import("@/pages/ContactCenter.vue") },
-      { path: "exchanges", name: "Exchanges", component: () => import("@/pages/Exchanges.vue") },
       { path: "bonus", name: "Bonus", component: () => import("@/pages/Bonus.vue") },
 
       // Dispatcher
