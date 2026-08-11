@@ -975,6 +975,7 @@ export default {
     blocked: "Bloquée", unmatched: "Non reconnue",
     current: "Saisie", pickCity: "Définir la ville de livraison…",
     searchCity: "Rechercher une ville…", noCity: "Aucune ville correspondante",
+    useTyped: 'Utiliser « {q} »',
     fixed: "Ville définie",
     empty: "Toutes les villes sont valides", emptyHint: "Aucune commande n'attend une correction de ville.",
   },

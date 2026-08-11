@@ -974,6 +974,7 @@ export default {
     blocked: "محجوزة", unmatched: "غير مطابقة",
     current: "المُدخَل", pickCity: "حدّد مدينة التوصيل…",
     searchCity: "دوّر على مدينة…", noCity: "مفيش مدينة مطابقة",
+    useTyped: 'استخدم «{q}»',
     fixed: "المدينة اتحدّدت",
     empty: "كل المدن جاهزة للشحن", emptyHint: "مفيش أوردر مستني تصحيح مدينة دلوقتي.",
   },

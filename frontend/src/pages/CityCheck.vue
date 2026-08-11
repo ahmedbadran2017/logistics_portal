@@ -54,9 +54,10 @@
 
         <div class="flex items-center gap-2 mt-3">
           <div class="flex-1 min-w-0">
-            <ReasonSelect v-model="pick[r.order]" :options="cities"
+            <ReasonSelect v-model="pick[r.order]" :options="cities" allow-custom
                           :placeholder="t('cityfix.pickCity')"
                           :search-placeholder="t('cityfix.searchCity')"
+                          :custom-label="t('cityfix.useTyped')"
                           :none-text="t('cityfix.noCity')" />
           </div>
           <button class="h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-40 shrink-0"

@@ -33,7 +33,12 @@
           <span class="truncate" dir="auto">{{ o }}</span>
           <Icon v-if="o === modelValue" name="check" :size="14" class="shrink-0 text-[var(--accent-600)]" />
         </li>
-        <li v-if="!filtered.length" class="rsel-empty">{{ noneText }}</li>
+        <!-- Opt-in free-text: commit exactly what was typed when it isn't in the
+             list (e.g. a real town the carrier accepts but our sample missed). -->
+        <li v-if="showCustom" class="rsel-opt rsel-opt-custom" @click="pickCustom">
+          <span class="truncate" dir="auto"><Icon name="plus" :size="13" class="inline -mt-px me-1 text-[var(--accent-600)]" />{{ customText }}</span>
+        </li>
+        <li v-if="!filtered.length && !showCustom" class="rsel-empty">{{ noneText }}</li>
       </ul>
     </div>
   </div>
@@ -49,6 +54,11 @@ const props = defineProps({
   placeholder: { type: String, default: "" },
   searchPlaceholder: { type: String, default: "" },
   noneText: { type: String, default: "—" },
+  // Opt-in: let the user commit free-typed text that isn't in `options`.
+  // Off by default so closed vocabularies (cancel reasons) stay closed.
+  allowCustom: { type: Boolean, default: false },
+  // Label for the "use what I typed" row; "{q}" is replaced with the text.
+  customLabel: { type: String, default: 'Use "{q}"' },
 });
 const emit = defineEmits(["update:modelValue"]);
 
@@ -65,6 +75,15 @@ const filtered = computed(() => {
 });
 watch(filtered, () => { active.value = 0; });
 
+// The free-text row shows only when custom is allowed, something is typed, and
+// it isn't already an exact (case-insensitive) option.
+const showCustom = computed(() => {
+  const s = q.value.trim();
+  if (!props.allowCustom || !s) return false;
+  return !(props.options || []).some((o) => String(o).toLowerCase() === s.toLowerCase());
+});
+const customText = computed(() => props.customLabel.replace("{q}", q.value.trim()));
+
 function toggle() { open.value ? close() : openMenu(); }
 async function openMenu() {
   open.value = true;
@@ -76,7 +95,14 @@ async function openMenu() {
 }
 function close() { open.value = false; }
 function pick(o) { emit("update:modelValue", o); close(); }
-function pickActive() { const o = filtered.value[active.value]; if (o) pick(o); }
+function pickCustom() { const s = q.value.trim(); if (s) pick(s); }
+// Enter takes the highlighted match; with none, it commits the typed text
+// (when custom is allowed) so a missing city needs no extra click.
+function pickActive() {
+  const o = filtered.value[active.value];
+  if (o) return pick(o);
+  if (showCustom.value) return pickCustom();
+}
 function move(d) {
   if (!filtered.value.length) return;
   active.value = (active.value + d + filtered.value.length) % filtered.value.length;
@@ -122,6 +148,8 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDoc));
 }
 .rsel-opt-active { background: rgb(245 245 244); }
 .rsel-opt-sel { font-weight: 600; color: rgb(28 25 23); }
+.rsel-opt-custom { color: var(--accent-700); font-weight: 600; }
+.rsel-opt-custom:hover { background: var(--accent-50); }
 .rsel-empty { padding: 10px 8px; font-size: 12px; color: rgb(168 162 158); text-align: center; }
 
 /* Gloved-thumb targets on the PDAs. */

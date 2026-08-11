@@ -974,6 +974,7 @@ export default {
     blocked: "Blocked", unmatched: "Unmatched",
     current: "Entered", pickCity: "Set the delivery city…",
     searchCity: "Search a city…", noCity: "No matching city",
+    useTyped: 'Use "{q}"',
     fixed: "City set",
     empty: "Every city is carrier-ready", emptyHint: "No order is waiting on a city fix right now.",
   },
