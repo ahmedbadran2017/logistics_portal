@@ -193,7 +193,11 @@ def _floor_gate():
 
 # A shelf bin: single letter, 1–2 digits, optional trailing letter (e.g. H14A),
 # under Justyol Morocco. Same shape the pick engine treats as a real shelf.
-_SHELF_REGEXP = "warehouse REGEXP '^[A-Z][0-9]{1,2}[A-Z]? - JM$'"
+# The trailing `[.]?` admits shelves whose code carries a stray dot (e.g.
+# "B1C. - JM", "D1C. - JM") — 23 real, stock-holding bins on prod named that
+# way. Without it they vanished from the shelf-label picker (and the pick zone
+# facet). inventory.py / stock_moves.py already allow the dot; this matches them.
+_SHELF_REGEXP = "warehouse REGEXP '^[A-Z][0-9]{1,2}[A-Z]?[.]? - JM$'"
 
 
 @frappe.whitelist()

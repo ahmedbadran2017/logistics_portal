@@ -629,7 +629,7 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
             FROM `tabSales Order Item` soi
             JOIN `tabSales Order` so ON so.name = soi.parent
             JOIN `tabBin` b ON b.item_code = soi.item_code AND b.actual_qty > 0
-                 AND b.warehouse REGEXP '^[A-Z][0-9]{{1,2}}[A-Z]? - JM$'
+                 AND b.warehouse REGEXP '^[A-Z][0-9]{{1,2}}[A-Z]?[.]? - JM$'
             WHERE {_POOL_WHERE}""", as_dict=True):
         order_zones.setdefault(zr.so, set()).add(zr.zone)
     for zs in order_zones.values():
@@ -1153,7 +1153,7 @@ def assignment_board():
 # ---------------------------------------------------------------------------
 import re as _re
 
-_SHELF_RE = _re.compile(r"^([A-Z])(\d+)([A-Z]) - JM$")
+_SHELF_RE = _re.compile(r"^([A-Z])(\d+)([A-Z])\.? - JM$")
 
 
 def _resolve_bins(item_codes):
