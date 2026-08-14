@@ -1,7 +1,10 @@
 import { ref } from "vue";
 
 const THEME_KEY = "lp.theme";
-const theme = ref("light");
+// Dark is the default now — the portal lives on warehouse laptops and PDAs for
+// long shifts, and the dark surface is easier on the eyes. A saved choice still
+// wins, so anyone who picks light keeps it.
+const theme = ref("dark");
 
 // The Android status bar of the installed PWA takes its colour from this meta.
 // The manifest can only name one, and the theme is a per-user choice, so keep
@@ -20,7 +23,7 @@ function apply(next) {
 /** Called once at boot (main.js) before first paint. */
 export function initTheme() {
   const saved = localStorage.getItem(THEME_KEY);
-  apply(saved === "dark" || saved === "light" ? saved : "light");
+  apply(saved === "dark" || saved === "light" ? saved : "dark");
 }
 
 export function useTheme() {

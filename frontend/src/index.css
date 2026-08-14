@@ -26,7 +26,18 @@ html[data-theme="dark"] {
   --bg: 28 25 23;    --bg2: 41 37 36;
   --card: 41 37 36;  --card2: 58 53 48;
   --border: 68 64 60;
-  --text: 245 245 244; --text2: 231 229 228; --text3: 168 162 158; --text4: 140 133 124;
+  /* Primary text is off-white, not pure white — pure #f5f5f4 on near-black
+     haloes and tires the eye over a shift. */
+  --text: 231 227 223; --text2: 214 211 209; --text3: 168 162 158; --text4: 140 133 124;
+
+  /* Accent ramp remapped for dark. The light end (50–200) becomes dark rust
+     TINTS so `bg-[var(--accent-50)]` chips read as a warm selection instead of
+     a glaring pink; the mid/high end brightens so accent text and icons stay
+     legible on dark and filled-button hovers lift rather than sink. */
+  --accent-50:  #382420; --accent-100: #45291f; --accent-200: #5a3527;
+  --accent-300: #b96b4f; --accent-400: #d67a56; --accent-500: #e07a52;
+  --accent-600: #d15a38; --accent-700: #e28a66; --accent-800: #b34a2e;
+  --accent-900: #f0b39c;
 }
 
 @layer base {
@@ -71,7 +82,8 @@ html[data-theme="dark"] {
    html[data-theme="dark"]; entrance keyframes keep opacity:1 so content is
    never invisible when paused.
    ========================================================================== */
-html[data-theme="dark"] body { background: #1c1917; color: #f5f5f4; }
+html[data-theme="dark"] body { background: #1c1917; color: #e7e3df; }
+html[data-theme="dark"] ::selection { background: rgba(226,138,102,.30); color: #f5f5f4; }
 html[data-theme="dark"] .bg-white { background-color: #292524 !important; }
 html[data-theme="dark"] .bg-white\/80,
 html[data-theme="dark"] .bg-white\/90,
@@ -85,7 +97,7 @@ html[data-theme="dark"] .bg-stone-100,
 html[data-theme="dark"] .bg-stone-100\/80,
 html[data-theme="dark"] .bg-stone-100\/70,
 html[data-theme="dark"] .bg-stone-100\/60 { background-color: #3a3530 !important; }
-html[data-theme="dark"] .text-stone-900 { color: #f5f5f4 !important; }
+html[data-theme="dark"] .text-stone-900 { color: #e7e3df !important; }
 html[data-theme="dark"] .text-stone-800 { color: #e7e5e4 !important; }
 html[data-theme="dark"] .text-stone-700 { color: #d6d3d1 !important; }
 html[data-theme="dark"] .text-stone-600 { color: #c0bbb5 !important; }
@@ -107,6 +119,37 @@ html[data-theme="dark"] .hover\:bg-stone-100:hover,
 html[data-theme="dark"] .hover\:bg-stone-100\/70:hover { background-color: #3a3530 !important; }
 html[data-theme="dark"] *::-webkit-scrollbar-thumb { background: #44403c; }
 html[data-theme="dark"] img[alt="Justyol"] { filter: invert(1) brightness(1.8); }
+
+/* Scoped raw-CSS surfaces the utility remap can't reach — the components below
+   hardcode `background: white/#fff` in their own <style scoped>, which no
+   .bg-white rule matches. Same tactic as the heroes: match the (unscoped) class
+   name and beat the scoped rule with !important. Grouped by surface role. */
+/* Segmented-control tracks + their active pill. */
+html[data-theme="dark"] .cf-seg, html[data-theme="dark"] .rs-seg,
+html[data-theme="dark"] .cs-seg, html[data-theme="dark"] .ex-seg,
+html[data-theme="dark"] .cfd-seg { background: #221f1d !important; }
+html[data-theme="dark"] .cf-seg-on, html[data-theme="dark"] .rs-seg-on,
+html[data-theme="dark"] .cs-seg-on, html[data-theme="dark"] .ex-seg-on,
+html[data-theme="dark"] .cfd-seg-on { background: #3a3530 !important; color: #e7e3df !important; }
+/* Soft / circular action buttons + avatars (idle white face). */
+html[data-theme="dark"] .cf-act-soft, html[data-theme="dark"] .rs-act-soft,
+html[data-theme="dark"] .cs-act-soft, html[data-theme="dark"] .ex-act-soft,
+html[data-theme="dark"] .cf-act-soft:hover, html[data-theme="dark"] .rs-act-soft:hover,
+html[data-theme="dark"] .cs-act-soft:hover, html[data-theme="dark"] .ex-act-soft:hover,
+html[data-theme="dark"] .cf-avatar, html[data-theme="dark"] .rs-avatar,
+html[data-theme="dark"] .cs-avatar, html[data-theme="dark"] .ex-avatar,
+html[data-theme="dark"] .cf-contact, html[data-theme="dark"] .rs-contact,
+html[data-theme="dark"] .cs-contact { background: #292524 !important; }
+/* KPI / summary cards that hardcode white. */
+html[data-theme="dark"] .cfd-kpi, html[data-theme="dark"] .rp-kpi,
+html[data-theme="dark"] .tp-kpi, html[data-theme="dark"] .vb-kpi,
+html[data-theme="dark"] .cco-card, html[data-theme="dark"] .triage-btn,
+html[data-theme="dark"] .role-select { background: #292524 !important; }
+/* Reused primitives: searchable select + date range popover. */
+html[data-theme="dark"] .rsel-field, html[data-theme="dark"] .rsel-pop,
+html[data-theme="dark"] .dr-btn, html[data-theme="dark"] .dr-pop { background: #292524 !important; }
+html[data-theme="dark"] .rsel-opt-active { background: #3a3530 !important; }
+html[data-theme="dark"] .rsel-search { border-color: #3a3530 !important; }
 
 /* ==========================================================================
    PRIMITIVES — a few shared helper classes. Screens mostly use raw Tailwind
