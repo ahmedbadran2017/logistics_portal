@@ -71,7 +71,7 @@
   </div>
 
   <!-- ── Desktop shell ───────────────────────────────────────────── -->
-  <div v-else class="h-screen flex overflow-hidden bg-[#f5f5f4]">
+  <div v-else class="h-screen flex overflow-hidden bg-[rgb(var(--bg))]">
     <!-- Desktop sidebar -->
     <Sidebar class="hidden lg:flex" @open-search="cmdOpen = true" />
 
@@ -92,7 +92,7 @@
         @toggle-menu="drawer = !drawer"
         @open-notif="notifOpen = true"
       />
-      <main class="flex-1 overflow-y-auto bg-[#f5f5f4]">
+      <main class="flex-1 overflow-y-auto bg-[rgb(var(--bg))]">
         <router-view v-slot="{ Component }">
           <component :is="Component" :key="$route.fullPath" />
         </router-view>

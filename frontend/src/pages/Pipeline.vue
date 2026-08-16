@@ -185,7 +185,7 @@
       >
         <span class="w-2 h-2 rounded-full flex-shrink-0" :style="{ background: tb.hex }" />
         <span class="text-[12.5px] font-semibold" :class="pickTab === tb.k ? 'text-stone-900' : 'text-stone-600'">{{ tb.label }}</span>
-        <span class="text-[12.5px] font-bold tabular-nums" :style="{ color: (pickBuckets[tb.k] ?? 0) > 0 ? tb.hex : '#d6d3d1' }">{{ pickBuckets[tb.k] ?? "—" }}</span>
+        <span class="text-[12.5px] font-bold tabular-nums" :style="{ color: (pickBuckets[tb.k] ?? 0) > 0 ? tb.hex : 'rgb(var(--border))' }">{{ pickBuckets[tb.k] ?? "—" }}</span>
       </button>
       <span class="text-[11px] text-stone-400 ms-1 hidden sm:inline">
         {{ pickTab === 'ready' ? t('ordersPg.pickReadyHint') : pickTab === 'partial' ? t('ordersPg.pickPartialHint') : t('ordersPg.pickOosHint') }}
@@ -403,7 +403,7 @@
                     <Icon name="package" :size="11" />{{ r.pl }}
                   </a>
                   <a v-if="r.awb" :href="r.labelUrl || desk('sales-order', r.no)" target="_blank" @click.stop
-                     class="doc-chip text-stone-600 bg-stone-100 hover:bg-stone-200" style="--chip-ring:#e7e5e4">
+                     class="doc-chip text-stone-600 bg-stone-100 hover:bg-stone-200" style="--chip-ring:rgb(var(--border))">
                     <Icon name="tag" :size="11" />{{ r.awb }}
                   </a>
                   <a v-if="r.sh" :href="desk('shipment', r.sh)" target="_blank" @click.stop
@@ -611,7 +611,7 @@
                 <span class="text-stone-400">{{ t("ordersPg.thDocs") }}</span>
                 <span class="flex items-center gap-1.5 flex-wrap justify-end">
                   <a v-if="drawerDetail && drawerDetail.pl" :href="desk('pick-list', drawerDetail.pl)" target="_blank" class="doc-chip text-violet-700 bg-violet-50" style="--chip-ring:#ddd6fe">{{ drawerDetail.pl }}</a>
-                  <a v-if="(drawerDetail && drawerDetail.awb) || drawerRow.awb" :href="(drawerDetail && drawerDetail.label_url) || drawerRow.labelUrl || '#'" target="_blank" class="doc-chip text-stone-600 bg-stone-100" style="--chip-ring:#e7e5e4">{{ (drawerDetail && drawerDetail.awb) || drawerRow.awb }}</a>
+                  <a v-if="(drawerDetail && drawerDetail.awb) || drawerRow.awb" :href="(drawerDetail && drawerDetail.label_url) || drawerRow.labelUrl || '#'" target="_blank" class="doc-chip text-stone-600 bg-stone-100" style="--chip-ring:rgb(var(--border))">{{ (drawerDetail && drawerDetail.awb) || drawerRow.awb }}</a>
                   <a v-if="drawerDetail && drawerDetail.sh" :href="desk('shipment', drawerDetail.sh)" target="_blank" class="doc-chip text-emerald-700 bg-emerald-50" style="--chip-ring:#a7f3d0">{{ drawerDetail.sh }}</a>
                   <a v-if="drawerDetail && drawerDetail.ret" :href="desk('return-shipment', drawerDetail.ret)" target="_blank" class="doc-chip text-rose-700 bg-rose-50" style="--chip-ring:#fecdd3">{{ drawerDetail.ret }}</a>
                   <span v-if="!(drawerDetail && (drawerDetail.pl || drawerDetail.awb || drawerRow.awb))" class="text-stone-300">—</span>

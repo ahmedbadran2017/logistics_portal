@@ -414,9 +414,9 @@ onMounted(() => { load(); loadScheme(); });
 }
 .bn-part {
   display: inline-flex; align-items: center; gap: 4px;
-  font-size: 10.5px; font-weight: 600; color: rgb(87 83 78);
+  font-size: 10.5px; font-weight: 600; color: rgb(var(--text2));
   background: rgb(255 255 255 / .8); border-radius: 999px; padding: 3px 9px;
-  box-shadow: inset 0 0 0 1px rgb(231 229 228);
+  box-shadow: inset 0 0 0 1px rgb(var(--border));
 }
 .bn-part-good { color: #047857; box-shadow: inset 0 0 0 1px #a7f3d0; }
 .bn-part-bad { color: #be123c; box-shadow: inset 0 0 0 1px #fda4af; }

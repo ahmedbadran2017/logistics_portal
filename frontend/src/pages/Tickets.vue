@@ -447,10 +447,10 @@ function ageLabel(hs) {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   min-width: 78px; padding: 8px 14px; border-radius: 14px;
   background: rgb(255 255 255 / 0.75); backdrop-filter: blur(4px);
-  box-shadow: inset 0 0 0 1px rgb(231 229 228 / 0.9), 0 1px 2px rgb(0 0 0 / 0.03);
+  box-shadow: inset 0 0 0 1px rgb(var(--border) / 0.9), 0 1px 2px rgb(0 0 0 / 0.03);
 }
 .cs-stat-n { font-size: 21px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
-.cs-stat-l { font-size: 10px; font-weight: 600; color: rgb(168 162 158); margin-top: 4px; white-space: nowrap; }
+.cs-stat-l { font-size: 10px; font-weight: 600; color: rgb(var(--text4)); margin-top: 4px; white-space: nowrap; }
 .cs-new {
   height: 40px; padding: 0 16px; border-radius: 12px;
   font-size: 12.5px; font-weight: 700; color: white;
@@ -460,24 +460,24 @@ function ageLabel(hs) {
 }
 .cs-new:hover { transform: translateY(-1px); box-shadow: 0 6px 16px -4px rgb(139 92 246 / 0.55); }
 
-.cs-seg { display: inline-flex; gap: 2px; padding: 4px; background: rgb(231 229 228 / 0.55); border-radius: 14px; }
+.cs-seg { display: inline-flex; gap: 2px; padding: 4px; background: rgb(var(--border) / 0.55); border-radius: 14px; }
 .cs-seg-btn {
   display: inline-flex; align-items: center; gap: 6px;
   height: 36px; padding: 0 12px; border-radius: 11px;
-  font-size: 12.5px; font-weight: 600; color: rgb(120 113 108);
+  font-size: 12.5px; font-weight: 600; color: rgb(var(--text3));
   transition: all .18s ease;
 }
-.cs-seg-btn:hover { color: rgb(41 37 36); }
-.cs-seg-on { background: white; color: rgb(28 25 23); box-shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.04); }
+.cs-seg-btn:hover { color: rgb(var(--text)); }
+.cs-seg-on { background: rgb(var(--card)); color: rgb(var(--text)); box-shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.04); }
 .cs-seg-count { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 1px 7px; border-radius: 999px; }
 
 .cs-card {
-  background: white;
-  box-shadow: inset 0 0 0 1px rgb(231 229 228 / 0.8), 0 1px 2px rgb(0 0 0 / 0.02);
+  background: rgb(var(--card));
+  box-shadow: inset 0 0 0 1px rgb(var(--border) / 0.8), 0 1px 2px rgb(0 0 0 / 0.02);
   transition: box-shadow .18s ease, transform .18s ease;
 }
 .cs-card:hover {
-  box-shadow: inset 0 0 0 1px rgb(214 211 209), 0 8px 24px -12px rgb(0 0 0 / 0.14);
+  box-shadow: inset 0 0 0 1px rgb(var(--border)), 0 8px 24px -12px rgb(0 0 0 / 0.14);
   transform: translateY(-1px);
 }
 .cs-card-breach { box-shadow: inset 0 0 0 1.5px rgb(253 164 175), 0 4px 16px -8px rgb(244 63 94 / 0.2); }
@@ -512,11 +512,11 @@ function ageLabel(hs) {
 .cs-contact {
   width: 38px; height: 38px; border-radius: 12px;
   display: inline-flex; align-items: center; justify-content: center;
-  background: white; box-shadow: inset 0 0 0 1px rgb(231 229 228);
+  background: rgb(var(--card)); box-shadow: inset 0 0 0 1px rgb(var(--border));
   transition: all .15s ease;
 }
 .cs-contact:hover { transform: scale(1.06); }
-.cs-tel { color: rgb(87 83 78); }
+.cs-tel { color: rgb(var(--text2)); }
 .cs-tel:hover { color: rgb(4 120 87); box-shadow: inset 0 0 0 1px rgb(110 231 183); }
 .cs-wa { color: rgb(22 163 74); }
 .cs-wa:hover { box-shadow: inset 0 0 0 1px rgb(134 239 172); background: rgb(240 253 244); }
@@ -533,21 +533,21 @@ function ageLabel(hs) {
 .cs-act-main:hover { box-shadow: 0 6px 16px -4px rgb(139 92 246 / 0.55); transform: translateY(-1px); }
 .cs-act-soft {
   width: 38px; background: rgb(250 250 249);
-  box-shadow: inset 0 0 0 1px rgb(231 229 228);
+  box-shadow: inset 0 0 0 1px rgb(var(--border));
   display: inline-flex; align-items: center; justify-content: center;
 }
-.cs-act-soft:hover { background: white; transform: scale(1.06); box-shadow: inset 0 0 0 1px currentColor; }
+.cs-act-soft:hover { background: rgb(var(--card)); transform: scale(1.06); box-shadow: inset 0 0 0 1px currentColor; }
 
-.cs-empty { background: linear-gradient(180deg, white, rgb(250 250 249)); box-shadow: inset 0 0 0 1px rgb(231 229 228 / 0.8); }
+.cs-empty { background: linear-gradient(180deg, white, rgb(250 250 249)); box-shadow: inset 0 0 0 1px rgb(var(--border) / 0.8); }
 .cs-shimmer {
-  background: linear-gradient(90deg, rgb(245 245 244) 25%, rgb(231 229 228 / 0.6) 50%, rgb(245 245 244) 75%);
+  background: linear-gradient(90deg, rgb(var(--bg)) 25%, rgb(var(--border) / 0.6) 50%, rgb(var(--bg)) 75%);
   background-size: 200% 100%;
   animation: cs-shimmer 1.4s ease-in-out infinite;
 }
 @keyframes cs-shimmer { to { background-position: -200% 0; } }
 .pg-btn {
-  width: 32px; height: 32px; border-radius: 10px; background: white;
-  box-shadow: inset 0 0 0 1px rgb(231 229 228);
+  width: 32px; height: 32px; border-radius: 10px; background: rgb(var(--card));
+  box-shadow: inset 0 0 0 1px rgb(var(--border));
   display: inline-flex; align-items: center; justify-content: center;
 }
 .pg-btn:disabled { opacity: .4; }

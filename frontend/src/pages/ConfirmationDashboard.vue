@@ -314,17 +314,17 @@ onMounted(load);
 <style scoped>
 .cfd-kpi {
   display: flex; flex-direction: column; gap: 3px;
-  background: white; border-radius: 14px; padding: 13px 15px;
-  box-shadow: inset 0 0 0 1px rgb(231 229 228 / 0.8);
+  background: rgb(var(--card)); border-radius: 14px; padding: 13px 15px;
+  box-shadow: inset 0 0 0 1px rgb(var(--border) / 0.8);
   transition: transform .15s ease, box-shadow .15s ease;
 }
-a.cfd-kpi:hover { transform: translateY(-1px); box-shadow: inset 0 0 0 1px rgb(214 211 209), 0 8px 20px -12px rgb(0 0 0 / .15); }
+a.cfd-kpi:hover { transform: translateY(-1px); box-shadow: inset 0 0 0 1px rgb(var(--border)), 0 8px 20px -12px rgb(0 0 0 / .15); }
 .cfd-kpi-bad { box-shadow: inset 0 0 0 1px rgb(253 164 175); }
-.cfd-kpi-l { font-size: 10.5px; font-weight: 700; color: rgb(120 113 108); text-transform: uppercase; letter-spacing: .04em; }
-.cfd-kpi-n { font-size: 24px; font-weight: 800; color: rgb(28 25 23); font-variant-numeric: tabular-nums; line-height: 1.1; }
-.cfd-kpi-s { font-size: 10.5px; color: rgb(168 162 158); font-variant-numeric: tabular-nums; }
-.cfd-seg { display: inline-flex; gap: 2px; padding: 3px; background: rgb(231 229 228 / .55); border-radius: 11px; }
-.cfd-seg-b { height: 32px; padding: 0 11px; border-radius: 8px; font-size: 12px; font-weight: 700; color: rgb(120 113 108); transition: all .15s ease; }
-.cfd-seg-on { background: white; color: rgb(28 25 23); box-shadow: 0 1px 3px rgb(0 0 0 / .08); }
-.cfd-st { font-size: 10.5px; font-weight: 600; color: rgb(87 83 78); background: rgb(245 245 244); border-radius: 999px; padding: 2px 7px; white-space: nowrap; }
+.cfd-kpi-l { font-size: 10.5px; font-weight: 700; color: rgb(var(--text3)); text-transform: uppercase; letter-spacing: .04em; }
+.cfd-kpi-n { font-size: 24px; font-weight: 800; color: rgb(var(--text)); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.cfd-kpi-s { font-size: 10.5px; color: rgb(var(--text4)); font-variant-numeric: tabular-nums; }
+.cfd-seg { display: inline-flex; gap: 2px; padding: 3px; background: rgb(var(--border) / .55); border-radius: 11px; }
+.cfd-seg-b { height: 32px; padding: 0 11px; border-radius: 8px; font-size: 12px; font-weight: 700; color: rgb(var(--text3)); transition: all .15s ease; }
+.cfd-seg-on { background: rgb(var(--card)); color: rgb(var(--text)); box-shadow: 0 1px 3px rgb(0 0 0 / .08); }
+.cfd-st { font-size: 10.5px; font-weight: 600; color: rgb(var(--text2)); background: rgb(var(--bg)); border-radius: 999px; padding: 2px 7px; white-space: nowrap; }
 </style>

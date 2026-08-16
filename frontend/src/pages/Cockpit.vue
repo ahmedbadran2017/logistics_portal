@@ -543,7 +543,7 @@ const Sparkline = {
         return h("svg", { width, height }, [
           h("line", {
             x1: 0, y1: height / 2, x2: width, y2: height / 2,
-            stroke: "#e7e5e4", "stroke-width": "1.25", "stroke-dasharray": "2 2",
+            stroke: "rgb(var(--border))", "stroke-width": "1.25", "stroke-dasharray": "2 2",
           }),
         ]);
       }

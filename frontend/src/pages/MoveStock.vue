@@ -339,7 +339,7 @@ function hideImg(e) { if (e && e.target) e.target.style.display = "none"; }
   font-variant-numeric: tabular-nums;
   --tw-ring-shadow: none;
 }
-.kpi-chip.ring-stone-200 { box-shadow: inset 0 0 0 1px rgb(231 229 228); }
+.kpi-chip.ring-stone-200 { box-shadow: inset 0 0 0 1px rgb(var(--border)); }
 .kpi-chip.ring-amber-200 { box-shadow: inset 0 0 0 1px rgb(253 230 138); }
 .kpi-chip.ring-sky-200 { box-shadow: inset 0 0 0 1px rgb(186 230 253); }
 </style>

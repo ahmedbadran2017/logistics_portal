@@ -578,7 +578,7 @@ function firstServerMessage(j) {
   max-width: calc(100vw - 36px);
   max-height: calc(100vh - 36px);
   overflow-y: auto;
-  background: #fff;
+  background: rgb(var(--card));
   border-radius: 14px;
   box-shadow: 0 18px 50px rgba(28, 25, 23, 0.35);
   font-family: "Inter", system-ui, sans-serif;
@@ -588,12 +588,12 @@ function firstServerMessage(j) {
   align-items: flex-start;
   justify-content: space-between;
   padding: 16px 18px 12px;
-  border-bottom: 1px solid #e7e5e4;
+  border-bottom: 1px solid rgb(var(--border));
 }
 .th-title {
   font-size: 14.5px;
   font-weight: 700;
-  color: #1c1917;
+  color: rgb(var(--text));
 }
 .th-sub {
   font-size: 11.5px;
@@ -610,7 +610,7 @@ function firstServerMessage(j) {
   border-radius: 6px;
 }
 .th-x:hover {
-  background: #e7e5e4;
+  background: rgb(var(--border));
 }
 .th-body {
   padding: 14px 18px 18px;
@@ -621,18 +621,18 @@ function firstServerMessage(j) {
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #78716c;
+  color: rgb(var(--text3));
   margin: 10px 0 5px;
 }
 .th-input {
   width: 100%;
   box-sizing: border-box;
   padding: 8px 10px;
-  border: 1px solid #d6d3d1;
+  border: 1px solid rgb(var(--border));
   border-radius: 8px;
   font: 400 13px/1.4 "Inter", system-ui, sans-serif;
-  color: #1c1917;
-  background: #fff;
+  color: rgb(var(--text));
+  background: rgb(var(--card));
   outline: none;
 }
 .th-input:focus {
@@ -678,7 +678,7 @@ function firstServerMessage(j) {
 }
 .th-ai-text {
   font-size: 12.5px;
-  color: #292524;
+  color: rgb(var(--text));
   line-height: 1.55;
   white-space: pre-wrap;
 }
@@ -693,11 +693,11 @@ function firstServerMessage(j) {
   gap: 5px;
   max-width: 100%;
   padding: 4px 8px;
-  background: #f5f5f4;
-  border: 1px solid #e7e5e4;
+  background: rgb(var(--bg));
+  border: 1px solid rgb(var(--border));
   border-radius: 7px;
   font-size: 11px;
-  color: #44403c;
+  color: rgb(var(--text2));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -716,10 +716,10 @@ function firstServerMessage(j) {
 .th-context {
   margin-top: 12px;
   padding: 7px 10px;
-  background: #f5f5f4;
+  background: rgb(var(--bg));
   border-radius: 8px;
   font-size: 11.5px;
-  color: #78716c;
+  color: rgb(var(--text3));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -738,14 +738,14 @@ function firstServerMessage(j) {
 .th-btn {
   padding: 8px 14px;
   border-radius: 8px;
-  border: 1px solid #d6d3d1;
-  background: #fff;
-  color: #44403c;
+  border: 1px solid rgb(var(--border));
+  background: rgb(var(--card));
+  color: rgb(var(--text2));
   font: 600 12.5px/1 "Inter", system-ui, sans-serif;
   cursor: pointer;
 }
 .th-btn:hover {
-  background: #f5f5f4;
+  background: rgb(var(--bg));
 }
 .th-btn-primary {
   border-color: transparent;
@@ -777,7 +777,7 @@ function firstServerMessage(j) {
 }
 .th-done-text {
   font-size: 13px;
-  color: #44403c;
+  color: rgb(var(--text2));
   margin-bottom: 14px;
 }
 .th-done-text a {
@@ -806,7 +806,7 @@ function firstServerMessage(j) {
   display: flex;
   gap: 2px;
   padding: 0 18px;
-  border-bottom: 1px solid #e7e5e4;
+  border-bottom: 1px solid rgb(var(--border));
 }
 .th-tabs button {
   display: inline-flex;
@@ -817,7 +817,7 @@ function firstServerMessage(j) {
   background: none;
   border-bottom: 2px solid transparent;
   font: 600 12.5px/1 "Inter", system-ui, sans-serif;
-  color: #78716c;
+  color: rgb(var(--text3));
   cursor: pointer;
 }
 .th-tabs button.on {
@@ -828,9 +828,9 @@ function firstServerMessage(j) {
   min-width: 16px;
   padding: 1px 5px;
   border-radius: 999px;
-  background: #f5f5f4;
+  background: rgb(var(--bg));
   font-size: 10px;
-  color: #57534e;
+  color: rgb(var(--text2));
 }
 .th-scope {
   display: flex;
@@ -841,11 +841,11 @@ function firstServerMessage(j) {
 }
 .th-scope button {
   padding: 4px 9px;
-  border: 1px solid #e7e5e4;
+  border: 1px solid rgb(var(--border));
   border-radius: 999px;
-  background: #fff;
+  background: rgb(var(--card));
   font: 600 11px/1 "Inter", system-ui, sans-serif;
-  color: #78716c;
+  color: rgb(var(--text3));
   cursor: pointer;
 }
 .th-scope button.on {
@@ -866,7 +866,7 @@ function firstServerMessage(j) {
   margin: 0;
 }
 .th-task {
-  border: 1px solid #e7e5e4;
+  border: 1px solid rgb(var(--border));
   border-radius: 10px;
   margin-bottom: 7px;
   overflow: hidden;
@@ -878,12 +878,12 @@ function firstServerMessage(j) {
   width: 100%;
   padding: 9px 11px;
   border: none;
-  background: #fff;
+  background: rgb(var(--card));
   text-align: start;
   cursor: pointer;
 }
 .th-task-head:hover {
-  background: #fafaf9;
+  background: rgb(var(--card));
 }
 .th-dot {
   width: 7px;
@@ -899,7 +899,7 @@ function firstServerMessage(j) {
 .th-task-title {
   display: block;
   font: 600 12.5px/1.35 "Inter", system-ui, sans-serif;
-  color: #1c1917;
+  color: rgb(var(--text));
 }
 .th-task-meta {
   display: block;
@@ -912,24 +912,24 @@ function firstServerMessage(j) {
 }
 .th-task-body {
   padding: 10px 11px 12px;
-  border-top: 1px solid #f5f5f4;
-  background: #fafaf9;
+  border-top: 1px solid rgb(var(--bg));
+  background: rgb(var(--card));
 }
 .th-task-desc {
   margin: 0 0 9px;
   font-size: 12px;
   line-height: 1.55;
-  color: #44403c;
+  color: rgb(var(--text2));
   white-space: pre-wrap;
 }
 .th-comments {
   margin-top: 9px;
   padding-top: 8px;
-  border-top: 1px solid #e7e5e4;
+  border-top: 1px solid rgb(var(--border));
 }
 .th-comment {
   font-size: 11.5px;
-  color: #57534e;
+  color: rgb(var(--text2));
   line-height: 1.5;
   margin-bottom: 4px;
 }

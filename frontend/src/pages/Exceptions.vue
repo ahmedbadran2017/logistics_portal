@@ -415,9 +415,9 @@ function openOrder(id) {
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
-  background: #fff;
+  background: rgb(var(--card));
   /* ring-1: the ring-color utility classes on each button set --tw-ring-color */
-  box-shadow: 0 0 0 1px var(--tw-ring-color, #e7e5e4);
+  box-shadow: 0 0 0 1px var(--tw-ring-color, rgb(var(--border)));
 }
 .triage-btn:disabled { opacity: 0.5; pointer-events: none; }
 .blk-cb { width: 15px; height: 15px; accent-color: var(--accent-600); cursor: pointer; }

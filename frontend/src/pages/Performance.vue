@@ -314,7 +314,7 @@ onMounted(async () => {
 <style scoped>
 .pf-hero {
   background: linear-gradient(135deg, var(--accent-50) 0%, #fff 45%, #fff 70%, var(--accent-50) 100%);
-  box-shadow: inset 0 0 0 1px rgb(231 229 228 / 0.9), 0 1px 2px rgb(0 0 0 / 0.03);
+  box-shadow: inset 0 0 0 1px rgb(var(--border) / 0.9), 0 1px 2px rgb(0 0 0 / 0.03);
   transition: box-shadow .4s ease;
 }
 .pf-hero-hit {
@@ -337,19 +337,19 @@ onMounted(async () => {
   display: flex; flex-direction: column; gap: 1px;
   padding: 7px 13px; border-radius: 12px;
   background: rgb(255 255 255 / 0.8);
-  box-shadow: inset 0 0 0 1px rgb(231 229 228);
+  box-shadow: inset 0 0 0 1px rgb(var(--border));
 }
 .pf-stat-link { transition: transform .15s ease, box-shadow .15s ease; }
 .pf-stat-good { box-shadow: inset 0 0 0 1px rgb(167 243 208); }
 .pf-stat-bad { box-shadow: inset 0 0 0 1px rgb(253 164 175); }
 .pf-stat-link:hover { transform: translateY(-1px); box-shadow: inset 0 0 0 1px rgb(196 181 253); }
 .pf-stat-n { font-size: 17px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.pf-stat-l { font-size: 10px; font-weight: 600; color: rgb(168 162 158); white-space: nowrap; }
+.pf-stat-l { font-size: 10px; font-weight: 600; color: rgb(var(--text4)); white-space: nowrap; }
 .pf-chip {
   display: inline-flex; align-items: center; gap: 5px;
-  font-size: 11.5px; font-weight: 600; color: rgb(87 83 78);
+  font-size: 11.5px; font-weight: 600; color: rgb(var(--text2));
   background: rgb(255 255 255 / 0.75); border-radius: 999px; padding: 4px 11px;
-  box-shadow: inset 0 0 0 1px rgb(231 229 228);
+  box-shadow: inset 0 0 0 1px rgb(var(--border));
 }
 .pf-chip-win { color: rgb(4 120 87); box-shadow: inset 0 0 0 1px rgb(167 243 208); }
 
@@ -357,13 +357,13 @@ onMounted(async () => {
   width: 100%;
   transition: height .8s cubic-bezier(.2,.8,.2,1);
 }
-.pf-bar-off { background: rgb(231 229 228 / .8); }
+.pf-bar-off { background: rgb(var(--border) / .8); }
 .pf-bar-on { background: linear-gradient(180deg, var(--accent-300), var(--accent-500)); }
 .pf-bar-hit { background: linear-gradient(180deg, #6ee7b7, #059669); }
 .pf-bar-today { background: linear-gradient(180deg, var(--accent-400), var(--accent-700)); }
 .pf-tip {
   position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
-  font-size: 9.5px; font-weight: 700; color: rgb(120 113 108);
+  font-size: 9.5px; font-weight: 700; color: rgb(var(--text3));
   opacity: 0; transition: opacity .15s ease;
   font-variant-numeric: tabular-nums;
 }

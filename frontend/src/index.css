@@ -229,6 +229,10 @@ html[data-theme="dark"] .st-chip-zone, html[data-theme="dark"] .st-ico-zone { ba
 html[data-theme="dark"] .seg-risk { background: #2c1d12 !important; color: #f6a15b !important; }
 html[data-theme="dark"] .seg-black, html[data-theme="dark"] .st-age-bad,
 html[data-theme="dark"] .st-chip-nostock, html[data-theme="dark"] .st-ico-nostock { background: #2c1719 !important; color: #f5818f !important; }
+/* Task Hub widget — the last hardcoded light tints. */
+html[data-theme="dark"] .th-ai-preview { background: #2a1c17 !important; }
+html[data-theme="dark"] .th-scope button.on { background: #382420 !important; }
+html[data-theme="dark"] .th-done-icon { background: #17271f !important; color: #5bd6a2 !important; }
 
 /* Scoped raw-CSS surfaces the utility remap can't reach — the components below
    hardcode `background: white/#fff` in their own <style scoped>, which no

@@ -67,29 +67,29 @@ function go(p) {
 </script>
 
 <style scoped>
-.pgz { display: inline-flex; gap: 1px; padding: 2px; background: rgb(231 229 228 / 0.6); border-radius: 9px; }
+.pgz { display: inline-flex; gap: 1px; padding: 2px; background: rgb(var(--border) / 0.6); border-radius: 9px; }
 .pgz-btn {
   height: 24px; min-width: 30px; padding: 0 7px; border-radius: 7px;
-  font-size: 11px; font-weight: 700; color: rgb(120 113 108);
+  font-size: 11px; font-weight: 700; color: rgb(var(--text3));
   font-variant-numeric: tabular-nums; transition: all .15s ease;
 }
-.pgz-btn:hover { color: rgb(41 37 36); }
-.pgz-on { background: white; color: rgb(28 25 23); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+.pgz-btn:hover { color: rgb(var(--text)); }
+.pgz-on { background: rgb(var(--card)); color: rgb(var(--text)); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
 .pg-btn {
-  width: 32px; height: 32px; border-radius: 10px; background: white;
-  box-shadow: inset 0 0 0 1px rgb(231 229 228);
+  width: 32px; height: 32px; border-radius: 10px; background: rgb(var(--card));
+  box-shadow: inset 0 0 0 1px rgb(var(--border));
   display: inline-flex; align-items: center; justify-content: center;
   transition: all .15s ease;
 }
-.pg-btn:hover:not(:disabled) { box-shadow: inset 0 0 0 1px rgb(214 211 209); }
+.pg-btn:hover:not(:disabled) { box-shadow: inset 0 0 0 1px rgb(var(--border)); }
 .pg-btn:disabled { opacity: .4; }
 .pg-num {
   min-width: 32px; height: 32px; padding: 0 6px; border-radius: 10px;
-  font-size: 12px; font-weight: 600; color: rgb(87 83 78);
+  font-size: 12px; font-weight: 600; color: rgb(var(--text2));
   font-variant-numeric: tabular-nums; transition: all .15s ease;
 }
-.pg-num:hover:not(:disabled):not(.pg-num-on) { background: rgb(245 245 244); }
-.pg-num:disabled { color: rgb(214 211 209); cursor: default; }
+.pg-num:hover:not(:disabled):not(.pg-num-on) { background: rgb(var(--bg)); }
+.pg-num:disabled { color: rgb(var(--border)); cursor: default; }
 .pg-num-on {
   color: white; background: rgb(28 25 23);
   box-shadow: 0 2px 6px -2px rgb(0 0 0 / .3);

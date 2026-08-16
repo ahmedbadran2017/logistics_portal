@@ -240,10 +240,10 @@ onMounted(load);
 <style scoped>
 .tp-kpi {
   display: flex; flex-direction: column; gap: 2px;
-  background: #fff; border-radius: 14px; padding: 12px 14px;
-  box-shadow: inset 0 0 0 1px rgb(231 229 228 / 0.8);
+  background: rgb(var(--card)); border-radius: 14px; padding: 12px 14px;
+  box-shadow: inset 0 0 0 1px rgb(var(--border) / 0.8);
 }
-.tp-kpi-l { font-size: 10px; font-weight: 700; color: rgb(120 113 108); text-transform: uppercase; letter-spacing: .04em; }
-.tp-kpi-n { font-size: 22px; font-weight: 800; color: rgb(28 25 23); font-variant-numeric: tabular-nums; line-height: 1.15; }
-.tp-kpi-s { font-size: 10.5px; color: rgb(168 162 158); font-variant-numeric: tabular-nums; }
+.tp-kpi-l { font-size: 10px; font-weight: 700; color: rgb(var(--text3)); text-transform: uppercase; letter-spacing: .04em; }
+.tp-kpi-n { font-size: 22px; font-weight: 800; color: rgb(var(--text)); font-variant-numeric: tabular-nums; line-height: 1.15; }
+.tp-kpi-s { font-size: 10.5px; color: rgb(var(--text4)); font-variant-numeric: tabular-nums; }
 </style>

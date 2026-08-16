@@ -199,7 +199,7 @@ const SlaRing = {
       const c = 2 * Math.PI * r;
       const off = c * (1 - Math.max(0, Math.min(1, pct)));
       return h("svg", { width: size, height: size, viewBox: `0 0 ${size} ${size}` }, [
-        h("circle", { cx: size / 2, cy: size / 2, r, fill: "none", stroke: "#e7e5e4", "stroke-width": stroke }),
+        h("circle", { cx: size / 2, cy: size / 2, r, fill: "none", stroke: "rgb(var(--border))", "stroke-width": stroke }),
         h("circle", {
           cx: size / 2, cy: size / 2, r, fill: "none", stroke: "#10b981", "stroke-width": stroke,
           "stroke-linecap": "round", "stroke-dasharray": c, "stroke-dashoffset": off,

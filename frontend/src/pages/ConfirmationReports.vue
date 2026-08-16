@@ -298,22 +298,22 @@ onMounted(load);
 <style scoped>
 .rp-kpi {
   display: flex; flex-direction: column; gap: 3px;
-  background: white; border-radius: 14px; padding: 13px 15px;
-  box-shadow: inset 0 0 0 1px rgb(231 229 228 / 0.8);
+  background: rgb(var(--card)); border-radius: 14px; padding: 13px 15px;
+  box-shadow: inset 0 0 0 1px rgb(var(--border) / 0.8);
 }
 .rp-kpi-hero {
   background: linear-gradient(135deg, var(--accent-50), #fff);
   box-shadow: inset 0 0 0 1px var(--accent-200);
 }
-.rp-kpi-l { font-size: 10.5px; font-weight: 700; color: rgb(120 113 108); text-transform: uppercase; letter-spacing: .04em; }
-.rp-kpi-n { font-size: 21px; font-weight: 800; color: rgb(28 25 23); font-variant-numeric: tabular-nums; line-height: 1.1; }
-.rp-kpi-s { font-size: 10.5px; color: rgb(168 162 158); font-variant-numeric: tabular-nums; }
+.rp-kpi-l { font-size: 10.5px; font-weight: 700; color: rgb(var(--text3)); text-transform: uppercase; letter-spacing: .04em; }
+.rp-kpi-n { font-size: 21px; font-weight: 800; color: rgb(var(--text)); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.rp-kpi-s { font-size: 10.5px; color: rgb(var(--text4)); font-variant-numeric: tabular-nums; }
 .rp-bar { height: 8px; border-radius: 3px; transition: flex .6s ease; }
 .rp-sort {
   height: 24px; padding: 0 8px; border-radius: 7px;
-  font-size: 10.5px; font-weight: 700; color: rgb(120 113 108);
+  font-size: 10.5px; font-weight: 700; color: rgb(var(--text3));
   transition: all .12s ease;
 }
-.rp-sort:hover { background: rgb(245 245 244); }
+.rp-sort:hover { background: rgb(var(--bg)); }
 .rp-sort-on { background: rgb(28 25 23); color: white; }
 </style>

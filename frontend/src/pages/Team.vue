@@ -426,9 +426,9 @@ function sparkPoints(trend, w = 100, h = 28) {
   border-radius: 8px;
   font-size: 12px;
   font-weight: 600;
-  color: #44403c;
-  background: #fff;
-  box-shadow: inset 0 0 0 1px #e7e5e4;
+  color: rgb(var(--text2));
+  background: rgb(var(--card));
+  box-shadow: inset 0 0 0 1px rgb(var(--border));
   appearance: auto;
   cursor: pointer;
   text-transform: capitalize;

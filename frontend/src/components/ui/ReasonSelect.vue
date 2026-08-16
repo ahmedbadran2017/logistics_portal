@@ -118,39 +118,39 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onDoc));
 .rsel-field {
   display: flex; align-items: center; gap: 8px; width: 100%;
   height: 36px; padding: 0 10px; border-radius: 8px;
-  background: #fff; box-shadow: inset 0 0 0 1px rgb(231 229 228);
+  background: rgb(var(--card)); box-shadow: inset 0 0 0 1px rgb(var(--border));
   font-size: 12.5px; text-align: start; transition: box-shadow .12s;
 }
-.rsel-field:hover { box-shadow: inset 0 0 0 1px rgb(214 211 209); }
+.rsel-field:hover { box-shadow: inset 0 0 0 1px rgb(var(--border)); }
 .rsel-open .rsel-field { box-shadow: inset 0 0 0 2px var(--accent-400); }
 .rsel-chev { transition: transform .15s; }
 .rsel-open .rsel-chev { transform: rotate(180deg); }
 
 .rsel-pop {
   position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; right: 0;
-  background: #fff; border-radius: 12px; overflow: hidden;
+  background: rgb(var(--card)); border-radius: 12px; overflow: hidden;
   box-shadow: 0 1px 3px rgb(0 0 0 / .1), 0 8px 24px rgb(0 0 0 / .12),
-              inset 0 0 0 1px rgb(231 229 228 / .8);
+              inset 0 0 0 1px rgb(var(--border) / .8);
 }
 .rsel-search {
   display: flex; align-items: center; gap: 6px; padding: 8px 10px;
-  border-bottom: 1px solid rgb(231 229 228 / .7);
+  border-bottom: 1px solid rgb(var(--border) / .7);
 }
 .rsel-search-input {
   flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
-  font-size: 12.5px; color: rgb(28 25 23);
+  font-size: 12.5px; color: rgb(var(--text));
 }
 .rsel-list { max-height: 240px; overflow-y: auto; padding: 4px; }
 .rsel-opt {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   min-height: 34px; padding: 6px 8px; border-radius: 8px; cursor: pointer;
-  font-size: 12.5px; color: rgb(41 37 36);
+  font-size: 12.5px; color: rgb(var(--text));
 }
-.rsel-opt-active { background: rgb(245 245 244); }
-.rsel-opt-sel { font-weight: 600; color: rgb(28 25 23); }
+.rsel-opt-active { background: rgb(var(--bg)); }
+.rsel-opt-sel { font-weight: 600; color: rgb(var(--text)); }
 .rsel-opt-custom { color: var(--accent-700); font-weight: 600; }
 .rsel-opt-custom:hover { background: var(--accent-50); }
-.rsel-empty { padding: 10px 8px; font-size: 12px; color: rgb(168 162 158); text-align: center; }
+.rsel-empty { padding: 10px 8px; font-size: 12px; color: rgb(var(--text4)); text-align: center; }
 
 /* Gloved-thumb targets on the PDAs. */
 @media (pointer: coarse) {

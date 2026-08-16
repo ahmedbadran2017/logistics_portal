@@ -86,29 +86,29 @@ function apply() {
 .dr-btn {
   display: inline-flex; align-items: center; gap: 6px;
   height: 40px; padding: 0 12px; border-radius: 12px;
-  font-size: 12.5px; font-weight: 600; color: rgb(87 83 78);
-  background: white; box-shadow: inset 0 0 0 1px rgb(231 229 228 / 0.8);
+  font-size: 12.5px; font-weight: 600; color: rgb(var(--text2));
+  background: rgb(var(--card)); box-shadow: inset 0 0 0 1px rgb(var(--border) / 0.8);
   transition: all .15s ease; white-space: nowrap;
 }
-.dr-btn:hover { box-shadow: inset 0 0 0 1px rgb(214 211 209); }
+.dr-btn:hover { box-shadow: inset 0 0 0 1px rgb(var(--border)); }
 .dr-btn-on { color: var(--accent-700); box-shadow: inset 0 0 0 1px var(--accent-300); }
 .dr-pop {
   position: absolute; top: calc(100% + 6px); inset-inline-end: 0; z-index: 10;
-  width: 230px; padding: 6px; border-radius: 14px; background: white;
-  box-shadow: inset 0 0 0 1px rgb(231 229 228), 0 12px 32px -8px rgb(0 0 0 / .18);
+  width: 230px; padding: 6px; border-radius: 14px; background: rgb(var(--card));
+  box-shadow: inset 0 0 0 1px rgb(var(--border)), 0 12px 32px -8px rgb(0 0 0 / .18);
 }
 .dr-opt {
   display: block; width: 100%; text-align: start;
   height: 32px; padding: 0 9px; border-radius: 9px;
-  font-size: 12.5px; font-weight: 500; color: rgb(68 64 60);
+  font-size: 12.5px; font-weight: 500; color: rgb(var(--text2));
   transition: background .12s ease;
 }
-.dr-opt:hover { background: rgb(245 245 244); }
+.dr-opt:hover { background: rgb(var(--bg)); }
 .dr-opt-on { background: var(--accent-50); color: var(--accent-700); font-weight: 700; }
 .dr-date {
   flex: 1; min-width: 0; height: 32px; padding: 0 7px; border-radius: 9px;
-  font-size: 11.5px; color: rgb(41 37 36);
-  box-shadow: inset 0 0 0 1px rgb(231 229 228);
+  font-size: 11.5px; color: rgb(var(--text));
+  box-shadow: inset 0 0 0 1px rgb(var(--border));
   font-variant-numeric: tabular-nums;
 }
 .dr-date:focus { outline: none; box-shadow: inset 0 0 0 2px var(--accent-300); }

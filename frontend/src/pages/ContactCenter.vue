@@ -164,12 +164,12 @@ onMounted(load);
 
 <style scoped>
 .cco-card {
-  display: block; background: white; border-radius: 16px; padding: 16px;
-  box-shadow: inset 0 0 0 1px rgb(231 229 228 / 0.8), 0 1px 2px rgb(0 0 0 / 0.02);
+  display: block; background: rgb(var(--card)); border-radius: 16px; padding: 16px;
+  box-shadow: inset 0 0 0 1px rgb(var(--border) / 0.8), 0 1px 2px rgb(0 0 0 / 0.02);
   transition: box-shadow .18s ease, transform .18s ease;
 }
 .cco-card:hover {
-  box-shadow: inset 0 0 0 1px rgb(214 211 209), 0 8px 24px -12px rgb(0 0 0 / 0.14);
+  box-shadow: inset 0 0 0 1px rgb(var(--border)), 0 8px 24px -12px rgb(0 0 0 / 0.14);
   transform: translateY(-1px);
 }
 .cco-ico {
@@ -177,12 +177,12 @@ onMounted(load);
   display: inline-flex; align-items: center; justify-content: center; color: white;
 }
 .cco-chip {
-  font-size: 11.5px; color: rgb(87 83 78); background: rgb(250 250 249);
-  box-shadow: inset 0 0 0 1px rgb(231 229 228);
+  font-size: 11.5px; color: rgb(var(--text2)); background: rgb(250 250 249);
+  box-shadow: inset 0 0 0 1px rgb(var(--border));
   border-radius: 999px; padding: 3px 10px;
   font-variant-numeric: tabular-nums;
 }
-.cco-chip b { color: rgb(28 25 23); font-weight: 700; }
+.cco-chip b { color: rgb(var(--text)); font-weight: 700; }
 .cco-breach {
   margin-inline-start: auto;
   font-size: 10px; font-weight: 800; color: white; background: rgb(244 63 94);
@@ -192,7 +192,7 @@ onMounted(load);
 @keyframes cco-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 .cco-today {
   margin-top: 12px; padding-top: 10px;
-  border-top: 1px solid rgb(245 245 244);
-  font-size: 11.5px; color: rgb(120 113 108);
+  border-top: 1px solid rgb(var(--bg));
+  font-size: 11.5px; color: rgb(var(--text3));
 }
 </style>

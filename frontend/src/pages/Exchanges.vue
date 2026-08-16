@@ -295,23 +295,23 @@ function ageLabel(h) {
 }
 .ex-new:hover { transform: translateY(-1px); }
 .ex-new:disabled { opacity: .5; }
-.ex-seg { display: inline-flex; gap: 2px; padding: 4px; background: rgb(231 229 228 / 0.55); border-radius: 14px; }
+.ex-seg { display: inline-flex; gap: 2px; padding: 4px; background: rgb(var(--border) / 0.55); border-radius: 14px; }
 .ex-seg-btn {
   display: inline-flex; align-items: center; gap: 6px;
   height: 36px; padding: 0 12px; border-radius: 11px;
-  font-size: 12.5px; font-weight: 600; color: rgb(120 113 108);
+  font-size: 12.5px; font-weight: 600; color: rgb(var(--text3));
   transition: all .18s ease;
 }
-.ex-seg-btn:hover { color: rgb(41 37 36); }
-.ex-seg-on { background: white; color: rgb(28 25 23); box-shadow: 0 1px 3px rgb(0 0 0 / 0.08); }
+.ex-seg-btn:hover { color: rgb(var(--text)); }
+.ex-seg-on { background: rgb(var(--card)); color: rgb(var(--text)); box-shadow: 0 1px 3px rgb(0 0 0 / 0.08); }
 .ex-seg-count { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 1px 7px; border-radius: 999px; }
 .ex-card {
-  background: white;
-  box-shadow: inset 0 0 0 1px rgb(231 229 228 / 0.8), 0 1px 2px rgb(0 0 0 / 0.02);
+  background: rgb(var(--card));
+  box-shadow: inset 0 0 0 1px rgb(var(--border) / 0.8), 0 1px 2px rgb(0 0 0 / 0.02);
   transition: box-shadow .18s ease, transform .18s ease;
 }
 .ex-card:hover {
-  box-shadow: inset 0 0 0 1px rgb(214 211 209), 0 8px 24px -12px rgb(0 0 0 / 0.14);
+  box-shadow: inset 0 0 0 1px rgb(var(--border)), 0 8px 24px -12px rgb(0 0 0 / 0.14);
   transform: translateY(-1px);
 }
 .ex-avatar {
@@ -335,20 +335,20 @@ function ageLabel(h) {
 .ex-act-main:hover:not(:disabled) { transform: translateY(-1px); }
 .ex-act-soft {
   width: 38px; background: rgb(250 250 249);
-  box-shadow: inset 0 0 0 1px rgb(231 229 228);
+  box-shadow: inset 0 0 0 1px rgb(var(--border));
   display: inline-flex; align-items: center; justify-content: center;
 }
-.ex-act-soft:hover { background: white; transform: scale(1.06); }
-.ex-empty { background: linear-gradient(180deg, white, rgb(250 250 249)); box-shadow: inset 0 0 0 1px rgb(231 229 228 / 0.8); }
+.ex-act-soft:hover { background: rgb(var(--card)); transform: scale(1.06); }
+.ex-empty { background: linear-gradient(180deg, white, rgb(250 250 249)); box-shadow: inset 0 0 0 1px rgb(var(--border) / 0.8); }
 .ex-shimmer {
-  background: linear-gradient(90deg, rgb(245 245 244) 25%, rgb(231 229 228 / 0.6) 50%, rgb(245 245 244) 75%);
+  background: linear-gradient(90deg, rgb(var(--bg)) 25%, rgb(var(--border) / 0.6) 50%, rgb(var(--bg)) 75%);
   background-size: 200% 100%;
   animation: ex-shimmer 1.4s ease-in-out infinite;
 }
 @keyframes ex-shimmer { to { background-position: -200% 0; } }
 .pg-btn {
-  width: 32px; height: 32px; border-radius: 10px; background: white;
-  box-shadow: inset 0 0 0 1px rgb(231 229 228);
+  width: 32px; height: 32px; border-radius: 10px; background: rgb(var(--card));
+  box-shadow: inset 0 0 0 1px rgb(var(--border));
   display: inline-flex; align-items: center; justify-content: center;
 }
 .pg-btn:disabled { opacity: .4; }
