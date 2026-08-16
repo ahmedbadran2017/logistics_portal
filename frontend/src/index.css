@@ -132,8 +132,9 @@ html[data-theme="dark"] img[alt="Justyol"] { filter: invert(1) brightness(1.8); 
    ========================================================================== */
 /* emerald — success / on-track / in-stock */
 html[data-theme="dark"] .bg-emerald-50, html[data-theme="dark"] .bg-emerald-100,
-html[data-theme="dark"] .bg-emerald-50\/60, html[data-theme="dark"] .bg-emerald-50\/70,
-html[data-theme="dark"] .bg-emerald-50\/80 { background-color: #17271f !important; }
+html[data-theme="dark"] .bg-emerald-50\/30, html[data-theme="dark"] .bg-emerald-50\/40,
+html[data-theme="dark"] .bg-emerald-50\/50, html[data-theme="dark"] .bg-emerald-50\/60,
+html[data-theme="dark"] .bg-emerald-50\/70, html[data-theme="dark"] .bg-emerald-50\/80 { background-color: #17271f !important; }
 html[data-theme="dark"] .text-emerald-600, html[data-theme="dark"] .text-emerald-700,
 html[data-theme="dark"] .text-emerald-800 { color: #5bd6a2 !important; }
 html[data-theme="dark"] .ring-emerald-200, html[data-theme="dark"] .ring-emerald-300,
@@ -142,8 +143,9 @@ html[data-theme="dark"] .border-emerald-200 { border-color: #2b4d3e !important; 
 
 /* amber — warning / needs a look */
 html[data-theme="dark"] .bg-amber-50, html[data-theme="dark"] .bg-amber-100,
-html[data-theme="dark"] .bg-amber-50\/60, html[data-theme="dark"] .bg-amber-50\/70,
-html[data-theme="dark"] .bg-amber-50\/80 { background-color: #2a2010 !important; }
+html[data-theme="dark"] .bg-amber-50\/30, html[data-theme="dark"] .bg-amber-50\/40,
+html[data-theme="dark"] .bg-amber-50\/50, html[data-theme="dark"] .bg-amber-50\/60,
+html[data-theme="dark"] .bg-amber-50\/70, html[data-theme="dark"] .bg-amber-50\/80 { background-color: #2a2010 !important; }
 html[data-theme="dark"] .text-amber-600, html[data-theme="dark"] .text-amber-700,
 html[data-theme="dark"] .text-amber-800 { color: #f2c14e !important; }
 html[data-theme="dark"] .ring-amber-200, html[data-theme="dark"] .ring-amber-300,
@@ -151,15 +153,18 @@ html[data-theme="dark"] .ring-amber-200\/70, html[data-theme="dark"] .border-amb
 
 /* rose — error / blocked / danger */
 html[data-theme="dark"] .bg-rose-50, html[data-theme="dark"] .bg-rose-100,
-html[data-theme="dark"] .bg-rose-50\/60, html[data-theme="dark"] .bg-rose-50\/70,
-html[data-theme="dark"] .bg-rose-50\/80 { background-color: #2c1719 !important; }
+html[data-theme="dark"] .bg-rose-50\/30, html[data-theme="dark"] .bg-rose-50\/40,
+html[data-theme="dark"] .bg-rose-50\/50, html[data-theme="dark"] .bg-rose-50\/60,
+html[data-theme="dark"] .bg-rose-50\/70, html[data-theme="dark"] .bg-rose-50\/80 { background-color: #2c1719 !important; }
 html[data-theme="dark"] .text-rose-600, html[data-theme="dark"] .text-rose-700,
 html[data-theme="dark"] .text-rose-800 { color: #f5818f !important; }
-html[data-theme="dark"] .ring-rose-200, html[data-theme="dark"] .ring-rose-300,
-html[data-theme="dark"] .ring-rose-200\/70, html[data-theme="dark"] .border-rose-200 { --tw-ring-color: #542a2f !important; border-color: #542a2f !important; }
+html[data-theme="dark"] .ring-rose-100, html[data-theme="dark"] .ring-rose-200,
+html[data-theme="dark"] .ring-rose-300, html[data-theme="dark"] .ring-rose-200\/70,
+html[data-theme="dark"] .border-rose-200 { --tw-ring-color: #542a2f !important; border-color: #542a2f !important; }
 
 /* violet — special / VIP / consolidation */
 html[data-theme="dark"] .bg-violet-50, html[data-theme="dark"] .bg-violet-100,
+html[data-theme="dark"] .bg-violet-50\/40, html[data-theme="dark"] .bg-violet-50\/50,
 html[data-theme="dark"] .bg-violet-50\/60, html[data-theme="dark"] .bg-violet-50\/70,
 html[data-theme="dark"] .bg-violet-50\/80 { background-color: #201d34 !important; }
 html[data-theme="dark"] .text-violet-600, html[data-theme="dark"] .text-violet-700,
@@ -168,7 +173,8 @@ html[data-theme="dark"] .ring-violet-200, html[data-theme="dark"] .ring-violet-3
 html[data-theme="dark"] .ring-violet-200\/70, html[data-theme="dark"] .border-violet-200 { --tw-ring-color: #383063 !important; border-color: #383063 !important; }
 
 /* minor families — same recipe */
-html[data-theme="dark"] .bg-sky-50,  html[data-theme="dark"] .bg-sky-100  { background-color: #14232e !important; }
+html[data-theme="dark"] .bg-sky-50,  html[data-theme="dark"] .bg-sky-100,
+html[data-theme="dark"] .bg-sky-50\/40 { background-color: #14232e !important; }
 html[data-theme="dark"] .text-sky-600,  html[data-theme="dark"] .text-sky-700  { color: #6cc5ef !important; }
 html[data-theme="dark"] .ring-sky-200,  html[data-theme="dark"] .ring-sky-300  { --tw-ring-color: #274155 !important; }
 html[data-theme="dark"] .bg-blue-50, html[data-theme="dark"] .bg-blue-100 { background-color: #172232 !important; }
