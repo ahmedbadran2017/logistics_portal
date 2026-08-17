@@ -1165,10 +1165,9 @@ def _resolve_bins(item_codes):
     # the engine's OOS detection matches the Orders board's Ready/Partial/OOS.
     from logistics_portal.api.warehouses import pickable_condition
     cond, wargs = pickable_condition("warehouse")
-    # Physical on-hand only. Bin.reserved_qty is corrupt on this instance
-    # (reservations are not released on ship/cancel, so it ratchets far past
-    # actual); subtracting it hid stock that is physically on the shelf. The
-    # open-draft pick-list lock below is the real double-allocation guard.
+    # Physical on-hand only — Bin.reserved_qty is a corrupt cache here; the
+    # open-draft lock below is the double-allocation guard. Full rationale (and
+    # why NOT to subtract reservations) in orders._pickable_bin_subquery.
     rows = frappe.db.sql(
         "SELECT item_code, warehouse, actual_qty AS avail FROM `tabBin` "
         "WHERE actual_qty > 0 AND item_code IN %s AND " + cond,
@@ -1211,19 +1210,18 @@ def _resolve_bins(item_codes):
 
 
 def _available_totals(item_codes):
-    """item_code → total FREE qty across pickable bins (actual − reserved −
-    open-draft pick list claims). Mirrors the controller's full-coverage rule
-    so the portal can exclude uncoverable orders BEFORE the save rejects the
-    whole combined document."""
+    """item_code → total FREE qty across pickable bins (physical on-hand minus
+    open-draft pick-list claims). Mirrors the controller's full-coverage rule so
+    the portal can exclude uncoverable orders BEFORE the save rejects the whole
+    combined document."""
     if not item_codes:
         return {}
     from logistics_portal.api.warehouses import pickable_condition
     cond, wargs = pickable_condition("warehouse")
-    # Physical on-hand per pickable bin. Bin.reserved_qty is corrupt on this
-    # instance (reservations never released, so reserved ratchets far past
-    # actual); subtracting it zeroed out bins that hold real stock. GREATEST
-    # guards the rare genuinely-negative actual. The open-draft pick-list lock
-    # below is the true double-allocation guard.
+    # Physical on-hand per pickable bin — Bin.reserved_qty is a corrupt cache
+    # here (GREATEST guards the rare genuinely-negative actual). The open-draft
+    # lock below is the double-allocation guard. Full rationale (and why NOT to
+    # subtract reservations) in orders._pickable_bin_subquery.
     totals = {r[0]: float(r[1] or 0) for r in frappe.db.sql(
         "SELECT item_code, SUM(GREATEST(actual_qty, 0)) FROM `tabBin` "
         "WHERE item_code IN %s AND " + cond + " GROUP BY item_code",

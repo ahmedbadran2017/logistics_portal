@@ -492,14 +492,34 @@ def _row(r, **extra):
 def _pickable_bin_subquery():
     from logistics_portal.api.warehouses import pickable_condition
     cond, args = pickable_condition("b.warehouse")
-    # Available to pick = PHYSICAL on-hand on sellable shelves, summed per item
-    # so availability can be compared to the ORDERED quantity (an item with 2
-    # free but 5 ordered is short, not ready).
-    # We deliberately do NOT subtract Bin.reserved_qty: on this instance it is
-    # corrupt — stock reservations are not released when orders ship/cancel, so
-    # reserved_qty ratchets far past actual and drags items that DO have stock
-    # into a false "out of stock". The real double-allocation guard is the
-    # open-draft pick-list lock in picking._resolve_bins, not reserved_qty.
+    # ─────────────────────────────────────────────────────────────────────────
+    # AVAILABILITY = PHYSICAL ON-HAND.  *** Read before "fixing" this. ***
+    # Do NOT subtract Bin.reserved_qty, and do NOT "improve" it by subtracting
+    # reservations either. BOTH were tried and are wrong on this instance
+    # (audited twice, 2026-08-18):
+    #
+    #   1. Bin.reserved_qty is a CORRUPT cache. Cancelled/shipped Stock
+    #      Reservation Entries are never decremented from it, so it ratchets to
+    #      ~100x the genuinely-open reservation — and nearly all of the excess
+    #      is parked on non-shelf SYSTEM warehouses (Morocco - JM, ERPNext - JM,
+    #      V-Turkey - JM) that still pass the pickable filter. Summing
+    #      (actual − reserved) across an item's bins then dragged the whole item
+    #      negative -> large FALSE "out of stock" on items with real shelf stock.
+    #
+    #   2. Subtracting the LIVE active reservation instead is ALSO wrong: most
+    #      open reservation belongs to the pool orders THEMSELVES, so it marks an
+    #      order OOS for having reserved its own stock (a double-count that
+    #      over-stated OOS on the same snapshot).
+    #
+    #   3. Double-allocation is NOT this query's job. It is guarded where
+    #      allocation actually happens: the open-draft pick-list lock in
+    #      picking._resolve_bins, and ERPNext's per-bin set_item_locations at
+    #      Pick List save — both GREATEST(per-bin), so phantom reserved on a
+    #      parent warehouse can never block real shelf stock.
+    #
+    # So: physical on-hand over pickable shelves, summed per item and compared to
+    # the ORDERED qty (2 free but 5 ordered = short, not ready).
+    # ─────────────────────────────────────────────────────────────────────────
     sql = ("SELECT item_code, SUM(b.actual_qty) AS aq "
            "FROM `tabBin` b WHERE b.actual_qty > 0 AND " + cond +
            " GROUP BY item_code")
