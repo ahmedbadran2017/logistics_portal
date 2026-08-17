@@ -82,10 +82,7 @@ def _stock_cte():
     """
     pick_sql, pick_args = pickable_condition("b.warehouse")
     never = " AND ".join(["w.name NOT LIKE %s"] * len(_NEVER))
-    # Physical on-hand only — Bin.reserved_qty is a corrupt cache here; full
-    # rationale (and why NOT to subtract reservations) in
-    # orders._pickable_bin_subquery.
-    pickable = f"""COALESCE((SELECT SUM(GREATEST(b.actual_qty, 0))
+    pickable = f"""COALESCE((SELECT SUM(GREATEST(b.actual_qty - b.reserved_qty, 0))
                              FROM `tabBin` b
                              WHERE b.item_code = soi.item_code AND {pick_sql}), 0)"""
     elsewhere = f"""COALESCE((SELECT SUM(GREATEST(b.actual_qty, 0))
