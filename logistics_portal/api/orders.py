@@ -492,12 +492,16 @@ def _row(r, **extra):
 def _pickable_bin_subquery():
     from logistics_portal.api.warehouses import pickable_condition
     cond, args = pickable_condition("b.warehouse")
-    # Available to pick = actual - reserved (a reserved unit is spoken for),
-    # summed per item so availability can be compared to the ORDERED quantity —
-    # not just "has a unit". An item with 2 free but 5 ordered is short, not
-    # ready, and used to slip into the ready tab as "missing items".
-    sql = ("SELECT item_code, SUM(b.actual_qty - b.reserved_qty) AS aq "
-           "FROM `tabBin` b WHERE (b.actual_qty - b.reserved_qty) > 0 AND " + cond +
+    # Available to pick = PHYSICAL on-hand on sellable shelves, summed per item
+    # so availability can be compared to the ORDERED quantity (an item with 2
+    # free but 5 ordered is short, not ready).
+    # We deliberately do NOT subtract Bin.reserved_qty: on this instance it is
+    # corrupt — stock reservations are not released when orders ship/cancel, so
+    # reserved_qty ratchets far past actual and drags items that DO have stock
+    # into a false "out of stock". The real double-allocation guard is the
+    # open-draft pick-list lock in picking._resolve_bins, not reserved_qty.
+    sql = ("SELECT item_code, SUM(b.actual_qty) AS aq "
+           "FROM `tabBin` b WHERE b.actual_qty > 0 AND " + cond +
            " GROUP BY item_code")
     return sql, args
 
@@ -678,7 +682,9 @@ def _sku_rescue(miss_by_order):
         if not skus:
             return {}
         wp = ["% - JM", "Defective%", "Container%", "Air Freight%", "%Old%", "CORRECTING%"]
-        net_sub = ("(SELECT COALESCE(SUM(b.actual_qty-b.reserved_qty),0) FROM `tabBin` b "
+        # Physical on-hand only — Bin.reserved_qty is corrupt on this instance
+        # (never released on ship/cancel), so subtracting it hid real stock.
+        net_sub = ("(SELECT COALESCE(SUM(b.actual_qty),0) FROM `tabBin` b "
                    "WHERE b.item_code=it.name AND b.warehouse LIKE %s "
                    "AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s "
                    "AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s "

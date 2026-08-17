@@ -82,7 +82,9 @@ def _stock_cte():
     """
     pick_sql, pick_args = pickable_condition("b.warehouse")
     never = " AND ".join(["w.name NOT LIKE %s"] * len(_NEVER))
-    pickable = f"""COALESCE((SELECT SUM(GREATEST(b.actual_qty - b.reserved_qty, 0))
+    # Physical on-hand only — Bin.reserved_qty is corrupt on this instance
+    # (never released on ship/cancel), so subtracting it hid real stock.
+    pickable = f"""COALESCE((SELECT SUM(GREATEST(b.actual_qty, 0))
                              FROM `tabBin` b
                              WHERE b.item_code = soi.item_code AND {pick_sql}), 0)"""
     elsewhere = f"""COALESCE((SELECT SUM(GREATEST(b.actual_qty, 0))

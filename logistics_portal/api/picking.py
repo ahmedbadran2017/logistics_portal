@@ -1165,9 +1165,13 @@ def _resolve_bins(item_codes):
     # the engine's OOS detection matches the Orders board's Ready/Partial/OOS.
     from logistics_portal.api.warehouses import pickable_condition
     cond, wargs = pickable_condition("warehouse")
+    # Physical on-hand only. Bin.reserved_qty is corrupt on this instance
+    # (reservations are not released on ship/cancel, so it ratchets far past
+    # actual); subtracting it hid stock that is physically on the shelf. The
+    # open-draft pick-list lock below is the real double-allocation guard.
     rows = frappe.db.sql(
-        "SELECT item_code, warehouse, (actual_qty - reserved_qty) AS avail FROM `tabBin` "
-        "WHERE (actual_qty - reserved_qty) > 0 AND item_code IN %s AND " + cond,
+        "SELECT item_code, warehouse, actual_qty AS avail FROM `tabBin` "
+        "WHERE actual_qty > 0 AND item_code IN %s AND " + cond,
         tuple([tuple(item_codes)] + wargs), as_dict=True)
 
     # Qty already claimed by OPEN DRAFT pick lists is NOT free — ERPNext's
@@ -1215,12 +1219,13 @@ def _available_totals(item_codes):
         return {}
     from logistics_portal.api.warehouses import pickable_condition
     cond, wargs = pickable_condition("warehouse")
-    # GREATEST(..., 0) per bin: stale SO reservations leave some bins deeply
-    # negative (reserved 27k vs actual 0 on one SKU in production) — a naive
-    # SUM goes negative and would flag EVERYTHING as uncoverable. Only bins
-    # you can physically pick from count.
+    # Physical on-hand per pickable bin. Bin.reserved_qty is corrupt on this
+    # instance (reservations never released, so reserved ratchets far past
+    # actual); subtracting it zeroed out bins that hold real stock. GREATEST
+    # guards the rare genuinely-negative actual. The open-draft pick-list lock
+    # below is the true double-allocation guard.
     totals = {r[0]: float(r[1] or 0) for r in frappe.db.sql(
-        "SELECT item_code, SUM(GREATEST(actual_qty - reserved_qty, 0)) FROM `tabBin` "
+        "SELECT item_code, SUM(GREATEST(actual_qty, 0)) FROM `tabBin` "
         "WHERE item_code IN %s AND " + cond + " GROUP BY item_code",
         tuple([tuple(item_codes)] + wargs))}
     # Same warehouse universe on both sides of the equation: a draft row
