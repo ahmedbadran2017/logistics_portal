@@ -6,13 +6,24 @@
         <p class="text-[13px] text-stone-500 mt-1 max-w-2xl">{{ t('catalog.intro') }}</p>
       </div>
       <div class="flex items-center gap-2 flex-shrink-0">
-        <span v-if="ov.lastSync" class="text-[11px] text-stone-400">{{ t('catalog.lastSync') }}: {{ ov.lastSync }}</span>
         <button class="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-[13px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-50"
-                :disabled="syncing" @click="runSync">
-          <Icon name="refresh-cw" :size="14" />{{ syncing ? t('catalog.syncing') : t('catalog.runSync') }}
+                :disabled="syncing" @click="runReconcile">
+          <Icon name="refresh-cw" :size="14" />{{ syncing ? t('catalog.reconciling') : t('catalog.runReconcile') }}
         </button>
       </div>
     </header>
+
+    <!-- Sync health: is the whole-catalog status mirror actually current. -->
+    <div v-if="health" class="flex items-center gap-2 flex-wrap">
+      <span class="inline-flex items-center gap-1.5 text-[11.5px] font-medium rounded-md px-2 py-1 ring-1" :class="freshClass">
+        <span class="w-1.5 h-1.5 rounded-full" :class="freshDot" />
+        {{ t('catalog.lastReconcile') }}: <b class="tabular-nums">{{ health.lastSweep || t('catalog.never') }}</b>
+      </span>
+      <span v-if="health.lastWrite" class="text-[11px] text-stone-400 tabular-nums">
+        {{ t('catalog.lastWrite') }}: {{ health.lastWrite }}
+      </span>
+      <span class="text-[11px] text-stone-400">{{ t('catalog.reconcileHint') }}</span>
+    </div>
 
     <!-- loading -->
     <div v-if="loading" class="text-center text-[13px] text-stone-400 py-16">{{ t('catalog.syncing') }}…</div>
@@ -165,12 +176,35 @@ const { success, warn } = useToast();
 const ov = ref({ synced: 0, lastSync: "", byStatus: {}, strandedValue: 0, strandedCount: 0, strandedSkus: 0 });
 const rows = ref([]);
 const fix = ref({ consolidations: [], reactivations: [], unfixable: 0 });
+const health = ref(null);
 const armed = ref("");
 const actBusy = ref(false);
 const loading = ref(true);
 const syncing = ref(false);
 
 const fmtMAD = (v) => (Number(v) || 0).toLocaleString("en-US");
+
+// Hours since the last whole-catalog reconcile (scheduled hourly). Drives the
+// health dot: green = fresh, amber = a little stale, red = clearly behind.
+const freshHours = computed(() => {
+  const h = health.value;
+  if (!h || !h.lastSweep || !h.serverNow) return null;
+  const a = Date.parse(h.lastSweep.replace(" ", "T"));
+  const b = Date.parse(h.serverNow.replace(" ", "T"));
+  return isNaN(a) || isNaN(b) ? null : (b - a) / 3600000;
+});
+const freshDot = computed(() => {
+  const h = freshHours.value;
+  if (h == null) return "bg-stone-300";
+  return h <= 2 ? "bg-emerald-500" : h <= 26 ? "bg-amber-500" : "bg-rose-500";
+});
+const freshClass = computed(() => {
+  const h = freshHours.value;
+  if (h == null) return "text-stone-500 bg-stone-50 ring-stone-200";
+  return h <= 2 ? "text-emerald-700 bg-emerald-50 ring-emerald-200/70"
+    : h <= 26 ? "text-amber-700 bg-amber-50 ring-amber-200/70"
+      : "text-rose-700 bg-rose-50 ring-rose-200/70";
+});
 
 const statusChips = computed(() =>
   Object.entries(ov.value.byStatus || {}).map(([k, n]) => ({ k, n })).sort((a, b) => b.n - a.n));
@@ -189,14 +223,16 @@ function openSku(sku) {
 
 async function load() {
   loading.value = true;
-  const [o, s, f] = await Promise.all([
+  const [o, s, f, h] = await Promise.all([
     liveOr(null, () => api("catalog_hub.problems.overview")),
     liveOr(null, () => api("catalog_hub.problems.stranded_stock", { limit: 100 })),
     liveOr(null, () => api("catalog_hub.actions.fix_candidates")),
+    liveOr(null, () => api("catalog_hub.webhook.sync_health")),
   ]);
   if (o) ov.value = o;
   rows.value = Array.isArray(s) ? s : [];
   if (f && Array.isArray(f.consolidations)) fix.value = f;
+  if (h) health.value = h;
   loading.value = false;
 }
 
@@ -239,11 +275,11 @@ async function doReactivate(r) {
   }
 }
 
-async function runSync() {
+async function runReconcile() {
   syncing.value = true;
   try {
-    await apiPost("catalog_hub.sync.enqueue_sync");
-    success(t("catalog.syncQueued"), t("catalog.syncQueuedBody"));
+    await apiPost("catalog_hub.sync.trigger_reconcile");
+    success(t("catalog.reconcileQueued"), t("catalog.reconcileQueuedBody"));
   } catch (e) {
     warn(t("catalog.syncFail"), String(e.message || e));
   } finally {
