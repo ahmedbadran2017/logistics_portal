@@ -256,3 +256,38 @@ def shelf_items(warehouse):
         "units": sum(i["qty"] for i in items),
         "noSkuCount": sum(1 for i in items if i["noSku"]),
     }
+
+
+@frappe.whitelist()
+def shelf_search(q="", limit=80):
+    """Find a stocked item across ALL shelves by SKU / item code / name /
+    barcode, so an operator can reprint one label without hunting for the shelf
+    first. Returns each match with the shelf it sits on. Same shelf universe as
+    the picker (_SHELF_REGEXP)."""
+    _floor_gate()
+    q = (q or "").strip()
+    if len(q) < 2:
+        return {"items": [], "shown": 0, "q": q}
+    limit = min(max(int(limit or 80), 1), 200)
+    like = f"%{q}%"
+    rows = frappe.db.sql(
+        f"""SELECT b.warehouse, b.item_code, b.actual_qty AS qty,
+                   i.custom_sku AS sku,
+                   COALESCE(NULLIF(i.item_name, ''), b.item_code) AS name, i.image
+            FROM `tabBin` b
+            JOIN `tabItem` i ON i.name = b.item_code
+            WHERE {_SHELF_REGEXP} AND b.actual_qty > 0
+              AND (i.custom_sku LIKE %(q)s OR b.item_code LIKE %(q)s
+                   OR i.item_name LIKE %(q)s
+                   OR EXISTS (SELECT 1 FROM `tabItem Barcode` bc
+                              WHERE bc.parent = i.name AND bc.barcode LIKE %(q)s))
+            ORDER BY (i.custom_sku = %(exact)s) DESC, b.actual_qty DESC
+            LIMIT %(limit)s""",
+        {"q": like, "exact": q, "limit": limit}, as_dict=True)
+    items = [{
+        "warehouse": r.warehouse, "shelf": (r.warehouse or "").replace(" - JM", ""),
+        "itemCode": r.item_code, "sku": (r.sku or "").strip(),
+        "name": r.name, "qty": int(r.qty or 0), "image": r.image or "",
+        "noSku": not (r.sku or "").strip(),
+    } for r in rows]
+    return {"items": items, "shown": len(items), "q": q}

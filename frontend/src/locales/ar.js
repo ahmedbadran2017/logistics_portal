@@ -359,6 +359,11 @@ export default {
     printOne: "اطبع الـSKU ده بس",
     printBlocked: "نافذة الطباعة اتمنعت — اسمح بالنوافذ المنبثقة وجرّب تاني.",
     noSkuRow: "لسه مفيش SKU — حدّد واحد في الكتالوج قبل ما يتطبع له ملصق.",
+    searchPlaceholder: "دوّر بالـSKU أو الباركود أو الاسم…",
+    searching: "بيدوّر…",
+    results: "نتيجة",
+    noResults: "مفيش صنف مطابق للبحث.",
+    inStock: "في المخزون",
   },
   consol: {
     forceBtn: "ادمج على مسؤوليتي — اتأكدت",

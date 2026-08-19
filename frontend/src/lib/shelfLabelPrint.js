@@ -54,7 +54,12 @@ export function printShelfLabels({ shelf, items, copies, size }) {
 
   const labels = [];
   for (const it of printable) {
-    const n = copies === "piece" ? Math.max(1, Number(it.qty || 1)) : 1;
+    // The per-row editable count is authoritative when present (0 = skip this
+    // row). Only when no count was passed do we fall back to the sheet mode:
+    // one label per piece in stock, or one per SKU.
+    const n = it.copies == null
+      ? (copies === "piece" ? Math.max(1, Number(it.qty || 1)) : 1)
+      : Math.max(0, Math.floor(Number(it.copies) || 0));
     for (let i = 0; i < n; i++) labels.push(labelHTML(it, shelf, sizeMM));
   }
   if (!labels.length) return false;

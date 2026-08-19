@@ -359,6 +359,11 @@ export default {
     printOne: "Imprimer ce SKU uniquement",
     printBlocked: "La fenêtre d'impression a été bloquée — autorisez les pop-ups et réessayez.",
     noSkuRow: "Pas encore de SKU — attribuez-en un dans le catalogue avant l'étiquetage.",
+    searchPlaceholder: "Rechercher par SKU, code-barres ou nom…",
+    searching: "Recherche…",
+    results: "résultats",
+    noResults: "Aucun article ne correspond à cette recherche.",
+    inStock: "en stock",
   },
   consol: {
     forceBtn: "Fusionner quand même — vérifié",

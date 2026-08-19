@@ -359,6 +359,11 @@ export default {
     printOne: "Print this SKU only",
     printBlocked: "The print window was blocked — allow pop-ups and try again.",
     noSkuRow: "No SKU yet — assign one in the catalog before it can be labelled.",
+    searchPlaceholder: "Search by SKU, barcode or name…",
+    searching: "Searching…",
+    results: "results",
+    noResults: "No item matches that search.",
+    inStock: "in stock",
   },
   consol: {
     forceBtn: "Merge anyway — I checked",

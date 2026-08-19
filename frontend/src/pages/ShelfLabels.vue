@@ -16,8 +16,61 @@
       </div>
     </header>
 
+    <!-- SKU search — jump straight to an item on any shelf. -->
+    <div class="relative">
+      <span class="absolute inset-y-0 left-3 flex items-center text-stone-400"><Icon name="search" :size="16" /></span>
+      <input
+        v-model="searchQ" @input="runSearch"
+        :placeholder="t('shelfLabels.searchPlaceholder')"
+        class="w-full h-11 ps-10 pe-10 rounded-xl bg-white ring-1 ring-stone-200 text-[13.5px] text-stone-900 placeholder:text-stone-400 focus:ring-2 focus:ring-[var(--accent-400)] outline-none"
+      />
+      <button v-if="searchQ" @click="clearSearch"
+              class="absolute inset-y-0 right-3 flex items-center text-stone-400 hover:text-stone-700">
+        <Icon name="x" :size="16" />
+      </button>
+    </div>
+
+    <!-- Search results — item + the shelf it sits on + a print. -->
+    <div v-if="searchActive" class="bg-white rounded-2xl ring-1 ring-stone-200/70 overflow-hidden">
+      <div class="p-3.5 border-b border-stone-100 text-[12.5px] text-stone-500">
+        <span v-if="searching">{{ t('shelfLabels.searching') }}</span>
+        <span v-else>{{ searchResults.length }} {{ t('shelfLabels.results') }}</span>
+      </div>
+      <div v-if="!searching && !searchResults.length" class="p-8 text-center text-stone-400 text-[13px]">
+        {{ t('shelfLabels.noResults') }}
+      </div>
+      <ul v-else class="divide-y divide-stone-100">
+        <li v-for="it in searchResults" :key="it.warehouse + it.itemCode"
+            class="p-3 flex items-center gap-3" :class="it.noSku ? 'bg-amber-50/40' : ''">
+          <img v-if="it.image" :src="it.image" alt="" @error="hideImg"
+               class="w-11 h-11 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
+          <span v-else class="w-11 h-11 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center flex-shrink-0 text-stone-400"><Icon name="package" :size="18" /></span>
+          <div class="min-w-0 flex-1">
+            <div class="text-[13.5px] font-semibold text-stone-900 truncate">{{ it.name }}</div>
+            <div class="flex items-center gap-2">
+              <span v-if="it.noSku" class="text-[11.5px] text-amber-700 font-medium">{{ t('shelfLabels.noSkuRow') }}</span>
+              <span v-else class="font-mono text-[12px] text-stone-500 truncate">{{ it.sku }}</span>
+              <span class="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-600 bg-stone-100 rounded px-1.5 py-0.5 flex-shrink-0">
+                <Icon name="map-pin" :size="11" /> {{ it.shelf }}
+              </span>
+            </div>
+          </div>
+          <div v-if="!it.noSku" class="flex items-center gap-1.5 flex-shrink-0">
+            <input v-model.number="it.count" type="number" min="0" max="999"
+                   class="w-14 h-9 rounded-lg ring-1 ring-stone-200 bg-white text-[12.5px] font-semibold text-stone-900 text-center tabular-nums outline-none focus:ring-2 focus:ring-[var(--accent-400)]" />
+            <span class="text-[10.5px] text-stone-400 tabular-nums whitespace-nowrap">/ {{ it.qty }} {{ t('shelfLabels.inStock') }}</span>
+          </div>
+          <button v-if="!it.noSku"
+                  class="h-9 px-3 rounded-lg bg-[var(--accent-600)] text-white text-[12px] font-semibold inline-flex items-center gap-1.5 flex-shrink-0 disabled:opacity-40"
+                  :disabled="!(it.count > 0)" @click="printOne(it, it.shelf)">
+            <Icon name="printer" :size="14" /> {{ t('shelfLabels.print') }}
+          </button>
+        </li>
+      </ul>
+    </div>
+
     <!-- Step 1 — shelf picker: zone chips then shelf chips. -->
-    <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4 space-y-3">
+    <div v-if="!searchActive" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4 space-y-3">
       <div class="text-[12.5px] font-semibold text-stone-600">{{ t('shelfLabels.pickShelf') }}</div>
 
       <div v-if="loadingShelves" class="flex flex-wrap gap-1.5">
@@ -60,11 +113,11 @@
     </div>
 
     <!-- Step 2 — the shelf's items + print controls. -->
-    <div v-if="loadingItems" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4 space-y-3">
+    <div v-if="!searchActive && loadingItems" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4 space-y-3">
       <span v-for="n in 4" :key="n" class="block h-12 rounded-xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
     </div>
 
-    <div v-else-if="shelf" class="bg-white rounded-2xl ring-1 ring-stone-200/70 overflow-hidden">
+    <div v-else-if="!searchActive && shelf" class="bg-white rounded-2xl ring-1 ring-stone-200/70 overflow-hidden">
       <!-- controls bar -->
       <div class="p-4 border-b border-stone-100 flex items-center gap-3 flex-wrap">
         <div class="flex-1 min-w-0">
@@ -82,12 +135,12 @@
           <button
             class="h-9 px-3 transition-colors"
             :class="copies === 'sku' ? 'bg-stone-900 text-white' : 'bg-white text-stone-600 hover:bg-stone-50'"
-            @click="copies = 'sku'"
+            @click="setMode('sku')"
           >{{ t('shelfLabels.perSku') }}</button>
           <button
             class="h-9 px-3 transition-colors border-l border-stone-200"
             :class="copies === 'piece' ? 'bg-stone-900 text-white' : 'bg-white text-stone-600 hover:bg-stone-50'"
-            @click="copies = 'piece'"
+            @click="setMode('piece')"
           >{{ t('shelfLabels.perPiece') }}</button>
         </div>
 
@@ -130,16 +183,23 @@
           <!-- live barcode preview -->
           <div v-if="!it.noSku" class="hidden sm:block flex-shrink-0" v-html="previewSvg(it.sku)" />
 
-          <span class="text-[13px] font-bold text-stone-900 tabular-nums flex-shrink-0 w-10 text-right">
+          <!-- editable label count + the live in-stock piece count -->
+          <div v-if="!it.noSku" class="flex flex-col items-end gap-0.5 flex-shrink-0">
+            <input v-model.number="it.count" type="number" min="0" max="999"
+                   class="w-14 h-9 rounded-lg ring-1 ring-stone-200 bg-white text-[12.5px] font-semibold text-stone-900 text-center tabular-nums outline-none focus:ring-2 focus:ring-[var(--accent-400)]" />
+            <span class="text-[10px] text-stone-400 tabular-nums">/ {{ it.qty }} {{ t('shelfLabels.inStock') }}</span>
+          </div>
+          <span v-else class="text-[13px] font-bold text-stone-900 tabular-nums flex-shrink-0 w-10 text-right">
             {{ it.qty }}<span class="text-[10px] font-medium text-stone-400 ml-0.5">×</span>
           </span>
 
           <!-- per-item print -->
           <button
             v-if="!it.noSku"
-            class="h-9 w-9 rounded-lg ring-1 ring-stone-200 text-stone-600 hover:bg-stone-50 flex items-center justify-center flex-shrink-0"
+            class="h-9 w-9 rounded-lg ring-1 ring-stone-200 text-stone-600 hover:bg-stone-50 flex items-center justify-center flex-shrink-0 disabled:opacity-40"
             :title="t('shelfLabels.printOne')"
-            @click="printOne(it)"
+            :disabled="!(it.count > 0)"
+            @click="printOne(it, shelf.shelf)"
           >
             <Icon name="printer" :size="15" />
           </button>
@@ -148,7 +208,7 @@
       </ul>
     </div>
 
-    <div v-else-if="!loadingShelves && zones.length" class="text-center py-10 text-stone-400 text-[13px]">
+    <div v-else-if="!searchActive && !loadingShelves && zones.length" class="text-center py-10 text-stone-400 text-[13px]">
       {{ t('shelfLabels.selectPrompt') }}
     </div>
   </div>
@@ -174,8 +234,18 @@ const activeZone = ref("");
 const selectedShelf = ref("");
 const shelf = ref(null);
 const loadingItems = ref(false);
+// "sku" = one label per SKU, "piece" = one per in-stock piece. Picking a mode
+// fills every row's editable count; the count is what actually prints.
 const copies = ref("sku");
 const sizeKey = ref(LABEL_SIZES[0].key);
+
+// SKU search — jump to any item across all shelves without picking the shelf.
+const searchQ = ref("");
+const searchResults = ref([]);
+const searching = ref(false);
+let searchSeq = 0;
+let searchTimer = null;
+const searchActive = computed(() => searchQ.value.trim().length >= 2);
 
 const totals = computed(() => {
   if (!zones.value.length) return null;
@@ -186,13 +256,57 @@ const activeZoneShelves = computed(() => {
   const z = zones.value.find((x) => x.zone === activeZone.value);
   return z ? z.shelves : [];
 });
+// The print button count is simply the sum of every row's editable count.
 const printableCount = computed(() => {
   if (!shelf.value) return 0;
-  const items = shelf.value.items.filter((i) => !i.noSku && i.sku);
-  return copies.value === "piece"
-    ? items.reduce((n, i) => n + Math.max(1, i.qty || 1), 0)
-    : items.length;
+  return shelf.value.items
+    .filter((i) => !i.noSku && i.sku)
+    .reduce((n, i) => n + Math.max(0, Math.floor(Number(i.count) || 0)), 0);
 });
+
+// A row's default label count for the current mode: one per piece, or one flat.
+function defaultCount(it) {
+  return copies.value === "piece" ? Math.max(1, Number(it.qty) || 1) : 1;
+}
+// Switch mode and refill every row's count to that mode's default.
+function setMode(mode) {
+  copies.value = mode;
+  if (shelf.value) {
+    for (const it of shelf.value.items) {
+      if (!it.noSku && it.sku) it.count = defaultCount(it);
+    }
+  }
+}
+
+function runSearch() {
+  clearTimeout(searchTimer);
+  const q = searchQ.value.trim();
+  if (q.length < 2) {
+    searchResults.value = [];
+    searching.value = false;
+    return;
+  }
+  searching.value = true;
+  searchTimer = setTimeout(async () => {
+    const seq = ++searchSeq;
+    try {
+      const res = await api("warehouses.shelf_search", { q });
+      if (seq !== searchSeq) return; // a newer keystroke already won
+      searchResults.value = (res?.items || []).map((it) => ({
+        ...it, count: it.noSku ? 0 : 1,
+      }));
+    } catch (e) {
+      if (seq === searchSeq) searchResults.value = [];
+    } finally {
+      if (seq === searchSeq) searching.value = false;
+    }
+  }, 250);
+}
+function clearSearch() {
+  searchQ.value = "";
+  searchResults.value = [];
+  searching.value = false;
+}
 
 // Cache the tiny preview SVGs — the list re-renders on every toggle.
 const previewCache = new Map();
@@ -212,7 +326,12 @@ async function loadShelf(s) {
   shelf.value = null;
   loadingItems.value = true;
   try {
-    shelf.value = await api("warehouses.shelf_items", { warehouse: s.warehouse });
+    const res = await api("warehouses.shelf_items", { warehouse: s.warehouse });
+    // Seed each row's editable label count from the current mode.
+    for (const it of res?.items || []) {
+      if (!it.noSku && it.sku) it.count = defaultCount(it);
+    }
+    shelf.value = res;
   } catch (e) {
     toast.error(t("common.loadFail"));
   } finally {
@@ -220,18 +339,22 @@ async function loadShelf(s) {
   }
 }
 
-function sheet(items) {
+// The per-row `count` is authoritative: printShelfLabels reads `it.copies`.
+function sheet(items, shelfName) {
   const size = sizes.find((s) => s.key === sizeKey.value) || sizes[0];
-  const ok = printShelfLabels({ shelf: shelf.value.shelf, items, copies: copies.value, size });
+  const payload = items.map((it) => ({
+    ...it, copies: Math.max(0, Math.floor(Number(it.count) || 0)),
+  }));
+  const ok = printShelfLabels({ shelf: shelfName, items: payload, size });
   if (!ok) toast.error(t("shelfLabels.printBlocked"));
 }
 
-// Whole shelf, or a single item — both honour the copies toggle and size.
+// Whole shelf, or a single item — each row prints its own editable count.
 function print() {
-  sheet(shelf.value.items);
+  sheet(shelf.value.items, shelf.value.shelf);
 }
-function printOne(it) {
-  sheet([it]);
+function printOne(it, shelfName) {
+  sheet([it], shelfName || (shelf.value && shelf.value.shelf) || "");
 }
 
 function hideImg(e) {
