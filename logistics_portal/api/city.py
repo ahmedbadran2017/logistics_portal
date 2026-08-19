@@ -27,10 +27,53 @@ def _gate():
                      frappe.PermissionError)
 
 
+# Cities a dispatcher/manager entered by hand that the 180-day AWB history
+# hasn't seen (small towns, new routes). Persisted so a typed city STICKS — it
+# joins the picker list AND stops its orders being flagged as unmatched forever.
+_MANUAL_KEY = "lp_manual_cities"
+
+
+def _has_arabic(s):
+    for ch in (s or ""):
+        if "؀" <= ch <= "ۿ":
+            return True
+    return False
+
+
+def _manual_cities():
+    import json as _j
+    raw = frappe.db.get_default(_MANUAL_KEY)
+    if raw:
+        try:
+            v = _j.loads(raw)
+            if isinstance(v, list):
+                return [str(x) for x in v]
+        except Exception:
+            pass
+    return []
+
+
+def _add_manual_city(city):
+    """Persist a hand-entered Latin city (dedup, case-insensitive) and drop the
+    picker cache so it shows up — and clears its orders — immediately."""
+    import json as _j
+    city = (city or "").strip()
+    # Arabic / empty / digit-bearing is exactly what the queue exists to fix
+    # (a phone number typed into the city box) — never accept those.
+    if not city or _has_arabic(city) or any(ch.isdigit() for ch in city):
+        return
+    cur = _manual_cities()
+    if city.lower() in {c.lower() for c in cur}:
+        return
+    cur.append(city)
+    frappe.db.set_default(_MANUAL_KEY, _j.dumps(cur))
+    frappe.cache().delete_value("lp_cathedis_cities")
+
+
 def _accepted_cities():
-    """The Latin cities that have produced a Cathedis AWB in the last 180 days —
-    the ground-truth picker list. Cached 10 min. Arabic entries are dropped from
-    the PICKER (we want a Latin target to normalise to)."""
+    """The Latin cities that can produce a Cathedis AWB: those seen on an AWB in
+    the last 180 days, PLUS the ones a dispatcher/manager added by hand. Cached
+    10 min. Arabic entries are dropped from the PICKER (we want a Latin target)."""
     ck = "lp_cathedis_cities"
     cached = frappe.cache().get_value(ck)
     if cached:
@@ -57,6 +100,14 @@ def _accepted_cities():
         if k in seen:
             continue
         seen.add(k)
+        out.append(c)
+    # Manager-entered cities join the accepted set, so a hand-typed city both
+    # appears in the picker and clears its orders from the unmatched queue.
+    for c in _manual_cities():
+        c = (c or "").strip()
+        if not c or _has_arabic(c) or c.lower() in seen:
+            continue
+        seen.add(c.lower())
         out.append(c)
     import json as _j
     frappe.cache().set_value(ck, _j.dumps(out), expires_in_sec=600)
@@ -137,5 +188,8 @@ def set_shipping_city(order, city):
     frappe.get_doc("Sales Order", order).add_comment(
         "Comment", f"Shipping city set to '{city}' for the carrier · by "
                    f"{frappe.session.user}")
+    # Remember it: a valid city a human set once should never re-flag its own or
+    # other orders, and should be offered in the picker next time.
+    _add_manual_city(city)
     frappe.db.commit()
     return {"ok": True, "order": order, "city": city}
