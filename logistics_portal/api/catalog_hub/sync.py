@@ -1,11 +1,22 @@
-"""Catalog Hub — Phase 0: read-only Shopify product/variant status sync.
+"""Catalog Hub — Shopify product/variant status mirror (Shopify -> ERPNext).
 
-Pulls the live Shopify status of every in-stock or duplicate-SKU Item into ERPNext so ops can tell
-which code is ACTIVE vs archived/draft/deleted — the authoritative signal (found
-during investigation) that resolves stranded stock and false-OOS. It is
-READ-ONLY against Shopify (reuses ecommerce_integrations' authenticated session)
-and writes only two status fields on Item, via db.set_value so it never
-re-triggers the Shopify item sync.
+Mirrors each mapped Item's live Shopify status into ERPNext so ops can tell which
+code is ACTIVE vs archived/draft/deleted — the authoritative signal (found during
+investigation) that resolves stranded stock and false-OOS. READ-ONLY against
+Shopify (reuses ecommerce_integrations' authenticated session); writes only the
+status fields below, via db.set_value so it never re-triggers the Shopify item
+sync (no echo loop).
+
+Three paths, one writer:
+  * bulk_reconcile  — the scheduled Phase A path: one Bulk Operations export of
+                      the WHOLE catalog, diffed against Next, writing only drift.
+  * webhook         — real-time single-product updates (catalog_hub/webhook.py),
+                      via write_product_status below. Currently optional/dormant.
+  * sync_status / _run_sync — the targeted nodes-based sync, kept for manual runs.
+
+Direction is one-way: catalog/status flows IN. Stock is the opposite direction
+(Next is the source of physical truth) — that is Phase B, and nothing here writes
+stock.
 
 Fields written on Item:
   custom_shopify_status  ACTIVE | ARCHIVED | DRAFT | DELETED | UNMAPPED
@@ -254,5 +265,168 @@ def shopify_graphql(query, variables=None, retries=3):
 
 
 def _fetch_status(product_gids):
-    """The bulk product-status query (status + live variant ids per product)."""
+    """The nodes-based product-status query (status + live variant ids per
+    product). Kept for the manual/targeted sync and as a fallback; the scheduled
+    path is bulk_reconcile below."""
     return shopify_graphql(_NODES_QUERY, {"ids": product_gids})
+
+
+# ---------------------------------------------------------------------------
+# Whole-catalog reconcile via Shopify Bulk Operations (the scheduled path).
+#
+# One async bulk query exports EVERY product's status + variant ids as a JSONL
+# file; we diff it against what Next stores and write only the rows that changed.
+# Whole-catalog, not just stocked items, on purpose:
+#   * a zero-stock ACTIVE product is exactly the oversell tap we must see, and a
+#     stocked-only sweep structurally never would;
+#   * DELETED can only be detected by ABSENCE from the full export.
+# Bulk keeps it cheap at catalog scale (Shopify Plus raises the budget further),
+# and diff-only writes keep the DB churn tiny even across 150k variants.
+# ---------------------------------------------------------------------------
+
+_BULK_PRODUCTS_QUERY = (
+    "{ products { edges { node { id status "
+    "variants { edges { node { id } } } } } } }"
+)
+
+
+def _run_bulk_products_query(poll_secs=5, max_polls=120):
+    """Start the products bulk export, wait for it, and return the JSONL result
+    URL (None if the export held zero objects). Returns the string 'BUSY' if the
+    shop already has a bulk query running (we simply skip this tick and let the
+    next one try). Raises on a real failure."""
+    import time
+
+    # Don't collide with an in-flight bulk op (only one QUERY runs per shop).
+    cur = shopify_graphql(
+        "{ currentBulkOperation(type: QUERY) { id status } }")
+    node = ((cur.get("data") or {}).get("currentBulkOperation") or {})
+    if node.get("status") in ("CREATED", "RUNNING"):
+        return "BUSY"
+
+    started = shopify_graphql(
+        "mutation($q: String!) { bulkOperationRunQuery(query: $q) { "
+        "bulkOperation { id status } userErrors { field message } } }",
+        {"q": _BULK_PRODUCTS_QUERY})
+    run = ((started.get("data") or {}).get("bulkOperationRunQuery") or {})
+    errs = run.get("userErrors") or []
+    if errs:
+        raise Exception("bulkOperationRunQuery: " + json.dumps(errs)[:300])
+
+    for _ in range(max_polls):
+        time.sleep(poll_secs)
+        cur = shopify_graphql(
+            "{ currentBulkOperation(type: QUERY) { status errorCode url objectCount } }")
+        node = ((cur.get("data") or {}).get("currentBulkOperation") or {})
+        st = node.get("status")
+        if st == "COMPLETED":
+            return node.get("url")  # None when objectCount == 0
+        if st in ("FAILED", "CANCELED", "EXPIRED"):
+            raise Exception(f"bulk op {st}: {node.get('errorCode')}")
+    raise Exception("bulk op did not complete in time")
+
+
+def _parse_bulk_jsonl(url):
+    """Stream the JSONL export into {product_id: {status, variants:set}}.
+
+    Bulk flattens nested connections: each product is one line, each variant a
+    separate line carrying `__parentId`. A variant line can arrive before its
+    product line, so we setdefault on both."""
+    import requests
+
+    products = {}
+    r = requests.get(url, timeout=120, stream=True)
+    r.raise_for_status()
+    for raw in r.iter_lines():
+        if not raw:
+            continue
+        obj = json.loads(raw)
+        gid = obj.get("id", "")
+        if "/Product/" in gid:
+            pid = gid.rsplit("/", 1)[-1]
+            p = products.setdefault(pid, {"status": "", "variants": set()})
+            p["status"] = (obj.get("status") or "").upper()
+        elif "/ProductVariant/" in gid:
+            pid = (obj.get("__parentId") or "").rsplit("/", 1)[-1]
+            if not pid:
+                continue
+            products.setdefault(pid, {"status": "", "variants": set()})
+            products[pid]["variants"].add(gid.rsplit("/", 1)[-1])
+    return products
+
+
+def bulk_reconcile():
+    """Whole-catalog status reconcile via Bulk Operations. Diffs the live Shopify
+    export against every mapped Item and writes only what changed. This is the
+    scheduled Phase A path — called by the scheduler as Administrator, so it is
+    intentionally NOT whitelisted and NOT role-gated (see trigger_reconcile for
+    the manager-gated manual entry). Safe to run unattended; never throws."""
+    try:
+        url = _run_bulk_products_query()
+        if url == "BUSY":
+            return {"skipped": "bulk op already running"}
+
+        # A COMPLETED export with no URL means zero products — refuse to act on
+        # that (it would flip the entire catalog to DELETED). Treat as a no-op.
+        products = _parse_bulk_jsonl(url) if url else {}
+        if not products:
+            frappe.log_error("bulk export returned no products", "catalog_hub.bulk_reconcile")
+            return {"checked": 0, "changed": 0, "note": "empty export ignored"}
+
+        mapped = frappe.db.sql(
+            """SELECT it.name AS item_code, ei.integration_item_code AS pid,
+                      ei.variant_id, it.custom_shopify_status AS st,
+                      it.custom_variant_live AS vl
+               FROM `tabItem` it
+               JOIN `tabEcommerce Item` ei
+                 ON ei.erpnext_item_code = it.name AND ei.integration = 'shopify'
+               WHERE COALESCE(ei.integration_item_code, '') != ''""", as_dict=True)
+
+        now = frappe.utils.now()
+        checked = changed = deleted = 0
+        counts = {}
+        for row in mapped:
+            checked += 1
+            info = products.get(str(row.pid))
+            if not info or not info["status"]:
+                want_status, want_live = "DELETED", 0
+                deleted += 1
+            else:
+                want_status = info["status"]
+                # Only trust variant_live when the product actually exported
+                # variants (guards against a partial line set flipping it to 0).
+                if info["variants"]:
+                    want_live = 1 if str(row.variant_id) in info["variants"] else 0
+                else:
+                    want_live = int(row.vl or 0)
+            counts[want_status] = counts.get(want_status, 0) + 1
+            if want_status != (row.st or "") or want_live != int(row.vl or 0):
+                frappe.db.set_value("Item", row.item_code, {
+                    STATUS_FIELD: want_status,
+                    VARIANT_LIVE_FIELD: want_live,
+                    SYNCED_ON_FIELD: now,
+                }, update_modified=False)
+                changed += 1
+                if changed % 500 == 0:
+                    frappe.db.commit()
+
+        frappe.db.commit()
+        frappe.cache().delete_value("lp_catalog_problems")
+        frappe.cache().set_value("lp_catalog_last_sweep", now)
+        return {"checked": checked, "changed": changed, "deleted": deleted,
+                "products": len(products), "byStatus": counts}
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "catalog_hub.bulk_reconcile")
+        return {"error": True}
+
+
+@frappe.whitelist()
+def trigger_reconcile():
+    """Manager-only manual 'Run now' for the whole-catalog reconcile. Runs in the
+    background (the bulk export can take a minute) so the request returns at once."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Only a manager can run the catalog reconcile.", frappe.PermissionError)
+    frappe.enqueue("logistics_portal.api.catalog_hub.sync.bulk_reconcile",
+                   queue="long", timeout=1800, job_name="catalog_bulk_reconcile")
+    return {"queued": True}

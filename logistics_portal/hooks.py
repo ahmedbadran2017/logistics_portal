@@ -68,10 +68,11 @@ scheduler_events = {
         "logistics_portal.api.audit.generate_daily_digest",
     ],
     "hourly_long": [
-        # Catalog Hub Phase A: safety net for the real-time Shopify status
-        # webhook — re-pulls and rewrites any product status that drifted, so a
-        # dropped webhook can never leave Next silently behind Shopify.
-        "logistics_portal.api.catalog_hub.sync.reconcile_sweep",
+        # Catalog Hub Phase A: whole-catalog status reconcile via Shopify Bulk
+        # Operations. One async export diffed against Next; writes only what
+        # drifted. Whole-catalog so zero-stock ACTIVE products (oversell taps)
+        # are seen and DELETED is caught by absence. Runs unattended, never throws.
+        "logistics_portal.api.catalog_hub.sync.bulk_reconcile",
     ],
 }
 
