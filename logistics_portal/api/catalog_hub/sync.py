@@ -151,14 +151,60 @@ def _run_sync(limit=20000, dry_run=False):
     return counts
 
 
-def _fetch_status(product_gids):
-    """POST the bulk status query to Shopify's Admin GraphQL endpoint using the
-    ecommerce_integrations Shopify Setting credentials. A direct POST (not the
-    shopify SDK's GraphQL helper — this SDK build doesn't ship one). Retries a
-    couple of times on HTTP 429 or a GraphQL THROTTLED error (cost-based limit)."""
-    import time
+def write_product_status(product_id, status, live_variant_ids, now=None):
+    """Write ACTIVE/ARCHIVED/DRAFT/DELETED + variant_live onto every ERPNext item
+    mapped to one Shopify product. Shared by the real-time webhook and any manual
+    replay. `live_variant_ids` = set of bare Shopify variant ids that still exist
+    on the product (None => the product is gone, so every variant is dead). Uses
+    db.set_value(update_modified=False) so it never re-triggers the ecommerce_
+    integrations item sync (no echo loop). Returns the number of items written."""
+    product_id = str(product_id)
+    status = (status or "").upper()
+    live_ids = {str(v) for v in (live_variant_ids or set())}
+    items = frappe.db.sql(
+        """SELECT it.name AS item_code, ei.variant_id
+           FROM `tabItem` it
+           JOIN `tabEcommerce Item` ei
+             ON ei.erpnext_item_code = it.name AND ei.integration = 'shopify'
+           WHERE ei.integration_item_code = %s""", product_id, as_dict=True)
+    if not items:
+        return 0
+    now = now or frappe.utils.now()
+    n = 0
+    for it in items:
+        live = 0 if status == "DELETED" else (1 if str(it.variant_id) in live_ids else 0)
+        frappe.db.set_value("Item", it.item_code, {
+            STATUS_FIELD: status,
+            VARIANT_LIVE_FIELD: live,
+            SYNCED_ON_FIELD: now,
+        }, update_modified=False)
+        n += 1
+    frappe.db.commit()
+    frappe.cache().delete_value("lp_catalog_problems")
+    return n
 
-    import requests
+
+def reconcile_sweep(limit=8000):
+    """Scheduled safety net for the real-time webhook. Webhook deliveries can be
+    dropped or arrive out of order; this re-pulls the live Shopify status for the
+    target set and rewrites any that drifted. The webhook keeps Next current
+    minute-to-minute; this guarantees it can never silently fall behind.
+
+    Bounded so one run stays cheap; the ORDER BY in _target_items makes a capped
+    run deterministic. Runs unattended from the scheduler — never throws."""
+    try:
+        res = _run_sync(int(limit), dry_run=False)
+        frappe.cache().set_value("lp_catalog_last_sweep", frappe.utils.now())
+        return res
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "catalog_hub.reconcile_sweep")
+        return {"error": True}
+
+
+def _shopify_endpoint():
+    """(url, headers) for the Shopify Admin GraphQL endpoint, built from the
+    ecommerce_integrations Shopify Setting credentials. Shared by the status
+    reconcile and by the webhook registration helper."""
     from ecommerce_integrations.shopify.constants import API_VERSION, SETTING_DOCTYPE
 
     setting = frappe.get_doc(SETTING_DOCTYPE)
@@ -168,13 +214,22 @@ def _fetch_status(product_gids):
         frappe.throw("Shopify Setting is missing a URL or access token.")
     url = f"https://{shop}/admin/api/{API_VERSION}/graphql.json"
     headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
-    body = {"query": _NODES_QUERY, "variables": {"ids": product_gids}}
+    return url, headers
 
-    # A trustworthy answer has a `data` object and no top-level errors; only then
-    # is a null node a genuine deletion. Anything else (real errors, missing
-    # data, or persistent throttling) RAISES so the caller SKIPS the batch —
-    # never mistaking a failed query for "all these products are deleted".
-    for attempt in range(3):
+
+def shopify_graphql(query, variables=None, retries=3):
+    """POST a GraphQL operation to Shopify's Admin API. A trustworthy answer has
+    a `data` object and no top-level errors; anything else (real errors, missing
+    data, or persistent throttling) RAISES so the caller can SKIP rather than act
+    on a bad reply — never mistaking a failed query for a real result. Retries a
+    couple of times on HTTP 429 or a GraphQL THROTTLED (cost-based) error."""
+    import time
+
+    import requests
+
+    url, headers = _shopify_endpoint()
+    body = {"query": query, "variables": variables or {}}
+    for attempt in range(retries):
         r = requests.post(url, json=body, headers=headers, timeout=30)
         if r.status_code == 429:
             time.sleep(2 * (attempt + 1))
@@ -183,8 +238,11 @@ def _fetch_status(product_gids):
         data = r.json() or {}
         errs = data.get("errors") or []
         if errs:
-            throttled = any(
-                ((e.get("extensions") or {}).get("code") == "THROTTLED") for e in errs)
+            throttled = False
+            for e in errs:
+                if (e.get("extensions") or {}).get("code") == "THROTTLED":
+                    throttled = True
+                    break
             if throttled:
                 time.sleep(2 * (attempt + 1))
                 continue
@@ -193,3 +251,8 @@ def _fetch_status(product_gids):
             raise Exception("Shopify GraphQL response missing data")
         return data
     raise Exception("Shopify GraphQL throttled after retries")
+
+
+def _fetch_status(product_gids):
+    """The bulk product-status query (status + live variant ids per product)."""
+    return shopify_graphql(_NODES_QUERY, {"ids": product_gids})

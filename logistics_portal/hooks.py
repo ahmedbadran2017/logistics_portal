@@ -67,6 +67,12 @@ scheduler_events = {
         # End-of-day narrative digest written by the LLM reviewer.
         "logistics_portal.api.audit.generate_daily_digest",
     ],
+    "hourly_long": [
+        # Catalog Hub Phase A: safety net for the real-time Shopify status
+        # webhook — re-pulls and rewrites any product status that drifted, so a
+        # dropped webhook can never leave Next silently behind Shopify.
+        "logistics_portal.api.catalog_hub.sync.reconcile_sweep",
+    ],
 }
 
 # ---------------------------------------------------------------------------
