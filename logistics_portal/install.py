@@ -154,3 +154,18 @@ def ensure_pick_fields():
                               "Delivery Note": _DN_EXC_FIELDS}, ignore_validate=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_pick_fields")
+
+
+def ensure_desk_override_role():
+    """The per-user escape valve for the Desk block (api/deskguard): an admin
+    grants 'Logistics Desk Override' to hand a team member the Desk back for a
+    genuine one-off, and revokes it to re-lock. desk_access=1 so holding it is
+    what actually restores Desk access. Idempotent."""
+    try:
+        if not frappe.db.exists("Role", "Logistics Desk Override"):
+            frappe.get_doc({
+                "doctype": "Role", "role_name": "Logistics Desk Override",
+                "desk_access": 1, "disabled": 0,
+            }).insert(ignore_permissions=True)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_desk_override_role")

@@ -20,6 +20,16 @@ guest_methods = [
 ]
 
 # ---------------------------------------------------------------------------
+# Keep the logistics team out of the raw ERPNext Desk (/app) — they work only
+# in the portal. Falling back to the Desk on a hiccup let them bypass every
+# portal guard and corrupt data. This blocks /app for team members without
+# touching a single role or permission (see api/deskguard).
+# ---------------------------------------------------------------------------
+before_request = [
+    "logistics_portal.api.deskguard.block_desk_for_portal_team",
+]
+
+# ---------------------------------------------------------------------------
 # Document events
 #   - Capture enforcement: no Pick List submitted without an assigned picker.
 #   - Stage timestamps: stamp custom_*_at on Sales Order status transitions so
@@ -48,6 +58,7 @@ after_migrate = [
     "logistics_portal.install.ensure_catalog_fields",
     "logistics_portal.install.ensure_pick_fields",
     "logistics_portal.install.ensure_cs_fields",
+    "logistics_portal.install.ensure_desk_override_role",
 ]
 
 scheduler_events = {
