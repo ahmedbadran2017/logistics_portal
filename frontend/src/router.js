@@ -103,6 +103,7 @@ const routes = [
       { path: "sku", name: "SkuLookup", component: () => import("@/pages/SkuLookup.vue") },
       { path: "shelf-labels", name: "ShelfLabels", component: () => import("@/pages/ShelfLabels.vue") },
       { path: "weights", name: "Weights", component: () => import("@/pages/Weights.vue") },
+      { path: "slotting", name: "Slotting", component: () => import("@/pages/Slotting.vue") },
       { path: "catalog", name: "CatalogHub", component: () => import("@/pages/CatalogHub.vue") },
 
       // Team

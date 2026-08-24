@@ -56,6 +56,7 @@ export const ROLE_CONFIG = {
         section: "nav.inventoryGrp",
         items: [
           { to: "Warehouse", label: "nav.warehouse", icon: "warehouse" },
+          { to: "Slotting", label: "nav.slotting", icon: "layout-grid" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
           { to: "CycleCount", label: "nav.count", icon: "list-checks" },
@@ -93,6 +94,7 @@ export const ROLE_CONFIG = {
         section: "nav.inventoryGrp",
         items: [
           { to: "Warehouse", label: "nav.warehouse", icon: "warehouse" },
+          { to: "Slotting", label: "nav.slotting", icon: "layout-grid" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
           { to: "CycleCount", label: "nav.count", icon: "list-checks" },
