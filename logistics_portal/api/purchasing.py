@@ -39,7 +39,7 @@ def _is_manager():
 
 def _po_card(r):
     return {"po": r.name, "supplier": r.supplier or "", "currency": r.currency or "MAD",
-            "pending": int(r.pending or 0), "lines": int(r.lines or 0),
+            "pending": int(r.pending or 0), "lines": int(r.nlines or 0),
             "date": str(r.transaction_date or "")}
 
 
@@ -52,7 +52,7 @@ def receive_boot():
     pos = frappe.db.sql(
         f"""SELECT po.name, po.supplier, po.currency, po.transaction_date,
                    ROUND(SUM(poi.qty - poi.received_qty)) AS pending,
-                   COUNT(*) AS lines
+                   COUNT(*) AS nlines
             FROM `tabPurchase Order` po
             JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
             WHERE {_OPEN_PO} AND poi.qty > poi.received_qty
@@ -83,7 +83,7 @@ def find_po(q=""):
     like = f"%{q}%"
     rows = frappe.db.sql(
         f"""SELECT po.name, po.supplier, po.currency, po.transaction_date,
-                   ROUND(SUM(poi.qty - poi.received_qty)) AS pending, COUNT(*) AS lines
+                   ROUND(SUM(poi.qty - poi.received_qty)) AS pending, COUNT(*) AS nlines
             FROM `tabPurchase Order` po
             JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
             WHERE {_OPEN_PO} AND poi.qty > poi.received_qty
@@ -149,7 +149,7 @@ def resolve_piece(code):
         return {"ok": False, "reason": "unknown_item", "code": (code or "").strip()}
     pos = frappe.db.sql(
         f"""SELECT po.name, po.supplier, po.currency, po.transaction_date,
-                   (poi.qty - poi.received_qty) AS pending, 1 AS lines
+                   (poi.qty - poi.received_qty) AS pending, 1 AS nlines
             FROM `tabPurchase Order` po
             JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
             WHERE {_OPEN_PO} AND poi.item_code = %(item)s AND poi.qty > poi.received_qty
