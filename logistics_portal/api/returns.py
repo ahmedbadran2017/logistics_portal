@@ -234,7 +234,7 @@ def _batch_state(name):
         key = it.awb or it.delivery_note
         if key not in parcels:
             order.append(key)
-            parcels[key] = {"awb": it.awb or "", "dn": it.delivery_note or "",
+            parcels[key] = {"key": key, "awb": it.awb or "", "dn": it.delivery_note or "",
                             "items": [], "ordered": 0, "actual": 0}
         p = parcels[key]
         p["items"].append({
@@ -383,6 +383,38 @@ def receive_scan(batch, code):
             "ordered": int(res.get("ordered_qty") or 0),
             "allComplete": bool(res.get("all_complete")),
             "state": _batch_state(batch)}
+
+
+@frappe.whitelist()
+def receive_parcel(batch, key):
+    """Mark a WHOLE parcel as physically received — set every still-short line of
+    that parcel up to its ordered qty.
+
+    The deliberate escape hatch the piece-by-piece scan flow was missing: a
+    multi-item parcel only auto-completes the single-item case, so its lines sit
+    at actual=0 until each barcode is scanned — and an item with no barcode can
+    never be scanned at all. Both then masquerade as 'missing' and get closed
+    out silently. This makes receiving a parcel an explicit, per-parcel act with
+    the same effect as scanning each item (codx validate recomputes the line
+    state on save), never a silent gap."""
+    from frappe.utils import flt
+    _recv_gate()
+    key = (key or "").strip()
+    if not frappe.db.exists("Return Shipment", batch):
+        return {"ok": False, "reason": "unknown_batch"}
+    doc = frappe.get_doc("Return Shipment", batch)
+    if doc.docstatus != 0:
+        frappe.throw("This batch is already closed.")
+    touched = 0
+    for it in doc.items:
+        if (it.awb or it.delivery_note) == key and flt(it.actual_qty) < flt(it.ordered_qty):
+            it.actual_qty = it.ordered_qty
+            touched += 1
+    if not touched:
+        return {"ok": False, "reason": "nothing_pending", "state": _batch_state(batch)}
+    doc.save()  # codx validate → recompute actual/missing/is_complete + summary
+    frappe.db.commit()
+    return {"ok": True, "key": key, "lines": touched, "state": _batch_state(batch)}
 
 
 @frappe.whitelist()

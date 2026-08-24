@@ -90,6 +90,17 @@
             </div>
             <span class="text-[13px] font-bold tabular-nums flex-shrink-0"
                   :class="p.done ? 'text-emerald-600' : 'text-stone-800'">{{ p.actual }}/{{ p.ordered }}</span>
+            <!-- Escape hatch for a parcel that can't be scanned piece-by-piece
+                 (no barcode) or one verified in hand: receive it whole, explicitly. -->
+            <button
+              v-if="!p.done"
+              class="h-8 px-2.5 rounded-lg text-[11.5px] font-semibold ring-1 transition-colors flex-shrink-0 disabled:opacity-50"
+              :class="armedParcel === p.key
+                ? 'text-white bg-emerald-600 ring-emerald-600'
+                : 'text-emerald-700 bg-emerald-50 ring-emerald-200 hover:bg-emerald-100'"
+              :disabled="parcelBusy"
+              @click.stop="receiveParcel(p.key)"
+            >{{ armedParcel === p.key ? t('recv.parcelConfirm') : t('recv.parcelReceive') }}</button>
           </div>
           <div v-if="!p.done" class="flex flex-wrap gap-1.5 mt-2 ps-7">
             <span v-for="it in p.items" :key="it.sku"
@@ -103,9 +114,9 @@
 
       <!-- Close batch -->
       <div v-if="state.parcels.length" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4">
-        <div v-if="state.missing > 0" class="flex items-center gap-2 text-[12.5px] text-amber-700 bg-amber-50 ring-1 ring-amber-200/70 rounded-lg px-3 py-2 mb-3">
-          <Icon name="alert-triangle" :size="14" class="flex-shrink-0" />
-          {{ t('recv.missingWarn').replace('{n}', state.missing) }}
+        <div v-if="incompleteParcels > 0" class="flex items-start gap-2 text-[12.5px] text-amber-800 bg-amber-50 ring-1 ring-amber-200/70 rounded-lg px-3 py-2 mb-3">
+          <Icon name="alert-triangle" :size="14" class="flex-shrink-0 mt-0.5" />
+          <span>{{ t('recv.incompleteWarn').replace('{p}', incompleteParcels).replace('{n}', state.missing) }}</span>
         </div>
         <button
           class="w-full h-11 rounded-xl text-[14px] font-semibold text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
@@ -123,7 +134,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import ScanInput from "@/components/ui/ScanInput.vue";
 import { api, apiPost } from "@/lib/resource";
@@ -140,6 +151,11 @@ const closing = ref(false);
 const confirmClose = ref(false);
 
 const loadError = ref("");
+
+// Parcels scanned in but not fully received — the ones at risk of being closed
+// out as "missing" when they're really just unscanned.
+const incompleteParcels = computed(
+  () => (state.value?.parcels || []).filter((p) => !p.done).length);
 
 async function boot() {
   loadError.value = "";
@@ -178,6 +194,36 @@ async function onScan(raw) {
     if (res.allComplete) success(t("recv.allComplete"), state.value.batch);
   }
   setTimeout(() => { flash.value = ""; }, 900);
+}
+
+// ── receive a whole parcel (two-tap confirm) ─────────────────────────
+const armedParcel = ref("");
+const parcelBusy = ref(false);
+let parcelTimer = null;
+
+async function receiveParcel(key) {
+  if (armedParcel.value !== key) {
+    armedParcel.value = key;
+    clearTimeout(parcelTimer);
+    parcelTimer = setTimeout(() => { armedParcel.value = ""; }, 4000);
+    return;
+  }
+  armedParcel.value = "";
+  parcelBusy.value = true;
+  try {
+    const res = await apiPost("returns.receive_parcel", { batch: state.value.batch, key });
+    if (!res.ok) {
+      warn(t("recv.parcelFail"), res.reason || "");
+    } else {
+      state.value = res.state;
+      success(t("recv.parcelReceived"), `${res.lines} ${t("recv.units")}`);
+    }
+  } catch (e) {
+    warn(t("recv.parcelFail"), String(e.message || e));
+  } finally {
+    parcelBusy.value = false;
+    scanner.value?.refocus();
+  }
 }
 
 // ── stale batches (previous days) ────────────────────────────────────
