@@ -470,9 +470,41 @@ def problem_radar():
                 "detail": f"{extra} extra parcels will ship if they're merged/combined.",
                 "route": "/logistics/consolidation"})
 
+    def poison_drafts():
+        # A draft pick list whose rows DON'T fully cover one of its orders can
+        # never submit: ee's remove_incomplete_orders throws "Cannot save an
+        # empty Pick List" AFTER the picker scanned everything (PL-54830, 8
+        # such orders found on 2026-08-26 — SLOW ZONE / SRE / batch variants).
+        # The create-time guard should make this impossible; this watches for
+        # any variant that still slips through.
+        n, _ = one("""SELECT COUNT(*) FROM (
+              SELECT DISTINCT pli.parent, pli.sales_order
+              FROM `tabPick List Item` pli
+              JOIN `tabPick List` p ON p.name = pli.parent
+              WHERE p.docstatus = 0 AND COALESCE(pli.sales_order, '') != ''
+            ) ps
+            WHERE EXISTS (
+              SELECT 1 FROM `tabSales Order Item` soi
+              WHERE soi.parent = ps.sales_order
+              GROUP BY soi.item_code
+              HAVING SUM(soi.qty - soi.delivered_qty) > 0
+                 AND SUM(soi.qty - soi.delivered_qty) > COALESCE((
+                   SELECT SUM(pli2.qty) FROM `tabPick List Item` pli2
+                   WHERE pli2.parent = ps.parent
+                     AND pli2.sales_order = ps.sales_order
+                     AND pli2.item_code = soi.item_code), 0)
+            )""")
+        if n:
+            findings.append({"key": "poisonDrafts", "sev": "critical", "count": n,
+                "title": "Draft pick lists that can never submit",
+                "detail": "An order on the draft isn't fully covered by its rows — "
+                          "submit will throw 'Cannot save an empty Pick List'. "
+                          "Cancel the draft and recreate it.",
+                "route": "/logistics/picklists"})
+
     for fn in (open_breaches, at_risk_today, stuck_to_pick, no_awb, unprinted_aging,
                missed_manifest, exceptions_open, return_zone, short_picked,
-               stale_ret_batch, consol_waiting):
+               stale_ret_batch, consol_waiting, poison_drafts):
         check(fn)
 
     sev_rank = {"critical": 0, "warning": 1, "info": 2}
