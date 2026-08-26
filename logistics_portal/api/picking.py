@@ -1298,6 +1298,46 @@ def _resolve_bins(item_codes):
     return best
 
 
+def _batch_truth(item_codes):
+    """For batch/serial-tracked items, ee's OWN availability (its batch-aware
+    resolver) — the final arbiter. Bin can show shelf stock while the batch
+    ledger puts the batch in China (boots on E5A: Bin 5, ee 0), so a Bin-based
+    estimate passes orders ee will refuse; a whole pool of such items 417'd
+    every create on 2026-08-26. Returns {item_code: qty ee will allocate}."""
+    if not item_codes:
+        return {}
+    special = [r[0] for r in frappe.db.sql(
+        "SELECT name FROM `tabItem` WHERE name IN %s AND (has_batch_no = 1 OR has_serial_no = 1)",
+        (tuple(item_codes),))]
+    if not special:
+        return {}
+    try:
+        resolver = frappe.get_attr(
+            "ecommerce_integrations.overrides.pick_list.get_available_item_locations")
+    except Exception:
+        return {}
+    # 75% of the live pool is batch-tracked (520/696 measured), and the resolver
+    # costs a few queries per item — cache each answer 10 min so the create
+    # modal's preview and the 15-min autopilot don't re-pay it every call.
+    # Staleness is safe: a stale >0 just falls back to today's throw-and-skip;
+    # a stale 0 delays one order by at most one tick.
+    cache = frappe.cache()
+    out = {}
+    for it in special:
+        ck = f"lp_bt_{it}"
+        hit = cache.get_value(ck)
+        if hit is not None:
+            out[it] = float(hit)
+            continue
+        try:
+            locs = resolver(it, [], 1000000.0, "Justyol Morocco")
+            out[it] = sum(float(l.get("qty") or 0) for l in (locs or []))
+        except Exception:
+            out[it] = 0.0  # if ee can't answer, it won't allocate either
+        cache.set_value(ck, out[it], expires_in_sec=600)
+    return out
+
+
 def _available_totals(item_codes):
     """item_code → total FREE qty across pickable bins (actual − reserved −
     open-draft pick list claims). Mirrors the controller's full-coverage rule
@@ -1323,6 +1363,10 @@ def _available_totals(item_codes):
         if r[1] in rej:
             continue
         totals[r[0]] = totals.get(r[0], 0) + float(r[2] or 0)
+    # Batch/serial items: cap by ee's own batch-aware availability — Bin stock
+    # whose batch ledger lives elsewhere is not coverage.
+    for it, q in _batch_truth(item_codes).items():
+        totals[it] = min(totals.get(it, 0), q)
     # Same warehouse universe on both sides of the equation: a draft row
     # parked on a non-pickable (or ee-rejected) bin must not eat into free stock.
     lcond, largs = pickable_condition("pli.warehouse")
