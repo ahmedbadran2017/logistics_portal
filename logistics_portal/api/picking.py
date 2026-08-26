@@ -665,6 +665,46 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
 
     matched = [r for r in rows if keep(r)]
     page = matched[:limit]
+
+    # Coverage preview — the SAME math the create runs (_available_totals is
+    # ee-rejected + batch-truth aware; each order gets its own SRE back), in the
+    # same greedy order. Without this the modal said "16 orders will go on the
+    # list" and the create then refused all 16; now blocked rows are flagged
+    # with their blocking item up front and the headline counts only pickable.
+    blocked_by = {}
+    page_names = [r.name for r in page]
+    if page_names:
+        need_rows = frappe.db.sql(
+            """SELECT parent, item_code, SUM(qty - delivered_qty) AS q
+               FROM `tabSales Order Item` WHERE parent IN %s
+               GROUP BY parent, item_code HAVING q > 0""",
+            (tuple(page_names),), as_dict=True)
+        needs = {}
+        for nr in need_rows:
+            needs.setdefault(nr.parent, {})[nr.item_code] = float(nr.q or 0)
+        codes = {c for m in needs.values() for c in m}
+        totals = _available_totals(codes)
+        sre = _sre_by_order(codes)
+        used_own = {}
+        for name in page_names:
+            short = None
+            plan = {}
+            for c, q in (needs.get(name) or {}).items():
+                own = max(0.0, sre.get((name, c), 0) - used_own.get((name, c), 0))
+                use_own = min(q, own)
+                rem = q - use_own
+                if totals.get(c, 0) < rem:
+                    short = c
+                    break
+                plan[c] = (use_own, rem)
+            if short:
+                blocked_by[name] = short
+            else:
+                for c, (use_own, rem) in plan.items():
+                    used_own[(name, c)] = used_own.get((name, c), 0) + use_own
+                    totals[c] = totals.get(c, 0) - rem
+
+    pickable = [r for r in page if r.name not in blocked_by]
     return {
         "rows": [{
             "order": r.name, "customer": r.customer or "",
@@ -672,9 +712,12 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
             "value": float(r.total or 0),
             "lines": int(r.line_count or 0), "units": int(r.units or 0),
             "supplier": r.one_supplier if int(r.sup_count or 0) == 1 else "mixed",
+            "blocked": blocked_by.get(r.name, ""),
         } for r in page],
         "matched": len(matched), "shown": len(page),
         "matchedUnits": sum(int(r.units or 0) for r in matched),
+        "pickable": len(pickable),
+        "pickableUnits": sum(int(r.units or 0) for r in pickable),
         "poolTotal": len(rows),
         "suppliers": sorted(
             [{"name": k, "orders": v} for k, v in sup_facet.items() if k != "(none)"],

@@ -678,6 +678,7 @@ export default {
     loading: "بيحسب المطابق…",
     willCreate: "أوردر هيتحطوا في القائمة",
     ofMatch: "من {n} مطابق",
+    blockedN: "{n} محجوب — بدون مخزون", noStock: "بدون مخزون:",
     ordersMatch: "أوردر مطابق", units: "قطعة", noneMatch: "مفيش حاجة تطابق الفلاتر دي",
     item1: "صنف", itemN: "أصناف",
     pickerLabel: "أسند لـ picker", pickerLater: "أسند بعدين",

@@ -98,24 +98,29 @@
           <div v-else-if="loadError" class="text-[12px] text-rose-600 font-mono break-words">{{ loadError }}</div>
           <template v-else>
             <div class="flex items-baseline gap-2 flex-wrap">
-              <span class="text-[22px] font-semibold tabular-nums text-stone-900">{{ Math.min(cap, matched) }}</span>
+              <span class="text-[22px] font-semibold tabular-nums text-stone-900">{{ Math.min(cap, pickable) }}</span>
               <span class="text-[12.5px] text-stone-500">{{ t("cpl.willCreate") }}</span>
-              <span v-if="matched > cap" class="text-[11.5px] text-amber-700 bg-amber-50 ring-1 ring-amber-200/70 rounded-full px-2 py-0.5">
-                {{ t("cpl.ofMatch").replace("{n}", matched) }}
+              <span v-if="pickable > cap" class="text-[11.5px] text-amber-700 bg-amber-50 ring-1 ring-amber-200/70 rounded-full px-2 py-0.5">
+                {{ t("cpl.ofMatch").replace("{n}", pickable) }}
+              </span>
+              <span v-if="blockedCount" class="text-[11.5px] text-rose-700 bg-rose-50 ring-1 ring-rose-200/70 rounded-full px-2 py-0.5">
+                {{ t("cpl.blockedN").replace("{n}", blockedCount) }}
               </span>
             </div>
             <div class="text-[11.5px] text-stone-400 mt-1 tabular-nums">
               {{ matched }} {{ t("cpl.ordersMatch") }} · {{ matchedUnits }} {{ t("cpl.units") }}
-              <span v-if="matched === 0"> · {{ t("cpl.noneMatch") }}</span>
+              <span v-if="pickable === 0"> · {{ t("cpl.noneMatch") }}</span>
             </div>
-            <!-- a peek at the first few orders -->
+            <!-- a peek at the first few orders; blocked ones carry their reason -->
             <div v-if="rows.length" class="mt-2.5 space-y-1 max-h-[180px] overflow-y-auto">
               <div v-for="(r, i) in rows.slice(0, cap)" :key="r.order"
-                   class="flex items-center gap-2 text-[11.5px] rounded-lg bg-white ring-1 ring-stone-200/60 px-2.5 py-1.5">
+                   class="flex items-center gap-2 text-[11.5px] rounded-lg px-2.5 py-1.5 ring-1"
+                   :class="r.blocked ? 'bg-rose-50/50 ring-rose-200/60' : 'bg-white ring-stone-200/60'">
                 <span class="text-stone-300 tabular-nums w-5 text-end">{{ i + 1 }}</span>
-                <span class="font-semibold text-stone-800 tabular-nums">{{ r.order }}</span>
+                <span class="font-semibold tabular-nums" :class="r.blocked ? 'text-rose-700 line-through' : 'text-stone-800'">{{ r.order }}</span>
                 <span class="text-stone-500 truncate flex-1 min-w-0">{{ r.customer }} · {{ r.city }}</span>
-                <span class="text-stone-400 whitespace-nowrap">{{ r.lines }} {{ r.lines === 1 ? t("cpl.item1") : t("cpl.itemN") }}</span>
+                <span v-if="r.blocked" class="text-[10.5px] font-mono text-rose-600 whitespace-nowrap" :title="r.blocked">{{ t("cpl.noStock") }} {{ r.blocked.slice(-6) }}</span>
+                <span v-else class="text-stone-400 whitespace-nowrap">{{ r.lines }} {{ r.lines === 1 ? t("cpl.item1") : t("cpl.itemN") }}</span>
               </div>
             </div>
           </template>
@@ -146,7 +151,7 @@
 </template>
 
 <script setup>
-import { ref, reactive } from "vue";
+import { ref, reactive, computed } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -171,6 +176,9 @@ const picker = ref("");
 const rows = ref([]);
 const matched = ref(0);
 const matchedUnits = ref(0);
+const pickable = ref(0);
+const blockedCount = computed(() =>
+  rows.value.slice(0, cap.value).filter((r) => r.blocked).length);
 const facets = reactive({ suppliers: [], cities: [], zones: [] });
 const pickers = ref([]);
 const loading = ref(false);
@@ -194,6 +202,7 @@ async function load() {
     rows.value = r.rows || [];
     matched.value = r.matched || 0;
     matchedUnits.value = r.matchedUnits || 0;
+    pickable.value = r.pickable != null ? r.pickable : (r.matched || 0);
     // Facets are only refreshed when nothing is filtered, so the dropdowns
     // don't collapse to the current selection.
     if (!supplier.value && !city.value && !sku.value && !zone.value && items.value === "any") {
@@ -204,7 +213,7 @@ async function load() {
     loadError.value = "";
   } catch (e) {
     loadError.value = String(e.message || e);
-    rows.value = []; matched.value = 0; matchedUnits.value = 0;
+    rows.value = []; matched.value = 0; matchedUnits.value = 0; pickable.value = 0;
   } finally {
     loading.value = false;
   }
