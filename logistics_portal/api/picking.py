@@ -772,6 +772,37 @@ def _insert_one(sos, picker=None):
     if not pl.get("locations"):
         raise frappe.ValidationError(
             "nothing pickable — stock is locked by other open pick lists")
+
+    # A PARTIALLY-stripped order is worse than a dropped one: validate accepted
+    # it with all its rows, then set_item_locations (before_save) removed a row
+    # whose only stock sits somewhere ee refuses — and the draft saved covering
+    # the SO incompletely, with no re-validate. That draft scans to 100% yet can
+    # never submit (remove_incomplete_orders empties it at submit time —
+    # PL-54830). Drop partially-covered orders NOW; the caller's soNames diff
+    # reports them as skipped.
+    need = {}
+    for so in sos:
+        for it in so.items:
+            pending = (it.qty or 0) - (it.delivered_qty or 0)
+            if pending > 0:
+                need[(so.name, it.item_code)] = need.get((so.name, it.item_code), 0) + pending
+    got = {}
+    for l in pl.locations:
+        if l.sales_order:
+            got[(l.sales_order, l.item_code)] = got.get((l.sales_order, l.item_code), 0) + float(l.qty or 0)
+    partial = {so_name for (so_name, code), q in need.items()
+               if got.get((so_name, code), 0) < q}
+    if partial:
+        keep = [l for l in pl.locations if l.sales_order not in partial]
+        if not keep:
+            # Nothing whole remains — kill the draft entirely (the caller
+            # rolls back / falls back per order and records the reason).
+            raise frappe.ValidationError(
+                "stock validation stripped required lines — items only in "
+                "excluded zones (e.g. SLOW ZONE)?")
+        pl.set("locations", keep)
+        pl.save()
+
     on_pl = {l.sales_order for l in pl.locations if l.sales_order}
     return {"pl": pl.name, "orders": len(on_pl),
             "items": len(pl.locations), "soNames": sorted(on_pl)}
@@ -1197,6 +1228,21 @@ import re as _re
 _SHELF_RE = _re.compile(r"^([A-Z])(\d+)([A-Z])\.? - JM$")
 
 
+def _ee_rejected():
+    """Warehouses ecommerce_integrations' pick controller REFUSES to allocate
+    from (its get_rejected_warehouses — SLOW ZONE, STOCK ZONE, old sites...).
+    The portal's pickable policy accepted SLOW ZONE, ee's set_item_locations
+    then stripped that row at save, and the draft was born covering its order
+    only partially — scanning to 100% yet unable to ever submit (PL-54830).
+    Creation-time availability must live in the INTERSECTION of both policies."""
+    try:
+        fn = frappe.get_attr(
+            "ecommerce_integrations.overrides.pick_list.get_rejected_warehouses")
+        return set(fn() or [])
+    except Exception:
+        return set()
+
+
 def _resolve_bins(item_codes):
     """item_code → its best pick location: a shelf bin with stock first
     (aisle-walkable), else any staging bin with stock, else None (OOS)."""
@@ -1210,6 +1256,11 @@ def _resolve_bins(item_codes):
         "SELECT item_code, warehouse, (actual_qty - reserved_qty) AS avail FROM `tabBin` "
         "WHERE (actual_qty - reserved_qty) > 0 AND item_code IN %s AND " + cond,
         tuple([tuple(item_codes)] + wargs), as_dict=True)
+    # Never point a line at a warehouse ee will refuse — that row gets stripped
+    # at save and poisons the draft.
+    rej = _ee_rejected()
+    if rej:
+        rows = [r for r in rows if r.warehouse not in rej]
 
     # Qty already claimed by OPEN DRAFT pick lists is NOT free — ERPNext's
     # set_item_locations subtracts it on save, so ignoring it here made the
@@ -1260,21 +1311,31 @@ def _available_totals(item_codes):
     # negative (reserved 27k vs actual 0 on one SKU in production) — a naive
     # SUM goes negative and would flag EVERYTHING as uncoverable. Only bins
     # you can physically pick from count.
-    totals = {r[0]: float(r[1] or 0) for r in frappe.db.sql(
-        "SELECT item_code, SUM(GREATEST(actual_qty - reserved_qty, 0)) FROM `tabBin` "
-        "WHERE item_code IN %s AND " + cond + " GROUP BY item_code",
-        tuple([tuple(item_codes)] + wargs))}
+    # Per-bin rows (not a SQL SUM) so ee-rejected warehouses can be excluded:
+    # stock ee's controller refuses to allocate (SLOW ZONE et al.) is NOT
+    # coverage, whatever the portal's own pickable policy says.
+    rej = _ee_rejected()
+    totals = {}
+    for r in frappe.db.sql(
+            "SELECT item_code, warehouse, GREATEST(actual_qty - reserved_qty, 0) FROM `tabBin` "
+            "WHERE item_code IN %s AND " + cond,
+            tuple([tuple(item_codes)] + wargs)):
+        if r[1] in rej:
+            continue
+        totals[r[0]] = totals.get(r[0], 0) + float(r[2] or 0)
     # Same warehouse universe on both sides of the equation: a draft row
-    # parked on a non-pickable bin must not eat into pickable free stock.
+    # parked on a non-pickable (or ee-rejected) bin must not eat into free stock.
     lcond, largs = pickable_condition("pli.warehouse")
     for r in frappe.db.sql(
-            f"""SELECT pli.item_code, SUM(GREATEST(pli.qty - pli.picked_qty, 0))
+            f"""SELECT pli.item_code, pli.warehouse, SUM(GREATEST(pli.qty - pli.picked_qty, 0))
                FROM `tabPick List Item` pli
                JOIN `tabPick List` p ON p.name = pli.parent
                WHERE p.docstatus = 0 AND pli.item_code IN %s AND {lcond}
-               GROUP BY pli.item_code""",
+               GROUP BY pli.item_code, pli.warehouse""",
             tuple([tuple(item_codes)] + largs)):
-        totals[r[0]] = totals.get(r[0], 0) - float(r[1] or 0)
+        if r[1] in rej:
+            continue
+        totals[r[0]] = totals.get(r[0], 0) - float(r[2] or 0)
     return totals
 
 
