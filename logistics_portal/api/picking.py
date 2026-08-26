@@ -825,6 +825,27 @@ def _build_pick_list(orders, picker=None):
         return _allocate_and_insert(sos, skipped, picker)
 
 
+def _sre_by_order(item_codes):
+    """Active Stock Reservation Entry qty per (sales_order, item_code) — stock
+    ERPNext has LOCKED to a specific order. Bin.reserved_qty does NOT reflect
+    these (243 (item,wh) pairs on prod hold an SRE with reserved_qty=0 on the
+    bin), so availability that ignores them overstates free stock and the pick
+    save then throws '{n} units of Item {x} is not available'."""
+    if not item_codes:
+        return {}
+    m = {}
+    for r in frappe.db.sql(
+            """SELECT voucher_no AS so, item_code, SUM(reserved_qty - delivered_qty) AS q
+               FROM `tabStock Reservation Entry`
+               WHERE docstatus = 1 AND status NOT IN ('Delivered', 'Cancelled')
+                 AND voucher_type = 'Sales Order' AND item_code IN %s
+               GROUP BY voucher_no, item_code""",
+            (tuple(item_codes),), as_dict=True):
+        if float(r.q or 0) > 0:
+            m[(r.so, r.item_code)] = float(r.q or 0)
+    return m
+
+
 def _allocate_and_insert(sos, skipped, picker):
     # Apply the controller's own rule OURSELVES, up front: an order rides the
     # combined list only if FREE stock fully covers it after the orders before
@@ -832,7 +853,18 @@ def _allocate_and_insert(sos, skipped, picker):
     # partially-covered orders and throws when a combined doc empties out —
     # that throw is what shattered a batch into one-order lists on 2026-07-15).
     # Uncoverable orders are SKIPPED with a named reason; the rest stay merged.
-    totals = _available_totals({it.item_code for so in sos for it in so.items})
+    item_codes = {it.item_code for so in sos for it in so.items}
+    totals = _available_totals(item_codes)
+    # Stock Reservation Entries lock stock to specific orders but leave the bin's
+    # reserved_qty at 0, so `totals` (physical free) still counts them. Remove
+    # ALL reservations from the shared free pool, then hand each order back only
+    # its OWN reservation — mirrors what ERPNext's set_item_locations allocates,
+    # so a reserved-away item makes its order skip HERE instead of 417-ing the
+    # whole batch at save.
+    sre = _sre_by_order(item_codes)
+    for (_so, code), q in sre.items():
+        totals[code] = totals.get(code, 0) - q
+    used_own = {}
     covered = []
     for so in sos:
         need = {}
@@ -840,16 +872,25 @@ def _allocate_and_insert(sos, skipped, picker):
             pending = (it.qty or 0) - (it.delivered_qty or 0)
             if pending > 0:
                 need[it.item_code] = need.get(it.item_code, 0) + pending
-        short = [c for c, q in need.items() if totals.get(c, 0) < q]
         if not need:
             skipped.append({"order": so.name, "reason": "nothing pending to pick"})
-        elif short:
-            skipped.append({"order": so.name,
-                            "reason": f"insufficient stock ({short[0]})"})
-        else:
-            for c, q in need.items():
-                totals[c] -= q
-            covered.append(so)
+            continue
+        plan, short = {}, None
+        for c, q in need.items():
+            own = max(0.0, sre.get((so.name, c), 0) - used_own.get((so.name, c), 0))
+            use_own = min(q, own)
+            rem = q - use_own          # the part that must come from shared free stock
+            if totals.get(c, 0) < rem:
+                short = c
+                break
+            plan[c] = (use_own, rem)
+        if short:
+            skipped.append({"order": so.name, "reason": f"insufficient stock ({short})"})
+            continue
+        for c, (use_own, rem) in plan.items():
+            used_own[(so.name, c)] = used_own.get((so.name, c), 0) + use_own
+            totals[c] = totals.get(c, 0) - rem
+        covered.append(so)
     sos = covered
     if not sos:
         detail = "; ".join(f"{s['order']} — {s['reason']}" for s in skipped[:4])
