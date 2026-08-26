@@ -43,6 +43,18 @@
           <span class="text-[12.5px] font-medium text-stone-900 flex-1">{{ t(`roles.${r}`) }}</span>
           <Icon v-if="r === role" name="check" :size="14" class="text-[var(--accent-600)]" />
         </button>
+        <!-- Log out — the PDA has no other way out of the session (the Desk is
+             blocked for the floor team), so it lives here on every mobile role. -->
+        <div class="border-t border-stone-100 mt-1 pt-1">
+          <button
+            type="button"
+            class="w-full flex items-center gap-2.5 px-3 py-2 text-start hover:bg-rose-50 text-rose-600"
+            @click="doLogout"
+          >
+            <Icon name="log-out" :size="14" />
+            <span class="text-[12.5px] font-semibold">{{ t('common.logout') }}</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -122,7 +134,7 @@ import { api } from "@/lib/resource";
 
 const route = useRoute();
 const logoSrc = "/assets/logistics_portal/justyol-logo.png";
-const { role, roles, fullName, hiddenPages, setActiveRole } = useAuth();
+const { role, roles, fullName, hiddenPages, setActiveRole, logout } = useAuth();
 const { t } = useI18n();
 
 const mobileNav = computed(() => navItemsFor(role.value, hiddenPages.value));
@@ -143,6 +155,13 @@ const initials = computed(() =>
 function pickRole(r) {
   setActiveRole(r);
   roleMenu.value = false;
+}
+
+async function doLogout() {
+  roleMenu.value = false;
+  try { await logout(); } catch (_) { /* clear locally regardless */ }
+  // Full reload: drops all in-memory state and lands on the login screen clean.
+  window.location.href = "/logistics/login";
 }
 
 // Global ⌘K / Ctrl+K to toggle the command palette.

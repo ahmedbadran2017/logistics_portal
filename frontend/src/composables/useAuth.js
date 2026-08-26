@@ -58,7 +58,12 @@ async function login(usr, pwd) {
 }
 
 async function logout() {
-  await fetch("/api/method/logout", { method: "POST" });
+  // CSRF header: Frappe rejects tokenless POSTs once a session token exists.
+  const token = window.csrf_token || (window.frappe_boot && window.frappe_boot.csrf_token) || "";
+  await fetch("/api/method/logout", {
+    method: "POST",
+    headers: { "X-Frappe-CSRF-Token": token, "X-Requested-With": "XMLHttpRequest" },
+  });
   user.value = "Guest";
   role.value = null;
   isInitialized.value = false;

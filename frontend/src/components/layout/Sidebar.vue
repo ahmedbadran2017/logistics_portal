@@ -114,6 +114,18 @@
           </div>
           <Icon v-if="r === role" name="check" :size="14" class="text-[var(--accent-600)] flex-shrink-0" />
         </button>
+        <!-- Log out — the Desk is blocked for the floor team, so the portal must
+             carry its own way out of the session. -->
+        <div class="border-t border-stone-100 mt-1 pt-1">
+          <button
+            type="button"
+            class="w-full flex items-center gap-2.5 px-3 py-2 text-start hover:bg-rose-50 text-rose-600"
+            @click="doLogout"
+          >
+            <Icon name="log-out" :size="14" />
+            <span class="text-[12.5px] font-semibold">{{ t('common.logout') }}</span>
+          </button>
+        </div>
       </div>
     </div>
   </aside>
@@ -135,7 +147,7 @@ defineEmits(["open-search"]);
 const logoSrc = "/assets/logistics_portal/justyol-logo.png";
 const { t, locale, setLocale } = useI18n();
 const langs = [{ v: "en", l: "EN" }, { v: "fr", l: "FR" }, { v: "ar", l: "ع" }];
-const { role, roles, fullName, hiddenPages, setActiveRole } = useAuth();
+const { role, roles, fullName, hiddenPages, setActiveRole, logout } = useAuth();
 const route = useRoute();
 const menuOpen = ref(false);
 
@@ -160,6 +172,12 @@ function isActive(item) {
   // Active when the current route matches; the first nav item pointing at a
   // shared fallback route wins visually via route-name match.
   return route.name === item.to;
+}
+
+async function doLogout() {
+  menuOpen.value = false;
+  try { await logout(); } catch (_) { /* clear locally regardless */ }
+  window.location.href = "/logistics/login";
 }
 
 function pickRole(r) {
