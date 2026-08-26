@@ -230,9 +230,15 @@ async function create() {
       orders: chosen, picker: picker.value || undefined,
     });
     const made = (res.pls || (res.pl ? [res.pl] : [])).length || 1;
-    const skipped = (res.skipped || []).length;
-    success(t("cpl.done").replace("{n}", res.orders ?? chosen.length),
-            skipped ? t("cpl.skipped").replace("{n}", skipped) : (res.pl || ""));
+    const skipped = res.skipped || [];
+    // Name the skipped orders and why — "3 skipped" alone leaves the
+    // dispatcher guessing which orders never made the list.
+    const detail = skipped.length
+      ? t("cpl.skipped").replace("{n}", skipped.length) + " — "
+        + skipped.slice(0, 3).map((s) => `${s.order}: ${s.reason}`).join(" · ")
+        + (skipped.length > 3 ? " …" : "")
+      : (res.pl || "");
+    success(t("cpl.done").replace("{n}", res.orders ?? chosen.length), detail);
     open.value = false;
     emit("created");
   } catch (e) {
