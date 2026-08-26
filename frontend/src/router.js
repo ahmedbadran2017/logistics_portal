@@ -105,6 +105,7 @@ const routes = [
       { path: "weights", name: "Weights", component: () => import("@/pages/Weights.vue") },
       { path: "slotting", name: "Slotting", component: () => import("@/pages/Slotting.vue") },
       { path: "catalog", name: "CatalogHub", component: () => import("@/pages/CatalogHub.vue") },
+      { path: "batch-repair", name: "BatchRepair", component: () => import("@/pages/BatchRepair.vue") },
 
       // Team
 

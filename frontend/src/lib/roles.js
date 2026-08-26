@@ -65,6 +65,7 @@ export const ROLE_CONFIG = {
           { to: "ShelfLabels", label: "nav.shelfLabels", icon: "printer" },
           { to: "Weights", label: "nav.weights", icon: "scale" },
           { to: "CatalogHub", label: "nav.catalogHub", icon: "refresh-cw" },
+          { to: "BatchRepair", label: "nav.batchRepair", icon: "unlock" },
         ],
       },
       {
