@@ -121,10 +121,20 @@
           >
             <Icon name="printer" :size="14" /> {{ o.printed ? t('sort.printAgain') : t('sort.printNow') }}
           </button>
-          <div v-else-if="o.noLabel"
-               class="mt-2.5 flex items-start gap-2 rounded-lg bg-amber-50 ring-1 ring-amber-200/70 px-3 py-2 text-[11.5px] text-amber-800">
-            <Icon name="alert-triangle" :size="14" class="text-amber-500 shrink-0 mt-0.5" />
-            <span>{{ t('sort.noLabelHint') }}</span>
+          <div v-else-if="o.noLabel" class="mt-2.5 space-y-1.5">
+            <div class="flex items-start gap-2 rounded-lg bg-amber-50 ring-1 ring-amber-200/70 px-3 py-2 text-[11.5px] text-amber-800">
+              <Icon name="alert-triangle" :size="14" class="text-amber-500 shrink-0 mt-0.5" />
+              <span>{{ t('sort.noLabelHint') }}</span>
+            </div>
+            <!-- The AWB often lands MINUTES late — give the sorter a way to
+                 claim it without rescanning (which says 'already sorted'). -->
+            <button
+              class="w-full h-9 rounded-lg text-[12.5px] font-semibold bg-amber-600 text-white hover:bg-amber-700 flex items-center justify-center gap-1.5 disabled:opacity-50"
+              :disabled="o.rechecking"
+              @click="recheckLabel(o)"
+            >
+              <Icon name="refresh-cw" :size="14" /> {{ o.rechecking ? t('sort.rechecking') : t('sort.recheck') }}
+            </button>
           </div>
         </div>
       </div>
@@ -247,6 +257,31 @@ async function onScanItem(raw) {
   }
   if (wall.value.orders.every((x) => x.done)) {
     success(t("sort.wallDone"), wall.value.pickList);
+  }
+}
+
+// Late AWB recovery: re-read the order; if the label landed since the sort
+// completed, flip it and print — no rescan (which would say "already sorted").
+async function recheckLabel(o) {
+  o.rechecking = true;
+  try {
+    const res = await apiPost("picking.recheck_label", {
+      pick_list: wall.value.pickList, order: o.order,
+    });
+    if (res.ok) {
+      o.noLabel = false;
+      o.labelUrl = res.labelUrl || o.labelUrl;
+      o.status = "Label Printed";
+      if (o.labelUrl) printLabel(o.order, () => { o.printed = true; printedToday.value += 1; });
+      success(t("sort.labelArrived"), o.order);
+    } else {
+      warn(t("sort.stillNoLabel"), o.order);
+    }
+  } catch (e) {
+    warn(t("sort.stillNoLabel"), String(e.message || e));
+  } finally {
+    o.rechecking = false;
+    scanner.value?.refocus();
   }
 }
 

@@ -40,6 +40,11 @@
             <Icon :name="r.blocked ? 'ban' : 'alert-triangle'" :size="11" />
             {{ r.blocked ? t('cityfix.blocked') : t('cityfix.unmatched') }}
           </span>
+          <!-- Already picked, waiting at the sort wall with no carrier label -->
+          <span v-if="r.inFlow"
+                class="inline-flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-wide px-2 h-6 rounded-full flex-shrink-0 text-violet-700 bg-violet-50 ring-1 ring-violet-200">
+            <Icon name="package" :size="11" /> {{ t('cityfix.inFlow') }}
+          </span>
           <div class="min-w-0">
             <RouterLink :to="{ name: 'OrderDetail', params: { name: r.order } }"
                         class="font-mono text-[13px] font-bold text-stone-900 hover:text-[var(--accent-700)] hover:underline">{{ r.order }}</RouterLink>
@@ -63,6 +68,13 @@
           <button class="h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-40 shrink-0"
                   :disabled="!pick[r.order] || busy === r.order" @click="save(r)">
             {{ t('px.common.save') }}
+          </button>
+          <!-- In-flow parcels also need the AWB regenerated after the fix;
+               saves the picked city first when one is chosen. -->
+          <button v-if="r.inFlow"
+                  class="h-9 px-3.5 rounded-lg text-[12.5px] font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 shrink-0 inline-flex items-center gap-1.5"
+                  :disabled="busy === r.order" @click="fixAndRetry(r)">
+            <Icon name="refresh-cw" :size="13" /> {{ t('cityfix.retryAwb') }}
           </button>
         </div>
       </div>
@@ -117,6 +129,27 @@ async function save(r) {
       else data.value.warn = Math.max(0, data.value.warn - 1);
     }
     success(t("cityfix.fixed"), `${r.order} → ${pick.value[r.order]}`);
+    delete pick.value[r.order];
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    busy.value = "";
+  }
+}
+
+// In-flow recovery: save the corrected city (if one was picked), then re-run
+// the carrier automation. The row leaves the queue once the AWB is enqueued —
+// if the city was left bad, Cathedis will fail again and the row returns.
+async function fixAndRetry(r) {
+  busy.value = r.order;
+  try {
+    if (pick.value[r.order]) {
+      await apiPost("city.set_shipping_city", { order: r.order, city: pick.value[r.order] });
+    }
+    const res = await apiPost("shipping.retry_awb", { order: r.order });
+    rows.value = rows.value.filter((x) => x.order !== r.order);
+    if (data.value) data.value.inFlow = Math.max(0, (data.value.inFlow || 0) - 1);
+    success(t("cityfix.retried"), res && res.awb ? `${r.order} · AWB ${res.awb}` : r.order);
     delete pick.value[r.order];
   } catch (e) {
     warn(t("cf.actFail"), String(e.message || e));

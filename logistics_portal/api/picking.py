@@ -1876,8 +1876,44 @@ def sorting_detail(pick_list):
         o["qty"] = sum(i["qty"] for i in o["items"])
         o["sorted"] = sum(i["sorted"] for i in o["items"])
         o["done"] = o["status"] == "Label Printed" or (o["qty"] > 0 and o["sorted"] >= o["qty"])
+        # Fully sorted but the carrier label never arrived — surface it at load
+        # time too, not only on the completing scan (the AWB often lands MINUTES
+        # late; see recheck_label for the recovery path).
+        o["noLabel"] = bool(o["done"] and not o["labelUrl"]
+                            and o["status"] != "Label Printed")
     out.sort(key=lambda o: (o["done"], o["order"]))
     return {"pickList": pick_list, "orders": out}
+
+
+@frappe.whitelist()
+def recheck_label(pick_list, order):
+    """Recovery for a late AWB: an order that completed sorting while its label
+    was still missing gets stuck — sort_scan correctly refused to flip it to
+    'Label Printed', but when Cathedis' answer lands minutes later there was no
+    path to claim it (rescanning says 'already sorted'). This re-reads the SO:
+    if the label is there now, flip the status (same guarded update as
+    sort_scan) and hand back the URL to print."""
+    _sort_gate()
+    order = (order or "").strip()
+    row = frappe.db.sql(
+        """SELECT SUM(qty) - SUM(COALESCE(custom_sorted_qty, 0))
+           FROM `tabPick List Item` WHERE parent = %s AND sales_order = %s""",
+        (pick_list, order))
+    if not row or row[0][0] is None:
+        return {"ok": False, "reason": "not_on_list"}
+    if int(row[0][0] or 0) > 0:
+        return {"ok": False, "reason": "not_sorted"}
+    awb, lbl = frappe.db.get_value(
+        "Sales Order", order, ["custom_awb", "custom_label_url"]) or (None, None)
+    if not (awb or lbl):
+        return {"ok": False, "reason": "no_label_yet"}
+    frappe.db.sql(
+        """UPDATE `tabSales Order` SET custom_logistics_status = 'Label Printed'
+           WHERE name = %s AND COALESCE(custom_logistics_status,'')
+                 IN ('Label Generated','Picked','Pending','')""", (order,))
+    frappe.db.commit()
+    frappe.cache().delete_value("lp_board_summary")
+    return {"ok": True, "labelUrl": lbl or "", "awb": awb or ""}
 
 
 @frappe.whitelist()

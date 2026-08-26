@@ -155,15 +155,39 @@ def city_check_queue(limit=200):
             ORDER BY blocked DESC, so.creation
             LIMIT %(limit)s""",
         {"co": _CO, "acc": accepted_lc, "limit": limit}, as_dict=True)
+    # IN-FLOW casualties: already picked (Picked / Label Generated) but the AWB
+    # never came back — usually the same bad-city cause, discovered only at the
+    # sort wall ("no carrier label" cards). They used to be invisible here
+    # because this queue was pre-pick only; the dispatcher fixes the city then
+    # retries the AWB from this same screen.
+    inflow = frappe.db.sql(
+        f"""SELECT so.name, so.customer_name customer, so.grand_total total,
+                   COALESCE(NULLIF(so.custom_customer_phone,''),
+                            so.custom_shipping_phone) phone,
+                   {_EFF_CITY} city,
+                   TIMESTAMPDIFF(HOUR, so.creation, NOW()) age_h,
+                   {_BAD_CITY} blocked
+            FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
+              AND so.company = %(co)s
+              AND so.custom_logistics_status IN ('Picked', 'Label Generated')
+              AND COALESCE(so.custom_awb, '') = ''
+              AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+            ORDER BY so.creation LIMIT 100""",
+        {"co": _CO}, as_dict=True)
+
+    def _row(r, in_flow=False):
+        return {"order": r.name, "customer": r.customer or "",
+                "city": (r.city or "").strip(), "phone": r.phone or "",
+                "total": float(r.total or 0), "ageH": int(r.age_h or 0),
+                "blocked": bool(r.blocked), "inFlow": in_flow}
+
     blocked = sum(1 for r in rows if r.blocked)
     return {
-        "blocked": blocked, "warn": len(rows) - blocked, "total": len(rows),
-        "rows": [{
-            "order": r.name, "customer": r.customer or "",
-            "city": (r.city or "").strip(), "phone": r.phone or "",
-            "total": float(r.total or 0), "ageH": int(r.age_h or 0),
-            "blocked": bool(r.blocked),
-        } for r in rows],
+        "blocked": blocked, "warn": len(rows) - blocked,
+        "inFlow": len(inflow), "total": len(rows) + len(inflow),
+        # In-flow first: those parcels are physically waiting at the sort wall.
+        "rows": [_row(r, True) for r in inflow] + [_row(r) for r in rows],
         "serverNow": str(now_datetime())[:19],
     }
 
