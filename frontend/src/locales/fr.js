@@ -1169,6 +1169,10 @@ export default {
     faster: "{h}h plus rapide aujourd'hui", slower: "{h}h plus lent aujourd'hui", noData: "\u2014",
   },
   ws: {
+    targetHit: "Objectif atteint",
+    dueShort: "\u00c0 rappeler",
+    slaLeft: "SLA {t} restant",
+    slaOver: "SLA d\u00e9pass\u00e9 {h}h",
     addNote: "Ajouter une note",
     notePh: "Ce que l'appel a dit\u2026 (enregistr\u00e9 sur la commande)",
     noteSaved: "Note enregistr\u00e9e",

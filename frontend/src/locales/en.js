@@ -1168,6 +1168,10 @@ export default {
     faster: "{h}h faster today", slower: "{h}h slower today", noData: "\u2014",
   },
   ws: {
+    targetHit: "Target hit",
+    dueShort: "Due now",
+    slaLeft: "SLA {t} left",
+    slaOver: "SLA late {h}h",
     addNote: "Add a note",
     notePh: "What did the call say\u2026 (saved on the order)",
     noteSaved: "Note saved on the order",

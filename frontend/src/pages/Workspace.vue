@@ -1,27 +1,69 @@
 <template>
   <div class="p-4 sm:p-5 max-w-[1500px] mx-auto">
-    <!-- top strip: my day + the serve button -->
+    <!-- top strip: the day as a scoreboard + the serve button -->
     <div class="flex items-center gap-3 flex-wrap mb-4">
-      <h1 class="text-[18px] font-bold text-stone-900 tracking-tight">{{ t('ws.title') }}</h1>
-      <div v-if="board?.mine" class="flex items-center gap-1.5 text-[11.5px] text-stone-500 tabular-nums">
-        <span class="font-bold text-emerald-600">{{ board.mine.confirm }}</span> {{ t('ws.confirmed') }}
-        <span class="text-stone-300">·</span>
-        <span class="font-bold text-stone-700">{{ myTotal }}</span> / {{ board.myTarget || '—' }} {{ t('ws.today') }}
+      <h1 class="text-[18px] font-bold text-stone-900 tracking-tight me-1">{{ t('ws.title') }}</h1>
+
+      <!-- target ring: the day, as one glance -->
+      <div v-if="board?.myTarget" class="flex items-center gap-2.5 bg-white rounded-2xl ring-1 ring-stone-200/70 ps-2 pe-4 py-1.5 shadow-sm">
+        <svg width="44" height="44" viewBox="0 0 44 44" class="-rotate-90">
+          <circle cx="22" cy="22" r="18" fill="none" stroke="rgb(231 229 228)" stroke-width="5" />
+          <circle cx="22" cy="22" r="18" fill="none" stroke-linecap="round" stroke-width="5"
+                  :stroke="dayPct >= 100 ? 'rgb(16 185 129)' : 'var(--accent-500)'"
+                  :stroke-dasharray="113"
+                  :stroke-dashoffset="113 - Math.min(113, (dayPct / 100) * 113)"
+                  style="transition: stroke-dashoffset .6s ease" />
+        </svg>
+        <div class="leading-tight">
+          <div class="text-[17px] font-extrabold tabular-nums text-stone-900">
+            {{ myTotal }}<span class="text-[11px] font-semibold text-stone-400">/{{ board.myTarget }}</span>
+          </div>
+          <div class="text-[9.5px] font-semibold uppercase tracking-wide" :class="dayPct >= 100 ? 'text-emerald-600' : 'text-stone-400'">
+            {{ dayPct >= 100 ? t('ws.targetHit') : t('ws.today') }}
+          </div>
+        </div>
       </div>
-      <span v-if="dueCount" class="text-[11px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-full px-2 py-0.5 tabular-nums">
-        {{ t('ws.dueN').replace('{n}', String(dueCount)) }}
-      </span>
-      <button class="ms-auto inline-flex items-center gap-2 h-11 px-5 rounded-xl text-[14px] font-bold text-white shadow-sm transition-colors disabled:opacity-50"
+
+      <!-- confirmed today -->
+      <div class="flex items-center gap-2 bg-white rounded-2xl ring-1 ring-stone-200/70 px-3.5 py-1.5 shadow-sm">
+        <span class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center"><Icon name="check-circle" :size="15" /></span>
+        <div class="leading-tight">
+          <div class="text-[17px] font-extrabold tabular-nums text-emerald-600">{{ board?.mine?.confirm ?? 0 }}</div>
+          <div class="text-[9.5px] font-semibold uppercase tracking-wide text-stone-400">{{ t('ws.confirmed') }}</div>
+        </div>
+      </div>
+
+      <!-- SLA pulse: my queue against the first-call clock -->
+      <div class="flex items-center gap-2 rounded-2xl ring-1 px-3.5 py-1.5 shadow-sm"
+           :class="slaLate ? 'bg-rose-50 ring-rose-200' : 'bg-white ring-stone-200/70'">
+        <span class="w-7 h-7 rounded-lg flex items-center justify-center"
+              :class="slaLate ? 'bg-rose-100 text-rose-600' : 'bg-emerald-50 text-emerald-600'">
+          <Icon name="shield-alert" :size="15" />
+        </span>
+        <div class="leading-tight">
+          <div class="text-[17px] font-extrabold tabular-nums" :class="slaLate ? 'text-rose-600' : 'text-emerald-600'">
+            {{ slaLate || '✓' }}
+          </div>
+          <div class="text-[9.5px] font-semibold uppercase tracking-wide" :class="slaLate ? 'text-rose-500' : 'text-stone-400'">
+            SLA {{ board?.slaHours || 6 }}h
+          </div>
+        </div>
+      </div>
+
+      <!-- due call-backs -->
+      <div v-if="dueCount" class="flex items-center gap-2 bg-amber-50 rounded-2xl ring-1 ring-amber-200 px-3.5 py-1.5 shadow-sm">
+        <span class="w-7 h-7 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center"><Icon name="clock" :size="15" /></span>
+        <div class="leading-tight">
+          <div class="text-[17px] font-extrabold tabular-nums text-amber-600">{{ dueCount }}</div>
+          <div class="text-[9.5px] font-semibold uppercase tracking-wide text-amber-500">{{ t('ws.dueShort') }}</div>
+        </div>
+      </div>
+
+      <button class="ms-auto inline-flex items-center gap-2 h-12 px-6 rounded-2xl text-[14.5px] font-bold text-white shadow-md transition-all hover:shadow-lg disabled:opacity-50"
               :style="{ background: 'var(--accent-600)' }" :disabled="serving" @click="serveNext(true)">
         <Icon name="sparkles" :size="16" />{{ serving ? t('ws.serving') : t('ws.next') }}
         <kbd class="text-[10px] font-mono bg-white/20 rounded px-1.5 py-0.5">N</kbd>
       </button>
-    </div>
-    <!-- the day, as a bar — filling it is the job -->
-    <div v-if="board?.myTarget" class="h-1 rounded-full bg-stone-100 overflow-hidden mb-4 -mt-1">
-      <div class="h-full rounded-full transition-all duration-500"
-           :class="dayPct >= 100 ? 'bg-emerald-500' : 'bg-[var(--accent-500)]'"
-           :style="{ width: Math.min(100, dayPct) + '%' }" />
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_300px] gap-4 items-start">
@@ -76,6 +118,11 @@
                 <span class="text-[10.5px] font-mono tabular-nums rounded-full px-2 py-0.5 ring-1"
                       :class="cardSeconds > 240 ? 'text-rose-700 bg-rose-50 ring-rose-200' : 'text-stone-500 bg-stone-50 ring-stone-200'">
                   <Icon name="clock" :size="9" class="inline -mt-px" /> {{ cardTimer }}
+                </span>
+                <!-- the first-call clock on THIS order: green while there's
+                     time, counts down, flips to "late by Xh" past the SLA -->
+                <span v-if="slaChip" class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 tabular-nums" :class="slaChip.cls">
+                  {{ slaChip.text }}
                 </span>
               </div>
               <div class="flex items-center gap-2.5 text-[12px] text-stone-500 mt-1 flex-wrap tabular-nums">
@@ -330,6 +377,29 @@ const editPhone = ref("");
 const editCity = ref("");
 const editAddress = ref("");
 const caps = ref({ pct: 15, amt: 50 });
+
+// SLA against the first-call clock. Queue-level: how many of MY pending rows
+// already blew it. Card-level: this order's countdown, flipping to "late by".
+const slaLate = computed(() => {
+  const h = board.value?.slaHours || 6;
+  return queueRows.value.filter((r) => !r.attempts && r.ageH >= h).length;
+});
+const slaChip = computed(() => {
+  const row = activeRow.value;
+  const h = board.value?.slaHours || 6;
+  if (!row || row.attempts) return null;   // the clock is about the FIRST touch
+  const leftMin = h * 60 - (row.ageH || 0) * 60;
+  if (leftMin <= 0) {
+    const over = Math.round(((row.ageH || 0) - h) * 10) / 10;
+    return { text: t("ws.slaOver").replace("{h}", String(over)),
+             cls: "text-white bg-rose-600 ring-rose-600" };
+  }
+  const hh = Math.floor(leftMin / 60);
+  const mm = Math.round(leftMin % 60);
+  return { text: t("ws.slaLeft").replace("{t}", hh ? `${hh}h${String(mm).padStart(2, "0")}` : `${mm}m`),
+           cls: leftMin < 60 ? "text-amber-700 bg-amber-50 ring-amber-300"
+                            : "text-emerald-700 bg-emerald-50 ring-emerald-200" };
+});
 
 const cardSeconds = ref(0);
 let cardTick = null;
