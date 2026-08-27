@@ -1479,6 +1479,8 @@ export default {
     grp_floor: "Floor",
     colOrders: "Orders picked",
     colDelivered: "Delivered",
+    soonTitle: "Coming soon",
+    soonBody: "The bonus program for the contact center is being finalized — how points are earned and how they pay out. Your work is already being recorded; the page opens once the scheme is approved.",
     noScheme: "No bonus scheme for your role yet",
     noSchemeHint: "Points need a record of who did what. Packing and dispatch aren't attributed per person in the data yet — once they are, this page fills in.",
     thisMonth: "This month",

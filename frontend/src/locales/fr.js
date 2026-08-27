@@ -1480,6 +1480,8 @@ export default {
     grp_floor: "Atelier",
     colOrders: "Commandes préparées",
     colDelivered: "Livrés",
+    soonTitle: "Bientôt disponible",
+    soonBody: "Le programme de primes du centre de contact est en cours de finalisation — comment les points se gagnent et comment ils se paient. Votre travail est déjà enregistré ; la page ouvrira dès que le schéma sera validé.",
     noScheme: "Pas encore de prime pour votre rôle",
     noSchemeHint: "Les points ont besoin d'une trace de qui a fait quoi. L'emballage et la répartition ne sont pas encore attribués par personne dans les données — dès qu'ils le seront, cette page se remplira.",
     thisMonth: "Ce mois-ci",

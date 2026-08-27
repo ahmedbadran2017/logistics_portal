@@ -22,7 +22,18 @@
       </div>
     </header>
 
-    <div v-if="loading" class="space-y-2">
+    <!-- The CC scheme isn't approved yet (Ahmed 2026-08-28): agents see a
+         promise, not a leaderboard. Managers and section admins keep the full
+         page to finish designing it; view-as renders the agent truth. -->
+    <div v-if="comingSoon" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-12 text-center">
+      <span class="inline-flex w-14 h-14 rounded-2xl items-center justify-center bg-amber-50 text-amber-500 ring-1 ring-amber-200/60 mb-3">
+        <Icon name="sparkles" :size="24" />
+      </span>
+      <div class="text-[16px] font-bold text-stone-900">{{ t('bn.soonTitle') }}</div>
+      <div class="text-[12.5px] text-stone-500 mt-1.5 max-w-[440px] mx-auto leading-relaxed">{{ t('bn.soonBody') }}</div>
+    </div>
+
+    <div v-else-if="loading" class="space-y-2">
       <div class="h-[110px] rounded-2xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
       <div class="h-[220px] rounded-2xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
     </div>
@@ -346,8 +357,19 @@ import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
+import { useAuth } from "@/composables/useAuth";
+import { IS_CC } from "@/lib/portal";
 
 const { t } = useI18n();
+const { role, ccAdmin, viewAs } = useAuth();
+// CC agents — and a manager viewing as one — get the coming-soon panel; only
+// the manager/section admins see (and keep designing) the actual board.
+const comingSoon = computed(() => {
+  if (!IS_CC) return false;
+  if (viewAs.value) return true;
+  const admin = ccAdmin.value?.cf || ccAdmin.value?.rs || ccAdmin.value?.cs;
+  return role.value !== "manager" && !admin;
+});
 const { success, warn } = useToast();
 
 const now = new Date();
@@ -452,7 +474,7 @@ async function saveScheme() {
   }
 }
 
-onMounted(() => { load(); loadScheme(); });
+onMounted(() => { if (comingSoon.value) return; load(); loadScheme(); });
 </script>
 
 <style scoped>
