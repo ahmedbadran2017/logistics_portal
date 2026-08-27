@@ -25,6 +25,7 @@ export const LANES = [
     section: "nav.rescueSection",
     tabs: [
       { to: "Rescue", label: "nav.rescue", icon: "route" },
+      { to: "RescueDashboard", label: "nav.rsDashboard", icon: "gauge" },
       { to: "RescueReports", label: "nav.rsReports", icon: "trending-up" },
       { to: "RescueSettings", label: "nav.rsSettings", icon: "settings" },
     ],

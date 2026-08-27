@@ -121,6 +121,13 @@
             <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" title="WhatsApp" class="rs-contact rs-wa">
               <Icon name="message-circle" :size="15" />
             </a>
+            <!-- What's IN the box + fix the contact that failed the delivery —
+                 the agent used to call about a parcel they couldn't see into,
+                 with no way to correct the phone that caused the failure. -->
+            <button v-if="r.order" class="rs-contact text-stone-500" :title="t('cf.fullOrder')"
+                    @click="openDetail(r)"><Icon :name="detailFor === r.id ? 'chevron-up' : 'chevron-down'" :size="15" /></button>
+            <button v-if="r.order" class="rs-contact text-amber-600" :title="t('cf.editContact')"
+                    @click="openEdit(r)"><Icon name="edit" :size="15" /></button>
           </div>
           <!-- decisions -->
           <div class="flex items-center gap-1.5 flex-wrap">
@@ -157,8 +164,44 @@
               <input v-model="reason" :placeholder="t('cf.cancelPh')" maxlength="120"
                      class="flex-1 h-9 ps-3 pe-3 rounded-lg bg-white ring-1 ring-rose-200 text-[12.5px] focus:outline-none" />
               <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 transition-colors"
-                      :disabled="(reasonAction === 'cancel' && !reason.trim()) || busy === r.id"
+                      :disabled="!reason.trim() || busy === r.id"
                       @click="act(r, reasonAction, reason)">{{ t('rs.confirmDecision') }}</button>
+            </div>
+          </div>
+        </Transition>
+
+        <!-- order detail (items + address) -->
+        <Transition name="rsslide">
+          <div v-if="detailFor === r.id" class="bg-stone-50 rounded-xl p-3 mt-3">
+            <div v-if="detailLoading" class="text-[12px] text-stone-400 text-center py-3">…</div>
+            <template v-else-if="detail">
+              <div class="space-y-1.5">
+                <div v-for="it in (detail.items || [])" :key="it.sku || it.name" class="flex items-center gap-2 text-[12px]">
+                  <span class="font-bold tabular-nums text-stone-700">{{ Math.round(it.qty || 1) }}×</span>
+                  <span class="text-stone-800 truncate">{{ it.name }}</span>
+                </div>
+              </div>
+              <div v-if="detail.address_line || detail.city" class="text-[11.5px] text-stone-500 mt-2 pt-2 border-t border-stone-200/70" dir="auto">
+                {{ [detail.address_line, detail.city].filter(Boolean).join(' · ') }}
+              </div>
+            </template>
+            <div v-else class="text-[12px] text-stone-400 text-center py-3">—</div>
+          </div>
+        </Transition>
+
+        <!-- fix the contact (same engine as the confirmation lane) -->
+        <Transition name="rsslide">
+          <div v-if="editFor === r.id" class="bg-amber-50/70 rounded-xl p-2.5 mt-3 space-y-2">
+            <div class="text-[11px] font-semibold text-amber-700">{{ t('cf.editContact') }}</div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <input v-model="editPhone" :placeholder="t('cf.phonePh')" inputmode="tel"
+                     class="h-9 w-[150px] ps-3 pe-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] font-mono focus:outline-none" />
+              <input v-model="editCity" :placeholder="t('cf.cityPh')"
+                     class="h-9 w-[130px] ps-3 pe-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] focus:outline-none" />
+              <input v-model="editAddress" :placeholder="t('cf.addressPh')"
+                     class="h-9 flex-1 min-w-[160px] ps-3 pe-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] focus:outline-none" dir="auto" />
+              <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
+                      :disabled="savingContact" @click="saveContact(r)">{{ t('cf.saveContact') }}</button>
             </div>
           </div>
         </Transition>
@@ -272,6 +315,57 @@ const pollTimer = setInterval(() => {
       && !reasonFor.value) load();
 }, 120000);
 onUnmounted(() => { clearInterval(pollTimer); clearTimeout(qTimer); });
+
+const detailFor = ref("");
+const detail = ref(null);
+const detailLoading = ref(false);
+const editFor = ref("");
+const editPhone = ref("");
+const editCity = ref("");
+const editAddress = ref("");
+const savingContact = ref(false);
+
+async function openDetail(r) {
+  if (detailFor.value === r.id) { detailFor.value = ""; return; }
+  detailFor.value = r.id;
+  editFor.value = "";
+  detailLoading.value = true;
+  try {
+    detail.value = await api("orders.detail", { name: r.order });
+  } catch (e) {
+    detail.value = null;
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+function openEdit(r) {
+  if (editFor.value === r.id) { editFor.value = ""; return; }
+  editFor.value = r.id;
+  detailFor.value = "";
+  editPhone.value = r.phone || "";
+  editCity.value = r.city || "";
+  editAddress.value = "";
+}
+
+async function saveContact(r) {
+  savingContact.value = true;
+  try {
+    await apiPost("confirmation.update_contact", {
+      order: r.order, phone: editPhone.value.trim() || undefined,
+      city: editCity.value.trim() || undefined,
+      address_line: editAddress.value.trim() || undefined,
+    });
+    r.phone = editPhone.value.trim() || r.phone;
+    r.city = editCity.value.trim() || r.city;
+    editFor.value = "";
+    success(t("cf.contactSaved"), r.order);
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    savingContact.value = false;
+  }
+}
 
 function openReason(r, action) {
   if (reasonFor.value === r.id && reasonAction.value === action) {

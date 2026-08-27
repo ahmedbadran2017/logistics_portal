@@ -144,7 +144,15 @@ const drawer = ref(false);
 const cmdOpen = ref(false);
 const notifOpen = ref(false);
 const roleMenu = ref(false);
-const offline = ref(false); // wired false by default
+const offline = ref(typeof navigator !== "undefined" && !navigator.onLine);
+const _on = () => { offline.value = false; };
+const _off = () => { offline.value = true; };
+window.addEventListener("online", _on);
+window.addEventListener("offline", _off);
+onUnmounted(() => {
+  window.removeEventListener("online", _on);
+  window.removeEventListener("offline", _off);
+});
 const queued = ref(0);
 const unread = ref(0);
 

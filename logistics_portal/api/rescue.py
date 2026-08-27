@@ -478,3 +478,89 @@ def report(days=7):
         "funnel": [{"date": str(f.d), "saved": int(f.saved or 0),
                     "lost": int(f.lost or 0), "dna": int(f.dna or 0)} for f in funnel],
     }
+
+
+@frappe.whitelist()
+def dashboard():
+    """The rescue lane's queue-health view — the sibling the other two lanes
+    always had. All panels describe RIGHT NOW (there is no snapshot history):
+    queue depths with value at stake, how long failing parcels have waited
+    untouched, and the day-by-day inflow vs. decisions for two weeks."""
+    _gate()
+    sla_h = _rs_settings().get("slaTriageH", 24)
+
+    cards = {}
+    for tab in ("exceptions", "failed", "stale", "backlog"):
+        vals = {"days": 30}
+        where = _dn_where(tab, vals)
+        r = frappe.db.sql(
+            f"""SELECT COUNT(*), ROUND(COALESCE(SUM(dn.grand_total), 0))
+                FROM `tabDelivery Note` dn WHERE {where}""", vals)[0]
+        cards[tab] = {"n": int(r[0] or 0), "value": int(r[1] or 0)}
+
+    # Untouched-vs-SLA and age spread of the two active failure queues.
+    vals = {"days": 30}
+    where = _dn_where("exceptions", vals)
+    where = where.replace("dn.custom_track_shipment_status = %(track)s",
+                          "dn.custom_track_shipment_status IN "
+                          "('Delivery Exception', 'Failed Attempt')")
+    vals.pop("track", None)
+    aging = frappe.db.sql(
+        f"""SELECT
+              SUM(TIMESTAMPDIFF(HOUR, dn.posting_date, NOW()) <= 24),
+              SUM(TIMESTAMPDIFF(HOUR, dn.posting_date, NOW()) BETWEEN 25 AND 72),
+              SUM(TIMESTAMPDIFF(HOUR, dn.posting_date, NOW()) > 72),
+              SUM(COALESCE(so.custom_call_attempts, 0) = 0
+                  AND TIMESTAMPDIFF(HOUR, dn.posting_date, NOW()) > %(sla)s)
+            FROM `tabDelivery Note` dn
+            LEFT JOIN `tabSales Order` so
+              ON so.name = (SELECT MIN(dni.against_sales_order)
+                            FROM `tabDelivery Note Item` dni
+                            WHERE dni.parent = dn.name)
+            WHERE {where}""", {**vals, "sla": sla_h})[0]
+    ages = {"d1": int(aging[0] or 0), "d3": int(aging[1] or 0),
+            "older": int(aging[2] or 0), "breached": int(aging[3] or 0)}
+
+    # 14 days: parcels that STARTED failing vs. rescue decisions taken.
+    inflow = {str(r[0]): int(r[1] or 0) for r in frappe.db.sql(
+        """SELECT dn.posting_date, COUNT(*) FROM `tabDelivery Note` dn
+           WHERE dn.docstatus = 1 AND dn.company = %s
+             AND dn.custom_track_shipment_status IN
+                 ('Delivery Exception', 'Failed Attempt')
+             AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+           GROUP BY dn.posting_date""", (_CO,))}
+    decided = {str(r[0]): int(r[1] or 0) for r in frappe.db.sql(
+        """SELECT DATE(c.creation), COUNT(*) FROM `tabComment` c
+           WHERE c.reference_doctype = 'Sales Order'
+             AND c.content LIKE 'Rescue: %%'
+             AND c.creation >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+           GROUP BY DATE(c.creation)""")}
+    days_axis = [str(r[0]) for r in frappe.db.sql(
+        """SELECT DATE_SUB(CURDATE(), INTERVAL n DAY) FROM
+           (SELECT 13 n UNION SELECT 12 UNION SELECT 11 UNION SELECT 10
+            UNION SELECT 9 UNION SELECT 8 UNION SELECT 7 UNION SELECT 6
+            UNION SELECT 5 UNION SELECT 4 UNION SELECT 3 UNION SELECT 2
+            UNION SELECT 1 UNION SELECT 0) t ORDER BY 1""")]
+    daily = [{"d": d, "inflow": inflow.get(d, 0), "decided": decided.get(d, 0)}
+             for d in days_axis]
+
+    # The ten longest-waiting untouched failures — the call list.
+    oldest = frappe.db.sql(
+        _DN_SELECT + """ WHERE dn.docstatus = 1 AND dn.company = %(co)s
+              AND COALESCE(dn.custom_exception_action,'') = ''
+              AND dn.custom_track_shipment_status IN
+                  ('Delivery Exception', 'Failed Attempt')
+              AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            ORDER BY dn.posting_date LIMIT 10""",
+        {"co": _CO}, as_dict=True)
+
+    return {
+        "cards": cards, "ages": ages, "slaH": sla_h, "daily": daily,
+        "oldest": [{
+            "dn": r.dn, "order": r.so_name or "", "customer": r.customer or "",
+            "phone": (r.phone or "").strip(), "track": r.track or "",
+            "ageD": int(r.age_d or 0), "attempts": int(r.attempts or 0),
+            "value": float(r.total or 0),
+        } for r in oldest],
+        "serverNow": str(now_datetime())[:19],
+    }

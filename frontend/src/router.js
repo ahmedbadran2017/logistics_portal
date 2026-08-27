@@ -46,6 +46,7 @@ const routes = [
         component: LaneShell,
         children: [
           { path: "", name: "Rescue", component: () => import("@/pages/Rescue.vue") },
+          { path: "dashboard", name: "RescueDashboard", component: () => import("@/pages/RescueDashboard.vue") },
           { path: "reports", name: "RescueReports", component: () => import("@/pages/RescueReports.vue") },
           { path: "settings", name: "RescueSettings", component: () => import("@/pages/RescueSettings.vue") },
         ],

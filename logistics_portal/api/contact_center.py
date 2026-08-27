@@ -726,3 +726,61 @@ def overview():
         "leaderboard": leaderboard,
         "serverNow": str(now_datetime())[:19],
     }
+
+
+@frappe.whitelist()
+def lane_counts():
+    """One light call for the lane tab badges: how deep is each lane's working
+    queue RIGHT NOW. Cached 60s per scope — the agent reading Reports must see
+    the queue growing behind them without paying for a full board load."""
+    from logistics_portal.api.auth import resolve_role
+    role = resolve_role(frappe.session.user)
+    if role not in ("confirmation", "manager"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    import json as _json
+    from logistics_portal.api.confirmation import _IN_HAND, _is_cf_admin
+    mine = role != "manager" and not _is_cf_admin()
+    ck = "lp_lane_counts_" + (frappe.session.user if mine else "all")
+    hit = frappe.cache().get_value(ck)
+    if hit:
+        try:
+            return _json.loads(hit)
+        except Exception:
+            pass
+    me_q = ""
+    vals = {"co": "Justyol Morocco"}
+    if mine:
+        vals["me_like"] = f'%"{frappe.session.user}"%'
+        me_q = " AND _assign LIKE %(me_like)s"
+    in_hand = _IN_HAND.replace("so.", "")
+    cf = int(frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tabSales Order`
+            WHERE docstatus = 1 AND company = %(co)s
+              AND custom_sales_status = 'Pending' AND {in_hand}{me_q}
+              AND creation >= DATE_SUB(NOW(), INTERVAL 30 DAY)""", vals)[0][0])
+    rs = int(frappe.db.sql(
+        """SELECT COUNT(*) FROM `tabDelivery Note` dn
+           WHERE dn.docstatus = 1 AND dn.company = %(co)s
+             AND COALESCE(dn.custom_exception_action,'') = ''
+             AND dn.custom_track_shipment_status IN
+                 ('Delivery Exception', 'Failed Attempt')
+             AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)""",
+        vals)[0][0])
+    cs = 0
+    try:
+        from logistics_portal.api.tickets import _OPEN_STATUSES, _has_wa
+        cs = int(frappe.db.sql(
+            """SELECT COUNT(*) FROM `tabIssue`
+               WHERE company = %(co)s AND status IN %(sts)s""",
+            {**vals, "sts": _OPEN_STATUSES})[0][0])
+        if _has_wa():
+            cs += int(frappe.db.sql(
+                """SELECT COUNT(DISTINCT wm.`from`) FROM `tabWhatsApp Message` wm
+                   WHERE wm.type = 'Incoming'
+                     AND COALESCE(wm.custom_lp_handled, 0) = 0
+                     AND wm.creation >= DATE_SUB(NOW(), INTERVAL 7 DAY)""")[0][0])
+    except Exception:
+        pass
+    out = {"confirmation": cf, "rescue": rs, "tickets": cs}
+    frappe.cache().set_value(ck, _json.dumps(out), expires_in_sec=60)
+    return out

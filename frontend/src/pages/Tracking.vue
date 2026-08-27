@@ -98,7 +98,7 @@
           <div class="grid grid-cols-1 gap-2 mt-3">
             <a
               v-if="tlParcel.awb"
-              :href="'https://cathedis.ma/shipment/?track_number=' + tlParcel.awb" target="_blank"
+              :href="carrierUrl(tlParcel)" target="_blank"
               class="inline-flex items-center justify-center gap-1.5 px-3 h-10 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300"
             ><Icon name="globe" :size="15" />{{ t("trk.trackOn") }}</a>
             <a
@@ -277,7 +277,7 @@
 </template>
 
 <script setup>
-import { computed, ref, h, onMounted } from "vue";
+import { computed, ref, h, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import {
@@ -370,12 +370,27 @@ function onSearch() {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => load(), 350);
 }
+// A 15s tick so "last updated" actually ages (a computed over Date.now()
+// alone never re-evaluates — it froze at "just now").
+const nowTick = ref(Date.now());
+const tickTimer = setInterval(() => { nowTick.value = Date.now(); }, 15000);
+onUnmounted(() => clearInterval(tickTimer));
 const updatedAgo = computed(() => {
-  const s = Math.round((Date.now() - updatedAt.value) / 1000);
+  const s = Math.round((nowTick.value - updatedAt.value) / 1000);
   if (s < 5) return t("ordersPg.justNow");
   if (s < 60) return t("ordersPg.agoS").replace("{n}", s);
   return t("ordersPg.agoM").replace("{n}", Math.round(s / 60));
 });
+
+// Cathedis is the default carrier, not the only one — a second carrier's
+// AWB must not link to the wrong tracker.
+function carrierUrl(p2) {
+  const c = String(p2.carrier || "").toLowerCase();
+  if (!c || c.includes("cathedis")) {
+    return "https://cathedis.ma/shipment/?track_number=" + p2.awb;
+  }
+  return "https://www.google.com/search?q=" + encodeURIComponent(`${p2.carrier} tracking ${p2.awb}`);
+}
 
 const isBad = (track) => track === "exception" || track === "failed";
 
