@@ -685,6 +685,12 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
         codes = {c for m in needs.values() for c in m}
         totals = _available_totals(codes)
         sre = _sre_by_order(codes)
+        # Mirror _allocate_and_insert EXACTLY: reservations lock stock to
+        # specific orders but leave Bin.reserved_qty at 0, so the shared pool
+        # must shed ALL of them before each order gets its own back. Without
+        # this the preview said "17 will go" and the create refused all 17.
+        for (_so, code), q in sre.items():
+            totals[code] = totals.get(code, 0) - q
         used_own = {}
         for name in page_names:
             short = None
