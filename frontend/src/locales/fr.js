@@ -1169,6 +1169,10 @@ export default {
     faster: "{h}h plus rapide aujourd'hui", slower: "{h}h plus lent aujourd'hui", noData: "\u2014",
   },
   ws: {
+    k_dna: "\u00e0 rappeler",
+    k_followup: "relance",
+    k_onhold: "en attente",
+    nextDueAt: "Prochain rappel \u00e0 {t}",
     targetHit: "Objectif atteint",
     dueShort: "\u00c0 rappeler",
     slaLeft: "SLA {t} restant",

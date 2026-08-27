@@ -1553,3 +1553,69 @@ def order_activity(order, limit=15):
         "text": (r.content or "")[:300],
         "at": str(r.creation)[:16],
     } for r in rows]}
+
+
+@frappe.whitelist()
+def next_up(limit=20, as_user=None):
+    """The serve PLAN, in the exact order next_order() will hand it out:
+    due call-backs first (oldest deferral), then the oldest Pending. The
+    workspace queue pane shows this — the agent sees what's coming, not just
+    the pending slice. Also reports the earliest FUTURE call-back, so an
+    empty list can say "next call-back at 14:30" instead of lying "all done".
+    """
+    role = _gate()
+    limit = min(max(int(limit or 20), 1), 40)
+    mine = role != "manager" and not _is_cf_admin()
+    scope_user = frappe.session.user
+    as_user = (as_user or "").strip()
+    if as_user and not mine:
+        scope_user = as_user
+        mine = True
+    me_q = ""
+    vals = {"co": _CO, "limit": limit}
+    if mine:
+        vals["me_like"] = f'%"{scope_user}"%'
+        me_q = " AND so._assign LIKE %(me_like)s"
+
+    retry_sts = tuple(v for k, v in QUEUES.items() if k != "pending")
+    sel = """SELECT so.name, so.customer_name customer, so.grand_total total,
+                    so.custom_sales_status status,
+                    COALESCE(so.custom_call_attempts, 0) attempts,
+                    so.custom_next_call_at next_call,
+                    TIMESTAMPDIFF(HOUR, so.creation, NOW()) age_h"""
+    due = frappe.db.sql(
+        f"""{sel} FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
+              AND so.custom_next_call_at IS NOT NULL
+              AND so.custom_next_call_at <= NOW(){me_q}
+            ORDER BY so.custom_next_call_at LIMIT %(limit)s""",
+        {**vals, "sts": retry_sts}, as_dict=True)
+    room = max(0, limit - len(due))
+    fresh = frappe.db.sql(
+        f"""{sel} FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status = 'Pending' AND {_IN_HAND}
+              AND so.creation >= DATE_SUB(NOW(), INTERVAL 30 DAY){me_q}
+            ORDER BY so.creation LIMIT %(room)s""",
+        {**vals, "room": room}, as_dict=True) if room else []
+
+    upcoming = frappe.db.sql(
+        f"""SELECT MIN(so.custom_next_call_at) FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
+              AND so.custom_next_call_at > NOW(){me_q}""",
+        {**vals, "sts": retry_sts})[0][0]
+
+    status_tab = {"Did not Answer": "dna", "Follow Up": "followup",
+                  "On Hold": "onhold"}
+    rows = [{
+        "order": r.name, "customer": r.customer or "",
+        "total": float(r.total or 0), "ageH": int(r.age_h or 0),
+        "attempts": int(r.attempts or 0),
+        "due": bool(r.status != "Pending"),
+        "kind": status_tab.get(r.status, "pending"),
+        "nextCall": str(r.next_call)[11:16] if r.next_call else "",
+    } for r in list(due) + list(fresh)]
+    return {"rows": rows, "nextDueAt": str(upcoming)[11:16] if upcoming else "",
+            "dueCount": len(due)}

@@ -1168,6 +1168,10 @@ export default {
     faster: "{h}h faster today", slower: "{h}h slower today", noData: "\u2014",
   },
   ws: {
+    k_dna: "call back",
+    k_followup: "follow-up",
+    k_onhold: "on hold",
+    nextDueAt: "Next call-back at {t}",
     targetHit: "Target hit",
     dueShort: "Due now",
     slaLeft: "SLA {t} left",

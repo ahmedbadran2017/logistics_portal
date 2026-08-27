@@ -1168,6 +1168,10 @@ export default {
     faster: "أسرع بـ {h} ساعة النهاردة", slower: "أبطأ بـ {h} ساعة النهاردة", noData: "\u2014",
   },
   ws: {
+    k_dna: "معاودة",
+    k_followup: "متابعة",
+    k_onhold: "معلق",
+    nextDueAt: "أقرب معاودة الساعة {t}",
     targetHit: "التارجت اتحقق",
     dueShort: "مستحق",
     slaLeft: "باقي {t} على الـ SLA",

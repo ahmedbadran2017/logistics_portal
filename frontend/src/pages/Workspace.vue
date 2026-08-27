@@ -87,12 +87,22 @@
             <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
                   :class="r.due ? 'bg-amber-500' : r.ageH > (board?.slaHours || 6) ? 'bg-rose-500' : 'bg-stone-300'" />
             <span class="min-w-0 flex-1">
-              <span class="block text-[12px] font-semibold text-stone-800 truncate">{{ r.customer || r.order }}</span>
+              <span class="flex items-center gap-1.5 min-w-0">
+                <span class="text-[12px] font-semibold text-stone-800 truncate">{{ r.customer || r.order }}</span>
+                <span v-if="r.kind !== 'pending'" class="text-[8.5px] font-bold uppercase rounded px-1 py-px flex-shrink-0"
+                      :class="KIND_CLS[r.kind]">{{ t('ws.k_' + r.kind) }}</span>
+              </span>
               <span class="block text-[10px] text-stone-400 font-mono truncate">{{ r.order }} · {{ r.ageH }}h<template v-if="r.attempts"> · ×{{ r.attempts }}</template></span>
             </span>
             <span class="text-[11px] font-semibold tabular-nums text-stone-600 flex-shrink-0">{{ Math.round(r.total) }}</span>
           </button>
-          <div v-if="!queueRows.length" class="text-center text-[12px] text-emerald-600 py-8">{{ t('cf.empty') }}</div>
+          <div v-if="!queueRows.length" class="text-center py-8">
+            <div class="text-[12px] text-emerald-600">{{ t('cf.empty') }}</div>
+            <!-- honest empty: work IS scheduled, just not due yet -->
+            <div v-if="nextDueAt" class="text-[11px] text-amber-600 font-semibold mt-1">
+              {{ t('ws.nextDueAt').replace('{t}', nextDueAt) }}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -415,8 +425,17 @@ const dayPct = computed(() => {
 
 const myTotal = computed(() =>
   Object.values(board.value?.mine || {}).reduce((a, b) => a + (b || 0), 0));
-const queueRows = computed(() => board.value?.rows || []);
-const dueCount = computed(() => queueRows.value.filter((r) => r.due).length);
+// The queue pane mirrors the SERVE PLAN (due call-backs first, then fresh) —
+// not just the pending slice; the agent sees exactly what N will hand out.
+const plan = ref(null);
+const queueRows = computed(() => plan.value?.rows || []);
+const nextDueAt = computed(() => plan.value?.nextDueAt || "");
+const dueCount = computed(() => plan.value?.dueCount || 0);
+const KIND_CLS = {
+  dna: "text-amber-700 bg-amber-100",
+  followup: "text-sky-700 bg-sky-100",
+  onhold: "text-stone-600 bg-stone-200",
+};
 const waUrl = computed(() =>
   "https://wa.me/" + String(active.value?.phone || "").replace(/\D/g, ""));
 const isBlocked = computed(() => cust.value?.flag?.flag === "blocked");
@@ -516,8 +535,13 @@ const amendDirty = computed(() =>
 async function loadBoard() {
   boardLoading.value = true;
   try {
-    board.value = await api("confirmation.board", { tab: "pending", limit: 40 });
-    if (board.value?.reasons?.length) reasons.value = board.value.reasons;
+    const [b, p2] = await Promise.all([
+      api("confirmation.board", { tab: "pending", limit: 1 }),
+      api("confirmation.next_up", { limit: 25 }),
+    ]);
+    board.value = b;
+    plan.value = p2;
+    if (b?.reasons?.length) reasons.value = b.reasons;
   } catch (e) { /* the queue pane is a helper; serve-next still works */ }
   boardLoading.value = false;
 }
@@ -599,7 +623,7 @@ async function decide(action, note) {
     const res = await apiPost("confirmation.act", { order: active.value.name, action, note });
     success(t(`cf.done_${action}`), active.value.name + (res.attempts ? ` · ×${res.attempts}` : ""));
     if (board.value?.mine && action in board.value.mine) board.value.mine[action]++;
-    board.value?.rows && (board.value.rows = board.value.rows.filter((r) => r.order !== active.value.name));
+    if (plan.value?.rows) plan.value.rows = plan.value.rows.filter((r) => r.order !== active.value.name);
     panel.value = ""; cancelReason.value = "";
     await serveNext(false);
   } catch (e) {
