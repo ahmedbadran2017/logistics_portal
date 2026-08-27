@@ -214,7 +214,16 @@
           <span class="w-5 text-[11px] font-bold text-stone-300 tabular-nums flex-shrink-0">{{ i + 1 }}</span>
           <div class="min-w-0 flex-1">
             <div class="text-[12.5px] font-medium text-stone-900 truncate" :title="b.name">{{ b.name }}</div>
-            <div class="font-mono text-[10.5px] text-stone-400 truncate">{{ b.sku }}</div>
+            <div class="flex items-center gap-1.5 min-w-0">
+              <span class="font-mono text-[10.5px] text-stone-400 truncate">{{ b.sku }}</span>
+              <span v-if="b.supplier" class="text-[10px] font-semibold text-stone-500 bg-stone-100 ring-1 ring-stone-200 rounded px-1.5 py-px truncate max-w-[140px]" :title="b.supplier">{{ b.supplier }}</span>
+              <span v-if="b.incoming" class="text-[10px] font-bold text-sky-700 bg-sky-50 ring-1 ring-sky-200 rounded px-1.5 py-px whitespace-nowrap" :title="t('ordersPg.blIncomingHint')">
+                {{ t('ordersPg.blIncoming').replace('{n}', b.incoming) }}
+              </span>
+              <span v-else-if="b.supplier !== undefined" class="text-[10px] font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200 rounded px-1.5 py-px whitespace-nowrap" :title="t('ordersPg.blNoPoHint')">
+                {{ t('ordersPg.blNoPo') }}
+              </span>
+            </div>
           </div>
           <div class="flex items-center gap-2 flex-shrink-0">
             <button class="inline-flex items-center gap-1 text-[11.5px] font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200/60 rounded-md px-2 py-0.5 tabular-nums hover:bg-rose-100 transition-colors" :title="t('ordersPg.blSeeOrders')" @click.stop="showBlockingOrders(b)">

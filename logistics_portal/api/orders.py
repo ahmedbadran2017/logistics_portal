@@ -588,6 +588,27 @@ def _pick_availability():
           "mad": round(b["mad"]), "age": b["age"]} for b in block.values()),
         key=lambda x: (-x["orders"], -x["mad"]))[:12]
 
+    # Khadija (2026-08-27): the floor must tell OUR out-of-stock apart from
+    # "the vendor hasn't delivered yet". Per blocking SKU: its supplier, and
+    # the quantity still pending on OPEN Purchase Orders (ordered - received).
+    if blocking:
+        codes = tuple(b["sku"] for b in blocking)
+        ph = ",".join(["%s"] * len(codes))
+        sup = {r[0]: r[1] for r in frappe.db.sql(
+            f"""SELECT name, COALESCE(NULLIF(default_supplier,''),'')
+                FROM `tabItem` WHERE name IN ({ph})""", codes)}
+        incoming = {r[0]: float(r[1] or 0) for r in frappe.db.sql(
+            f"""SELECT poi.item_code, SUM(poi.qty - poi.received_qty)
+                FROM `tabPurchase Order Item` poi
+                JOIN `tabPurchase Order` po ON po.name = poi.parent
+                WHERE po.docstatus = 1 AND po.status NOT IN ('Closed', 'Completed')
+                  AND poi.item_code IN ({ph})
+                  AND poi.qty > poi.received_qty
+                GROUP BY poi.item_code""", codes)}
+        for b in blocking:
+            b["supplier"] = sup.get(b["sku"], "")
+            b["incoming"] = round(incoming.get(b["sku"], 0))
+
     rescuable = _sku_rescue(miss_by_order)
 
     out = {"ready": ready, "partial": partial, "oos": oos, "missing": missing,
