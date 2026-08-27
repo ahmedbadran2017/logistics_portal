@@ -553,6 +553,10 @@ export default {
     loadFail: "تعذّر فحص حجوزات الدفعات.",
   },
   catalog: {
+    fillImages: "جلب الصور الناقصة ({n})",
+    fillingImages: "جاري جلب الصور\u2026",
+    imagesFilled: "تم جلب {n} صورة منتج من Shopify",
+    imagesLeft: "باقي {n} بدون صورة \u2014 شغّلها تاني للدفعة الجاية",
     consolTitle: "توحيد على الكود النشط",
     consolHint: "قيد Repack واحد ينقل المخزون، وبعدها الكود الميت يتقفل",
     consolBtn: "توحيد",

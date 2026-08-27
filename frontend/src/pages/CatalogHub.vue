@@ -6,6 +6,11 @@
         <p class="text-[13px] text-stone-500 mt-1 max-w-2xl">{{ t('catalog.intro') }}</p>
       </div>
       <div class="flex items-center gap-2 flex-shrink-0">
+        <button v-if="gaps && gaps.fixable" class="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-[13px] font-semibold text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 disabled:opacity-50"
+                :disabled="filling" @click="runBackfill">
+          <Icon name="image" :size="14" />
+          {{ filling ? t('catalog.fillingImages') : t('catalog.fillImages').replace('{n}', String(gaps.fixable)) }}
+        </button>
         <button class="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-[13px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-50"
                 :disabled="syncing" @click="runReconcile">
           <Icon name="refresh-cw" :size="14" />{{ syncing ? t('catalog.reconciling') : t('catalog.runReconcile') }}
@@ -177,6 +182,8 @@ const ov = ref({ synced: 0, lastSync: "", byStatus: {}, strandedValue: 0, strand
 const rows = ref([]);
 const fix = ref({ consolidations: [], reactivations: [], unfixable: 0 });
 const health = ref(null);
+const gaps = ref(null);
+const filling = ref(false);
 const armed = ref("");
 const actBusy = ref(false);
 const loading = ref(true);
@@ -223,16 +230,18 @@ function openSku(sku) {
 
 async function load() {
   loading.value = true;
-  const [o, s, f, h] = await Promise.all([
+  const [o, s, f, h, g] = await Promise.all([
     liveOr(null, () => api("catalog_hub.problems.overview")),
     liveOr(null, () => api("catalog_hub.problems.stranded_stock", { limit: 100 })),
     liveOr(null, () => api("catalog_hub.actions.fix_candidates")),
     liveOr(null, () => api("catalog_hub.webhook.sync_health")),
+    liveOr(null, () => api("catalog_hub.images.image_gaps")),
   ]);
   if (o) ov.value = o;
   rows.value = Array.isArray(s) ? s : [];
   if (f && Array.isArray(f.consolidations)) fix.value = f;
   if (h) health.value = h;
+  if (g) gaps.value = g;
   loading.value = false;
 }
 
@@ -272,6 +281,20 @@ async function doReactivate(r) {
     warn(t("catalog.actFail"), String(e.message || e));
   } finally {
     actBusy.value = false;
+  }
+}
+
+async function runBackfill() {
+  filling.value = true;
+  try {
+    const r = await apiPost("catalog_hub.images.backfill_images", { limit: 200 });
+    success(t("catalog.imagesFilled").replace("{n}", String(r.filled)),
+      t("catalog.imagesLeft").replace("{n}", String(r.remaining)));
+    gaps.value = { ...gaps.value, fixable: r.remaining };
+  } catch (e) {
+    warn(t("catalog.actFail"), String(e.message || e));
+  } finally {
+    filling.value = false;
   }
 }
 

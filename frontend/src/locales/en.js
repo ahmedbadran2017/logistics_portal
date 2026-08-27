@@ -553,6 +553,10 @@ export default {
     loadFail: "Couldn't scan batch holds.",
   },
   catalog: {
+    fillImages: "Fetch missing images ({n})",
+    fillingImages: "Fetching images\u2026",
+    imagesFilled: "{n} product images filled from Shopify",
+    imagesLeft: "{n} still missing \u2014 run again for the next batch",
     consolTitle: "Consolidate onto the ACTIVE code",
     consolHint: "One Repack entry moves the stock, then the dead code is disabled",
     consolBtn: "Consolidate",

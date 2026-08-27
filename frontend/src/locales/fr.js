@@ -553,6 +553,10 @@ export default {
     loadFail: "Impossible d'analyser les r\u00e9servations de lots.",
   },
   catalog: {
+    fillImages: "R\u00e9cup\u00e9rer les images manquantes ({n})",
+    fillingImages: "R\u00e9cup\u00e9ration des images\u2026",
+    imagesFilled: "{n} images produits r\u00e9cup\u00e9r\u00e9es depuis Shopify",
+    imagesLeft: "{n} encore manquantes \u2014 relancez pour le lot suivant",
     consolTitle: "Consolider sur le code ACTIF",
     consolHint: "Un bon de reconditionnement déplace le stock, puis le code mort est désactivé",
     consolBtn: "Consolider",
