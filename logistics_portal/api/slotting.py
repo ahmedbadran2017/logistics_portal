@@ -323,3 +323,59 @@ def move_list(cls="A", limit=40, offset=0, days=90):
             "from": (wh or "").replace(" - JM", ""), "target": target,
         })
     return {"cls": cls, "total": total, "rows": rows}
+
+
+@frappe.whitelist()
+def overstock_list(limit=40, days=90):
+    """Ahmed's physical model (2026-08-27): the lettered aisles ARE the fast
+    zone — every live product keeps roughly a WEEK of cover there, the rest of
+    its stock belongs in SLOW ZONE (the bulk store that feeds it). This is the
+    reverse worklist Move Stock's replenish tab doesn't cover: shelf holdings
+    far beyond a week of demand, biggest excess first. Cold items (zero picks
+    in the window) free their whole facing."""
+    _gate()
+    days = min(max(int(days or 90), 7), 365)
+    limit = min(max(int(limit or 40), 1), 200)
+
+    pmap = _velocity(days)
+    place = _placement()
+
+    # Weekly demand in UNITS from real sales, same basis as the replenish tab.
+    sold = dict(frappe.db.sql(
+        """SELECT soi.item_code, SUM(soi.qty) FROM `tabSales Order Item` soi
+           JOIN `tabSales Order` so ON so.name = soi.parent
+           WHERE so.docstatus = 1
+             AND so.creation >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+           GROUP BY soi.item_code"""))
+
+    rows = []
+    for ic, (wh, qty) in place.items():
+        week = float(sold.get(ic, 0) or 0) / 2.0
+        # Keep two weeks of cover on the face (buffer against replenish lag);
+        # cold items keep nothing.
+        keep = 0 if ic not in pmap else max(2.0 * week, 2.0)
+        excess = int(qty - keep)
+        if excess >= 3:
+            rows.append({"itemCode": ic, "from": wh, "qty": int(qty),
+                         "keep": int(keep), "excess": excess,
+                         "cold": ic not in pmap})
+    rows.sort(key=lambda r: -r["excess"])
+    total = len(rows)
+    units = sum(r["excess"] for r in rows)
+    page = rows[:limit]
+
+    meta = {}
+    if page:
+        ph = ",".join(["%s"] * len(page))
+        for r in frappe.db.sql(
+                f"""SELECT name, custom_sku, item_name, image FROM `tabItem`
+                    WHERE name IN ({ph})""",
+                tuple(p["itemCode"] for p in page), as_dict=True):
+            meta[r.name] = r
+    for p in page:
+        m = meta.get(p["itemCode"]) or {}
+        p["sku"] = (m.get("custom_sku") or "").strip()
+        p["name"] = m.get("item_name") or p["itemCode"]
+        p["image"] = m.get("image") or ""
+        p["from"] = p["from"].replace(" - JM", "")
+    return {"total": total, "unitsExcess": units, "rows": page}

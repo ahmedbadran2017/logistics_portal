@@ -158,6 +158,34 @@
         <div v-else class="text-center text-[12.5px] text-emerald-600 py-8">{{ t('slotting.moveDone') }}</div>
       </div>
 
+      <!-- Phase 2: excess on the fast faces -> SLOW ZONE -->
+      <div v-if="over" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+          <Icon name="boxes" :size="14" class="text-amber-600" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('slotting.overTitle') }}</span>
+          <span class="text-[11.5px] text-stone-400 tabular-nums">{{ over.total }} SKU · {{ over.unitsExcess.toLocaleString() }} {{ t('slotting.overUnits') }}</span>
+          <span class="text-[11px] text-stone-400 hidden sm:inline ms-auto">{{ t('slotting.overHint') }}</span>
+        </div>
+        <ul v-if="over.rows.length" class="divide-y divide-stone-100 max-h-[440px] overflow-y-auto">
+          <li v-for="it in over.rows" :key="it.itemCode" class="p-3 flex items-center gap-3">
+            <img v-if="it.image" :src="it.image" alt="" @error="hideImg"
+                 class="w-10 h-10 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
+            <span v-else class="w-10 h-10 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center flex-shrink-0 text-stone-400"><Icon name="package" :size="16" /></span>
+            <div class="min-w-0 flex-1">
+              <div class="text-[13px] font-semibold text-stone-900 truncate">{{ it.name }}</div>
+              <div class="font-mono text-[11.5px] text-stone-500 truncate">
+                {{ it.sku || it.itemCode }} · {{ it.from }} · {{ t('slotting.overKeep').replace('{k}', it.keep).replace('{q}', it.qty) }}
+                <span v-if="it.cold" class="text-amber-600 font-sans font-semibold">· {{ t('slotting.coldShort') }}</span>
+              </div>
+            </div>
+            <span class="text-[13px] font-bold text-amber-700 tabular-nums whitespace-nowrap">{{ it.excess }}u <Icon name="chevron-right" :size="12" class="inline flip-rtl text-stone-400" /> SLOW</span>
+            <button class="h-8 px-3 rounded-lg text-[12px] font-semibold text-amber-700 bg-amber-50 ring-1 ring-amber-200 hover:bg-amber-100 flex-shrink-0"
+                    @click="goSlow(it)">{{ t('slotting.moveBtn') }}</button>
+          </li>
+        </ul>
+        <div v-else class="text-center text-[12.5px] text-emerald-600 py-8">{{ t('slotting.overDone') }}</div>
+      </div>
+
       <!-- movers drill-down -->
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
@@ -213,6 +241,7 @@ const ov = ref(null);
 const loading = ref(true);
 
 const plan = ref(null);
+const over = ref(null);
 const moveCls = ref("A");
 const moveRows = ref([]);
 const moveTotal = ref(0);
@@ -249,6 +278,7 @@ async function load() {
   }
   loadMovers();
   loadPlan();
+  loadOver();
 }
 
 function compOf(c) {
@@ -269,6 +299,14 @@ async function loadPlan() {
   loadMoves();
 }
 
+async function loadOver() {
+  try {
+    over.value = await api("slotting.overstock_list", { days: days.value });
+  } catch (e) {
+    over.value = null;
+  }
+}
+
 async function loadMoves() {
   moveLoading.value = true;
   try {
@@ -286,6 +324,9 @@ async function loadMoves() {
 function setMoveCls(c) { moveCls.value = c; loadMoves(); }
 function goMove(it) {
   router.push({ name: "MoveStock", query: { item: it.itemCode, target: it.target } });
+}
+function goSlow(it) {
+  router.push({ name: "MoveStock", query: { item: it.itemCode, target: "SLOW ZONE - JM", qty: it.excess } });
 }
 
 async function loadMovers() {

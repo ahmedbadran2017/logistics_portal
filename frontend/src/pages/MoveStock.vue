@@ -268,8 +268,16 @@ onMounted(async () => {
   const qi = String(route.query.item || "").trim();
   if (qi) {
     await onScan(qi);
-    const tl = String(route.query.target || "").trim().toUpperCase();
-    if (tl && current.value) targetHint.value = tl;
+    const tl = String(route.query.target || "").trim();
+    if (tl && current.value) {
+      // A full warehouse name pre-fills the target outright (e.g. SLOW ZONE);
+      // a bare letter stays a hint — the mover picks the exact bin.
+      const full = (boot.value?.warehouses || []).find((w) => w === tl || w === `${tl} - JM`);
+      if (full) target.value = full;
+      else targetHint.value = tl.toUpperCase();
+    }
+    const qn = parseInt(String(route.query.qty || ""), 10);
+    if (qn > 0 && current.value) qty.value = qn;
   }
   scanner.value?.refocus();
 });
