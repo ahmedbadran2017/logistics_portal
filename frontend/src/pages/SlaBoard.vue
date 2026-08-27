@@ -105,10 +105,11 @@
               <span class="text-[11.5px] text-stone-400 tabular-nums">{{ data.counts.breached }} total</span>
             </header>
             <div class="divide-y divide-stone-50">
-              <div v-if="!data.breaches.length" class="text-[12.5px] text-emerald-600 text-center py-6 flex items-center justify-center gap-1.5">
+              <div v-if="data.breaches === null" class="text-[12.5px] text-rose-600 text-center py-6">{{ t('cf.loadFail') }}</div>
+              <div v-else-if="!data.breaches.length" class="text-[12.5px] text-emerald-600 text-center py-6 flex items-center justify-center gap-1.5">
                 <Icon name="check-circle" :size="15" /> {{ t('px.slb.allClear') }}
               </div>
-              <button v-for="b in data.breaches" :key="b.dn"
+              <button v-for="b in (data.breaches || [])" :key="b.dn"
                       class="w-full text-start px-4 py-2.5 flex items-center gap-3 hover:bg-stone-50 transition-colors"
                       @click="openOrder(b.order)">
                 <span class="font-mono text-[12px] font-semibold text-stone-900">{{ b.order || b.dn }}</span>

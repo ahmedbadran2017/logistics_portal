@@ -184,5 +184,7 @@ def board(days=14):
         "unknown": unknown,
         "cities": [{"city": (c.city or "?").title(), "breached": int(c.breached or 0)}
                    for c in cities],
+        # None = the breach query FAILED — the board says "couldn't load"
+        # instead of celebrating an empty list on its one critical panel.
         "breaches": breached_list(limit=8),
     }

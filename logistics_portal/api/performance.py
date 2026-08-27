@@ -185,7 +185,7 @@ def breached_list(limit=500):
                  "awb": r.awb or "", "date": str(r.date or "")} for r in rows]
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.breached_list")
-        return []
+        return None  # callers show "couldn't load", never fake-empty
 
 
 @frappe.whitelist()

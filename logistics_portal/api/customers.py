@@ -266,6 +266,11 @@ def risky_phones():
 
 @frappe.whitelist()
 def segment_settings():
+    # Unused by the SPA; kept for API compat but manager-gated — the
+    # heavy scan behind it was reachable by any agent over raw HTTP.
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Not authorized.", frappe.PermissionError)
     from logistics_portal.api.auth import resolve_role
     from logistics_portal.api.confirmation import _is_cf_admin
     if resolve_role(frappe.session.user) not in ("confirmation", "manager"):
@@ -275,6 +280,11 @@ def segment_settings():
 
 @frappe.whitelist()
 def save_segment_settings(settings=None):
+    # Unused by the SPA; kept for API compat but manager-gated — the
+    # heavy scan behind it was reachable by any agent over raw HTTP.
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Not authorized.", frappe.PermissionError)
     from logistics_portal.api.confirmation import _gate, _is_cf_admin
     _gate()
     if not _is_cf_admin():
@@ -315,6 +325,11 @@ def save_segment_settings(settings=None):
 def distribution():
     """How the base splits across segments — the section dashboard's headline.
     Heavy (a full scan of the delivery history); cached for an hour."""
+    # Unused by the SPA; kept for API compat but manager-gated — the
+    # heavy scan behind it was reachable by any agent over raw HTTP.
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Not authorized.", frappe.PermissionError)
     from logistics_portal.api.auth import resolve_role
     if resolve_role(frappe.session.user) not in ("confirmation", "manager"):
         frappe.throw("Not authorized.", frappe.PermissionError)
