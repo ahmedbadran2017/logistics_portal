@@ -37,11 +37,11 @@ import Icon from "@/components/ui/Icon.vue";
 import { api } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useAuth } from "@/composables/useAuth";
-import { laneForRoute } from "@/lib/laneTabs";
+import { laneForRoute, LANE_ADMIN_KEY } from "@/lib/laneTabs";
 
 const route = useRoute();
 const { t } = useI18n();
-const { hiddenPages } = useAuth();
+const { hiddenPages, role, ccAdmin } = useAuth();
 
 const lane = computed(() => laneForRoute(route.name));
 // A manager can still hide an individual sub-page for a user; honour that here
@@ -49,7 +49,12 @@ const lane = computed(() => laneForRoute(route.name));
 const tabs = computed(() => {
   if (!lane.value) return [];
   const h = new Set(hiddenPages.value || []);
-  return lane.value.tabs.filter((tab) => !h.has(tab.to));
+  // Section dashboard/reports/settings carry TEAM-level data — managers and
+  // the lane's own section admins only; a plain agent gets just the queue.
+  const adminKey = LANE_ADMIN_KEY[lane.value.key];
+  const isAdmin = role.value === "manager" || !!ccAdmin.value?.[adminKey];
+  return lane.value.tabs.filter((tab) =>
+    !h.has(tab.to) && (!tab.admin || isAdmin));
 });
 
 // Live queue depth for the current lane (server-cached 60s, polled 90s).

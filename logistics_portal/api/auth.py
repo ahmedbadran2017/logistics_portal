@@ -96,6 +96,27 @@ def get_boot():
         csrf = ""
 
     role = resolve_role(user)
+
+    # Which contact-center sections this user administers — the SPA hides the
+    # section dashboard/reports/settings tabs (team-level data) from plain
+    # agents; the backend gates already reject them, this stops the tabs from
+    # even rendering. Manager administers all three.
+    cc_admin = {"cf": False, "rs": False, "cs": False}
+    if role == "manager":
+        cc_admin = {"cf": True, "rs": True, "cs": True}
+    elif role in ("confirmation", "cs", "tracking"):
+        try:
+            from logistics_portal.api.confirmation import _cf_settings
+            from logistics_portal.api.rescue import _rs_settings
+            from logistics_portal.api.tickets import _cs_settings
+            cc_admin = {
+                "cf": user in (_cf_settings().get("admins") or []),
+                "rs": user in (_rs_settings().get("admins") or []),
+                "cs": user in (_cs_settings().get("admins") or []),
+            }
+        except Exception:
+            pass
+
     return {
         "user": user,
         "full_name": frappe.db.get_value("User", user, "full_name") or user,
@@ -103,6 +124,7 @@ def get_boot():
         "roles": [role] if role else [],
         "zone": resolve_zone(user),
         "hiddenPages": hidden_pages(user),
+        "ccAdmin": cc_admin,
         "csrf_token": csrf,
     }
 

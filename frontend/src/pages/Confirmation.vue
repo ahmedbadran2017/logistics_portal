@@ -80,7 +80,7 @@
     <!-- bulk bar — on every tab, with the actions that tab honestly allows.
          Hidden on Not-Delivered: those are per-customer redelivery calls, with
          no honest batch equivalent (same reasoning as the absent bulk confirm). -->
-    <div v-if="!loading && rows.length && !isNd"
+    <div v-if="!loading && rows.length && !isNd && canBulk"
          class="flex items-center gap-2.5 flex-wrap bg-white rounded-2xl ring-1 ring-stone-200/80 px-4 py-3">
       <label class="inline-flex items-center gap-2 text-[12.5px] font-medium text-stone-700 cursor-pointer">
         <input type="checkbox" :checked="selected.size === rows.length && rows.length > 0" class="w-4 h-4"
@@ -136,7 +136,7 @@
            :class="r.due ? 'cf-card-due' : ''">
         <div class="flex items-center gap-3.5 flex-wrap">
           <!-- customer identity -->
-          <input v-if="!isNd" type="checkbox" class="w-4 h-4 shrink-0"
+          <input v-if="!isNd && canBulk" type="checkbox" class="w-4 h-4 shrink-0"
                  style="accent-color: var(--accent-600)"
                  :checked="selected.has(r.order)" @change="toggleOne(r.order)" />
           <span class="cf-avatar" :class="r.due ? 'cf-avatar-due' : ''">{{ initial(r.customer) }}</span>
@@ -362,8 +362,13 @@ import ReasonSelect from "@/components/ui/ReasonSelect.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
+import { useAuth } from "@/composables/useAuth";
 
 const { t } = useI18n();
+const { role: authRole, ccAdmin } = useAuth();
+// Bulk actions are section-admin territory (the API enforces it); an agent
+// never sees the checkboxes or the bar.
+const canBulk = computed(() => authRole.value === "manager" || !!ccAdmin.value?.cf);
 const { success, warn } = useToast();
 
 const TABS = [

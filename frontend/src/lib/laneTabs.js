@@ -9,15 +9,18 @@
  *
  *   { to, label, icon }  — `to` is a route name, `label` an i18n key.
  */
+// Which ccAdmin flag governs each lane's admin-only tabs.
+export const LANE_ADMIN_KEY = { confirmation: "cf", rescue: "rs", tickets: "cs" };
+
 export const LANES = [
   {
     key: "confirmation",
     section: "nav.confirmSection",
     tabs: [
       { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
-      { to: "ConfirmationDashboard", label: "nav.cfDashboard", icon: "gauge" },
-      { to: "ConfirmationReports", label: "nav.cfReports", icon: "trending-up" },
-      { to: "ConfirmationSettings", label: "nav.cfSettings", icon: "settings" },
+      { to: "ConfirmationDashboard", label: "nav.cfDashboard", icon: "gauge", admin: true },
+      { to: "ConfirmationReports", label: "nav.cfReports", icon: "trending-up", admin: true },
+      { to: "ConfirmationSettings", label: "nav.cfSettings", icon: "settings", admin: true },
     ],
   },
   {
@@ -25,9 +28,9 @@ export const LANES = [
     section: "nav.rescueSection",
     tabs: [
       { to: "Rescue", label: "nav.rescue", icon: "route" },
-      { to: "RescueDashboard", label: "nav.rsDashboard", icon: "gauge" },
-      { to: "RescueReports", label: "nav.rsReports", icon: "trending-up" },
-      { to: "RescueSettings", label: "nav.rsSettings", icon: "settings" },
+      { to: "RescueDashboard", label: "nav.rsDashboard", icon: "gauge", admin: true },
+      { to: "RescueReports", label: "nav.rsReports", icon: "trending-up", admin: true },
+      { to: "RescueSettings", label: "nav.rsSettings", icon: "settings", admin: true },
     ],
   },
   {
@@ -36,8 +39,8 @@ export const LANES = [
     tabs: [
       { to: "Tickets", label: "nav.tickets", icon: "message-circle" },
       { to: "Exchanges", label: "nav.exchanges", icon: "refresh-cw" },
-      { to: "TicketsReports", label: "nav.tsReports", icon: "trending-up" },
-      { to: "TicketsSettings", label: "nav.tsSettings", icon: "settings" },
+      { to: "TicketsReports", label: "nav.tsReports", icon: "trending-up", admin: true },
+      { to: "TicketsSettings", label: "nav.tsSettings", icon: "settings", admin: true },
     ],
   },
 ];

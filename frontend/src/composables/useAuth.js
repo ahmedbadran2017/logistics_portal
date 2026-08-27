@@ -8,6 +8,7 @@ const role = ref(null);        // resolved logistics role
 const roles = ref([]);         // all logistics roles this user has (multi-role)
 const zone = ref("");
 const hiddenPages = ref([]);   // route names a manager hid for THIS user
+const ccAdmin = ref({ cf: false, rs: false, cs: false });
 const isLoading = ref(true);
 const isInitialized = ref(false);
 
@@ -49,9 +50,14 @@ async function init(force = false) {
     roles.value = boot.roles || (boot.role ? [boot.role] : []);
     // A non-manager must never carry a stale view-as marker.
     if (viewAs.value && boot.role !== "manager") setViewAs(null);
-    else if (viewAs.value) role.value = viewAs.value.role;
+    else if (viewAs.value) {
+      role.value = viewAs.value.role;
+      // Fidelity: while viewing as an agent, admin-only surfaces hide too.
+      ccAdmin.value = { cf: false, rs: false, cs: false };
+    }
     zone.value = boot.zone || "";
     hiddenPages.value = Array.isArray(boot.hiddenPages) ? boot.hiddenPages : [];
+    ccAdmin.value = boot.ccAdmin || { cf: false, rs: false, cs: false };
     // The page template can't inject the CSRF token reliably; the boot endpoint
     // returns it so POST writes (apiPost) work from the browser session.
     if (boot.csrf_token) window.csrf_token = boot.csrf_token;
@@ -107,7 +113,7 @@ function setActiveRole(next) {
 
 export function useAuth() {
   return {
-    user, fullName, role, roles, zone, hiddenPages, isLoading, isLoggedIn, isInitialized,
+    user, fullName, role, roles, zone, hiddenPages, ccAdmin, isLoading, isLoggedIn, isInitialized,
     init, login, logout, setActiveRole, viewAs, setViewAs,
   };
 }
