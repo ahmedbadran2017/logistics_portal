@@ -196,8 +196,9 @@ def movers(cls="A", q="", limit=60, offset=0, days=90):
 #   H+J+F (127 bins) = B zone (15% of picks).
 #   A+B+C+D+I (164)  = C zone, the long tail.
 #   X                = reserved (exchanges/special — untouched by the plan).
-#   AG-/BAB- racks   = overstock reserve feeding the fast wall; SLOW ZONE =
-#                      cold storage. Neither is a pick face in this plan.
+#   AG-/BAB- racks + SLOW ZONE = high-stock reserve feeding the fast wall
+#                      (SLOW ZONE is Justyol's bulk-overflow store, NOT cold
+#                      storage). None of them is a pick face in this plan.
 ZONE_ROLES = {"A": ("E", "G"), "B": ("H", "J", "F"), "C": ("A", "B", "C", "D", "I")}
 _ROLE_OF = {}
 for _cls, _letters in ZONE_ROLES.items():

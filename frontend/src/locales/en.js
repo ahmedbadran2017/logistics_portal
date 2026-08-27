@@ -378,7 +378,7 @@ export default {
     roleB: "Medium movers",
     roleC: "Long tail \u2014 slow sellers, compact slots",
     inPlace: "{a} of {b} SKUs already in place ({p}%)",
-    planReserved: "X stays reserved (exchanges). AG/BAB racks = overstock reserve. SLOW ZONE = cold storage. Receiving and Return zones unchanged.",
+    planReserved: "X stays reserved (exchanges). AG/BAB racks + SLOW ZONE = high-stock reserve feeding the fast wall. Receiving and Return zones unchanged.",
     moveTitle: "Move worklist",
     toMoveN: "to move",
     moveBtn: "Move",

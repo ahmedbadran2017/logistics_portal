@@ -378,7 +378,7 @@ export default {
     roleB: "Rotation moyenne",
     roleC: "Longue tra\u00eene \u2014 ventes lentes, emplacements compacts",
     inPlace: "{a} sur {b} SKU d\u00e9j\u00e0 en place ({p}%)",
-    planReserved: "X reste r\u00e9serv\u00e9 (\u00e9changes). Racks AG/BAB = r\u00e9serve. SLOW ZONE = stockage froid. Zones Receiving et Return inchang\u00e9es.",
+    planReserved: "X reste r\u00e9serv\u00e9 (\u00e9changes). Racks AG/BAB + SLOW ZONE = r\u00e9serve de gros stock qui alimente le mur rapide. Zones Receiving et Return inchang\u00e9es.",
     moveTitle: "Liste des d\u00e9placements",
     toMoveN: "\u00e0 d\u00e9placer",
     moveBtn: "D\u00e9placer",
