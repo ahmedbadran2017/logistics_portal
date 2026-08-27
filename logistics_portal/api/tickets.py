@@ -67,8 +67,11 @@ def _cs_settings():
 
 def _is_cs_admin():
     from logistics_portal.api.auth import resolve_role
-    if resolve_role(frappe.session.user) == "manager":
+    role = resolve_role(frappe.session.user)
+    if role == "manager":
         return True
+    if role not in ("confirmation", "cs", "tracking"):
+        return False
     return frappe.session.user in _cs_settings().get("admins", [])
 
 
@@ -78,7 +81,7 @@ def cs_settings():
     return {**_cs_settings(), "canEdit": _is_cs_admin()}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_cs_settings(settings=None):
     import json as _json
     _gate()
@@ -297,7 +300,7 @@ def board(tab="inbox", days=7, q="", limit=30, offset=0):
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_ticket(subject, phone=None, order=None, category=None,
                   description=None, channel="manual", wa_phone=None):
     """New ticket. When `wa_phone` is set the conversation's unhandled inbox
@@ -357,7 +360,7 @@ def wa_thread(phone, limit=40):
     } for r in reversed(rows)]}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def wa_dismiss(phone):
     """The conversation needs no ticket (already answered / automation noise).
     Bounded to messages that already existed when the agent looked, and audited
@@ -387,7 +390,7 @@ def wa_dismiss(phone):
     return {"ok": True}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def act(name, action, note=None):
     """Ticket lifecycle: take / reply / hold / resolve / reopen."""
     _gate()

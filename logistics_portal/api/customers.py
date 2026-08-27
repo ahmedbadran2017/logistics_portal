@@ -222,7 +222,7 @@ def card(phone):
     # spreading a list over it silently replaced the number with an array.
     return {
         **h, "phone": phone,
-        "flag": _load_flags().get(d),
+        "flag": _load_flag(d),
         "recent": [{
             "order": o.name, "at": str(o.creation)[:10],
             "total": float(o.total or 0), "status": o.status or "",
@@ -279,7 +279,7 @@ def segment_settings():
     return {**_seg_settings(), "canEdit": _is_cf_admin()}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_segment_settings(settings=None):
     # Unused by the SPA; kept for API compat but manager-gated — the
     # heavy scan behind it was reachable by any agent over raw HTTP.
@@ -377,6 +377,9 @@ _FLAG_KEY = "lp_customer_flags"
 
 
 def _load_flags():
+    # Legacy blob only — the single-JSON store lost concurrent writes and
+    # would silently truncate past the TEXT limit (~few hundred flags for a
+    # 6.8k-phone risky population). New flags live one-default-per-phone.
     import json as _json
     raw = frappe.db.get_default(_FLAG_KEY)
     try:
@@ -386,7 +389,24 @@ def _load_flags():
         return {}
 
 
-@frappe.whitelist()
+def _load_flag(d):
+    """One customer's manual flag: per-phone default first, legacy blob as
+    fallback. A tombstone ({"flag": ""}) means "cleared, and here's by whom" —
+    the card treats it as no flag, but the trace survives."""
+    import json as _json
+    raw = frappe.db.get_default(f"lp_flag_{d}")
+    entry = None
+    if raw:
+        try:
+            entry = _json.loads(raw)
+        except Exception:
+            entry = None
+    if entry is None:
+        entry = _load_flags().get(d)
+    return entry if entry and entry.get("flag") else None
+
+
+@frappe.whitelist(methods=["POST"])
 def flag_customer(phone, flag="", note=""):
     """Set / clear the manual flag on a customer (by phone). flag: 'blocked',
     'vip', or '' to clear. Any contact-center role may flag — it's their call
@@ -402,13 +422,13 @@ def flag_customer(phone, flag="", note=""):
     d = digits(phone)
     if not d:
         frappe.throw("No usable phone number.")
-    flags = _load_flags()
-    if flag:
-        flags[d] = {"flag": flag, "by": frappe.session.user,
-                    "at": str(now_datetime())[:16], "note": (note or "").strip()[:140]}
-    else:
-        flags.pop(d, None)
-    frappe.db.set_default(_FLAG_KEY, _json.dumps(flags))
+    # One default per phone: concurrent flags on DIFFERENT customers can't
+    # overwrite each other, and the store can't outgrow a single TEXT cell.
+    # Clearing writes a tombstone instead of deleting — who unblocked a
+    # customer, and when, stays on record.
+    entry = {"flag": flag, "by": frappe.session.user,
+             "at": str(now_datetime())[:16], "note": (note or "").strip()[:140]}
+    frappe.db.set_default(f"lp_flag_{d}", _json.dumps(entry))
     frappe.db.commit()
     bust(phone)
-    return {"ok": True, "flag": flags.get(d)}
+    return {"ok": True, "flag": entry if flag else None}

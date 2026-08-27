@@ -153,7 +153,7 @@ def hidden_pages(user):
     return [str(x) for x in _user_pages_map().get(user, [])]
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_member_pages(user, hidden=None):
     """Manager: hide specific portal pages from one user (empty = full role nav)."""
     import json as _json
@@ -232,7 +232,7 @@ def team_members(q=""):
             "target": int(frappe.db.get_default("lp_day_target") or 320)}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_member_role(user, role=""):
     """Assign / change / remove a portal role. Empty role = remove access
     (stored as the explicit 'none' so it also overrides the seed map)."""
@@ -250,7 +250,7 @@ def set_member_role(user, role=""):
     return {"ok": True, "user": user, "role": role}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def set_floor_target(value):
     """The per-person orders-shipped-per-DAY target — the picker scorecard and
     team leaderboard measure each person against it. (The floor board's hourly
@@ -267,7 +267,7 @@ def set_floor_target(value):
     return {"ok": True, "target": v}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def invite_member(email, full_name=None, role="picker"):
     """Create the ERPNext User FROM THE PORTAL (welcome email lets them set a
     password) and assign their portal role in one step — onboarding without

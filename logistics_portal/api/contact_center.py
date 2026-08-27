@@ -598,6 +598,9 @@ def bonus(month=None, group=None):
     total_agents = len(agents)
     if not _is_any_cc_admin():
         agents = [a for a in agents if a["user"] == frappe.session.user]
+        # The team payout pool ÷ team size = everyone's average pay — a
+        # scoped agent gets their own numbers, not the team's purse.
+        pool = None
     return {"available": True, "month": month, "group": group, "of": total_agents,
             "scoped": not _is_any_cc_admin(),
             "groups": list(GROUPS) if role == "manager" else [my_group],

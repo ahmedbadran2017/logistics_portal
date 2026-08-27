@@ -244,7 +244,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     # The monitor count crosses a ~6.8k-phone IN list with a per-row REGEXP —
     # the single heaviest piece of a cold board load. Cache it per scope; the
     # exact rows are only computed when the monitor tab itself is open.
-    _mck = "lp_cf_monitor_" + (frappe.session.user if mine_only else "all")
+    _mck = "lp_cf_monitor_" + (me if mine_only else "all")
     _mc = frappe.cache().get_value(_mck)
     if _mc is not None and tab != "monitor":
         counts["monitor"] = int(_mc)
@@ -255,7 +255,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
                   AND so.custom_sales_status IN %(sts)s{me_so}
                   AND {_IN_HAND} AND {_CUST_KEY} IN %(risky)s""",
             {"sts": tuple(QUEUES.values()), "co": _CO, "risky": risky,
-             **({"me_like": f'%"{frappe.session.user}"%'} if mine_only else {})})[0][0])
+             **({"me_like": f'%"{me}"%'} if mine_only else {})})[0][0])
         frappe.cache().set_value(_mck, counts["monitor"], expires_in_sec=300)
 
     # Not Delivered: shipped-then-failed parcels the confirmation team calls
@@ -389,7 +389,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
                WHERE c.reference_doctype = 'Sales Order' AND c.owner = %s
                  AND c.creation >= %s AND c.content LIKE 'Confirmation: %%'
                GROUP BY c.content""",
-            (frappe.session.user, f"{today} 00:00:00"), as_dict=True):
+            (me, f"{today} 00:00:00"), as_dict=True):
         for k in mine:
             if r.content.startswith(f"Confirmation: {k}"):
                 mine[k] += int(r.n or 0)
@@ -401,14 +401,16 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
         from logistics_portal.api.contact_center import (bonus_group_for,
                                                          bonus_points_for)
         from frappe.utils import nowdate
-        points = bonus_points_for(frappe.session.user,
-                                  bonus_group_for(role), nowdate()[:7])
+        points = bonus_points_for(me, bonus_group_for(role), nowdate()[:7])
     except Exception:
         pass
 
     return {
         "tab": tab, "counts": counts, "total": int(total or 0),
         "myTotal": my_total, "myTarget": int(cf_s.get("dayTarget", 40)),
+        "slaHours": int(cf_s.get("slaFirstCallH", 6)),
+        "discountCapPct": int(cf_s.get("discountCapPct", 15)),
+        "discountCapAmt": int(cf_s.get("discountCapAmt", 50)),
         "points": points,
         "rows": [{
             "order": r.name, "customer": r.customer or "",
@@ -469,7 +471,7 @@ def _own_guard(role, orders):
                      frappe.PermissionError)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def act(order, action, note=None, _bulk=False):
     """One call decision. confirm → enters the logistics pool; cancel needs a
     reason; dna/followup/onhold re-queue with a retry time and bump the
@@ -484,9 +486,13 @@ def act(order, action, note=None, _bulk=False):
         frappe.throw("Unknown order.")
     so = frappe.db.get_value(
         "Sales Order", order,
-        ["docstatus", "custom_sales_status", "custom_call_attempts"], as_dict=True)
+        ["docstatus", "custom_sales_status", "custom_call_attempts", "company"],
+        as_dict=True)
     if so.docstatus != 1:
         frappe.throw("Order is not submitted.")
+    if so.company != _CO:
+        # Every read in this lane is company-scoped; the write must be too.
+        frappe.throw("Unknown order.")
     if so.custom_sales_status not in QUEUES.values():
         # Reopening a decision the lane already took: allowed only while the
         # order hasn't moved on physically. Once it's picked or shipped, the
@@ -565,6 +571,9 @@ def act(order, action, note=None, _bulk=False):
                     + (f" — {note}" if note else "")
                     + f" · by {frappe.session.user}")
     frappe.db.commit()
+    # Decided = out of the serve rotation NOW, not when the lock expires.
+    frappe.cache().delete_value(f"lp_serve_{order}")
+    frappe.cache().delete_value(f"lp_skip_{frappe.session.user}_{order}")
     if action in ("confirm", "cancel", "reopen"):
         # This customer's counts just moved.
         try:
@@ -580,7 +589,7 @@ def act(order, action, note=None, _bulk=False):
     return {"ok": True, "order": order, "action": action, "attempts": attempts}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def bulk_act(orders=None, action=None, reason=None):
     """Mark a batch duplicate, or undo a batch of decisions.
 
@@ -619,7 +628,7 @@ def bulk_act(orders=None, action=None, reason=None):
     return {"ok": True, "done": len(done), "skipped": skipped}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def bulk_cancel(orders=None, reason=None):
     """Expire a slice of the confirmation backlog in one move. Section
     admins/manager only — one reason applies to the whole batch."""
@@ -667,7 +676,7 @@ def bulk_cancel(orders=None, reason=None):
     return {"ok": True, "done": len(done), "skipped": skipped}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def update_contact(order, phone=None, city=None, address_line=None):
     """Fix the customer's phone / full address before confirming — the #1
     reason deliveries fail later (Cathedis rejects unknown cities and bad
@@ -825,8 +834,13 @@ def effective_reasons():
 
 def _is_cf_admin():
     from logistics_portal.api.auth import resolve_role
-    if resolve_role(frappe.session.user) == "manager":
+    role = resolve_role(frappe.session.user)
+    if role == "manager":
         return True
+    # An admin listing is a capability, not a role — a user pulled off the
+    # team (role=none) must lose it instantly, whatever the list still says.
+    if role not in ("confirmation", "cs", "tracking"):
+        return False
     return frappe.session.user in _cf_settings().get("admins", [])
 
 
@@ -840,7 +854,7 @@ def cf_settings():
             "reasons": [r for r in (s.get("reasons") or []) if r in opts] or opts}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_cf_settings(settings=None):
     """Section settings — portal manager or a designated section admin."""
     import json as _json
@@ -1293,7 +1307,12 @@ def dashboard(days=30, frm=None, to=None, mine=0):
             ft = {"avgMin": round(float(r[0] or 0)), "orders": int(r[1] or 0)}
             frappe.cache().set_value(ck, _json_mod.dumps(ft), expires_in_sec=3600)
         except Exception:
-            ft = {"avgMin": 0, "orders": 0}
+            # avgMin 0 would read as a PERFECT score — the one failure mode a
+            # KPI must never have. null renders as "no data"; the short cache
+            # stops a timing-out query from re-running on every load.
+            frappe.log_error(frappe.get_traceback()[:3000], "cf first-touch")
+            ft = {"avgMin": None, "orders": 0}
+            frappe.cache().set_value(ck, _json_mod.dumps(ft), expires_in_sec=600)
 
     return {
         "firstTouch": ft,
@@ -1336,7 +1355,7 @@ def dashboard(days=30, frm=None, to=None, mine=0):
 # restores everything the cycle loses (assignment, attribution, call state).
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def amend_order(order, discount_amount=None, discount_percent=None,
                 items=None, note=None):
     """Cancel → amended copy → apply changes → submit, in one transaction.
@@ -1354,6 +1373,8 @@ def amend_order(order, discount_amount=None, discount_percent=None,
     so = frappe.get_doc("Sales Order", order)
     if so.docstatus != 1:
         frappe.throw("Order is not submitted.")
+    if so.company != _CO:
+        frappe.throw("Unknown order.")
     if so.custom_sales_status not in QUEUES.values():
         frappe.throw(f"Order is {so.custom_sales_status or 'unset'} — only live "
                      "confirmation-lane orders can be amended here.")
@@ -1380,11 +1401,18 @@ def amend_order(order, discount_amount=None, discount_percent=None,
     # section setting and every dirham is on the comment trail.
     if role != "manager" and not _is_cf_admin():
         s = _cf_settings()
+        cap_amt = flt(s.get("discountCapAmt", 50))
         if d_pct is not None and d_pct > flt(s.get("discountCapPct", 15)):
             frappe.throw(f"Your discount cap is {s.get('discountCapPct', 15)}% — "
                          "ask a section admin for more.")
-        if d_amt is not None and d_amt > flt(s.get("discountCapAmt", 50)):
-            frappe.throw(f"Your discount cap is {s.get('discountCapAmt', 50)} MAD — "
+        # A percent is still money: 15% of a big basket must not sail past
+        # the amount cap. Both caps bind, whichever form the agent typed.
+        if d_pct is not None and flt(so.grand_total) * d_pct / 100.0 > cap_amt:
+            frappe.throw(f"That's {flt(so.grand_total) * d_pct / 100.0:.0f} MAD — "
+                         f"your money cap is {cap_amt:.0f} MAD. "
+                         "Ask a section admin for more.")
+        if d_amt is not None and d_amt > cap_amt:
+            frappe.throw(f"Your discount cap is {cap_amt:.0f} MAD — "
                          "ask a section admin for more.")
 
     # Snapshot everything the amend cycle would lose.
@@ -1438,6 +1466,10 @@ def amend_order(order, discount_amount=None, discount_percent=None,
     new.submit()
     # Restore the working state the copy dropped or the cycle reset.
     restore = {k: v for k, v in keep.items() if v is not None}
+    # The copy is a NEW row (creation = now) — every age / SLA / cohort metric
+    # keys on creation, so a tiny amend would zero a 6-day-old order's age.
+    # The replacement inherits the original clock.
+    restore["creation"] = so.creation
     if restore:
         frappe.db.set_value("Sales Order", new.name, restore,
                             update_modified=False)
@@ -1457,7 +1489,7 @@ def amend_order(order, discount_amount=None, discount_percent=None,
 # ── Serve-next: the workspace engine (Phase B) ──────────────────────────────
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def next_order(skip=None, as_user=None):
     """Hand the agent the ONE order to work now — due retries first (oldest
     deferral), then the oldest untouched Pending. The agent never cherry-picks;
@@ -1496,13 +1528,13 @@ def next_order(skip=None, as_user=None):
                AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
                AND so.custom_next_call_at IS NOT NULL
                AND so.custom_next_call_at <= NOW(){me_q}
-             ORDER BY so.custom_next_call_at LIMIT 5""",
+             ORDER BY so.custom_next_call_at LIMIT 25""",
          {"sts": retry_sts}),
         (f"""SELECT so.name FROM `tabSales Order` so
              WHERE so.docstatus = 1 AND so.company = %(co)s
                AND so.custom_sales_status = 'Pending' AND {_IN_HAND}
                AND so.creation >= DATE_SUB(NOW(), INTERVAL 30 DAY){me_q}
-             ORDER BY so.creation LIMIT 5""", {}),
+             ORDER BY so.creation LIMIT 25""", {}),
     ):
         for (name,) in frappe.db.sql(sql, {**vals, **extra}):
             if cache.get_value(f"lp_skip_{me}_{name}"):
@@ -1510,12 +1542,15 @@ def next_order(skip=None, as_user=None):
             lock = f"lp_serve_{name}"
             if cache.get_value(lock) and cache.get_value(lock) != me:
                 continue
-            cache.set_value(lock, me, expires_in_sec=300)
+            # View-as is read fidelity: the manager PEEKS at the agent's next
+            # order without locking it away from the agent's own serve flow.
+            if not view_as:
+                cache.set_value(lock, me, expires_in_sec=300)
             return {"order": name}
     return {"order": None}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def release_order(order):
     """The agent skipped / navigated away — free the serve lock."""
     _gate()
@@ -1526,7 +1561,7 @@ def release_order(order):
     return {"ok": True}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def add_note(order, note):
     """A free-text note on the order — the call context the status flip can't
     carry ("husband will confirm tonight", "asked for Saturday delivery")."""
@@ -1553,6 +1588,10 @@ def order_activity(order, limit=15):
             "confirmation", "cs", "tracking", "manager"):
         frappe.throw("Not authorized.", frappe.PermissionError)
     order = (order or "").strip()
+    # The whole lane is company-scoped; the comment trail must be too — this
+    # endpoint must not enumerate other companies' order histories.
+    if frappe.db.get_value("Sales Order", order, "company") != _CO:
+        frappe.throw("Unknown order.")
     limit = min(max(int(limit or 15), 1), 50)
     rows = frappe.db.sql(
         """SELECT c.owner, c.content, c.creation FROM `tabComment` c
@@ -1620,13 +1659,21 @@ def next_up(limit=20, as_user=None):
 
     status_tab = {"Did not Answer": "dna", "Follow Up": "followup",
                   "On Hold": "onhold"}
+
+    def _when(dt):
+        # HH:MM reads as "today" — a call-back due TOMORROW 08:30 must say so.
+        if not dt:
+            return ""
+        v = str(dt)
+        return v[11:16] if v[:10] == str(now_datetime())[:10] else v[5:16]
+
     rows = [{
         "order": r.name, "customer": r.customer or "",
         "total": float(r.total or 0), "ageH": int(r.age_h or 0),
         "attempts": int(r.attempts or 0),
         "due": bool(r.status != "Pending"),
         "kind": status_tab.get(r.status, "pending"),
-        "nextCall": str(r.next_call)[11:16] if r.next_call else "",
+        "nextCall": _when(r.next_call),
     } for r in list(due) + list(fresh)]
-    return {"rows": rows, "nextDueAt": str(upcoming)[11:16] if upcoming else "",
+    return {"rows": rows, "nextDueAt": _when(upcoming),
             "dueCount": len(due)}

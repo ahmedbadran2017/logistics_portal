@@ -175,7 +175,9 @@ async function load() {
     d.value = await api("contact_center.speed_dashboard");
     loadError.value = "";
   } catch (e) {
-    loadError.value = String(e.message || e);
+    // A failed silent poll must not replace a working dashboard with an
+    // error panel — only a load with nothing on screen surfaces it.
+    if (!d.value) loadError.value = String(e.message || e);
   } finally {
     loading.value = false;
   }

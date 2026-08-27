@@ -192,7 +192,7 @@
                 <span class="text-[11px] text-stone-400">{{ t('ws.or') }}</span>
                 <input v-model.number="discPct" type="number" min="0" max="100" placeholder="%"
                        class="h-8 w-[64px] ps-2 rounded-lg bg-white ring-1 ring-violet-200 text-[12.5px] tabular-nums focus:outline-none" />
-                <span v-if="board?.discountCapPct !== undefined" class="text-[10.5px] text-stone-400">{{ t('ws.cap').replace('{p}', String(caps.pct)).replace('{a}', String(caps.amt)) }}</span>
+                <span class="text-[10.5px] text-stone-400">{{ t('ws.cap').replace('{p}', String(caps.pct)).replace('{a}', String(caps.amt)) }}</span>
                 <button class="ms-auto h-8 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-50"
                         :disabled="busy || !amendDirty" @click="applyAmend">{{ busy ? '…' : t('ws.applyAmend') }}</button>
               </div>
@@ -541,18 +541,18 @@ async function loadBoard() {
     ]);
     board.value = b;
     plan.value = p2;
+    syncFromBoard(b);
     if (b?.reasons?.length) reasons.value = b.reasons;
   } catch (e) { /* the queue pane is a helper; serve-next still works */ }
   boardLoading.value = false;
 }
 
-async function loadSettings() {
-  try {
-    const s = await api("confirmation.cf_settings");
-    caps.value = { pct: s.discountCapPct ?? 15, amt: s.discountCapAmt ?? 50 };
-  } catch (e) { /* caps keep their defaults */ }
+function syncFromBoard(b) {
+  if (!b) return;
+  caps.value = { pct: b.discountCapPct ?? 15, amt: b.discountCapAmt ?? 50 };
 }
 
+let openSeq = 0;
 async function openOrder(name) {
   panel.value = "";
   cancelReason.value = "";
@@ -564,8 +564,19 @@ async function openOrder(name) {
   clearInterval(cardTick);
   cardTick = setInterval(() => { cardSeconds.value += 1; }, 1000);
   cardLoading.value = true;
+  const seq = ++openSeq;    // rapid clicks: only the LATEST response paints
   try {
-    active.value = await api("orders.detail", { name });
+    const det = await api("orders.detail", { name });
+    if (seq !== openSeq) return;
+    if (!det || !det.name) {
+      // orders.detail returns {} for an unknown/renamed order — never render
+      // a blank card with live decision buttons posting order: undefined.
+      warn(t("cf.loadFail"), name);
+      active.value = null;
+      activeRow.value = null;
+      return;
+    }
+    active.value = det;
     activeRow.value = queueRows.value.find((r) => r.order === name) || null;
     amendItems.value = (active.value.items || []).map((i) => ({
       item_code: i.sku, name: i.name, qty: Math.round(i.qty), _orig: Math.round(i.qty),
@@ -576,26 +587,32 @@ async function openOrder(name) {
     editAddress.value = active.value.address_line || "";
     loadContext();
   } catch (e) {
+    if (seq !== openSeq) return;
     warn(t("cf.loadFail"), String(e.message || e));
     active.value = null;
+    activeRow.value = null;
   } finally {
-    cardLoading.value = false;
+    if (seq === openSeq) cardLoading.value = false;
   }
 }
 
+let ctxSeq = 0;
 async function loadContext() {
   const phone = active.value?.phone;
   cust.value = null; thread.value = [];
   if (!phone) return;
+  const seq = ++ctxSeq;
   custLoading.value = true;
   threadLoading.value = true;
-  api("customers.card", { phone }).then((c) => { cust.value = c; })
-    .catch(() => {}).finally(() => { custLoading.value = false; });
-  api("tickets.wa_thread", { phone, limit: 20 }).then((r) => { thread.value = r?.messages || []; })
-    .catch(() => { thread.value = []; }).finally(() => { threadLoading.value = false; });
+  api("customers.card", { phone }).then((c) => { if (seq === ctxSeq) cust.value = c; })
+    .catch(() => {}).finally(() => { if (seq === ctxSeq) custLoading.value = false; });
+  api("tickets.wa_thread", { phone, limit: 20 }).then((r) => { if (seq === ctxSeq) thread.value = r?.messages || []; })
+    .catch(() => { if (seq === ctxSeq) thread.value = []; })
+    .finally(() => { if (seq === ctxSeq) threadLoading.value = false; });
 }
 
 async function serveNext(skipCurrent = false) {
+  if (serving.value || busy.value) return;   // double-N fired two server locks
   serving.value = true;
   try {
     // Walking away UNDECIDED marks the order skipped for 10 minutes —
@@ -606,6 +623,10 @@ async function serveNext(skipCurrent = false) {
     if (r.order) await openOrder(r.order);
     else {
       active.value = null;
+      activeRow.value = null;
+      cust.value = null;
+      thread.value = [];
+      activity.value = [];
       clearInterval(cardTick);
       success(t("ws.allDone"));
     }
@@ -647,6 +668,9 @@ async function applyAmend() {
     });
     success(t("ws.amended"), `${res.order} · ${Math.round(res.total)} MAD`);
     panel.value = "";
+    if (plan.value?.rows) {
+      plan.value.rows = plan.value.rows.filter((r) => r.order !== res.amendedFrom);
+    }
     await openOrder(res.order);
     loadBoard();
   } catch (e) {
@@ -670,6 +694,7 @@ async function saveContact() {
     active.value.city = editCity.value.trim() || active.value.city;
     panel.value = "";
     success(t("cf.contactSaved"), active.value.name);
+    loadContext();   // history + thread must follow the corrected number
   } catch (e) {
     warn(t("cf.actFail"), String(e.message || e));
   } finally {
@@ -683,25 +708,38 @@ function hideImg(e) { if (e && e.target) e.target.style.display = "none"; }
 // the focus is in an input.
 function onKey(e) {
   const tag = (e.target?.tagName || "").toLowerCase();
-  if (tag === "input" || tag === "textarea" || e.metaKey || e.ctrlKey) return;
-  const k = e.key.toLowerCase();
-  if (k === "n") { e.preventDefault(); serveNext(true); }
+  if (tag === "input" || tag === "textarea" || tag === "select"
+      || e.target?.isContentEditable || e.metaKey || e.ctrlKey || e.altKey) return;
+  // Physical key codes, not characters — on the Arabic layout e.key is
+  // ن/د/م and every advertised shortcut was silently dead.
+  const c = e.code;
+  if (c === "KeyN") {
+    // Never nuke a half-built cancel with a stray N.
+    if (panel.value === "cancel" && cancelReason.value) return;
+    e.preventDefault();
+    serveNext(true);
+  }
   else if (!active.value || busy.value) return;
-  else if (k === "1") onConfirm();
-  else if (k === "2") decide("dna");
-  else if (k === "3") decide("followup");
-  else if (k === "4") panel.value = panel.value === "cancel" ? "" : "cancel";
-  else if (k === "d") panel.value = panel.value === "amend" ? "" : "amend";
-  else if (k === "f") panel.value = panel.value === "contact" ? "" : "contact";
-  else if (k === "m") panel.value = panel.value === "note" ? "" : "note";
+  else if (c === "Digit1" || c === "Numpad1") onConfirm();
+  else if (c === "Digit2" || c === "Numpad2") decide("dna");
+  else if (c === "Digit3" || c === "Numpad3") decide("followup");
+  else if (c === "Digit4" || c === "Numpad4") panel.value = panel.value === "cancel" ? "" : "cancel";
+  else if (c === "KeyD") panel.value = panel.value === "amend" ? "" : "amend";
+  else if (c === "KeyF") panel.value = panel.value === "contact" ? "" : "contact";
+  else if (c === "KeyM") panel.value = panel.value === "note" ? "" : "note";
 }
 
 onMounted(() => {
   loadBoard();
-  loadSettings();
   window.addEventListener("keydown", onKey);
 });
+// The plan pane goes stale over a shift — silent refresh like every queue.
+const planTimer = setInterval(() => {
+  if (document.visibilityState === "visible" && !serving.value && !busy.value
+      && !cardLoading.value) loadBoard();
+}, 120000);
 onUnmounted(() => {
+  clearInterval(planTimer);
   clearInterval(cardTick);
   window.removeEventListener("keydown", onKey);
   if (active.value) apiPost("confirmation.release_order", { order: active.value.name }).catch(() => {});

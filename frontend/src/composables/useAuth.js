@@ -21,7 +21,14 @@ const isLoggedIn = computed(() => !!user.value && user.value !== "Guest");
 const viewAs = ref(null);      // { user, fullName, role } or null
 try {
   const raw = localStorage.getItem("lp_view_as_meta");
-  if (raw) viewAs.value = JSON.parse(raw);
+  const parsed = raw ? JSON.parse(raw) : null;
+  // Shape-validate: a truncated/edited value must mean OFF, not roles.undefined.
+  if (parsed && typeof parsed.user === "string" && typeof parsed.role === "string") {
+    viewAs.value = parsed;
+  } else if (raw) {
+    localStorage.removeItem("lp_view_as");
+    localStorage.removeItem("lp_view_as_meta");
+  }
 } catch (_) { /* corrupted → off */ }
 
 function setViewAs(member) {
@@ -48,6 +55,10 @@ async function init(force = false) {
     fullName.value = boot.full_name || boot.user;
     role.value = boot.role;
     roles.value = boot.roles || (boot.role ? [boot.role] : []);
+    // NB set BEFORE the view-as branch — it zeroes these for fidelity, and
+    // assigning after it silently restored the manager's admin powers to
+    // the preview (the one bug that made "view as" lie).
+    ccAdmin.value = boot.ccAdmin || { cf: false, rs: false, cs: false };
     // A non-manager must never carry a stale view-as marker.
     if (viewAs.value && boot.role !== "manager") setViewAs(null);
     else if (viewAs.value) {
@@ -57,7 +68,6 @@ async function init(force = false) {
     }
     zone.value = boot.zone || "";
     hiddenPages.value = Array.isArray(boot.hiddenPages) ? boot.hiddenPages : [];
-    ccAdmin.value = boot.ccAdmin || { cf: false, rs: false, cs: false };
     // The page template can't inject the CSRF token reliably; the boot endpoint
     // returns it so POST writes (apiPost) work from the browser session.
     if (boot.csrf_token) window.csrf_token = boot.csrf_token;
@@ -92,6 +102,13 @@ async function login(usr, pwd) {
 }
 
 async function logout() {
+  // A shared machine must never hand the NEXT login the previous manager's
+  // view-as marker (as_user would silently ride every request).
+  try {
+    localStorage.removeItem("lp_view_as");
+    localStorage.removeItem("lp_view_as_meta");
+  } catch (_) { /* private mode */ }
+  viewAs.value = null;
   // CSRF header: Frappe rejects tokenless POSTs once a session token exists.
   const token = window.csrf_token || (window.frappe_boot && window.frappe_boot.csrf_token) || "";
   await fetch("/api/method/logout", {

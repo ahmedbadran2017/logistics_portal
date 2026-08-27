@@ -198,6 +198,9 @@ const ROLE_ICON = {
   picker: "package",
   packer: "tag",
   returns: "rotate-ccw",
+  confirmation: "phone",
+  cs: "message-circle",
+  tracking: "map-pin",
 };
 function roleIcon(r) {
   return ROLE_ICON[r] || "user";
@@ -216,6 +219,10 @@ async function doLogout() {
 }
 
 function pickRole(r) {
+  // Picking one of MY roles while viewing as a member is an exit first —
+  // otherwise the banner says "viewing as X" while the nav shows role Y and
+  // as_user still rides every call.
+  if (viewAs.value) { setViewAs(null); return; }
   setActiveRole(r);
   menuOpen.value = false;
 }

@@ -63,8 +63,13 @@ def _rs_settings():
 
 def _is_rs_admin():
     from logistics_portal.api.auth import resolve_role
-    if resolve_role(frappe.session.user) == "manager":
+    role = resolve_role(frappe.session.user)
+    if role == "manager":
         return True
+    # Capability requires a live portal role — leaving the team must revoke
+    # it even if the admins list is stale.
+    if role not in ("confirmation", "cs", "tracking"):
+        return False
     return frappe.session.user in _rs_settings().get("admins", [])
 
 
@@ -74,7 +79,7 @@ def rs_settings():
     return {**_rs_settings(), "canEdit": _is_rs_admin()}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_rs_settings(settings=None):
     import json as _json
     _gate()
@@ -121,7 +126,7 @@ _DN_SELECT = """
            COALESCE(so.custom_call_attempts, 0) AS attempts,
            so.custom_next_call_at AS next_call,
            DATEDIFF(CURDATE(), dn.posting_date) AS age_d,
-           TIMESTAMPDIFF(HOUR, dn.posting_date, NOW()) AS age_h
+           TIMESTAMPDIFF(HOUR, dn.creation, NOW()) AS age_h
     FROM `tabDelivery Note` dn
     LEFT JOIN `tabSales Order` so
       ON so.name = (SELECT MIN(dni.against_sales_order)
@@ -261,7 +266,7 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def act(id=None, action=None, note=None):
     """One rescue decision. `id` is the Delivery Note (DN queues) or the Sales
     Order (Not-Delivered queue).
@@ -360,7 +365,7 @@ def act(id=None, action=None, note=None):
             "order": order or ""}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def bulk_act(ids=None, action=None, note=None):
     """Bulk triage for the backlog pile: mark parcels Return Requested or
     Resolved without the per-customer call flow. Section admins/manager only —
@@ -485,8 +490,13 @@ def dashboard():
     """The rescue lane's queue-health view — the sibling the other two lanes
     always had. All panels describe RIGHT NOW (there is no snapshot history):
     queue depths with value at stake, how long failing parcels have waited
-    untouched, and the day-by-day inflow vs. decisions for two weeks."""
+    untouched, and the day-by-day inflow vs. decisions for two weeks.
+
+    Team-level view — with the ten oldest failures' customer names and
+    phones. Section admins and the manager only."""
     _gate()
+    if not _is_rs_admin():
+        frappe.throw("Not authorized.", frappe.PermissionError)
     sla_h = _rs_settings().get("slaTriageH", 24)
 
     cards = {}
@@ -507,11 +517,11 @@ def dashboard():
     vals.pop("track", None)
     aging = frappe.db.sql(
         f"""SELECT
-              SUM(TIMESTAMPDIFF(HOUR, dn.posting_date, NOW()) <= 24),
-              SUM(TIMESTAMPDIFF(HOUR, dn.posting_date, NOW()) BETWEEN 25 AND 72),
-              SUM(TIMESTAMPDIFF(HOUR, dn.posting_date, NOW()) > 72),
+              SUM(TIMESTAMPDIFF(HOUR, dn.creation, NOW()) <= 24),
+              SUM(TIMESTAMPDIFF(HOUR, dn.creation, NOW()) BETWEEN 25 AND 72),
+              SUM(TIMESTAMPDIFF(HOUR, dn.creation, NOW()) > 72),
               SUM(COALESCE(so.custom_call_attempts, 0) = 0
-                  AND TIMESTAMPDIFF(HOUR, dn.posting_date, NOW()) > %(sla)s)
+                  AND TIMESTAMPDIFF(HOUR, dn.creation, NOW()) > %(sla)s)
             FROM `tabDelivery Note` dn
             LEFT JOIN `tabSales Order` so
               ON so.name = (SELECT MIN(dni.against_sales_order)
@@ -531,10 +541,12 @@ def dashboard():
            GROUP BY dn.posting_date""", (_CO,))}
     decided = {str(r[0]): int(r[1] or 0) for r in frappe.db.sql(
         """SELECT DATE(c.creation), COUNT(*) FROM `tabComment` c
+           JOIN `tabSales Order` so ON so.name = c.reference_name
            WHERE c.reference_doctype = 'Sales Order'
+             AND so.company = %s
              AND c.content LIKE 'Rescue: %%'
              AND c.creation >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
-           GROUP BY DATE(c.creation)""")}
+           GROUP BY DATE(c.creation)""", (_CO,))}
     days_axis = [str(r[0]) for r in frappe.db.sql(
         """SELECT DATE_SUB(CURDATE(), INTERVAL n DAY) FROM
            (SELECT 13 n UNION SELECT 12 UNION SELECT 11 UNION SELECT 10

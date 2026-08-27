@@ -341,7 +341,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -393,8 +393,10 @@ const pct = computed(() => {
 
 // Count the points up — the number is the point of the page.
 const nPoints = ref(0);
+let rafId = 0;
 watch(d, (v) => {
   if (!v?.available) return;
+  cancelAnimationFrame(rafId);   // a reload mid-animation forked two loops
   const from = nPoints.value;
   const to = v.me.points;
   const t0 = performance.now();
@@ -402,10 +404,11 @@ watch(d, (v) => {
     const p = Math.min(1, (now2 - t0) / 900);
     const eased = 1 - Math.pow(1 - p, 3);
     nPoints.value = Math.round((from + (to - from) * eased) * 10) / 10;
-    if (p < 1) requestAnimationFrame(step);
+    if (p < 1) rafId = requestAnimationFrame(step);
   };
-  requestAnimationFrame(step);
+  rafId = requestAnimationFrame(step);
 });
+onUnmounted(() => cancelAnimationFrame(rafId));
 
 async function load() {
   loading.value = true;

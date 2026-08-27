@@ -11,7 +11,7 @@
       </button>
     </header>
 
-    <div v-if="loading" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div v-if="loading && !d" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <span v-for="n in 4" :key="n" class="h-[84px] rounded-2xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
     </div>
     <div v-else-if="loadError" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
@@ -103,7 +103,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -135,10 +135,14 @@ async function load() {
     d.value = await api("rescue.dashboard");
     loadError.value = "";
   } catch (e) {
-    loadError.value = String(e.message || e);
+    if (!d.value) loadError.value = String(e.message || e);
   } finally {
     loading.value = false;
   }
 }
 onMounted(load);
+const timer = setInterval(() => {
+  if (document.visibilityState === "visible" && !loading.value) load();
+}, 120000);
+onUnmounted(() => clearInterval(timer));
 </script>
