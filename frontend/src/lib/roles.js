@@ -18,20 +18,9 @@ export const ROLE_CONFIG = {
           { to: "TeamPerformance", label: "nav.teamPerf", icon: "award" },
           { to: "VelocityBoard", label: "nav.velocity", icon: "gauge-circle" },
           { to: "FloorBoard", label: "nav.floor", icon: "trending-up" },
-          { to: "ContactCenter", label: "nav.ccOverview", icon: "message-circle" },
           { to: "SlaBoard", label: "nav.sla", icon: "shield-alert" },
           { to: "Alerts", label: "nav.alerts", icon: "bell" },
           { to: "Audit", label: "nav.audit", icon: "activity" },
-        ],
-      },
-      {
-        // One entry per lane; each lane's dashboard/reports/settings live as
-        // in-page tabs (see lib/laneTabs.js), not sidebar rows.
-        section: "nav.contactSection",
-        items: [
-          { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
-          { to: "Rescue", label: "nav.rescue", icon: "route" },
-          { to: "Tickets", label: "nav.tickets", icon: "message-circle" },
         ],
       },
       {
@@ -207,9 +196,57 @@ export const ROLE_CONFIG = {
   },
 };
 
+// The contact-center portal (/confirmation) is a separate surface: the
+// confirmation role's config IS its nav; a manager entering it gets this
+// dedicated shell instead of the logistics one. Conversely the logistics
+// manager nav below holds NO contact-center entries any more — the lanes
+// moved out of /logistics entirely (Ahmed, 2026-08-27).
+const CC_MANAGER = {
+  home: "ContactCenter",
+  nav: [
+    {
+      section: "nav.overview",
+      items: [
+        { to: "ContactCenter", label: "nav.ccOverview", icon: "message-circle" },
+      ],
+    },
+    {
+      section: "nav.contactSection",
+      items: [
+        { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
+        { to: "Rescue", label: "nav.rescue", icon: "route" },
+        { to: "Tickets", label: "nav.tickets", icon: "message-circle" },
+      ],
+    },
+    {
+      section: "nav.operations",
+      items: [
+        { to: "Consolidation", label: "nav.consolidation", icon: "git-merge" },
+        { to: "Stranded", label: "nav.stranded", icon: "package-x" },
+        { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
+      ],
+    },
+    {
+      section: "nav.team",
+      items: [
+        { to: "Team", label: "nav.team", icon: "users" },
+        { to: "Settings", label: "nav.settings", icon: "settings" },
+      ],
+    },
+  ],
+};
+
+function configFor(role, cc) {
+  if (cc) {
+    if (role === "manager") return CC_MANAGER;
+    return ROLE_CONFIG.confirmation;
+  }
+  return ROLE_CONFIG[role] || ROLE_CONFIG.picker;
+}
+
 /** Grouped nav for a role, minus the pages a manager hid for this user. */
-export function navFor(role, hidden) {
-  const nav = (ROLE_CONFIG[role] || ROLE_CONFIG.picker).nav;
+export function navFor(role, hidden, cc = false) {
+  const nav = configFor(role, cc).nav;
   if (!hidden || !hidden.length) return nav;
   const h = new Set(hidden);
   return nav
@@ -218,14 +255,14 @@ export function navFor(role, hidden) {
 }
 
 /** Flat list of nav items (for the command palette / route guard). */
-export function navItemsFor(role, hidden) {
-  return navFor(role, hidden).flatMap((g) => g.items);
+export function navItemsFor(role, hidden, cc = false) {
+  return navFor(role, hidden, cc).flatMap((g) => g.items);
 }
 
-export function homeRouteFor(role, hidden) {
-  const home = (ROLE_CONFIG[role] || ROLE_CONFIG.picker).home;
+export function homeRouteFor(role, hidden, cc = false) {
+  const home = configFor(role, cc).home;
   if (hidden && hidden.includes(home)) {
-    const first = navItemsFor(role, hidden)[0];
+    const first = navItemsFor(role, hidden, cc)[0];
     return first ? first.to : home;
   }
   return home;

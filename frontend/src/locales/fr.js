@@ -33,6 +33,7 @@ export default {
   },
   nav: {
     logistics: "Logistique",
+    ccPortal: "Centre de contact",
     viewAs: "Voir en tant que",
     rescueSection: "Centre de sauvetage",
     rescue: "Sauvetage",

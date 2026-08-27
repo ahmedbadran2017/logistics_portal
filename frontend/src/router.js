@@ -1,14 +1,18 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuth } from "@/composables/useAuth";
 import { homeRouteFor } from "@/lib/roles";
+import { PORTAL_BASE, IS_CC, portalOf } from "@/lib/portal";
 
 const AppLayout = () => import("@/components/layout/AppLayout.vue");
 const LaneShell = () => import("@/components/layout/LaneShell.vue");
 
+// Paths are RELATIVE to the portal base (/logistics or /confirmation) — the
+// base comes from createWebHistory below, so both portals share this tree and
+// every {name:…} push works unchanged in either.
 const routes = [
-  { path: "/logistics/login", name: "Login", component: () => import("@/pages/auth/Login.vue"), meta: { guest: true } },
+  { path: "/login", name: "Login", component: () => import("@/pages/auth/Login.vue"), meta: { guest: true } },
   {
-    path: "/logistics",
+    path: "/",
     component: AppLayout,
     meta: { requiresAuth: true },
     children: [
@@ -117,16 +121,16 @@ const routes = [
       { path: ":pathMatch(.*)*", redirect: () => ({ name: "Home2" }) },
     ],
   },
-  { path: "/:pathMatch(.*)*", redirect: "/logistics" },
+  { path: "/:pathMatch(.*)*", redirect: "/" },
 ];
 
 function roleRedirect(to, from, next) {
   const { role, hiddenPages } = useAuth();
-  next({ name: homeRouteFor(role.value, hiddenPages.value) });
+  next({ name: homeRouteFor(role.value, hiddenPages.value, IS_CC) });
 }
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(PORTAL_BASE),
   routes,
 });
 
@@ -141,13 +145,29 @@ router.beforeEach(async (to, from, next) => {
   const { init, isLoggedIn, role, hiddenPages } = useAuth();
   await init();
 
+  // Portal fence: each role lives on its own side. Confirmation agents landing
+  // on /logistics are moved to /confirmation and vice versa for floor roles;
+  // managers may use both portals. Hard navigation on purpose — the history
+  // base differs, so an in-router redirect can't cross it.
+  if (isLoggedIn.value && role.value) {
+    const side = portalOf(role.value);
+    if (side === "cc" && !IS_CC) {
+      window.location.replace("/confirmation/home");
+      return;
+    }
+    if (side === "floor" && IS_CC) {
+      window.location.replace("/logistics/home");
+      return;
+    }
+  }
+
   if (to.meta.requiresAuth && !isLoggedIn.value) {
     next({ name: "Login", query: { redirect: to.fullPath } });
   } else if (to.meta.guest && isLoggedIn.value) {
     next({ name: "Home2" });
   } else if (isLoggedIn.value && to.name && hiddenPages.value.includes(to.name)) {
     // A page the manager hid for this user — deep links bounce home too.
-    next({ name: homeRouteFor(role.value, hiddenPages.value) });
+    next({ name: homeRouteFor(role.value, hiddenPages.value, IS_CC) });
   } else {
     next();
   }

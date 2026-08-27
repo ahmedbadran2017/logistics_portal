@@ -80,6 +80,7 @@ import { useAuth } from "@/composables/useAuth";
 import { useI18n } from "@/composables/useI18n";
 import { useTheme } from "@/composables/useTheme";
 import { homeRouteFor } from "@/lib/roles";
+import { IS_CC } from "@/lib/portal";
 
 defineProps({ unread: { type: Number, default: 0 } });
 defineEmits(["toggle-menu", "open-notif"]);
@@ -97,7 +98,7 @@ const langs = [
 
 // Current page label from route meta/name, falling back to the role home.
 const pageLabel = computed(() => {
-  const name = route.name || homeRouteFor(role.value);
+  const name = route.name || homeRouteFor(role.value, undefined, IS_CC);
   const key = `nav.${String(name).toLowerCase()}`;
   return t(key, String(name));
 });

@@ -48,15 +48,18 @@ def block_desk_for_portal_team():
 
         # The portal's own team marker — non-team System Users (admins, other
         # departments) are untouched, so emergency Desk access stays with them.
-        if not frappe.db.get_value("User", user, "custom_logistics_role"):
+        role = frappe.db.get_value("User", user, "custom_logistics_role")
+        if not role:
             return
 
         # Per-user escape valve an admin can grant/revoke with no deploy.
         if _OVERRIDE_ROLE in (frappe.get_roles(user) or []):
             return
 
-        # Bounce to the portal instead of a dead-end error page.
-        frappe.flags.redirect_location = _PORTAL_HOME
+        # Bounce to the user's OWN portal instead of a dead-end error page:
+        # the contact center is a separate surface since 2026-08-27.
+        frappe.flags.redirect_location = (
+            "/confirmation" if role == "confirmation" else _PORTAL_HOME)
         raise frappe.Redirect
     except frappe.Redirect:
         raise

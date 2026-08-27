@@ -1,0 +1,32 @@
+{%- block head %}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>Justyol Contact Center</title>
+
+<!-- The contact-center portal: the SAME SPA bundle as /logistics, served under
+     its own base. lib/portal.js reads the /confirmation prefix and the router
+     mounts with that base — separate shell, nav, and role fence. No PWA
+     manifest on purpose: agents work on desktops, not the floor PDAs. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap">
+{{ include_style("logistics_portal.bundle.css") }}
+{%- endblock %}
+
+{%- block page_content %}
+<div id="app"></div>
+{%- endblock %}
+
+{%- block script %}
+<script>
+    // Boot data injected by Frappe so the SPA knows the session user without a round-trip.
+    window.frappe_boot = {
+        user: "{{ frappe.session.user }}",
+        csrf_token: "{{ frappe.session.csrf_token if frappe.session else '' }}",
+        sitename: "{{ frappe.local.site }}",
+    };
+    window.csrf_token = "{{ frappe.session.csrf_token if frappe.session else '' }}";
+</script>
+{{ include_script("logistics_portal.bundle.js") }}
+{%- endblock %}

@@ -6,7 +6,7 @@
         <img :src="logoSrc" alt="Justyol" class="block h-3.5 flex-shrink-0" />
         <span class="h-3.5 w-px bg-stone-200 flex-shrink-0" />
         <span class="text-[9.5px] font-semibold text-stone-400 tracking-[0.14em] uppercase">
-          {{ t("nav.logistics", "Logistics") }}
+          {{ IS_CC ? t("nav.ccPortal", "Contact Center") : t("nav.logistics", "Logistics") }}
         </span>
       </div>
     </div>
@@ -139,6 +139,7 @@ import InstallApp from "@/components/ui/InstallApp.vue";
 import { useAuth } from "@/composables/useAuth";
 import { useI18n } from "@/composables/useI18n";
 import { navFor } from "@/lib/roles";
+import { IS_CC, PORTAL_BASE } from "@/lib/portal";
 
 defineEmits(["open-search"]);
 
@@ -151,7 +152,7 @@ const { role, roles, fullName, hiddenPages, setActiveRole, logout } = useAuth();
 const route = useRoute();
 const menuOpen = ref(false);
 
-const nav = computed(() => navFor(role.value, hiddenPages.value));
+const nav = computed(() => navFor(role.value, hiddenPages.value, IS_CC));
 
 const initials = computed(() =>
   (fullName.value || "?").split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase()
@@ -177,7 +178,7 @@ function isActive(item) {
 async function doLogout() {
   menuOpen.value = false;
   try { await logout(); } catch (_) { /* clear locally regardless */ }
-  window.location.href = "/logistics/login";
+  window.location.href = `${PORTAL_BASE}/login`;
 }
 
 function pickRole(r) {

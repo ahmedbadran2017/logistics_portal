@@ -33,6 +33,7 @@ export default {
   },
   nav: {
     logistics: "اللوجستيات",
+    ccPortal: "مركز التواصل",
     viewAs: "اعرض بدور",
     rescueSection: "مركز الإنقاذ",
     rescue: "الإنقاذ",

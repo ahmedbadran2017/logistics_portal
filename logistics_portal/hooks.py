@@ -10,6 +10,9 @@ app_license = "MIT"
 # ---------------------------------------------------------------------------
 website_route_rules = [
     {"from_route": "/logistics/<path:app_path>", "to_route": "logistics"},
+    # The contact center is its own portal surface (same SPA bundle, its own
+    # base, shell, and nav) — fully separated from logistics.
+    {"from_route": "/confirmation/<path:app_path>", "to_route": "confirmation"},
 ]
 
 # ---------------------------------------------------------------------------

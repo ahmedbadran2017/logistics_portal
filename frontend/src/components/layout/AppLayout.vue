@@ -128,6 +128,7 @@ import OfflineBanner from "@/components/ui/OfflineBanner.vue";
 import Icon from "@/components/ui/Icon.vue";
 import { useRoute } from "vue-router";
 import { useAuth } from "@/composables/useAuth";
+import { PORTAL_BASE } from "@/lib/portal";
 import { useI18n } from "@/composables/useI18n";
 import { isMobileRole, navItemsFor } from "@/lib/roles";
 import { api } from "@/lib/resource";
@@ -161,7 +162,7 @@ async function doLogout() {
   roleMenu.value = false;
   try { await logout(); } catch (_) { /* clear locally regardless */ }
   // Full reload: drops all in-memory state and lands on the login screen clean.
-  window.location.href = "/logistics/login";
+  window.location.href = `${PORTAL_BASE}/login`;
 }
 
 // Global ⌘K / Ctrl+K to toggle the command palette.
