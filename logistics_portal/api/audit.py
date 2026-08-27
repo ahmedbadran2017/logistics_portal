@@ -502,9 +502,33 @@ def problem_radar():
                           "Cancel the draft and recreate it.",
                 "route": "/logistics/picklists"})
 
+    def stale_receiving():
+        # Receiving Zone is a pass-through, and it IS pickable (dropship orders
+        # ship straight from it) — so anything parked there for days is either
+        # a put-away backlog or PHANTOM stock (e.g. a cancelled dropship order
+        # whose received pieces vanished without a document: item
+        # 47439676768510, 2026-08-27 — a picker was sent to an empty zone).
+        # At discovery: 545 items / 2,066 units untouched for 3+ days.
+        n, units = one("""SELECT COUNT(*), ROUND(COALESCE(SUM(b.actual_qty),0))
+            FROM `tabBin` b
+            JOIN (SELECT item_code,
+                         MAX(CONCAT(posting_date, ' ', posting_time)) AS last_move
+                  FROM `tabStock Ledger Entry`
+                  WHERE warehouse = 'Receiving Zone - JM' AND is_cancelled = 0
+                  GROUP BY item_code) sle ON sle.item_code = b.item_code
+            WHERE b.warehouse = 'Receiving Zone - JM' AND b.actual_qty > 0
+              AND sle.last_move < DATE_SUB(NOW(), INTERVAL 3 DAY)""")
+        if n:
+            findings.append({"key": "staleReceiving", "sev": "warning", "count": n,
+                "value": int(units or 0),
+                "title": "Stock parked in Receiving Zone (3d+)",
+                "detail": "Put it away via the Move Stock put-away queue — or cycle-count it: "
+                          "picks allocate from Receiving, and stale rows there send pickers to ghosts.",
+                "route": "/logistics/move"})
+
     for fn in (open_breaches, at_risk_today, stuck_to_pick, no_awb, unprinted_aging,
                missed_manifest, exceptions_open, return_zone, short_picked,
-               stale_ret_batch, consol_waiting, poison_drafts):
+               stale_ret_batch, consol_waiting, poison_drafts, stale_receiving):
         check(fn)
 
     sev_rank = {"critical": 0, "warning": 1, "info": 2}
