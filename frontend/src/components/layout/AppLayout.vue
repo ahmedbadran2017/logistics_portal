@@ -62,7 +62,7 @@
     <div class="w-full max-w-[480px] flex-1 flex flex-col min-h-0 bg-stone-50 relative">
       <div class="flex-1 overflow-y-auto overscroll-contain pb-[64px]" style="scrollbar-width:none">
         <router-view v-slot="{ Component }">
-          <component :is="Component" :key="$route.fullPath" />
+          <component :is="Component" :key="$route.name + JSON.stringify($route.params)" />
         </router-view>
       </div>
       <!-- bottom tab bar -->
@@ -114,7 +114,7 @@
       />
       <main class="flex-1 overflow-y-auto bg-[rgb(var(--bg))]">
         <router-view v-slot="{ Component }">
-          <component :is="Component" :key="$route.fullPath" />
+          <component :is="Component" :key="$route.name + JSON.stringify($route.params)" />
         </router-view>
       </main>
     </div>

@@ -909,10 +909,20 @@ def report(days=7, frm=None, to=None):
         comes back as a refused parcel is not revenue, and the old dashboard's
         single "Revenue" column couldn't tell the difference.
     """
+    # Gate FIRST, cache second — a cached team report must never leak past
+    # the section-admin check.
     _gate()
     if not _is_cf_admin():
         frappe.throw("Only the portal manager or a section admin can open the "
                      "section report.", frappe.PermissionError)
+    import json as _json_r
+    _ck = f"lp_cf_report_{days}_{frm or ''}_{to or ''}"
+    _hit = frappe.cache().get_value(_ck)
+    if _hit:
+        try:
+            return _json_r.loads(_hit)
+        except Exception:
+            pass
     days = min(max(int(days or 7), 1), 365)
     rng, rng_vals = _range(days, frm, to)
     # Two windows, on purpose — the desk's own dashboard learned this too
@@ -1079,7 +1089,7 @@ def report(days=7, frm=None, to=None):
                   "n": int(ladder.n or 0)}
 
     from logistics_portal.api.settings import get_ops
-    return {
+    _out = {
         "days": days, "frm": frm or "", "to": to or "",
         "agents": agents,
         "reasons": reason_rows,
@@ -1091,7 +1101,8 @@ def report(days=7, frm=None, to=None):
         "ladder": ladder,
         "target": int(_cf_settings().get("dayTarget", 40)),
     }
-
+    frappe.cache().set_value(_ck, _json_r.dumps(_out, default=str), expires_in_sec=300)
+    return _out
 
 @frappe.whitelist()
 def dashboard(days=30, frm=None, to=None, mine=0):

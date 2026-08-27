@@ -76,6 +76,9 @@ scheduler_events = {
         # Audit rule engine: scan recent docs against thresholds every 10 minutes.
         "*/10 * * * *": [
             "logistics_portal.api.audit.run_rule_engine",
+            # Keep the contact center's heavy caches hot (speed dashboard,
+            # first-touch, risky set) — cold cost measured at up to 13.7s.
+            "logistics_portal.api.contact_center.warm_cc_caches",
         ],
     },
     "daily_long": [

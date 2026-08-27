@@ -6,7 +6,7 @@
   <div>
     <LaneTabs />
     <router-view v-slot="{ Component }">
-      <component :is="Component" :key="$route.fullPath" />
+      <component :is="Component" :key="$route.name + JSON.stringify($route.params)" />
     </router-view>
   </div>
 </template>

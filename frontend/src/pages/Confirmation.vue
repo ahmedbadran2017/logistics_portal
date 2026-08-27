@@ -444,6 +444,12 @@ async function load() {
   }
 }
 onMounted(load);
+// Query changes no longer remount the page (the router keys by name+params
+// for cheap navigation) — honour ?tab= deep links reactively instead.
+watch(() => route.query.tab, (v) => {
+  const next = TAB_KEYS.includes(String(v || "")) ? String(v) : null;
+  if (next && next !== tab.value) { tab.value = next; page.value = 1; load(); }
+});
 // Silent background refresh, same contract as the Pipeline board: visible tab
 // only, nothing selected, no open panels — an agent watching the queue was
 // otherwise looking at a snapshot from whenever they opened the page.

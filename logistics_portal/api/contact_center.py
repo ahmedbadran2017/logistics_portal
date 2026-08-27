@@ -1012,3 +1012,22 @@ def bonus_breakdown(user=None, month=None, group="cc"):
             "deliveredEach": d_rate, "deliveredPts": dpts,
             "streakDays": streak, "total": total,
             "target": s["targets"].get(group, 0)}
+
+
+def warm_cc_caches():
+    """Scheduler (every 10 min): precompute the heavy caches so no human ever
+    pays the cold price. Measured cold costs at build time: speed_dashboard
+    13.7s (the manager's LANDING page), first-touch 5s+, risky_phones ~2.5s.
+    All are TTL-cached; warming faster than they expire keeps them always hot.
+    Runs as Administrator (manager-resolved), never throws."""
+    for fn in ("logistics_portal.api.contact_center.speed_dashboard",
+               "logistics_portal.api.customers.risky_phones"):
+        try:
+            frappe.get_attr(fn)()
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "warm_cc_caches")
+    try:
+        # dashboard(mine=0) computes + caches the first-touch block too.
+        frappe.get_attr("logistics_portal.api.confirmation.dashboard")(days=30)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "warm_cc_caches")
