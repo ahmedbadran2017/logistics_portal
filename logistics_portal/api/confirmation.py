@@ -1440,13 +1440,25 @@ def amend_order(order, discount_amount=None, discount_percent=None,
 
 
 @frappe.whitelist()
-def next_order():
+def next_order(skip=None):
     """Hand the agent the ONE order to work now — due retries first (oldest
     deferral), then the oldest untouched Pending. The agent never cherry-picks;
     this is what moves the 7-hour first-touch. A short cache lock keeps two
     admins (whole-pool scope) off the same order; per-agent scopes can't
-    collide by construction."""
+    collide by construction.
+
+    `skip` = the order the agent is walking away from UNDECIDED: without a
+    marker, releasing it would hand them the very same order back (it is still
+    the top priority). Skipped orders sit out for 10 minutes for that agent."""
     role = _gate()
+    cache = frappe.cache()
+    me = frappe.session.user
+    skip = (skip or "").strip()
+    if skip:
+        cache.set_value(f"lp_skip_{me}_{skip}", 1, expires_in_sec=600)
+        lock = f"lp_serve_{skip}"
+        if cache.get_value(lock) == me:
+            cache.delete_value(lock)
     mine = role != "manager" and not _is_cf_admin()
     me_q = ""
     vals = {"co": _CO}
@@ -1455,7 +1467,6 @@ def next_order():
         me_q = " AND so._assign LIKE %(me_like)s"
 
     retry_sts = tuple(v for k, v in QUEUES.items() if k != "pending")
-    cache = frappe.cache()
     for sql, extra in (
         (f"""SELECT so.name FROM `tabSales Order` so
              WHERE so.docstatus = 1 AND so.company = %(co)s
@@ -1471,10 +1482,12 @@ def next_order():
              ORDER BY so.creation LIMIT 5""", {}),
     ):
         for (name,) in frappe.db.sql(sql, {**vals, **extra}):
-            lock = f"lp_serve_{name}"
-            if cache.get_value(lock) and cache.get_value(lock) != frappe.session.user:
+            if cache.get_value(f"lp_skip_{me}_{name}"):
                 continue
-            cache.set_value(lock, frappe.session.user, expires_in_sec=300)
+            lock = f"lp_serve_{name}"
+            if cache.get_value(lock) and cache.get_value(lock) != me:
+                continue
+            cache.set_value(lock, me, expires_in_sec=300)
             return {"order": name}
     return {"order": None}
 

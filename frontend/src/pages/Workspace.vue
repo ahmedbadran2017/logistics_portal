@@ -12,10 +12,16 @@
         {{ t('ws.dueN').replace('{n}', String(dueCount)) }}
       </span>
       <button class="ms-auto inline-flex items-center gap-2 h-11 px-5 rounded-xl text-[14px] font-bold text-white shadow-sm transition-colors disabled:opacity-50"
-              :style="{ background: 'var(--accent-600)' }" :disabled="serving" @click="serveNext">
+              :style="{ background: 'var(--accent-600)' }" :disabled="serving" @click="serveNext(true)">
         <Icon name="sparkles" :size="16" />{{ serving ? t('ws.serving') : t('ws.next') }}
         <kbd class="text-[10px] font-mono bg-white/20 rounded px-1.5 py-0.5">N</kbd>
       </button>
+    </div>
+    <!-- the day, as a bar — filling it is the job -->
+    <div v-if="board?.myTarget" class="h-1 rounded-full bg-stone-100 overflow-hidden mb-4 -mt-1">
+      <div class="h-full rounded-full transition-all duration-500"
+           :class="dayPct >= 100 ? 'bg-emerald-500' : 'bg-[var(--accent-500)]'"
+           :style="{ width: Math.min(100, dayPct) + '%' }" />
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_300px] gap-4 items-start">
@@ -57,7 +63,8 @@
           <div class="mt-3 text-[11px] text-stone-400">{{ t('ws.keys') }}</div>
         </div>
         <div v-else-if="cardLoading" class="bg-white rounded-2xl ring-1 ring-stone-200/70 h-[420px] animate-pulse" />
-        <div v-else class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-5 space-y-4">
+        <Transition v-else name="ws-card" mode="out-in">
+        <div :key="active.name" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-5 space-y-4">
           <!-- header -->
           <div class="flex items-start gap-3 flex-wrap">
             <div class="min-w-0 flex-1">
@@ -65,6 +72,10 @@
                 <span class="text-[16px] font-bold text-stone-900">{{ active.customer }}</span>
                 <span class="font-mono text-[11.5px] text-stone-400">{{ active.name }}</span>
                 <span v-if="activeRow?.due" class="text-[10px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-full px-2 py-0.5">{{ t('cf.due') }}</span>
+                <span class="text-[10.5px] font-mono tabular-nums rounded-full px-2 py-0.5 ring-1"
+                      :class="cardSeconds > 240 ? 'text-rose-700 bg-rose-50 ring-rose-200' : 'text-stone-500 bg-stone-50 ring-stone-200'">
+                  <Icon name="clock" :size="9" class="inline -mt-px" /> {{ cardTimer }}
+                </span>
               </div>
               <div class="flex items-center gap-2.5 text-[12px] text-stone-500 mt-1 flex-wrap tabular-nums">
                 <a :href="'tel:' + active.phone" class="font-mono text-sky-700 font-semibold">{{ active.phone }}</a>
@@ -176,6 +187,7 @@
             </button>
           </div>
         </div>
+        </Transition>
       </div>
 
       <!-- RIGHT: who is this customer -->
@@ -251,6 +263,18 @@ const editCity = ref("");
 const editAddress = ref("");
 const caps = ref({ pct: 15, amt: 50 });
 
+const cardSeconds = ref(0);
+let cardTick = null;
+const cardTimer = computed(() => {
+  const m = Math.floor(cardSeconds.value / 60);
+  const sec = cardSeconds.value % 60;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+});
+const dayPct = computed(() => {
+  const tgt = board.value?.myTarget || 0;
+  return tgt ? Math.round((myTotal.value * 100) / tgt) : 0;
+});
+
 const myTotal = computed(() =>
   Object.values(board.value?.mine || {}).reduce((a, b) => a + (b || 0), 0));
 const queueRows = computed(() => board.value?.rows || []);
@@ -286,6 +310,9 @@ async function loadSettings() {
 async function openOrder(name) {
   panel.value = "";
   cancelReason.value = "";
+  cardSeconds.value = 0;
+  clearInterval(cardTick);
+  cardTick = setInterval(() => { cardSeconds.value += 1; }, 1000);
   cardLoading.value = true;
   try {
     active.value = await api("orders.detail", { name });
@@ -318,13 +345,20 @@ async function loadContext() {
     .catch(() => { thread.value = []; }).finally(() => { threadLoading.value = false; });
 }
 
-async function serveNext() {
+async function serveNext(skipCurrent = false) {
   serving.value = true;
   try {
-    if (active.value) await apiPost("confirmation.release_order", { order: active.value.name }).catch(() => {});
-    const r = await apiPost("confirmation.next_order");
+    // Walking away UNDECIDED marks the order skipped for 10 minutes —
+    // otherwise it comes straight back as the top priority. After a decision
+    // the order left the queue on its own, so no marker.
+    const skip = skipCurrent && active.value ? active.value.name : undefined;
+    const r = await apiPost("confirmation.next_order", skip ? { skip } : {});
     if (r.order) await openOrder(r.order);
-    else { active.value = null; success(t("ws.allDone")); }
+    else {
+      active.value = null;
+      clearInterval(cardTick);
+      success(t("ws.allDone"));
+    }
   } catch (e) {
     warn(t("cf.loadFail"), String(e.message || e));
   } finally {
@@ -341,7 +375,7 @@ async function decide(action, note) {
     if (board.value?.mine && action in board.value.mine) board.value.mine[action]++;
     board.value?.rows && (board.value.rows = board.value.rows.filter((r) => r.order !== active.value.name));
     panel.value = ""; cancelReason.value = "";
-    await serveNext();
+    await serveNext(false);
   } catch (e) {
     warn(t("cf.actFail"), String(e.message || e));
   } finally {
@@ -401,7 +435,7 @@ function onKey(e) {
   const tag = (e.target?.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea" || e.metaKey || e.ctrlKey) return;
   const k = e.key.toLowerCase();
-  if (k === "n") { e.preventDefault(); serveNext(); }
+  if (k === "n") { e.preventDefault(); serveNext(true); }
   else if (!active.value || busy.value) return;
   else if (k === "1") decide("confirm");
   else if (k === "2") decide("dna");
@@ -417,6 +451,7 @@ onMounted(() => {
   window.addEventListener("keydown", onKey);
 });
 onUnmounted(() => {
+  clearInterval(cardTick);
   window.removeEventListener("keydown", onKey);
   if (active.value) apiPost("confirmation.release_order", { order: active.value.name }).catch(() => {});
 });
@@ -437,6 +472,10 @@ onUnmounted(() => {
   font-size: 9px; font-family: ui-monospace, monospace; opacity: .55;
   border: 1px solid currentColor; border-radius: 4px; padding: 0 4px;
 }
+.ws-card-enter-active { transition: all .22s ease; }
+.ws-card-leave-active { transition: all .15s ease; }
+.ws-card-enter-from { opacity: 0; transform: translateY(10px) scale(.99); }
+.ws-card-leave-to { opacity: 0; transform: translateY(-8px) scale(.995); }
 .ws-slide-enter-active, .ws-slide-leave-active { transition: all .18s ease; }
 .ws-slide-enter-from, .ws-slide-leave-to { opacity: 0; transform: translateY(-4px); }
 @media (pointer: coarse) {
