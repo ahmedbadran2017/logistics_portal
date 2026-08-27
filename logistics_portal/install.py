@@ -169,3 +169,19 @@ def ensure_desk_override_role():
             }).insert(ignore_permissions=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_desk_override_role")
+
+
+def ensure_role_field_options():
+    """Keep the User.custom_logistics_role Select in step with VALID_ROLES —
+    the contact-center split added `cs` and `tracking` (2026-08-27), and the
+    field still carried only the floor roles, so the Desk's own form (and any
+    doc-level save) would reject the new values."""
+    import frappe
+    wanted = "\nmanager\ndispatcher\npicker\npacker\nreturns\nconfirmation\ncs\ntracking\nnone"
+    cf = frappe.db.get_value(
+        "Custom Field", {"dt": "User", "fieldname": "custom_logistics_role"},
+        ["name", "options"], as_dict=True)
+    if cf and (cf.options or "") != wanted:
+        frappe.db.set_value("Custom Field", cf.name, "options", wanted,
+                            update_modified=False)
+        frappe.clear_cache(doctype="User")
