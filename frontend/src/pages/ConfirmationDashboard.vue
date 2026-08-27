@@ -32,7 +32,12 @@
 
     <template v-else-if="d">
       <!-- the queue right now -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div class="cfd-kpi" :class="ftHours > 2 ? 'cfd-kpi-bad' : ''">
+          <span class="cfd-kpi-l">{{ t('cfd.kFirstTouch') }}</span>
+          <span class="cfd-kpi-n" :class="ftHours > 2 ? 'text-rose-600' : 'text-emerald-600'">{{ ftHours }}<span class="text-[14px] text-stone-400">h</span></span>
+          <span class="cfd-kpi-s">{{ t('cfd.kFirstTouchHint').replace('{n}', String(d.firstTouch?.orders || 0)) }}</span>
+        </div>
         <RouterLink :to="{ name: 'Confirmation' }" class="cfd-kpi">
           <span class="cfd-kpi-l">{{ t('cfd.kWaiting') }}</span>
           <span class="cfd-kpi-n">{{ d.queueTotal }}</span>
@@ -268,6 +273,8 @@ const riskN = computed(() =>
 const riskValue = computed(() =>
   (d.value?.segMix?.black?.value || 0) + (d.value?.segMix?.risk?.value || 0));
 
+const ftHours = computed(() =>
+  Math.round(((d.value?.firstTouch?.avgMin || 0) / 60) * 10) / 10);
 const oldPct = computed(() => {
   const a = d.value?.aging || [];
   const tot = a.reduce((s, x) => s + x.n, 0);

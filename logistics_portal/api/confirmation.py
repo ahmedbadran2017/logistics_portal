@@ -1233,7 +1233,41 @@ def dashboard(days=30, frm=None, to=None, mine=0):
 
     total_late = sum(v["late"] for v in queue.values())
     total_n = sum(v["n"] for v in queue.values())
+
+    # First-touch speed (7d, cached 1h): minutes from order arrival to the
+    # FIRST status flip — human or automation. Measured at 7.1h average on
+    # 2026-08-27 and displayed nowhere; this is the number the whole section
+    # exists to move, so it belongs on the section's own dashboard.
+    import json as _json_mod
+    ft = None
+    ck = "lp_cf_first_touch"
+    hit = frappe.cache().get_value(ck)
+    if hit:
+        try:
+            ft = _json_mod.loads(hit)
+        except Exception:
+            ft = None
+    if ft is None:
+        try:
+            r = frappe.db.sql(
+                """SELECT AVG(TIMESTAMPDIFF(MINUTE, so.creation, v.first_v)),
+                          COUNT(*)
+                   FROM (SELECT docname, MIN(creation) first_v FROM `tabVersion`
+                         WHERE ref_doctype = 'Sales Order'
+                           AND creation >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                           AND data LIKE '%%custom_sales_status%%'
+                         GROUP BY docname) v
+                   JOIN `tabSales Order` so ON so.name = v.docname
+                   WHERE so.company = %(co)s
+                     AND so.creation >= DATE_SUB(NOW(), INTERVAL 7 DAY)""",
+                {"co": _CO})[0]
+            ft = {"avgMin": round(float(r[0] or 0)), "orders": int(r[1] or 0)}
+            frappe.cache().set_value(ck, _json_mod.dumps(ft), expires_in_sec=3600)
+        except Exception:
+            ft = {"avgMin": 0, "orders": 0}
+
     return {
+        "firstTouch": ft,
         "mine": mine, "canSeeAll": role == "manager" or _is_cf_admin(),
         "slaHours": sla_h,
         "queue": queue,

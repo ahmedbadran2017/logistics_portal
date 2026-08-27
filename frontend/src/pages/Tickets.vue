@@ -160,6 +160,10 @@
           <div class="flex items-center gap-1.5">
             <a v-if="r.phone" :href="'tel:' + r.phone" :title="r.phone" class="cs-contact cs-tel"><Icon name="phone" :size="15" /></a>
             <a v-if="r.phone" :href="'https://wa.me/' + r.phone.replace(/[^0-9]/g, '')" target="_blank" class="cs-contact cs-wa"><Icon name="message-circle" :size="15" /></a>
+            <!-- The conversation that BECAME this ticket — before this, prior
+                 messages were invisible the moment an inbox row converted. -->
+            <button v-if="r.phone && data?.hasWhatsapp" class="cs-contact text-stone-500" :title="t('cs.thread')"
+                    @click="openTicketThread(r)"><Icon :name="threadFor === r.id ? 'chevron-up' : 'chevron-down'" :size="15" /></button>
           </div>
           <div class="flex items-center gap-1.5 flex-wrap">
             <template v-if="tab !== 'resolved'">
@@ -180,6 +184,23 @@
                     @click="act(r, 'reopen')"><Icon name="rotate-ccw" :size="15" /></button>
           </div>
         </div>
+        <Transition name="csslide">
+          <div v-if="threadFor === r.id" class="bg-stone-50 rounded-xl p-3 mt-3 max-h-[320px] overflow-y-auto space-y-1.5">
+            <div v-if="threadLoading" class="text-[12px] text-stone-400 text-center py-3">…</div>
+            <template v-else>
+              <div v-for="(m, i) in thread" :key="i" class="flex" :class="m.in ? 'justify-start' : 'justify-end'">
+                <div class="max-w-[75%] rounded-xl px-3 py-1.5 text-[12px]"
+                     :class="m.in ? 'bg-white ring-1 ring-stone-200 text-stone-800' : 'bg-emerald-50 ring-1 ring-emerald-200 text-emerald-900'"
+                     dir="auto">
+                  <span v-if="m.kind === 'image'" class="inline-flex items-center gap-1 text-stone-500"><Icon name="image" :size="12" />{{ t('cs.photoMsg') }}</span>
+                  <template v-if="m.text"> {{ m.text }}</template>
+                  <div class="text-[9.5px] text-stone-400 tabular-nums mt-0.5">{{ m.at.slice(5) }}</div>
+                </div>
+              </div>
+              <div v-if="!thread.length" class="text-[12px] text-stone-400 text-center py-3">—</div>
+            </template>
+          </div>
+        </Transition>
         <Transition name="csslide">
           <div v-if="noteFor === r.id" class="flex items-center gap-2 bg-violet-50/60 rounded-xl p-2.5 mt-3">
             <input v-model="note" :placeholder="noteAction === 'resolve' ? t('cs.resolvePh') : t('cs.replyPh')" maxlength="200"
@@ -341,6 +362,21 @@ async function openThread(r) {
   } catch (e) {
     warn(t("cf.loadFail"), String(e.message || e));
     threadFor.value = "";
+  } finally {
+    threadLoading.value = false;
+  }
+}
+
+// Ticket rows: same viewer, keyed by the ticket id, loaded by the phone.
+async function openTicketThread(r) {
+  if (threadFor.value === r.id) { threadFor.value = ""; return; }
+  threadFor.value = r.id;
+  threadLoading.value = true;
+  try {
+    const res = await api("tickets.wa_thread", { phone: r.phone });
+    thread.value = res?.messages || [];
+  } catch (e) {
+    thread.value = [];
   } finally {
     threadLoading.value = false;
   }
