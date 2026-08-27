@@ -158,6 +158,7 @@ export default {
     stillNoLabel: "Étiquette toujours absente — le dispatcher doit corriger la ville / relancer l'AWB.",
     wallDone: "Bac entièrement trié 🎉",
     printAgain: "Réimprimer l'étiquette",
+    statusStuck: "Imprim\u00e9e, mais le statut n'a pas suivi \u2014 r\u00e9essayez",
     printNow: "Imprimer l'étiquette",
     badgeSorted: "Trié",
     badgePrinted: "Imprimé",

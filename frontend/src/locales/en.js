@@ -158,6 +158,7 @@ export default {
     stillNoLabel: "Label still not back — dispatcher must fix the city / retry the AWB.",
     wallDone: "Tote fully sorted 🎉",
     printAgain: "Print label again",
+    statusStuck: "Printed, but the status didn't update \u2014 try again",
     printNow: "Print label",
     badgeSorted: "Sorted",
     badgePrinted: "Printed",

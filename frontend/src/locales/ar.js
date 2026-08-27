@@ -158,6 +158,7 @@ export default {
     stillNoLabel: "البوليصة لسه موصلتش — الديسباتشر يصلّح المدينة ويعيد الـAWB.",
     wallDone: "الصندوق اتفرز بالكامل 🎉",
     printAgain: "اطبع البوليصة تاني",
+    statusStuck: "اتطبعت لكن الحالة ماتحدثتش \u2014 جرب تاني",
     printNow: "اطبع البوليصة",
     badgeSorted: "اتفرز",
     badgePrinted: "اتطبع",

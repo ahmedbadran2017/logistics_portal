@@ -117,7 +117,7 @@
             v-if="o.done && o.labelUrl"
             class="mt-2.5 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5 transition-colors"
             :class="o.printed ? 'bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50' : 'bg-sky-600 text-white hover:bg-sky-700'"
-            @click="printLabel(o.order, () => { o.printed = true; })"
+            @click="printAndMark(o)"
           >
             <Icon name="printer" :size="14" /> {{ o.printed ? t('sort.printAgain') : t('sort.printNow') }}
           </button>
@@ -257,6 +257,22 @@ async function onScanItem(raw) {
   }
   if (wall.value.orders.every((x) => x.done)) {
     success(t("sort.wallDone"), wall.value.pickList);
+  }
+}
+
+// The manual print button must ALSO move the order to 'Label Printed': the
+// scan-time flip only fires when the label already exists at sort completion,
+// so late-label orders printed from this button were staying at 'Label
+// Generated' forever (Anas, 2026-08-27). mark_packed is idempotent and only
+// upgrades eligible statuses — safe to call on every print/reprint.
+async function printAndMark(o) {
+  printLabel(o.order, () => { o.printed = true; });
+  try {
+    const res = await apiPost("picking.mark_packed", { order: o.order });
+    o.status = "Label Printed";
+    if (res.labelUrl) o.labelUrl = res.labelUrl;
+  } catch (e) {
+    warn(t("sort.statusStuck"), String(e.message || e));
   }
 }
 
