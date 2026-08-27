@@ -61,6 +61,8 @@ const routes = [
           { path: "settings", name: "TicketsSettings", component: () => import("@/pages/TicketsSettings.vue") },
         ],
       },
+      // The single-pane agent workspace — the confirmation portal's real home.
+      { path: "work", name: "Workspace", component: () => import("@/pages/Workspace.vue") },
       { path: "contact-center", name: "ContactCenter", component: () => import("@/pages/ContactCenter.vue") },
       { path: "bonus", name: "Bonus", component: () => import("@/pages/Bonus.vue") },
 

@@ -11,7 +11,7 @@ customer-card model later.
 """
 
 import frappe
-from frappe.utils import add_to_date, now_datetime
+from frappe.utils import add_to_date, flt, now_datetime
 
 # The queues this lane owns. Orders leave the lane on Confirm/Cancel.
 QUEUES = {
@@ -774,6 +774,11 @@ _CF_DEFAULTS = {
     # them all.
     "reasons": [],
     "admins": [],         # section admins (user emails)
+    # Save-the-sale discount caps for a plain agent (managers/section admins
+    # are uncapped). Measured need: 438 discount edits/30d were happening on
+    # the desk with no cap and no trail.
+    "discountCapPct": 15,
+    "discountCapAmt": 50,
 }
 
 
@@ -840,6 +845,12 @@ def save_cf_settings(settings=None):
         settings = _json.loads(settings)
     settings = settings or {}
     out = dict(_cf_settings())
+    for k in ("discountCapPct", "discountCapAmt"):
+        if k in settings:
+            v = int(settings[k])
+            if not (0 <= v <= (100 if k == "discountCapPct" else 100000)):
+                frappe.throw(f"{k} out of range.")
+            out[k] = v
     for k in ("retryDna", "retryFollowup", "retryOnhold", "slaFirstCallH"):
         if k in settings:
             v = int(settings[k])
@@ -1295,3 +1306,185 @@ def dashboard(days=30, frm=None, to=None, mine=0):
         "movedButOnHold": moved,
         "serverNow": str(now_datetime())[:19],
     }
+
+
+# ── Save-the-sale: amend a submitted pending order (Phase A of the workspace) ─
+#
+# Measured 2026-08-27: agents changed discount fields 438×/30d and edited
+# order items on the DESK — the two capabilities that kept them off the portal
+# entirely (21 portal actions vs 10,058 desk list visits in 30 days). ERPNext's
+# only legitimate way to change a SUBMITTED order's money or lines is the
+# amend cycle; the desk made them do it by hand, this does it in one call and
+# restores everything the cycle loses (assignment, attribution, call state).
+
+
+@frappe.whitelist()
+def amend_order(order, discount_amount=None, discount_percent=None,
+                items=None, note=None):
+    """Cancel → amended copy → apply changes → submit, in one transaction.
+
+    Guards: confirmation-lane statuses only, BEFORE the warehouse touches it
+    (no pick list, logistics still Pending), agent within the section's
+    discount caps (manager/section admin uncapped), at least one line left.
+    `items` = [{"item_code": ..., "qty": n}] — qty 0 removes the line."""
+    import json as _json
+    role = _gate()
+    order = (order or "").strip()
+    _own_guard(role, order)
+    if not frappe.db.exists("Sales Order", order):
+        frappe.throw("Unknown order.")
+    so = frappe.get_doc("Sales Order", order)
+    if so.docstatus != 1:
+        frappe.throw("Order is not submitted.")
+    if so.custom_sales_status not in QUEUES.values():
+        frappe.throw(f"Order is {so.custom_sales_status or 'unset'} — only live "
+                     "confirmation-lane orders can be amended here.")
+    stage = so.custom_logistics_status or ""
+    if stage not in ("", "Pending"):
+        frappe.throw(f"Can't amend — the order is already {stage} in the warehouse.")
+    if frappe.db.exists("Pick List Item",
+                        {"sales_order": order, "docstatus": ["<", 2]}):
+        frappe.throw("Can't amend — the order is already on a pick list.")
+
+    if isinstance(items, str):
+        items = _json.loads(items)
+    items = items or []
+    d_amt = flt(discount_amount) if discount_amount not in (None, "") else None
+    d_pct = flt(discount_percent) if discount_percent not in (None, "") else None
+    if d_amt is None and d_pct is None and not items:
+        frappe.throw("Nothing to change.")
+    if d_amt is not None and d_amt < 0:
+        frappe.throw("Discount can't be negative.")
+    if d_pct is not None and not (0 <= d_pct <= 100):
+        frappe.throw("Discount percent must be 0–100.")
+
+    # Agent caps — the desk had no ceiling and no trail; here the ceiling is a
+    # section setting and every dirham is on the comment trail.
+    if role != "manager" and not _is_cf_admin():
+        s = _cf_settings()
+        if d_pct is not None and d_pct > flt(s.get("discountCapPct", 15)):
+            frappe.throw(f"Your discount cap is {s.get('discountCapPct', 15)}% — "
+                         "ask a section admin for more.")
+        if d_amt is not None and d_amt > flt(s.get("discountCapAmt", 50)):
+            frappe.throw(f"Your discount cap is {s.get('discountCapAmt', 50)} MAD — "
+                         "ask a section admin for more.")
+
+    # Snapshot everything the amend cycle would lose.
+    keep = {k: so.get(k) for k in (
+        "custom_sales_status", "custom_allocated_to", "custom_call_attempts",
+        "custom_next_call_at", "custom_last_call_at", "custom_channel")}
+    assign_raw = so.get("_assign") or ""
+    note = (note or "").strip()
+
+    changes = []
+    new = frappe.copy_doc(so)
+    new.amended_from = so.name
+    new.docstatus = 0
+    if items:
+        wanted = {str(i.get("item_code")): flt(i.get("qty")) for i in items
+                  if i.get("item_code")}
+        rows = []
+        for r in new.items:
+            q = wanted.get(r.item_code, None)
+            if q is None:
+                rows.append(r)
+            elif q > 0:
+                if flt(q) != flt(r.qty):
+                    changes.append(f"{r.item_code}: {flt(r.qty):g}→{flt(q):g}")
+                r.qty = q
+                rows.append(r)
+            else:
+                changes.append(f"removed {r.item_code}")
+        if not rows:
+            frappe.throw("An order needs at least one item — cancel it instead.")
+        new.items = rows
+    if d_pct is not None:
+        new.apply_discount_on = new.apply_discount_on or "Grand Total"
+        new.additional_discount_percentage = d_pct
+        new.discount_amount = 0
+        changes.append(f"discount {d_pct:g}%")
+    elif d_amt is not None:
+        new.apply_discount_on = new.apply_discount_on or "Grand Total"
+        new.additional_discount_percentage = 0
+        new.discount_amount = d_amt
+        changes.append(f"discount {d_amt:g} MAD")
+
+    detail = "; ".join(changes) + (f" — {note}" if note else "")
+    so.flags.ignore_permissions = True
+    so.cancel()
+    so.add_comment("Comment",
+                   f"Confirmation: amended → replaced ({detail}) "
+                   f"· by {frappe.session.user}")
+    new.flags.ignore_permissions = True
+    new.insert(ignore_permissions=True)
+    new.submit()
+    # Restore the working state the copy dropped or the cycle reset.
+    restore = {k: v for k, v in keep.items() if v is not None}
+    if restore:
+        frappe.db.set_value("Sales Order", new.name, restore,
+                            update_modified=False)
+    if assign_raw:
+        frappe.db.set_value("Sales Order", new.name, "_assign", assign_raw,
+                            update_modified=False)
+    new.add_comment("Comment",
+                    f"Confirmation: amend of {order} ({detail}) "
+                    f"· by {frappe.session.user}")
+    frappe.db.commit()
+    for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    return {"ok": True, "order": new.name, "amendedFrom": order,
+            "total": flt(new.grand_total), "changes": detail}
+
+
+# ── Serve-next: the workspace engine (Phase B) ──────────────────────────────
+
+
+@frappe.whitelist()
+def next_order():
+    """Hand the agent the ONE order to work now — due retries first (oldest
+    deferral), then the oldest untouched Pending. The agent never cherry-picks;
+    this is what moves the 7-hour first-touch. A short cache lock keeps two
+    admins (whole-pool scope) off the same order; per-agent scopes can't
+    collide by construction."""
+    role = _gate()
+    mine = role != "manager" and not _is_cf_admin()
+    me_q = ""
+    vals = {"co": _CO}
+    if mine:
+        vals["me_like"] = f'%"{frappe.session.user}"%'
+        me_q = " AND so._assign LIKE %(me_like)s"
+
+    retry_sts = tuple(v for k, v in QUEUES.items() if k != "pending")
+    cache = frappe.cache()
+    for sql, extra in (
+        (f"""SELECT so.name FROM `tabSales Order` so
+             WHERE so.docstatus = 1 AND so.company = %(co)s
+               AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
+               AND so.custom_next_call_at IS NOT NULL
+               AND so.custom_next_call_at <= NOW(){me_q}
+             ORDER BY so.custom_next_call_at LIMIT 5""",
+         {"sts": retry_sts}),
+        (f"""SELECT so.name FROM `tabSales Order` so
+             WHERE so.docstatus = 1 AND so.company = %(co)s
+               AND so.custom_sales_status = 'Pending' AND {_IN_HAND}
+               AND so.creation >= DATE_SUB(NOW(), INTERVAL 30 DAY){me_q}
+             ORDER BY so.creation LIMIT 5""", {}),
+    ):
+        for (name,) in frappe.db.sql(sql, {**vals, **extra}):
+            lock = f"lp_serve_{name}"
+            if cache.get_value(lock) and cache.get_value(lock) != frappe.session.user:
+                continue
+            cache.set_value(lock, frappe.session.user, expires_in_sec=300)
+            return {"order": name}
+    return {"order": None}
+
+
+@frappe.whitelist()
+def release_order(order):
+    """The agent skipped / navigated away — free the serve lock."""
+    _gate()
+    order = (order or "").strip()
+    lock = f"lp_serve_{order}"
+    if frappe.cache().get_value(lock) == frappe.session.user:
+        frappe.cache().delete_value(lock)
+    return {"ok": True}

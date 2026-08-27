@@ -141,12 +141,13 @@ export const ROLE_CONFIG = {
     ],
   },
   confirmation: {
-    home: "Confirmation",
+    home: "Workspace",
     nav: [
       {
         // One entry per lane; sub-views are in-page tabs (lib/laneTabs.js).
         section: "nav.contactSection",
         items: [
+          { to: "Workspace", label: "nav.workspace", icon: "sparkles" },
           { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
           { to: "Rescue", label: "nav.rescue", icon: "route" },
           { to: "Tickets", label: "nav.tickets", icon: "message-circle" },
@@ -213,6 +214,7 @@ const CC_MANAGER = {
     {
       section: "nav.contactSection",
       items: [
+        { to: "Workspace", label: "nav.workspace", icon: "sparkles" },
         { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
         { to: "Rescue", label: "nav.rescue", icon: "route" },
         { to: "Tickets", label: "nav.tickets", icon: "message-circle" },
