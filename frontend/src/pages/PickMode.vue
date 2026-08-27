@@ -54,7 +54,13 @@
           </span>
           <div class="min-w-0 flex-1">
             <div class="text-[13px] font-medium text-stone-900 truncate">{{ l.name }}</div>
-            <div class="font-mono text-[11px] text-stone-500">{{ l.realSku || l.sku }}</div>
+            <!-- Size + color get their own high-contrast chips: on the PDA the
+                 name truncates and the variant tail is the first thing cut. -->
+            <div class="flex items-center gap-1.5 mt-1 flex-wrap">
+              <span v-if="l.size" class="inline-flex items-center h-6 px-2 rounded-md bg-stone-900 text-white text-[13px] font-bold uppercase tracking-wide">{{ shortSize(l.size) }}</span>
+              <span v-if="l.color" class="inline-flex items-center h-6 px-2 rounded-md bg-amber-50 ring-1 ring-amber-300 text-amber-900 text-[12.5px] font-semibold">{{ l.color }}</span>
+              <span class="font-mono text-[11px] text-stone-500">{{ l.realSku || l.sku }}</span>
+            </div>
           </div>
           <div class="text-end flex-shrink-0 flex items-center gap-2">
             <span class="text-[16px] font-bold tabular-nums"
@@ -220,4 +226,14 @@ async function onShortPick(l) {
 
 function goBack() { router.push({ name: "Queue" }); }
 function hideImg(e) { if (e && e.target) e.target.style.display = "none"; }
+
+// Long size words shrink to the label the floor actually reads.
+const SIZE_SHORT = {
+  "x-small": "XS", xsmall: "XS", small: "S", medium: "M", large: "L",
+  "x-large": "XL", xlarge: "XL", "xx-large": "2XL", xxlarge: "2XL",
+  "3x-large": "3XL", standart: "STD", standard: "STD",
+};
+function shortSize(s) {
+  return SIZE_SHORT[String(s).trim().toLowerCase()] || s;
+}
 </script>

@@ -443,6 +443,35 @@ def pick_list_detail(name):
                 seen.add(l.so)
                 orders.append({"so": l.so, "customer": l.customer or "", "awb": l.awb or ""})
 
+        # Size / color for the picker's eyes: variant attributes first (81% of
+        # picked items carry them), else the "-color / size" tail Shopify puts
+        # at the end of the item name. On the PDA the name truncates, so the
+        # variant must travel as its own field, not inside the title.
+        attrs = {}
+        codes = {l.sku for l in lines if l.sku}
+        if codes:
+            for a in frappe.db.sql(
+                    """SELECT parent, attribute, attribute_value
+                       FROM `tabItem Variant Attribute` WHERE parent IN %s""",
+                    (tuple(codes),), as_dict=True):
+                attrs.setdefault(a.parent, {})[(a.attribute or "").strip().lower()] = \
+                    (a.attribute_value or "").strip()
+
+        def _variant(l):
+            a = attrs.get(l.sku) or {}
+            size = a.get("size") or a.get("beden") or ""
+            color = a.get("color") or a.get("colour") or a.get("renk") or ""
+            if not (size or color):
+                nm = l.name or ""
+                tail = nm.rsplit("-", 1)[-1].strip() if "-" in nm else ""
+                if "/" in tail and 0 < len(tail) <= 40:
+                    c, s = tail.split("/", 1)
+                    color, size = c.strip(), s.strip()
+            return size, color
+
+        for l in lines:
+            l.size, l.color = _variant(l)
+
         status = ("cancelled" if pl.docstatus == 2 else "draft" if pl.docstatus == 0
                   else "shipped" if pl.custom_logistics_status == "Shipped"
                   else "partial" if pl.custom_logistics_status == "Partially Shipped" else "open")
@@ -463,6 +492,7 @@ def pick_list_detail(name):
                 "scannedQty": int(l.scanned_qty or 0),
                 "so": l.so or "", "customer": l.customer or "", "grp": l.grp or "",
                 "image": l.image or "",
+                "size": l.size, "color": l.color,
             } for l in lines],
         }
     except Exception:
