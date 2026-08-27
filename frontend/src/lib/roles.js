@@ -141,24 +141,18 @@ export const ROLE_CONFIG = {
     ],
   },
   confirmation: {
+    // The sub-team split (2026-08-27): confirmation sees CONFIRMATION work
+    // only. Rescue/Tracking belong to the tracking team, Tickets to cs —
+    // their pages stay reachable to this role at the API level solely for
+    // the shared Not-Delivered engine, but never in the nav.
     home: "Workspace",
     nav: [
       {
-        // One entry per lane; sub-views are in-page tabs (lib/laneTabs.js).
         section: "nav.contactSection",
         items: [
           { to: "Workspace", label: "nav.workspace", icon: "sparkles" },
           { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
-          { to: "Rescue", label: "nav.rescue", icon: "route" },
-          { to: "Tickets", label: "nav.tickets", icon: "message-circle" },
-        ],
-      },
-      {
-        section: "nav.operations",
-        items: [
           { to: "Consolidation", label: "nav.consolidation", icon: "git-merge" },
-          { to: "Stranded", label: "nav.stranded", icon: "package-x" },
-          { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
         ],
       },
       {
