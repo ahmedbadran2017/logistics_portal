@@ -222,6 +222,7 @@ def card(phone):
     # spreading a list over it silently replaced the number with an array.
     return {
         **h, "phone": phone,
+        "flag": _load_flags().get(d),
         "recent": [{
             "order": o.name, "at": str(o.creation)[:10],
             "total": float(o.total or 0), "status": o.status or "",
@@ -365,3 +366,49 @@ def distribution():
            "at": str(now_datetime())[:19]}
     cache.set_value("lp_seg_dist", json.dumps(out), expires_in_sec=3600)
     return out
+
+
+# ── manual customer flags: block / vip ──────────────────────────────────────
+# The measured segments (vip/good/watch/risk/black) answer "how does this
+# customer BEHAVE"; the flag answers "what did WE decide about them". A
+# customer who never takes delivery gets blocked once, and every agent sees it
+# the instant the card opens — no tribal knowledge, no repeat losses.
+_FLAG_KEY = "lp_customer_flags"
+
+
+def _load_flags():
+    import json as _json
+    raw = frappe.db.get_default(_FLAG_KEY)
+    try:
+        d = _json.loads(raw) if raw else {}
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+@frappe.whitelist()
+def flag_customer(phone, flag="", note=""):
+    """Set / clear the manual flag on a customer (by phone). flag: 'blocked',
+    'vip', or '' to clear. Any contact-center role may flag — it's their call
+    to make mid-conversation — and every change carries who/when/why."""
+    import json as _json
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in (
+            "confirmation", "cs", "tracking", "manager"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    flag = (flag or "").strip()
+    if flag not in ("blocked", "vip", ""):
+        frappe.throw("Unknown flag.")
+    d = digits(phone)
+    if not d:
+        frappe.throw("No usable phone number.")
+    flags = _load_flags()
+    if flag:
+        flags[d] = {"flag": flag, "by": frappe.session.user,
+                    "at": str(now_datetime())[:16], "note": (note or "").strip()[:140]}
+    else:
+        flags.pop(d, None)
+    frappe.db.set_default(_FLAG_KEY, _json.dumps(flags))
+    frappe.db.commit()
+    bust(phone)
+    return {"ok": True, "flag": flags.get(d)}

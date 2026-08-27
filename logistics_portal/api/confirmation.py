@@ -1513,3 +1513,43 @@ def release_order(order):
     if frappe.cache().get_value(lock) == frappe.session.user:
         frappe.cache().delete_value(lock)
     return {"ok": True}
+
+
+@frappe.whitelist()
+def add_note(order, note):
+    """A free-text note on the order — the call context the status flip can't
+    carry ("husband will confirm tonight", "asked for Saturday delivery")."""
+    role = _gate()
+    order = (order or "").strip()
+    note = (note or "").strip()
+    if not note:
+        frappe.throw("Empty note.")
+    if not frappe.db.exists("Sales Order", order):
+        frappe.throw("Unknown order.")
+    _own_guard(role, order)
+    frappe.get_doc("Sales Order", order).add_comment(
+        "Comment", f"Note — {note[:400]} · by {frappe.session.user}")
+    frappe.db.commit()
+    return {"ok": True}
+
+
+@frappe.whitelist()
+def order_activity(order, limit=15):
+    """The order's human trail, newest first: lane decisions, notes, contact
+    fixes, rescue touches — everything a colleague did before this call."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in (
+            "confirmation", "cs", "tracking", "manager"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    order = (order or "").strip()
+    limit = min(max(int(limit or 15), 1), 50)
+    rows = frappe.db.sql(
+        """SELECT c.owner, c.content, c.creation FROM `tabComment` c
+           WHERE c.reference_doctype = 'Sales Order' AND c.reference_name = %s
+             AND c.comment_type = 'Comment'
+           ORDER BY c.creation DESC LIMIT %s""", (order, limit), as_dict=True)
+    return {"rows": [{
+        "by": (r.owner or "").split("@")[0],
+        "text": (r.content or "")[:300],
+        "at": str(r.creation)[:16],
+    } for r in rows]}

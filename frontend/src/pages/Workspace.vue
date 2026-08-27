@@ -70,6 +70,7 @@
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="text-[16px] font-bold text-stone-900">{{ active.customer }}</span>
+                <span v-if="grade" class="text-[10.5px] font-bold rounded-full px-2 py-0.5 ring-1" :class="grade.cls" :title="grade.hint">{{ grade.label }}</span>
                 <span class="font-mono text-[11.5px] text-stone-400">{{ active.name }}</span>
                 <span v-if="activeRow?.due" class="text-[10px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-full px-2 py-0.5">{{ t('cf.due') }}</span>
                 <span class="text-[10.5px] font-mono tabular-nums rounded-full px-2 py-0.5 ring-1"
@@ -170,22 +171,73 @@
             </div>
           </Transition>
 
+          <!-- Blocked customer: the warning IS the interface -->
+          <div v-if="isBlocked" class="rounded-xl bg-rose-600 text-white px-4 py-2.5 flex items-center gap-2.5">
+            <Icon name="shield-alert" :size="16" />
+            <div class="min-w-0 flex-1">
+              <div class="text-[12.5px] font-bold">{{ t('ws.blockedTitle') }}</div>
+              <div class="text-[11px] opacity-90 truncate">{{ cust?.flag?.note || t('ws.blockedHint') }} · {{ cust?.flag?.by?.split('@')[0] }} · {{ cust?.flag?.at }}</div>
+            </div>
+          </div>
+
           <!-- THE decision row -->
-          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
-            <button class="ws-decide bg-emerald-600 hover:bg-emerald-700 text-white sm:col-span-2" :disabled="busy" @click="decide('confirm')">
-              <Icon name="check" :size="16" />{{ t('cf.actConfirm') }} <kbd>1</kbd>
+          <div class="flex flex-wrap gap-2">
+            <button class="ws-decide flex-[2] min-w-[160px] text-white"
+                    :class="isBlocked ? (confirmArmed ? 'bg-rose-600 hover:bg-rose-700' : 'bg-stone-400 hover:bg-stone-500') : 'bg-emerald-600 hover:bg-emerald-700'"
+                    :disabled="busy" @click="onConfirm">
+              <Icon name="check" :size="16" />
+              <span>{{ isBlocked && confirmArmed ? t('ws.confirmAnyway') : t('cf.actConfirm') }}</span>
+              <kbd>1</kbd>
             </button>
-            <button class="ws-decide bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100" :disabled="busy" @click="decide('dna')">
-              <Icon name="phone-off" :size="14" />{{ t('cf.actDna') }} <kbd>2</kbd>
+            <button class="ws-decide flex-1 min-w-[120px] bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100" :disabled="busy" @click="decide('dna')">
+              <Icon name="phone-off" :size="14" /><span>{{ t('cf.actDna') }}</span> <kbd>2</kbd>
             </button>
-            <button class="ws-decide bg-sky-50 text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100" :disabled="busy" @click="decide('followup')">
-              <Icon name="clock" :size="14" />{{ t('cf.actFollowup') }} <kbd>3</kbd>
+            <button class="ws-decide flex-1 min-w-[120px] bg-sky-50 text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100" :disabled="busy" @click="decide('followup')">
+              <Icon name="clock" :size="14" /><span>{{ t('cf.actFollowup') }}</span> <kbd>3</kbd>
             </button>
-            <button class="ws-decide bg-white text-rose-600 ring-1 ring-rose-200 hover:bg-rose-50" :disabled="busy"
+            <button class="ws-decide flex-1 min-w-[120px] bg-white text-rose-600 ring-1 ring-rose-200 hover:bg-rose-50" :disabled="busy"
+                    :class="panel === 'cancel' ? 'ring-2' : ''"
                     @click="panel = panel === 'cancel' ? '' : 'cancel'">
-              <Icon name="x" :size="14" />{{ t('rs.actCancel') }} <kbd>4</kbd>
+              <Icon name="x" :size="14" /><span>{{ t('rs.actCancel') }}</span> <kbd>4</kbd>
             </button>
           </div>
+
+          <!-- note + activity -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <button class="text-[11.5px] font-semibold text-stone-500 hover:text-stone-800 inline-flex items-center gap-1"
+                    @click="panel = panel === 'note' ? '' : 'note'">
+              <Icon name="edit" :size="12" />{{ t('ws.addNote') }} <kbd class="text-[9px] font-mono text-stone-400 border border-stone-200 rounded px-1">M</kbd>
+            </button>
+            <button class="text-[11.5px] font-semibold text-stone-500 hover:text-stone-800 inline-flex items-center gap-1"
+                    @click="toggleActivity">
+              <Icon name="activity" :size="12" />{{ t('ws.activity') }}
+              <span v-if="activity.length" class="text-[10px] tabular-nums text-stone-400">{{ activity.length }}</span>
+            </button>
+          </div>
+          <Transition name="ws-slide">
+            <div v-if="panel === 'note'" class="flex items-center gap-2 bg-stone-50 rounded-xl p-2.5">
+              <input v-model="noteText" :placeholder="t('ws.notePh')" maxlength="400" dir="auto"
+                     class="flex-1 h-9 ps-3 pe-3 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] focus:outline-none"
+                     @keydown.enter="saveNote" />
+              <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-stone-700 hover:bg-stone-800 disabled:opacity-50"
+                      :disabled="!noteText.trim() || busy" @click="saveNote">{{ t('cf.saveContact') }}</button>
+            </div>
+          </Transition>
+          <Transition name="ws-slide">
+            <div v-if="showActivity" class="bg-stone-50 rounded-xl p-3 max-h-[220px] overflow-y-auto space-y-2">
+              <div v-if="activityLoading" class="text-[12px] text-stone-400 text-center py-2">…</div>
+              <template v-else>
+                <div v-for="(a, i) in activity" :key="i" class="flex items-start gap-2 text-[11.5px]">
+                  <span class="w-1.5 h-1.5 rounded-full bg-stone-300 mt-1.5 flex-shrink-0" />
+                  <div class="min-w-0 flex-1">
+                    <span class="text-stone-800" dir="auto">{{ a.text }}</span>
+                    <span class="text-stone-400 tabular-nums ms-1.5">{{ a.by }} · {{ a.at.slice(5) }}</span>
+                  </div>
+                </div>
+                <div v-if="!activity.length" class="text-[12px] text-stone-400 text-center py-2">{{ t('ws.noActivity') }}</div>
+              </template>
+            </div>
+          </Transition>
         </div>
         </Transition>
       </div>
@@ -205,6 +257,22 @@
               <div><div class="text-[16px] font-bold tabular-nums text-stone-900">{{ cust.orders ?? '—' }}</div><div class="text-[9.5px] text-stone-400 uppercase">{{ t('ws.parcels') }}</div></div>
               <div><div class="text-[16px] font-bold tabular-nums text-emerald-600">{{ cust.delivered ?? '—' }}</div><div class="text-[9.5px] text-stone-400 uppercase">{{ t('ws.took') }}</div></div>
               <div><div class="text-[16px] font-bold tabular-nums text-rose-600">{{ cust.failed ?? '—' }}</div><div class="text-[9.5px] text-stone-400 uppercase">{{ t('ws.refused') }}</div></div>
+            </div>
+            <!-- the decision about this customer, not just the data -->
+            <div class="flex items-center gap-1.5 mt-2.5 pt-2.5 border-t border-stone-100">
+              <button class="flex-1 h-8 rounded-lg text-[11px] font-bold ring-1 transition-colors disabled:opacity-50"
+                      :class="cust.flag?.flag === 'blocked' ? 'text-white bg-rose-600 ring-rose-600' : 'text-rose-700 bg-rose-50 ring-rose-200 hover:bg-rose-100'"
+                      :disabled="flagBusy" @click="setFlag(cust.flag?.flag === 'blocked' ? '' : 'blocked')">
+                {{ cust.flag?.flag === 'blocked' ? t('ws.unblock') : t('ws.block') }}
+              </button>
+              <button class="flex-1 h-8 rounded-lg text-[11px] font-bold ring-1 transition-colors disabled:opacity-50"
+                      :class="cust.flag?.flag === 'vip' ? 'text-white bg-emerald-600 ring-emerald-600' : 'text-emerald-700 bg-emerald-50 ring-emerald-200 hover:bg-emerald-100'"
+                      :disabled="flagBusy" @click="setFlag(cust.flag?.flag === 'vip' ? '' : 'vip')">
+                {{ cust.flag?.flag === 'vip' ? 'VIP ✓' : 'VIP' }}
+              </button>
+            </div>
+            <div v-if="cust.flag" class="text-[10px] text-stone-400 mt-1.5 truncate">
+              {{ cust.flag.by.split('@')[0] }} · {{ cust.flag.at }}<template v-if="cust.flag.note"> · {{ cust.flag.note }}</template>
             </div>
           </template>
           <div v-else class="text-[11.5px] text-stone-400">—</div>
@@ -281,6 +349,90 @@ const queueRows = computed(() => board.value?.rows || []);
 const dueCount = computed(() => queueRows.value.filter((r) => r.due).length);
 const waUrl = computed(() =>
   "https://wa.me/" + String(active.value?.phone || "").replace(/\D/g, ""));
+const isBlocked = computed(() => cust.value?.flag?.flag === "blocked");
+const confirmArmed = ref(false);
+const noteText = ref("");
+const showActivity = ref(false);
+const activity = ref([]);
+const activityLoading = ref(false);
+const flagBusy = ref(false);
+
+// One glance = one verdict. Manual flag wins; otherwise the measured segment.
+const grade = computed(() => {
+  const c = cust.value;
+  if (!c) return null;
+  if (c.flag?.flag === "blocked")
+    return { label: t("ws.gBlocked"), cls: "text-white bg-rose-600 ring-rose-600", hint: c.flag.note || "" };
+  if (c.flag?.flag === "vip")
+    return { label: "VIP ★", cls: "text-white bg-emerald-600 ring-emerald-600", hint: "" };
+  const map = {
+    vip:   { label: "A ★", cls: "text-emerald-700 bg-emerald-50 ring-emerald-200" },
+    good:  { label: "B",   cls: "text-emerald-700 bg-emerald-50 ring-emerald-200" },
+    new:   { label: t("ws.gNew"), cls: "text-stone-600 bg-stone-50 ring-stone-200" },
+    watch: { label: "C",   cls: "text-amber-700 bg-amber-50 ring-amber-200" },
+    risk:  { label: "D",   cls: "text-amber-700 bg-amber-50 ring-amber-200" },
+    black: { label: "E ⚠", cls: "text-rose-700 bg-rose-50 ring-rose-200" },
+  };
+  const g = map[c.seg] || map.new;
+  return { ...g, hint: c.rate !== null && c.rate !== undefined ? `${c.rate}%` : "" };
+});
+
+function onConfirm() {
+  // A blocked customer needs a SECOND press — the agent can still confirm
+  // (the block is a warning we own, not a law), but never by reflex.
+  if (isBlocked.value && !confirmArmed.value) {
+    confirmArmed.value = true;
+    setTimeout(() => { confirmArmed.value = false; }, 4000);
+    return;
+  }
+  confirmArmed.value = false;
+  decide("confirm");
+}
+
+async function saveNote() {
+  if (!active.value || !noteText.value.trim()) return;
+  busy.value = true;
+  try {
+    await apiPost("confirmation.add_note", { order: active.value.name, note: noteText.value.trim() });
+    activity.value = [{ by: "me", text: noteText.value.trim(), at: new Date().toISOString().slice(0, 16).replace("T", " ") }, ...activity.value];
+    noteText.value = "";
+    panel.value = "";
+    success(t("ws.noteSaved"));
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function toggleActivity() {
+  showActivity.value = !showActivity.value;
+  if (!showActivity.value || !active.value) return;
+  activityLoading.value = true;
+  try {
+    const r = await api("confirmation.order_activity", { order: active.value.name });
+    activity.value = r?.rows || [];
+  } catch (e) {
+    activity.value = [];
+  } finally {
+    activityLoading.value = false;
+  }
+}
+
+async function setFlag(flag) {
+  if (!active.value?.phone) return;
+  flagBusy.value = true;
+  try {
+    const r = await apiPost("customers.flag_customer", { phone: active.value.phone, flag });
+    if (cust.value) cust.value = { ...cust.value, flag: r.flag || null };
+    success(flag === "blocked" ? t("ws.blockedSet") : flag === "vip" ? "VIP ✓" : t("ws.flagCleared"));
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    flagBusy.value = false;
+  }
+}
+
 const custClass = computed(() => {
   const s = cust.value?.seg || "";
   if (s === "black") return "text-rose-700 bg-rose-50 ring-rose-200";
@@ -310,6 +462,10 @@ async function loadSettings() {
 async function openOrder(name) {
   panel.value = "";
   cancelReason.value = "";
+  confirmArmed.value = false;
+  noteText.value = "";
+  showActivity.value = false;
+  activity.value = [];
   cardSeconds.value = 0;
   clearInterval(cardTick);
   cardTick = setInterval(() => { cardSeconds.value += 1; }, 1000);
@@ -437,12 +593,13 @@ function onKey(e) {
   const k = e.key.toLowerCase();
   if (k === "n") { e.preventDefault(); serveNext(true); }
   else if (!active.value || busy.value) return;
-  else if (k === "1") decide("confirm");
+  else if (k === "1") onConfirm();
   else if (k === "2") decide("dna");
   else if (k === "3") decide("followup");
   else if (k === "4") panel.value = panel.value === "cancel" ? "" : "cancel";
   else if (k === "d") panel.value = panel.value === "amend" ? "" : "amend";
   else if (k === "f") panel.value = panel.value === "contact" ? "" : "contact";
+  else if (k === "m") panel.value = panel.value === "note" ? "" : "note";
 }
 
 onMounted(() => {
