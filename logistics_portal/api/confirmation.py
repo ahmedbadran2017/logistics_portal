@@ -133,8 +133,11 @@ def _range(days, frm, to):
 
 
 @frappe.whitelist()
-def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
-    """The queues + counts + my day so far, one call."""
+def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
+          as_user=None):
+    """The queues + counts + my day so far, one call. `as_user` (manager /
+    section admin only) scopes the board to that agent — the view-as feature:
+    the manager sees exactly the queue the agent sees, read-only fidelity."""
     role = _gate()
     if tab not in QUEUES and tab not in DONE_QUEUES and tab not in ("monitor", "notdelivered"):
         tab = "pending"
@@ -157,9 +160,13 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     # custom_allocated_to (me_done) — act() stamps it with the acting agent, so
     # those tabs remain a true "what I decided" trail, not "assigned to me".
     mine_only = role != "manager" and not _is_cf_admin()
+    me = frappe.session.user
+    as_user = (as_user or "").strip()
+    if as_user and not mine_only:
+        me = as_user
+        mine_only = True
     me_q = me_so = me_done = ""
     if mine_only:
-        me = frappe.session.user
         rng_vals["me"] = me           # counts queries spread rng_vals
         rng_vals["me_like"] = f'%"{me}"%'
         vals["me"] = me
@@ -1440,7 +1447,7 @@ def amend_order(order, discount_amount=None, discount_percent=None,
 
 
 @frappe.whitelist()
-def next_order(skip=None):
+def next_order(skip=None, as_user=None):
     """Hand the agent the ONE order to work now — due retries first (oldest
     deferral), then the oldest untouched Pending. The agent never cherry-picks;
     this is what moves the 7-hour first-touch. A short cache lock keeps two
@@ -1454,16 +1461,21 @@ def next_order(skip=None):
     cache = frappe.cache()
     me = frappe.session.user
     skip = (skip or "").strip()
+    view_as = (as_user or "").strip()
     if skip:
         cache.set_value(f"lp_skip_{me}_{skip}", 1, expires_in_sec=600)
         lock = f"lp_serve_{skip}"
         if cache.get_value(lock) == me:
             cache.delete_value(lock)
     mine = role != "manager" and not _is_cf_admin()
+    scope_user = frappe.session.user
+    if view_as and not mine:
+        scope_user = view_as
+        mine = True
     me_q = ""
     vals = {"co": _CO}
     if mine:
-        vals["me_like"] = f'%"{frappe.session.user}"%'
+        vals["me_like"] = f'%"{scope_user}"%'
         me_q = " AND so._assign LIKE %(me_like)s"
 
     retry_sts = tuple(v for k, v in QUEUES.items() if k != "pending")

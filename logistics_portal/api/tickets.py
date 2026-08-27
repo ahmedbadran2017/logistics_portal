@@ -35,7 +35,7 @@ _CO = "Justyol Morocco"
 def _gate():
     from logistics_portal.api.auth import resolve_role
     role = resolve_role(frappe.session.user)
-    if role not in ("confirmation", "manager"):
+    if role not in ("confirmation", "cs", "manager"):
         frappe.throw("Not authorized for the tickets workspace.", frappe.PermissionError)
     return role
 

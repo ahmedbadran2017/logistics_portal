@@ -74,7 +74,7 @@
       <button
         type="button"
         class="w-full flex items-center gap-2 ps-1.5 pe-2 py-1.5 rounded-lg hover:bg-stone-100 transition-colors"
-        @click="menuOpen = !menuOpen"
+        @click="menuOpen = !menuOpen; if (menuOpen) loadMembers();"
       >
         <span
           class="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-semibold flex-shrink-0 bg-[var(--accent-50)] text-[var(--accent-700)] ring-1 ring-[var(--accent-200)]/60"
@@ -114,6 +114,26 @@
           </div>
           <Icon v-if="r === role" name="check" :size="14" class="text-[var(--accent-600)] flex-shrink-0" />
         </button>
+        <!-- View-as: the manager renders the portal through a member's role
+             and queue (read-fidelity; actions stay the manager's own). -->
+        <template v-if="realRole === 'manager'">
+          <div class="px-3 pt-2 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 border-t border-stone-100 mt-1">
+            {{ t("nav.viewAsMember", "View as member") }}
+          </div>
+          <div class="max-h-[180px] overflow-y-auto">
+            <button v-for="m in members" :key="m.user" type="button"
+                    class="w-full flex items-center gap-2 px-3 py-1.5 text-start hover:bg-stone-50"
+                    @click="pickMember(m)">
+              <span class="w-5 h-5 rounded-md bg-stone-100 text-stone-500 text-[9px] font-bold flex items-center justify-center flex-shrink-0">{{ (m.fullName || m.user)[0].toUpperCase() }}</span>
+              <span class="min-w-0 flex-1 leading-tight">
+                <span class="block text-[12px] text-stone-800 truncate">{{ m.fullName }}</span>
+                <span class="block text-[9.5px] text-stone-400">{{ t(`roles.${m.role}`, m.role) }}</span>
+              </span>
+            </button>
+            <div v-if="!members.length" class="px-3 py-2 text-[11px] text-stone-400">…</div>
+          </div>
+        </template>
+
         <!-- Log out — the Desk is blocked for the floor team, so the portal must
              carry its own way out of the session. -->
         <div class="border-t border-stone-100 mt-1 pt-1">
@@ -138,6 +158,7 @@ import Icon from "@/components/ui/Icon.vue";
 import InstallApp from "@/components/ui/InstallApp.vue";
 import { useAuth } from "@/composables/useAuth";
 import { useI18n } from "@/composables/useI18n";
+import { api } from "@/lib/resource";
 import { navFor } from "@/lib/roles";
 import { IS_CC, PORTAL_BASE } from "@/lib/portal";
 
@@ -148,7 +169,20 @@ defineEmits(["open-search"]);
 const logoSrc = "/assets/logistics_portal/justyol-logo.png";
 const { t, locale, setLocale } = useI18n();
 const langs = [{ v: "en", l: "EN" }, { v: "fr", l: "FR" }, { v: "ar", l: "ع" }];
-const { role, roles, fullName, hiddenPages, setActiveRole, logout } = useAuth();
+const { user, role, roles, fullName, hiddenPages, setActiveRole, logout, viewAs, setViewAs } = useAuth();
+// The REAL role (session), not the viewed one — the picker must stay visible
+// while viewing as someone else.
+const realRole = computed(() => (viewAs.value ? "manager" : role.value));
+const members = ref([]);
+async function loadMembers() {
+  if (realRole.value !== "manager" || members.value.length) return;
+  try {
+    const r = await api("auth.team_members");
+    members.value = (r?.members || []).filter((m) => m.role && m.user !== user.value)
+      .map((m) => ({ user: m.user, fullName: m.name, role: m.role }));
+  } catch (_) { members.value = []; }
+}
+function pickMember(m) { menuOpen.value = false; setViewAs(m); }
 const route = useRoute();
 const menuOpen = ref(false);
 

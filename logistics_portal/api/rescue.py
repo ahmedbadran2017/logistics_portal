@@ -31,7 +31,7 @@ _BACKLOG_TRACKS = ("Delivery Exception", "Failed Attempt") + _STALE_TRACKS
 def _gate():
     from logistics_portal.api.auth import resolve_role
     role = resolve_role(frappe.session.user)
-    if role not in ("confirmation", "manager"):
+    if role not in ("confirmation", "tracking", "manager"):
         frappe.throw("Not authorized for the rescue workspace.", frappe.PermissionError)
     return role
 

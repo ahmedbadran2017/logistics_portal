@@ -59,7 +59,8 @@ def block_desk_for_portal_team():
         # Bounce to the user's OWN portal instead of a dead-end error page:
         # the contact center is a separate surface since 2026-08-27.
         frappe.flags.redirect_location = (
-            "/confirmation" if role == "confirmation" else _PORTAL_HOME)
+            "/confirmation" if role in ("confirmation", "cs", "tracking")
+            else _PORTAL_HOME)
         raise frappe.Redirect
     except frappe.Redirect:
         raise

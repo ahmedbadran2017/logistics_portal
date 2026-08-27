@@ -30,7 +30,16 @@ async function serverError(method, res) {
   return new Error(msg);
 }
 
+/** View-as (manager only): when armed, every request carries `as_user` so the
+ *  per-agent-scoped endpoints render that agent's data. Backends that don't
+ *  take the argument simply ignore it (Frappe passes only matching kwargs). */
+export function viewAsUser() {
+  try { return localStorage.getItem("lp_view_as") || ""; } catch (_) { return ""; }
+}
+
 export async function call(method, args = {}) {
+  const va = viewAsUser();
+  if (va && args.as_user === undefined) args = { ...args, as_user: va };
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(args || {})) {
     if (v === undefined || v === null) continue;
@@ -48,6 +57,8 @@ export async function call(method, args = {}) {
 
 /** State-changing calls (POST + CSRF token). */
 export async function post(method, args = {}) {
+  const va = viewAsUser();
+  if (va && args.as_user === undefined) args = { ...args, as_user: va };
   const res = await fetch(`/api/method/${method}`, {
     method: "POST",
     headers: {

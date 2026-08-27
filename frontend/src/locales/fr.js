@@ -25,6 +25,8 @@ export default {
   },
   roles: {
     confirmation: "Confirmation",
+    cs: "Service client",
+    tracking: "Suivi des exp\u00e9ditions",
     manager: "Responsable",
     dispatcher: "Répartiteur",
     picker: "Préparateur",
@@ -35,6 +37,9 @@ export default {
     logistics: "Logistique",
     ccPortal: "Centre de contact",
     workspace: "Espace de travail",
+    viewAsMember: "Voir \u00e0 travers un membre",
+    viewingAs: "Vue en tant que",
+    exitViewAs: "Quitter",
     ccDashboard: "Tableau de vitesse",
     viewAs: "Voir en tant que",
     rescueSection: "Centre de sauvetage",

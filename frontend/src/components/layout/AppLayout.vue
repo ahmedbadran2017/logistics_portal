@@ -99,6 +99,14 @@
     </transition>
 
     <div class="flex-1 flex flex-col min-w-0">
+      <!-- View-as strip: unmissable, with the exit right there. -->
+      <div v-if="viewAs" class="flex items-center gap-2 px-4 py-1.5 bg-violet-600 text-white text-[12px] font-semibold">
+        <Icon name="user" :size="13" />
+        <span class="truncate">{{ t('nav.viewingAs', 'Viewing as') }} {{ viewAs.fullName }} · {{ t(`roles.${viewAs.role}`, viewAs.role) }}</span>
+        <button class="ms-auto h-6 px-2.5 rounded-md bg-white/20 hover:bg-white/30 text-[11px] font-bold" @click="setViewAs(null)">
+          {{ t('nav.exitViewAs', 'Exit') }}
+        </button>
+      </div>
       <TopBar
         :unread="unread"
         @toggle-menu="drawer = !drawer"
@@ -135,7 +143,7 @@ import { api } from "@/lib/resource";
 
 const route = useRoute();
 const logoSrc = "/assets/logistics_portal/justyol-logo.png";
-const { role, roles, fullName, hiddenPages, setActiveRole, logout } = useAuth();
+const { role, roles, fullName, hiddenPages, setActiveRole, logout, viewAs, setViewAs } = useAuth();
 const { t } = useI18n();
 
 const mobileNav = computed(() => navItemsFor(role.value, hiddenPages.value));

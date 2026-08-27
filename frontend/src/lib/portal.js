@@ -17,7 +17,7 @@ export const IS_CC = PORTAL_BASE === "/confirmation";
 
 /** The portal a role belongs to ("cc" | "floor" | "both"). */
 export function portalOf(role) {
-  if (role === "confirmation") return "cc";
+  if (role === "confirmation" || role === "cs" || role === "tracking") return "cc";
   if (role === "manager") return "both";
   return "floor";
 }

@@ -25,6 +25,8 @@ export default {
   },
   roles: {
     confirmation: "التأكيد",
+    cs: "خدمة العملاء والشكاوى",
+    tracking: "متابعة الشحنات",
     manager: "مدير",
     dispatcher: "موزّع",
     picker: "مجهّز",
@@ -35,6 +37,9 @@ export default {
     logistics: "اللوجستيات",
     ccPortal: "مركز التواصل",
     workspace: "مساحة الشغل",
+    viewAsMember: "شوف بعين عضو من التيم",
+    viewingAs: "بتشوف كـ",
+    exitViewAs: "خروج",
     ccDashboard: "لوحة السرعة",
     viewAs: "اعرض بدور",
     rescueSection: "مركز الإنقاذ",

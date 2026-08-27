@@ -13,6 +13,31 @@ const isInitialized = ref(false);
 
 const isLoggedIn = computed(() => !!user.value && user.value !== "Guest");
 
+// View-as (manager UX tool): render the portal through a member's role and,
+// on the per-agent-scoped endpoints, their data (lib/resource appends
+// `as_user`). Local + read-safe: the session stays the manager's; any action
+// still runs and attributes as the manager.
+const viewAs = ref(null);      // { user, fullName, role } or null
+try {
+  const raw = localStorage.getItem("lp_view_as_meta");
+  if (raw) viewAs.value = JSON.parse(raw);
+} catch (_) { /* corrupted → off */ }
+
+function setViewAs(member) {
+  try {
+    if (member) {
+      localStorage.setItem("lp_view_as", member.user);
+      localStorage.setItem("lp_view_as_meta", JSON.stringify(member));
+    } else {
+      localStorage.removeItem("lp_view_as");
+      localStorage.removeItem("lp_view_as_meta");
+    }
+  } catch (_) { /* private mode */ }
+  // Hard reload: the role change swaps home/nav/portal side entirely.
+  window.location.href = member && ["confirmation", "cs", "tracking"].includes(member.role)
+    ? "/confirmation/home" : (member ? "/logistics/home" : window.location.pathname);
+}
+
 async function init(force = false) {
   if (isInitialized.value && !force) return;
   isLoading.value = true;
@@ -22,6 +47,9 @@ async function init(force = false) {
     fullName.value = boot.full_name || boot.user;
     role.value = boot.role;
     roles.value = boot.roles || (boot.role ? [boot.role] : []);
+    // A non-manager must never carry a stale view-as marker.
+    if (viewAs.value && boot.role !== "manager") setViewAs(null);
+    else if (viewAs.value) role.value = viewAs.value.role;
     zone.value = boot.zone || "";
     hiddenPages.value = Array.isArray(boot.hiddenPages) ? boot.hiddenPages : [];
     // The page template can't inject the CSRF token reliably; the boot endpoint
@@ -80,6 +108,6 @@ function setActiveRole(next) {
 export function useAuth() {
   return {
     user, fullName, role, roles, zone, hiddenPages, isLoading, isLoggedIn, isInitialized,
-    init, login, logout, setActiveRole,
+    init, login, logout, setActiveRole, viewAs, setViewAs,
   };
 }

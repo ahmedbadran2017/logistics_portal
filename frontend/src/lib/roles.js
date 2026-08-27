@@ -170,6 +170,47 @@ export const ROLE_CONFIG = {
       },
     ],
   },
+  // Contact-center sub-teams (Ahmed 2026-08-27): كونفيرميشن / خدمة عملاء
+  // وشكاوى / متابعة الشحنات — each sees only its own lane(s).
+  cs: {
+    home: "Tickets",
+    nav: [
+      {
+        section: "nav.contactSection",
+        items: [
+          { to: "Tickets", label: "nav.tickets", icon: "message-circle" },
+          { to: "Exchanges", label: "nav.exchanges", icon: "refresh-cw" },
+        ],
+      },
+      {
+        section: "nav.me",
+        items: [
+          { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { to: "Bonus", label: "nav.bonus", icon: "wallet" },
+        ],
+      },
+    ],
+  },
+  tracking: {
+    home: "Rescue",
+    nav: [
+      {
+        section: "nav.contactSection",
+        items: [
+          { to: "Rescue", label: "nav.rescue", icon: "route" },
+          { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
+          { to: "Stranded", label: "nav.stranded", icon: "package-x" },
+        ],
+      },
+      {
+        section: "nav.me",
+        items: [
+          { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { to: "Bonus", label: "nav.bonus", icon: "wallet" },
+        ],
+      },
+    ],
+  },
   returns: {
     home: "Returns",
     nav: [
@@ -243,7 +284,7 @@ const CC_MANAGER = {
 function configFor(role, cc) {
   if (cc) {
     if (role === "manager") return CC_MANAGER;
-    return ROLE_CONFIG.confirmation;
+    return ROLE_CONFIG[role] || ROLE_CONFIG.confirmation;
   }
   return ROLE_CONFIG[role] || ROLE_CONFIG.picker;
 }

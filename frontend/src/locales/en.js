@@ -25,6 +25,8 @@ export default {
   },
   roles: {
     confirmation: "Confirmation",
+    cs: "Customer service",
+    tracking: "Shipment follow-up",
     manager: "Manager",
     dispatcher: "Dispatcher",
     picker: "Picker",
@@ -35,6 +37,9 @@ export default {
     logistics: "Logistics",
     ccPortal: "Contact Center",
     workspace: "Workspace",
+    viewAsMember: "View through a member's eyes",
+    viewingAs: "Viewing as",
+    exitViewAs: "Exit",
     ccDashboard: "Speed dashboard",
     viewAs: "View as role",
     rescueSection: "Rescue center",

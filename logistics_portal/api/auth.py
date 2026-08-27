@@ -38,7 +38,10 @@ SEED_ROLES = {
     "hammouchisoukaina63@gmail.com": "confirmation",
 }
 
-VALID_ROLES = {"manager", "dispatcher", "picker", "packer", "returns", "confirmation"}
+# cs = customer service & complaints (tickets lane); tracking = shipment
+# follow-up (rescue lane + tracking). Both live in the /confirmation portal.
+VALID_ROLES = {"manager", "dispatcher", "picker", "packer", "returns",
+               "confirmation", "cs", "tracking"}
 
 
 def resolve_role(user):
@@ -275,3 +278,4 @@ def invite_member(email, full_name=None, role="picker"):
     user.insert(ignore_permissions=True)
     frappe.db.commit()
     return {"ok": True, "user": email, "role": role, "existing": False}
+
