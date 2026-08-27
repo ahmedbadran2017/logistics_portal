@@ -122,8 +122,9 @@
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
           <Icon name="trending-up" :size="14" class="text-stone-400" />
-          <span class="text-[12px] font-semibold text-stone-900">{{ t('cco.leaderboard') }}</span>
+          <span class="text-[12px] font-semibold text-stone-900">{{ d.scoped ? t('bn.myPoints') : t('cco.leaderboard') }}</span>
           <span class="text-[11px] text-stone-400 tabular-nums">{{ d.month }} · {{ t('bn.grp_' + d.group) }}</span>
+          <span v-if="d.scoped && d.me?.rank" class="text-[11px] text-stone-400 tabular-nums">· {{ t('bn.rankOf').replace('{r}', String(d.me.rank)).replace('{n}', String(d.of || '')) }}</span>
         </div>
         <div class="overflow-x-auto">
           <table class="w-full min-w-[560px] text-[12.5px]">
@@ -136,13 +137,16 @@
               </tr>
             </thead>
             <tbody class="divide-y divide-stone-100">
-              <tr v-for="(a, i) in d.agents" :key="a.user" class="hover:bg-stone-50"
-                  :class="a.user === d.meUser ? 'bg-amber-50/40' : ''">
+              <template v-for="(a, i) in d.agents" :key="a.user">
+              <tr class="hover:bg-stone-50 cursor-pointer"
+                  :class="a.user === d.meUser ? 'bg-amber-50/40' : ''"
+                  @click="toggleBreakdown(a.user)">
                 <td class="px-4 py-2.5">
                   <span class="inline-flex items-center gap-2">
                     <span class="w-5 h-5 rounded-full text-[10px] font-bold inline-flex items-center justify-center"
-                          :class="i === 0 ? 'bg-amber-100 text-amber-700' : 'bg-stone-100 text-stone-500'">{{ i + 1 }}</span>
+                          :class="(d.scoped ? (d.me?.rank || 1) === 1 : i === 0) ? 'bg-amber-100 text-amber-700' : 'bg-stone-100 text-stone-500'">{{ d.scoped ? (d.me?.rank || 1) : i + 1 }}</span>
                     <span class="font-medium text-stone-900">{{ a.agent }}</span>
+                    <Icon :name="breakdownFor === a.user ? 'chevron-up' : 'chevron-down'" :size="11" class="text-stone-300" />
                   </span>
                 </td>
                 <td v-for="(v, ci) in a.cols" :key="ci" class="px-3 py-2.5 text-end tabular-nums text-stone-600">
@@ -167,6 +171,30 @@
                         class="inline ms-1 text-rose-500" :title="t('bn.pGateFail')" />
                 </td>
               </tr>
+              <!-- the receipt: HOW those points happened -->
+              <tr v-if="breakdownFor === a.user">
+                <td :colspan="(d.cols?.length || 1) + 2 + (d.money?.on ? 1 : 0)" class="px-4 pb-3 pt-0 bg-stone-50/50">
+                  <div v-if="breakdownLoading" class="text-[12px] text-stone-400 py-3 text-center">…</div>
+                  <div v-else-if="breakdown" class="pt-2 space-y-1">
+                    <div v-for="l in breakdown.lines" :key="l.key" class="flex items-center gap-2 text-[12px] tabular-nums">
+                      <span class="text-stone-600 flex-1">{{ t('bn.k_' + l.key.replace('.', '_'), l.key) }}</span>
+                      <span class="text-stone-400">{{ l.count }} × {{ l.each }}</span>
+                      <span class="font-bold text-stone-800 w-[60px] text-end">{{ l.subtotal }}</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-[12px] tabular-nums">
+                      <span class="text-stone-600 flex-1">{{ t('bn.k_delivered') }} <span class="text-[10.5px] text-rose-400" v-if="breakdown.returned">· {{ breakdown.returned }} {{ t('ws.refused') }}</span></span>
+                      <span class="text-stone-400">{{ breakdown.delivered }} × {{ breakdown.deliveredEach }}</span>
+                      <span class="font-bold text-emerald-600 w-[60px] text-end">{{ breakdown.deliveredPts }}</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-[12px] tabular-nums pt-1 border-t border-stone-200/70">
+                      <span class="text-stone-500 flex-1">{{ t('bn.kStreak').replace('{n}', String(breakdown.streakDays)) }}</span>
+                      <span class="font-extrabold text-stone-900 w-[60px] text-end">{{ breakdown.total }}</span>
+                    </div>
+                    <div v-if="!breakdown.lines.length && !breakdown.delivered" class="text-[11.5px] text-stone-400 text-center py-1">{{ t('bn.kEmpty') }}</div>
+                  </div>
+                </td>
+              </tr>
+              </template>
             </tbody>
             <tfoot v-if="d.money?.on && d.money.pool !== null">
               <tr class="border-t border-stone-200 bg-stone-50/60 text-[12.5px] font-bold">
@@ -287,7 +315,7 @@
                 <input v-for="(v, i) in scheme.money.weeklyTop" :key="i"
                        v-model.number="scheme.money.weeklyTop[i]" type="number" min="0" step="10"
                        class="w-20 h-8 ps-2.5 rounded-lg ring-1 ring-stone-200 text-[12px] tabular-nums focus:outline-none" @input="dirty = true" />
-                <span class="text-[11px] text-stone-400">{{ scheme.money.currency }} · 1st / 2nd / 3rd</span>
+                <span class="text-[11px] text-stone-400">{{ scheme.money.currency }} · {{ t('bn.prizeOrder') }}</span>
               </div>
             </div>
           </template>
@@ -295,7 +323,7 @@
         <div class="grid sm:grid-cols-3 gap-x-4 gap-y-2 pt-1">
           <label v-for="(v, k) in scheme.points" :key="k"
                  class="flex items-center justify-between gap-2 text-[12px] text-stone-600">
-            <span class="font-mono text-[11px]">{{ k }}</span>
+            <span class="text-[11.5px]">{{ t('bn.k_' + k.replace('.', '_'), k) }}</span>
             <input v-model.number="scheme.points[k]" type="number" min="0" step="0.05"
                    class="w-20 h-8 ps-2.5 rounded-lg ring-1 ring-stone-200 text-[12px] tabular-nums focus:outline-none"
                    @input="dirty = true" />
@@ -335,6 +363,23 @@ const months = computed(() => {
 const month = ref(fmt(now));
 const group = ref("");
 const d = ref(null);
+const breakdownFor = ref("");
+const breakdown = ref(null);
+const breakdownLoading = ref(false);
+async function toggleBreakdown(user) {
+  if (breakdownFor.value === user) { breakdownFor.value = ""; return; }
+  breakdownFor.value = user;
+  breakdown.value = null;
+  breakdownLoading.value = true;
+  try {
+    breakdown.value = await api("contact_center.bonus_breakdown",
+      { user, month: d.value?.month, group: d.value?.group });
+  } catch (e) {
+    breakdown.value = null;
+  } finally {
+    breakdownLoading.value = false;
+  }
+}
 const loading = ref(true);
 const loadError = ref("");
 const scheme = ref(null);

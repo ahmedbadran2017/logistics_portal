@@ -592,7 +592,14 @@ def bonus(month=None, group=None):
 
     cols = (["nav.confirmation", "nav.rescue", "nav.tickets", "bn.colDelivered"]
             if group == "cc" else ["bn.colOrders"])
-    return {"available": True, "month": month, "group": group,
+    # A plain agent sees THEIR numbers, not the team's: the leaderboard rows
+    # collapse to their own row (rank and group size stay, so the context
+    # survives without exposing colleagues' pay).
+    total_agents = len(agents)
+    if not _is_any_cc_admin():
+        agents = [a for a in agents if a["user"] == frappe.session.user]
+    return {"available": True, "month": month, "group": group, "of": total_agents,
+            "scoped": not _is_any_cc_admin(),
             "groups": list(GROUPS) if role == "manager" else [my_group],
             "cols": cols, "target": s["targets"][group], "agents": agents,
             "me": me, "meUser": frappe.session.user,
@@ -915,3 +922,93 @@ def speed_dashboard():
     return {"speed": speed, "team": team, "automationToday": automation,
             "fire": fire, "outcomes": outcomes, "slaH": sla_h,
             "serverNow": str(now_datetime())[:19]}
+
+
+def _is_any_cc_admin():
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) == "manager":
+        return True
+    u = frappe.session.user
+    try:
+        from logistics_portal.api.confirmation import _cf_settings
+        from logistics_portal.api.rescue import _rs_settings
+        from logistics_portal.api.tickets import _cs_settings
+        return (u in (_cf_settings().get("admins") or [])
+                or u in (_rs_settings().get("admins") or [])
+                or u in (_cs_settings().get("admins") or []))
+    except Exception:
+        return False
+
+
+@frappe.whitelist()
+def bonus_breakdown(user=None, month=None, group="cc"):
+    """HOW the points happened, line by line — the agent's own receipt, or any
+    agent's when a manager/section admin asks. Same dedupe rules as the board:
+    one point per (document, action), bulk excluded."""
+    import re as _re
+    role = _portal_gate()
+    me = frappe.session.user
+    user = (user or "").strip() or me
+    if user != me and not _is_any_cc_admin():
+        frappe.throw("You can only see your own breakdown.",
+                     frappe.PermissionError)
+    month = (month or "").strip()
+    if not _re.match(r"^\d{4}-\d{2}$", month):
+        month = str(now_datetime())[:7]
+    s = _bonus_settings()
+    pts = s["points"]
+
+    rows = {}
+    seen = set()
+    for prefix, lane, dts in (("Confirmation", "cf", ("Sales Order",)),
+                              ("Rescue", "rs", ("Sales Order",)),
+                              ("CS", "cs", ("Issue",))):
+        for r in frappe.db.sql(
+                """SELECT c.content, c.reference_name rn FROM `tabComment` c
+                   WHERE c.owner = %(u)s AND c.reference_doctype IN %(dts)s
+                     AND c.creation >= %(start)s
+                     AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
+                     AND c.content LIKE %(pfx)s""",
+                {"u": user, "dts": dts, "start": f"{month}-01 00:00:00",
+                 "pfx": prefix + ": %"}, as_dict=True):
+            if " bulk " in r.content or "(bulk)" in r.content:
+                continue
+            action = (r.content.split(": ", 1)[1] or "").split(" ", 1)[0].strip("()—-→ ")
+            key = f"{lane}.{action}"
+            if key not in pts:
+                continue
+            dd = (r.rn or "", key)
+            if dd in seen:
+                continue
+            seen.add(dd)
+            rows[key] = rows.get(key, 0) + 1
+
+    # Delivered outcome (parcel grain, same query family as the board).
+    d_rate = pts.get("cf.delivered", 0)
+    delivered = returned = 0
+    r = frappe.db.sql(
+        """SELECT COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status
+                 = 'Delivered' THEN dn.name END),
+                  COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status IN
+                 ('Delivery Exception', 'Failed Attempt') THEN dn.name END)
+           FROM `tabSales Order` so
+           JOIN `tabDelivery Note Item` dni
+             ON dni.against_sales_order = so.name AND dni.docstatus = 1
+           JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
+           WHERE so.docstatus = 1 AND so.custom_allocated_to = %(u)s
+             AND dn.posting_date >= %(start)s
+             AND dn.posting_date < DATE_ADD(%(start)s, INTERVAL 1 MONTH)""",
+        {"u": user, "start": f"{month}-01"})[0]
+    delivered, returned = int(r[0] or 0), int(r[1] or 0)
+
+    lines = [{"key": k, "count": n, "each": pts[k],
+              "subtotal": round(n * pts[k], 1)}
+             for k, n in sorted(rows.items(), key=lambda x: -x[1] * pts[x[0]])]
+    dpts = round(delivered * d_rate, 1)
+    total = round(sum(x["subtotal"] for x in lines) + dpts, 1)
+    streak = _streak_days(user, "cc", month)
+    return {"user": user, "month": month, "lines": lines,
+            "delivered": delivered, "returned": returned,
+            "deliveredEach": d_rate, "deliveredPts": dpts,
+            "streakDays": streak, "total": total,
+            "target": s["targets"].get(group, 0)}
