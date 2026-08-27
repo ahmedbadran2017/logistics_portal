@@ -97,6 +97,7 @@
           <datalist id="lp-move-targets">
             <option v-for="w in boot?.warehouses || []" :key="w" :value="w" />
           </datalist>
+          <p v-if="targetHint && !target" class="text-[11px] text-[var(--accent-700)] font-medium">{{ t('mv.targetHint').replace('{z}', targetHint) }}</p>
           <p v-if="target && !targetValid" class="text-[11px] text-rose-600">{{ t('mv.invalidBin') }}</p>
           <p v-else-if="target && target === source" class="text-[11px] text-rose-600">{{ t('mv.sameBin') }}</p>
         </div>
@@ -188,6 +189,7 @@ import { computed, h, onMounted, ref, watch } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import ScanInput from "@/components/ui/ScanInput.vue";
 import { api, apiPost } from "@/lib/resource";
+import { useRoute } from "vue-router";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
 
@@ -210,7 +212,9 @@ const boot = ref(null);
 const loadingBoot = ref(true);
 const current = ref(null);
 const source = ref("");
+const route = useRoute();
 const target = ref("");
+const targetHint = ref("");
 const qty = ref(1);
 const busy = ref(false);
 
@@ -258,6 +262,15 @@ async function loadTab(which) {
 watch(tab, (v) => loadTab(v));
 onMounted(async () => {
   await Promise.all([loadBoot(), loadTab(tab.value)]);
+  // Deep link from the slotting move worklist: ?item=<code>&target=<letter>
+  // pre-loads the item; the target letter stays a hint (the mover picks the
+  // exact bin from the datalist).
+  const qi = String(route.query.item || "").trim();
+  if (qi) {
+    await onScan(qi);
+    const tl = String(route.query.target || "").trim().toUpperCase();
+    if (tl && current.value) targetHint.value = tl;
+  }
   scanner.value?.refocus();
 });
 

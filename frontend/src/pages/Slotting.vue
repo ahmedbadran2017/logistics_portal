@@ -94,6 +94,70 @@
         </div>
       </div>
 
+      <!-- Phase 2: the target layout the floor re-arranges to match -->
+      <div v-if="plan" class="bg-white rounded-xl ring-1 ring-[var(--accent-200,#f5d0b0)] overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
+          <Icon name="layout-grid" :size="14" class="text-[var(--accent-600)]" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('slotting.planTitle') }}</span>
+          <span class="text-[11px] text-stone-400 hidden sm:inline">{{ t('slotting.planHint') }}</span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4">
+          <div v-for="z in plan.zones" :key="z.cls" class="rounded-xl ring-1 ring-stone-200/70 p-3">
+            <div class="flex items-center gap-2">
+              <span class="w-6 h-6 rounded-md text-white text-[12px] font-bold flex items-center justify-center" :class="clsColor(z.cls)">{{ z.cls }}</span>
+              <span class="text-[15px] font-bold text-stone-900 tracking-wide">{{ z.letters.join(' + ') }}</span>
+              <span class="text-[11px] text-stone-400 ms-auto tabular-nums">{{ z.bins }} {{ t('slotting.shelves') }}</span>
+            </div>
+            <div class="text-[11.5px] text-stone-500 mt-1.5">{{ t('slotting.role' + z.cls) }}</div>
+            <template v-if="compOf(z.cls)">
+              <div class="mt-2 h-1.5 rounded-full bg-stone-100 overflow-hidden">
+                <div class="h-full rounded-full" :class="clsColor(z.cls)"
+                     :style="{ width: compPct(z.cls) + '%' }" />
+              </div>
+              <div class="text-[11px] text-stone-500 mt-1 tabular-nums">
+                {{ t('slotting.inPlace').replace('{a}', compOf(z.cls).inPlace).replace('{b}', compOf(z.cls).inPlace + compOf(z.cls).toMove).replace('{p}', compPct(z.cls)) }}
+              </div>
+            </template>
+          </div>
+        </div>
+        <div class="px-4 pb-3 text-[11.5px] text-stone-400">{{ t('slotting.planReserved') }}</div>
+      </div>
+
+      <!-- Phase 2: the move worklist -->
+      <div v-if="plan" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+          <Icon name="route" :size="14" class="text-[var(--accent-600)]" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('slotting.moveTitle') }}</span>
+          <div class="inline-flex rounded-lg ring-1 ring-stone-200 overflow-hidden text-[12px] font-semibold">
+            <button v-for="c in ['A','B','C']" :key="c"
+                    class="h-8 px-3 transition-colors" :class="moveCls === c ? 'bg-stone-900 text-white' : 'bg-white text-stone-600 hover:bg-stone-50'"
+                    @click="setMoveCls(c)">{{ c }}</button>
+          </div>
+          <span class="text-[11.5px] text-stone-400 tabular-nums">{{ moveTotal }} {{ t('slotting.toMoveN') }}</span>
+        </div>
+        <div v-if="moveLoading" class="p-4 space-y-2">
+          <span v-for="n in 4" :key="n" class="block h-11 rounded-lg bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
+        </div>
+        <ul v-else-if="moveRows.length" class="divide-y divide-stone-100 max-h-[440px] overflow-y-auto">
+          <li v-for="it in moveRows" :key="it.itemCode" class="p-3 flex items-center gap-3">
+            <img v-if="it.image" :src="it.image" alt="" @error="hideImg"
+                 class="w-10 h-10 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
+            <span v-else class="w-10 h-10 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center flex-shrink-0 text-stone-400"><Icon name="package" :size="16" /></span>
+            <div class="min-w-0 flex-1">
+              <div class="text-[13px] font-semibold text-stone-900 truncate">{{ it.name }}</div>
+              <div class="font-mono text-[11.5px] text-stone-500 truncate">{{ it.sku || it.itemCode }} · {{ it.qty }}u · {{ it.picks }} {{ t('slotting.picksShort') }}</div>
+            </div>
+            <span class="text-[12px] font-semibold text-stone-700 tabular-nums whitespace-nowrap">
+              {{ it.from }} <Icon name="chevron-right" :size="12" class="inline flip-rtl text-stone-400" />
+              <b class="text-[var(--accent-700)]">{{ it.target }}</b>
+            </span>
+            <button class="h-8 px-3 rounded-lg text-[12px] font-semibold text-[var(--accent-700)] bg-[var(--accent-50)] ring-1 ring-[var(--accent-200,#f5d0b0)] hover:bg-[var(--accent-100,#fde8d7)] flex-shrink-0"
+                    @click="goMove(it)">{{ t('slotting.moveBtn') }}</button>
+          </li>
+        </ul>
+        <div v-else class="text-center text-[12.5px] text-emerald-600 py-8">{{ t('slotting.moveDone') }}</div>
+      </div>
+
       <!-- movers drill-down -->
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
@@ -148,6 +212,12 @@ const days = ref(90);
 const ov = ref(null);
 const loading = ref(true);
 
+const plan = ref(null);
+const moveCls = ref("A");
+const moveRows = ref([]);
+const moveTotal = ref(0);
+const moveLoading = ref(false);
+
 const cls = ref("A");
 const movers = ref([]);
 const moversTotal = ref(0);
@@ -178,6 +248,44 @@ async function load() {
     loading.value = false;
   }
   loadMovers();
+  loadPlan();
+}
+
+function compOf(c) {
+  return (plan.value?.compliance || []).find((x) => x.cls === c) || null;
+}
+function compPct(c) {
+  const m = compOf(c);
+  const tot = m ? m.inPlace + m.toMove : 0;
+  return tot ? Math.round((100 * m.inPlace) / tot) : 0;
+}
+
+async function loadPlan() {
+  try {
+    plan.value = await api("slotting.target_plan", { days: days.value });
+  } catch (e) {
+    plan.value = null;
+  }
+  loadMoves();
+}
+
+async function loadMoves() {
+  moveLoading.value = true;
+  try {
+    const res = await api("slotting.move_list", { cls: moveCls.value, days: days.value });
+    moveRows.value = res?.rows || [];
+    moveTotal.value = res?.total || 0;
+  } catch (e) {
+    moveRows.value = [];
+    moveTotal.value = 0;
+  } finally {
+    moveLoading.value = false;
+  }
+}
+
+function setMoveCls(c) { moveCls.value = c; loadMoves(); }
+function goMove(it) {
+  router.push({ name: "MoveStock", query: { item: it.itemCode, target: it.target } });
 }
 
 async function loadMovers() {
