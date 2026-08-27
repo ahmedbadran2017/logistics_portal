@@ -230,6 +230,8 @@ const CC_MANAGER = {
       section: "nav.team",
       items: [
         { to: "Team", label: "nav.team", icon: "users" },
+        { to: "Bonus", label: "nav.bonus", icon: "wallet" },
+        { to: "Performance", label: "nav.performance", icon: "trending-up" },
         { to: "Settings", label: "nav.settings", icon: "settings" },
       ],
     },

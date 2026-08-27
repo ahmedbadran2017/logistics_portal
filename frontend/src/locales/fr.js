@@ -1197,6 +1197,7 @@ export default {
     noData: "Aucune décision sur cette période.",
   },
   cfs: {
+    unsaved: "Modifications non enregistr\u00e9es \u2014 quitter quand m\u00eame ?",
     title: "Confirmation — réglages du service",
     intro: "Minuteries de rappel, motifs d'annulation et administrateurs du service.",
     readOnly: "Lecture seule — modifiable par le responsable du portail ou un admin du service.",

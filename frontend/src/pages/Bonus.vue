@@ -113,7 +113,7 @@
           <div class="h-2 rounded-full bg-white/70 overflow-hidden">
             <div class="h-full rounded-full transition-all duration-700"
                  :class="d.money.kickerHit ? 'bg-emerald-500' : 'bg-amber-500'"
-                 :style="{ width: Math.min(100, (d.money.sameday / d.money.kickerTargetPct) * 100) + '%' }" />
+                 :style="{ width: Math.min(100, (d.money.sameday / Math.max(1, d.money.kickerTargetPct)) * 100) + '%' }" />
           </div>
         </div>
       </div>
@@ -153,7 +153,7 @@
                     <div class="w-[56px] h-1.5 rounded-full bg-stone-100 overflow-hidden">
                       <div class="h-full rounded-full transition-all duration-700"
                            :class="a.points >= d.target ? 'bg-emerald-500' : 'bg-amber-500'"
-                           :style="{ width: Math.min(100, a.points * 100 / d.target) + '%' }" />
+                           :style="{ width: Math.min(100, a.points * 100 / Math.max(1, d.target)) + '%' }" />
                     </div>
                     <span class="tabular-nums font-bold text-stone-900 w-[52px] text-end">{{ a.points }}</span>
                   </div>
@@ -168,8 +168,6 @@
                 </td>
               </tr>
             </tbody>
-          </table>
-        </div>
             <tfoot v-if="d.money?.on && d.money.pool !== null">
               <tr class="border-t border-stone-200 bg-stone-50/60 text-[12.5px] font-bold">
                 <td class="px-4 py-2.5" :colspan="(d.cols?.length || 1) + 2">{{ t('bn.pool') }}</td>
@@ -178,6 +176,8 @@
                 </td>
               </tr>
             </tfoot>
+          </table>
+        </div>
         <div v-if="!d.agents.length" class="text-center text-[12.5px] text-stone-400 py-8">{{ t('cfr.noData') }}</div>
       </div>
 
@@ -204,8 +204,8 @@
                     class="relative w-11 h-6 rounded-full transition-colors shrink-0"
                     :class="scheme.money.on ? 'bg-amber-500' : 'bg-stone-300'"
                     @click="scheme.money.on = scheme.money.on ? 0 : 1; dirty = true">
-              <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform"
-                    :class="scheme.money.on ? 'translate-x-5' : 'translate-x-0'" />
+              <span class="absolute top-0.5 start-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform"
+                    :class="scheme.money.on ? 'ltr:translate-x-5 rtl:-translate-x-5' : 'translate-x-0'" />
             </button>
             <span>
               <span class="block text-[12.5px] font-bold text-stone-900">{{ t('bn.mTitle') }}</span>

@@ -17,6 +17,11 @@
       <div v-for="n in 4" :key="n" class="h-[56px] rounded-xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
     </div>
 
+    <div v-else-if="loadError" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
+      <div class="text-[14px] font-semibold text-rose-700">{{ t('cf.loadFail') }}</div>
+      <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
+      <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
+    </div>
     <div v-else-if="denied" class="bg-white rounded-2xl ring-1 ring-amber-200/70 p-8 text-center">
       <Icon name="shield-alert" :size="24" class="mx-auto mb-2 text-amber-500" />
       <div class="text-[13px] text-stone-600">{{ t('cfr.denied') }}</div>
@@ -115,6 +120,7 @@ const days = ref(7);
 const data = ref(null);
 const loading = ref(true);
 const denied = ref(false);
+const loadError = ref("");
 
 function barW(n) {
   const max = Math.max(1, ...(data.value?.funnel || []).map((f) => f.saved + f.lost + f.dna));
@@ -126,10 +132,13 @@ async function load() {
   denied.value = false;
   try {
     data.value = await api("rescue.report", { days: days.value });
+    loadError.value = "";
   } catch (e) {
     const msg = String(e.message || e);
+    // A denied page shows the access hint; ANY other failure used to leave
+    // `data` null and the page permanently blank after the skeleton.
     if (/section admin|PermissionError|403/i.test(msg)) denied.value = true;
-    else warn(t("cf.loadFail"), msg);
+    else loadError.value = msg;
   } finally {
     loading.value = false;
   }

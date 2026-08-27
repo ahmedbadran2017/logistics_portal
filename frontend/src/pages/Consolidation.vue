@@ -28,6 +28,11 @@
     </div>
 
     <!-- Empty -->
+    <div v-else-if="loadError" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
+      <div class="text-[14px] font-semibold text-rose-700">{{ t('cf.loadFail') }}</div>
+      <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
+      <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
+    </div>
     <div v-else-if="!groups.length" class="rounded-2xl ring-1 ring-emerald-200/70 bg-gradient-to-r from-emerald-50 to-white p-6 flex items-center gap-4">
       <span class="w-11 h-11 rounded-2xl bg-emerald-500 text-white flex items-center justify-center flex-shrink-0">
         <Icon name="check-circle" :size="22" />
@@ -104,7 +109,7 @@
             <button
               class="h-9 px-3 rounded-lg text-[13px] font-medium text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50"
               :disabled="busy === g.key"
-              @click="confirming = ''"
+              @click="confirming = ''; forceKey = ''"
             >
               {{ t("common.cancel") }}
             </button>
@@ -166,6 +171,7 @@ const router = useRouter();
 
 const groups = ref([]);
 const loading = ref(true);
+const loadError = ref("");
 const busy = ref("");
 const confirming = ref("");
 const merged = ref([]);
@@ -177,7 +183,9 @@ async function load() {
   loading.value = true;
   try {
     groups.value = (await api("orders.consolidation_groups", { limit: 60 })) || [];
+    loadError.value = "";
   } catch (e) {
+    loadError.value = String(e.message || e);
     warn(t("consol.loadFail"), String(e.message || e));
   } finally {
     loading.value = false;

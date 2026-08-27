@@ -78,6 +78,11 @@
     <div v-if="loading" class="space-y-2.5">
       <div v-for="n in 6" :key="n" class="h-[76px] rounded-2xl rs-shimmer" />
     </div>
+    <div v-else-if="loadError" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
+      <div class="text-[14px] font-semibold text-rose-700">{{ t('cf.loadFail') }}</div>
+      <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
+      <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
+    </div>
     <div v-else-if="!rows.length" class="rs-empty rounded-2xl p-12 text-center">
       <span class="inline-flex w-14 h-14 rounded-2xl items-center justify-center bg-emerald-50 text-emerald-500 mb-3"><Icon name="check-circle" :size="26" /></span>
       <div class="text-[15px] font-semibold text-stone-800">{{ t('rs.empty') }}</div>
@@ -174,7 +179,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { onMounted, ref, onUnmounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -199,6 +204,7 @@ const data = ref(null);
 const rows = ref([]);
 const total = ref(0);
 const loading = ref(true);
+const loadError = ref("");
 const busy = ref("");
 const reasonFor = ref("");
 const reasonAction = ref("");
@@ -251,14 +257,21 @@ async function load() {
     data.value = res;
     rows.value = res.rows || [];
     total.value = res.total || 0;
+    loadError.value = "";
   } catch (e) {
-    warn(t("cf.loadFail"), String(e.message || e));
+    loadError.value = String(e.message || e);
     rows.value = [];
   } finally {
     loading.value = false;
   }
 }
 onMounted(load);
+// Background refresh, same contract as the Confirmation queue.
+const pollTimer = setInterval(() => {
+  if (document.visibilityState === "visible" && !loading.value
+      && !reasonFor.value) load();
+}, 120000);
+onUnmounted(() => { clearInterval(pollTimer); clearTimeout(qTimer); });
 
 function openReason(r, action) {
   if (reasonFor.value === r.id && reasonAction.value === action) {
@@ -443,4 +456,10 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
 .rsrow-move { transition: transform .28s ease; }
 .rsslide-enter-active, .rsslide-leave-active { transition: all .2s ease; }
 .rsslide-enter-from, .rsslide-leave-to { opacity: 0; transform: translateY(-4px); }
+
+/* Agents tap these all day — meet the 44px touch minimum on touch screens
+   (same convention as ReasonSelect). */
+@media (pointer: coarse) {
+  .rs-act { min-width: 44px; min-height: 44px; }
+}
 </style>

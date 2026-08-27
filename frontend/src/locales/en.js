@@ -1196,6 +1196,7 @@ export default {
     noData: "No decisions in this period yet.",
   },
   cfs: {
+    unsaved: "You have unsaved changes \u2014 leave anyway?",
     title: "Confirmation — section settings",
     intro: "Retry timers, cancel reasons and who administers this section.",
     readOnly: "Read-only — the portal manager or a section admin can edit.",

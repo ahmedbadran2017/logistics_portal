@@ -9,6 +9,11 @@
       <div v-for="n in 3" :key="n" class="h-[90px] rounded-xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
     </div>
 
+    <div v-else-if="loadError" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
+      <div class="text-[14px] font-semibold text-rose-700">{{ t('cf.loadFail') }}</div>
+      <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
+      <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="loadSettings">{{ t('common.retry') }}</button>
+    </div>
     <template v-else-if="s">
       <p v-if="!s.canEdit" class="flex items-center gap-2 text-[12px] text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-lg px-3 py-2">
         <Icon name="shield-alert" :size="14" /> {{ t('cfs.readOnly') }}
@@ -87,6 +92,7 @@ import { computed, onMounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useAuth } from "@/composables/useAuth";
+import { onBeforeRouteLeave } from "vue-router";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
 
@@ -104,19 +110,28 @@ const TIMERS = [
 
 const s = ref(null);
 const loading = ref(true);
+const loadError = ref("");
 const dirty = ref(false);
 const saving = ref(false);
 const newReason = ref("");
 const newAdmin = ref("");
 
-onMounted(async () => {
+async function loadSettings() {
+  loading.value = true;
   try {
     s.value = await api("confirmation.cf_settings");
+    loadError.value = "";
   } catch (e) {
-    warn(t("cf.loadFail"), String(e.message || e));
+    loadError.value = String(e.message || e);
   } finally {
     loading.value = false;
   }
+}
+onMounted(loadSettings);
+// Leaving with unsaved edits used to discard them silently.
+onBeforeRouteLeave(() => {
+  if (dirty.value && !window.confirm(t("cfs.unsaved"))) return false;
+  return true;
 });
 
 function addReason() {
@@ -138,8 +153,8 @@ async function save() {
   saving.value = true;
   try {
     const payload = {
-      retryDna: s.value.retryDna, retryFollowup: s.value.retryFollowup,
-      retryOnhold: s.value.retryOnhold, slaFirstCallH: s.value.slaFirstCallH,
+      retryDna: Math.min(720, Math.max(1, parseInt(s.value.retryDna, 10) || 1)), retryFollowup: Math.min(720, Math.max(1, parseInt(s.value.retryFollowup, 10) || 1)),
+      retryOnhold: Math.min(720, Math.max(1, parseInt(s.value.retryOnhold, 10) || 1)), slaFirstCallH: Math.min(720, Math.max(1, parseInt(s.value.slaFirstCallH, 10) || 1)),
       reasons: s.value.reasons,
     };
     if (isManager.value) payload.admins = s.value.admins;

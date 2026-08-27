@@ -120,6 +120,11 @@
     <div v-if="loading" class="space-y-2.5">
       <div v-for="n in 6" :key="n" class="h-[76px] rounded-2xl cf-shimmer" />
     </div>
+    <div v-else-if="loadError" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
+      <div class="text-[14px] font-semibold text-rose-700">{{ t('cf.loadFail') }}</div>
+      <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
+      <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
+    </div>
     <div v-else-if="!rows.length" class="cf-empty rounded-2xl p-12 text-center">
       <span class="inline-flex w-14 h-14 rounded-2xl items-center justify-center bg-emerald-50 text-emerald-500 mb-3"><Icon name="check-circle" :size="26" /></span>
       <div class="text-[15px] font-semibold text-stone-800">{{ t('cf.empty') }}</div>
@@ -217,7 +222,7 @@
           <div v-else class="flex items-center gap-2 flex-wrap">
             <span class="cf-done" :class="doneClass(r.status)">
               <Icon :name="doneIcon(r.status)" :size="12" />
-              {{ t('cf.st' + tab) }}
+              {{ t('cf.st' + (statusTabOf(r.status) || tab)) }}
               <span v-if="r.lastCall" class="font-mono opacity-70">{{ r.lastCall.slice(5) }}</span>
             </span>
             <button class="cf-act cf-act-soft text-amber-700" :disabled="busy === r.order"
@@ -348,7 +353,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import Pager from "@/components/ui/Pager.vue";
 import DateRange from "@/components/ui/DateRange.vue";
@@ -374,19 +380,29 @@ const TABS = [
 // Tabs where the lane is done deciding — read-only rows with an undo.
 const DONE = ["confirmed", "cancelled", "duplicated"];
 
-const tab = ref("pending");
+// Deep-linkable: the dashboard's "orders at risk" card and the segment rows
+// pass ?tab= — landing on pending regardless made those links decorative.
+const route = useRoute();
+const TAB_KEYS = ["pending", "dna", "followup", "onhold", "monitor",
+  "notdelivered", "confirmed", "cancelled", "duplicated"];
+const initialTab = String(route.query.tab || "");
+const tab = ref(TAB_KEYS.includes(initialTab) ? initialTab : "pending");
 const q = ref("");
 const page = ref(1);
 const pageSize = ref(20);
 const days = ref(30);
 const frm = ref("");
 const to = ref("");
-// The pager owns page/pageSize; a change to either has to refetch.
-watch([page, pageSize], () => load());
+// The pager owns page/pageSize; a change to either has to refetch. Guarded:
+// tab clicks / search / date changes reset page to 1 AND call load()
+// explicitly, which used to fire two concurrent requests that could paint
+// out of order.
+watch([page, pageSize], () => { if (!loading.value) load(); });
 const data = ref(null);
 const rows = ref([]);
 const total = ref(0);
 const loading = ref(true);
+const loadError = ref("");
 const busy = ref("");
 const cancelFor = ref("");
 const cancelReason = ref("");
@@ -414,14 +430,23 @@ async function load() {
     data.value = res;
     rows.value = res.rows || [];
     total.value = res.total || 0;
+    loadError.value = "";
   } catch (e) {
-    warn(t("cf.loadFail"), String(e.message || e));
+    loadError.value = String(e.message || e);
     rows.value = [];
   } finally {
     loading.value = false;
   }
 }
 onMounted(load);
+// Silent background refresh, same contract as the Pipeline board: visible tab
+// only, nothing selected, no open panels — an agent watching the queue was
+// otherwise looking at a snapshot from whenever they opened the page.
+const pollTimer = setInterval(() => {
+  if (document.visibilityState === "visible" && !loading.value
+      && !selected.value.size && !cancelFor.value && !editFor.value) load();
+}, 120000);
+onUnmounted(() => { clearInterval(pollTimer); clearTimeout(qTimer); });
 
 const isDone = computed(() => DONE.includes(tab.value));
 // The Not-Delivered tab is a live tab, but its orders are already shipped — the
@@ -555,15 +580,32 @@ async function bulkCancel() {
   }
 }
 
+
+function statusTabOf(st) {
+  return { Confirmed: "confirmed", Cancelled: "cancelled", Duplicated: "duplicated" }[st] || "";
+}
 async function act(r, action, note) {
   busy.value = r.order;
   try {
     const res = await apiPost("confirmation.act", { order: r.order, action, note });
-    rows.value = rows.value.filter((x) => x.order !== r.order);
-    total.value = Math.max(0, total.value - 1);
+    // A retry action taken FROM its own tab keeps the row (with the fresh
+    // attempt count) — removing it while incrementing the tab badge lost the
+    // order from view until a reload. Everything else leaves the list.
+    const staysHere = action === tab.value;
+    if (staysHere) {
+      r.attempts = res.attempts || (r.attempts || 0) + 1;
+    } else {
+      rows.value = rows.value.filter((x) => x.order !== r.order);
+      total.value = Math.max(0, total.value - 1);
+    }
+    if (selected.value.has(r.order)) {
+      const next = new Set(selected.value);
+      next.delete(r.order);
+      selected.value = next;
+    }
     if (data.value?.counts) {
-      data.value.counts[tab.value] = Math.max(0, (data.value.counts[tab.value] || 1) - 1);
-      if (action === "dna") data.value.counts.dna++;
+      if (!staysHere) data.value.counts[tab.value] = Math.max(0, (data.value.counts[tab.value] || 1) - 1);
+      if (action === "dna" && tab.value !== "dna") data.value.counts.dna++;
       if (action === "followup" && tab.value !== "followup") data.value.counts.followup++;
       if (action === "onhold" && tab.value !== "onhold") data.value.counts.onhold++;
       // The row moves to a terminal tab — or back to pending on an undo.
@@ -832,4 +874,10 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
 .cfrow-move { transition: transform .28s ease; }
 .cfslide-enter-active, .cfslide-leave-active { transition: all .2s ease; }
 .cfslide-enter-from, .cfslide-leave-to { opacity: 0; transform: translateY(-4px); }
+
+/* Agents tap these all day — meet the 44px touch minimum on touch screens
+   (same convention as ReasonSelect). */
+@media (pointer: coarse) {
+  .cf-act { min-width: 44px; min-height: 44px; }
+}
 </style>

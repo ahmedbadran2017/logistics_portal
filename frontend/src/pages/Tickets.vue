@@ -95,7 +95,7 @@
               </span>
             </div>
           </div>
-          <a :href="'https://wa.me/' + r.phone" target="_blank" title="WhatsApp" class="cs-contact cs-wa">
+          <a :href="'https://wa.me/' + String(r.phone || '').replace(/[^0-9]/g, '')" target="_blank" title="WhatsApp" class="cs-contact cs-wa">
             <Icon name="message-circle" :size="15" />
           </a>
           <div class="flex items-center gap-1.5">
@@ -126,7 +126,7 @@
         <Transition name="csslide">
           <div v-if="createFor === r.id" class="bg-violet-50/50 rounded-xl p-3 mt-3">
             <TicketForm :categories="data?.categories || []" :busy="creating"
-                        :init="{ subject: r.message.slice(0, 100), phone: r.phone, order: r.order, channel: 'whatsapp', waPhone: r.phone }"
+                        :init="{ subject: (r.message || '').slice(0, 100), phone: r.phone, order: r.order, channel: 'whatsapp', waPhone: r.phone }"
                         @submit="submitCreate" />
           </div>
         </Transition>
@@ -206,7 +206,7 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, onMounted, ref } from "vue";
+import { computed, defineComponent, h, onMounted, ref, onUnmounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -314,6 +314,11 @@ async function load() {
   }
 }
 onMounted(load);
+const pollTimer = setInterval(() => {
+  if (document.visibilityState === "visible" && !loading.value
+      && !createFor.value && !threadFor.value) load();
+}, 120000);
+onUnmounted(() => { clearInterval(pollTimer); clearTimeout(qTimer); });
 
 function resetForm() { /* form state lives inside TicketForm per mount */ }
 
@@ -350,7 +355,7 @@ async function submitCreate(f) {
     });
     success(t("cs.created"), res.ticket);
     if (f.waPhone) {
-      rows.value = rows.value.filter((x) => x.id !== f.waPhone);
+      rows.value = rows.value.filter((x) => x.phone !== f.waPhone && x.id !== f.waPhone);
       if (data.value?.counts) data.value.counts.inbox = Math.max(0, data.value.counts.inbox - 1);
     }
     if (data.value?.counts) data.value.counts.open++;
@@ -399,7 +404,7 @@ async function act(r, action, n) {
       if (data.value?.mine) data.value.mine.resolve++;
     } else if (action === "reopen") {
       rows.value = rows.value.filter((x) => x.id !== r.id);
-      if (data.value?.counts) { data.value.counts.resolved--; data.value.counts.open++; }
+      if (data.value?.counts) { data.value.counts.resolved = Math.max(0, (data.value.counts.resolved || 0) - 1); data.value.counts.open++; }
     } else {
       const row = rows.value.find((x) => x.id === r.id);
       if (row) {
@@ -559,4 +564,10 @@ function ageLabel(hs) {
 .csrow-move { transition: transform .28s ease; }
 .csslide-enter-active, .csslide-leave-active { transition: all .2s ease; }
 .csslide-enter-from, .csslide-leave-to { opacity: 0; transform: translateY(-4px); }
+
+/* Agents tap these all day — meet the 44px touch minimum on touch screens
+   (same convention as ReasonSelect). */
+@media (pointer: coarse) {
+  .cs-act { min-width: 44px; min-height: 44px; }
+}
 </style>

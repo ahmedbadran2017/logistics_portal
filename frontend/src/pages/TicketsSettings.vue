@@ -9,6 +9,11 @@
       <div v-for="n in 3" :key="n" class="h-[88px] rounded-xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
     </div>
 
+    <div v-else-if="loadError" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
+      <div class="text-[14px] font-semibold text-rose-700">{{ t('cf.loadFail') }}</div>
+      <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
+      <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="loadSettings">{{ t('common.retry') }}</button>
+    </div>
     <template v-else-if="s">
       <div v-if="!s.canEdit" class="flex items-center gap-2.5 bg-amber-50 ring-1 ring-amber-200/70 rounded-xl px-4 py-3">
         <Icon name="shield-alert" :size="16" class="text-amber-500 shrink-0" />
@@ -120,6 +125,7 @@ import { computed, onMounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useAuth } from "@/composables/useAuth";
+import { onBeforeRouteLeave } from "vue-router";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
 
@@ -130,19 +136,28 @@ const isManager = computed(() => role.value === "manager");
 
 const s = ref(null);
 const loading = ref(true);
+const loadError = ref("");
 const dirty = ref(false);
 const saving = ref(false);
 const newCat = ref("");
 const newAdmin = ref("");
 
-onMounted(async () => {
+async function loadSettings() {
+  loading.value = true;
   try {
     s.value = await api("tickets.cs_settings");
+    loadError.value = "";
   } catch (e) {
-    warn(t("cf.loadFail"), String(e.message || e));
+    loadError.value = String(e.message || e);
   } finally {
     loading.value = false;
   }
+}
+onMounted(loadSettings);
+// Leaving with unsaved edits used to discard them silently.
+onBeforeRouteLeave(() => {
+  if (dirty.value && !window.confirm(t("cfs.unsaved"))) return false;
+  return true;
 });
 
 function addCat() {
@@ -164,8 +179,8 @@ async function save() {
   saving.value = true;
   try {
     const payload = {
-      firstResponseH: s.value.firstResponseH,
-      resolutionH: s.value.resolutionH,
+      firstResponseH: Math.min(720, Math.max(1, parseInt(s.value.firstResponseH, 10) || 1)),
+      resolutionH: Math.min(720, Math.max(1, parseInt(s.value.resolutionH, 10) || 1)),
       categories: s.value.categories,
     };
     if (isManager.value) payload.admins = s.value.admins;
