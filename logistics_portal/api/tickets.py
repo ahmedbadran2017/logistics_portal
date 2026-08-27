@@ -196,7 +196,9 @@ def board(tab="inbox", days=7, q="", limit=30, offset=0):
     counts["resolved"] = int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabIssue`
            WHERE company = %(co)s AND status IN ('Resolved', 'Closed')
-             AND modified >= DATE_SUB(NOW(), INTERVAL 7 DAY)""", {"co": _CO})[0][0])
+             AND COALESCE(resolution_date, modified)
+                 >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)""",
+        {"co": _CO, "days": days})[0][0])
 
     rows, total = [], 0
     if tab == "inbox" and _has_wa():
@@ -230,7 +232,8 @@ def board(tab="inbox", days=7, q="", limit=30, offset=0):
             })
     elif tab != "inbox":
         conds = ["i.company = %(co)s"]
-        vals = {"limit": limit, "offset": offset, "me": frappe.session.user, "co": _CO}
+        vals = {"limit": limit, "offset": offset, "me": frappe.session.user,
+                "co": _CO, "days": days}
         if tab == "open":
             conds.append("i.status IN ('Open', 'Replied', 'On Hold')")
         elif tab == "mine":
@@ -238,7 +241,11 @@ def board(tab="inbox", days=7, q="", limit=30, offset=0):
             conds.append("i.custom_agent = %(me)s")
         else:
             conds.append("i.status IN ('Resolved', 'Closed')")
-            conds.append("i.modified >= DATE_SUB(NOW(), INTERVAL 7 DAY)")
+            # Same clock as the report: the real resolution date, honoring the
+            # picker — bare `modified` dragged reopened tickets back in and
+            # disagreed with tickets.report on the same week.
+            conds.append("COALESCE(i.resolution_date, i.modified)"
+                         " >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)")
         if q and str(q).strip():
             vals["q"] = f"%{str(q).strip()}%"
             conds.append("""(i.subject LIKE %(q)s OR i.custom_phone LIKE %(q)s
@@ -301,6 +308,9 @@ def create_ticket(subject, phone=None, order=None, category=None,
         frappe.throw("A ticket needs a subject.")
     doc = frappe.get_doc({
         "doctype": "Issue",
+        # Every board/report query filters this company; without it a ticket
+        # inherits the Global Default and can vanish the moment it's created.
+        "company": _CO,
         "subject": subject[:140],
         "description": (description or "").strip() or subject,
         "custom_phone": (phone or "").strip(),
@@ -314,10 +324,13 @@ def create_ticket(subject, phone=None, order=None, category=None,
     doc.insert(ignore_permissions=True)
     doc.add_comment("Comment", f"CS: create — {subject[:80]} · by {frappe.session.user}")
     if wa_phone and _has_wa():
+        # Only messages that existed when the agent converted — one arriving
+        # mid-click must stay unread in the inbox.
         frappe.db.sql(
             """UPDATE `tabWhatsApp Message` SET custom_lp_handled = 1
-               WHERE type = 'Incoming' AND `from` = %s
-                 AND COALESCE(custom_lp_handled, 0) = 0""", (wa_phone,))
+               WHERE type = 'Incoming' AND `from` = %s AND creation <= %s
+                 AND COALESCE(custom_lp_handled, 0) = 0""",
+            (wa_phone, now_datetime()))
     frappe.db.commit()
     return {"ok": True, "ticket": doc.name}
 
@@ -346,14 +359,30 @@ def wa_thread(phone, limit=40):
 
 @frappe.whitelist()
 def wa_dismiss(phone):
-    """The conversation needs no ticket (already answered / automation noise)."""
+    """The conversation needs no ticket (already answered / automation noise).
+    Bounded to messages that already existed when the agent looked, and audited
+    on the newest message — a dismissal used to swallow messages arriving
+    mid-click and leave zero trace of who dismissed the conversation."""
     _gate()
     if not _has_wa():
         frappe.throw("WhatsApp inbox is not available on this site.")
+    phone = (phone or "").strip()
+    cutoff = now_datetime()
+    last = frappe.db.get_value(
+        "WhatsApp Message",
+        {"type": "Incoming", "from": phone, "creation": ["<=", cutoff]},
+        "name", order_by="creation desc")
     frappe.db.sql(
         """UPDATE `tabWhatsApp Message` SET custom_lp_handled = 1
            WHERE type = 'Incoming' AND `from` = %s
-             AND COALESCE(custom_lp_handled, 0) = 0""", ((phone or "").strip(),))
+             AND creation <= %s
+             AND COALESCE(custom_lp_handled, 0) = 0""", (phone, cutoff))
+    if last:
+        try:
+            frappe.get_doc("WhatsApp Message", last).add_comment(
+                "Comment", f"CS: dismissed conversation · by {frappe.session.user}")
+        except Exception:
+            pass
     frappe.db.commit()
     return {"ok": True}
 
@@ -378,7 +407,16 @@ def act(name, action, note=None):
     # meant one colleague answering one message took the ticket out of the
     # owner's "mine" tab and moved the whole ticket's credit, and its
     # resolution time, onto themselves in the section report.
-    if action == "take" or not (doc.custom_agent or "").strip():
+    owner_now = (doc.custom_agent or "").strip()
+    if action == "take":
+        # Taking an OWNED ticket transfers its whole credit and its
+        # resolution-time record — admin/manager reassigns; an agent can only
+        # take what nobody holds.
+        if owner_now and owner_now != frappe.session.user and not _is_cs_admin():
+            frappe.throw(f"Held by {owner_now} — ask a section admin to reassign.",
+                         frappe.PermissionError)
+        updates["custom_agent"] = frappe.session.user
+    elif not owner_now:
         updates["custom_agent"] = frappe.session.user
     if action == "reply":
         updates["status"] = "Replied"

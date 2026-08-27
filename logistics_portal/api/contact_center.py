@@ -247,9 +247,12 @@ def _board(group, month, pts):
     numbers move at the speed of a phone call, so 120s of staleness is free.
     Keyed on the points too: change a weight in settings and the board is new.
     """
+    import hashlib
     import json as _json
-    key = "lp_bonus_board:" + group + ":" + month + ":" + str(
-        abs(hash(_json.dumps(pts, sort_keys=True))))
+    # md5, not hash(): python string hashing is salted per process, so every
+    # gunicorn/RQ worker wrote its own key and the 120s cache mostly missed.
+    key = "lp_bonus_board:" + group + ":" + month + ":" + hashlib.md5(
+        _json.dumps(pts, sort_keys=True).encode()).hexdigest()[:12]
     cache = frappe.cache()
     hit = cache.get_value(key)
     if hit is not None:
@@ -267,16 +270,20 @@ def _board(group, month, pts):
 
 def _cc_board(month, pts):
     per_agent = {}
+    # One point per (agent, document, action) — NOT per comment. The trail
+    # appends a comment on every call, and reopen→confirm is an allowed cycle,
+    # so counting raw comments let one order farm cf.confirm indefinitely
+    # (same shape on cs.resolve via resolve→reopen→resolve).
+    seen = set()
     for prefix, lane, dts in (("Confirmation", "cf", ("Sales Order",)),
                               ("Rescue", "rs", ("Sales Order",)),
                               ("CS", "cs", ("Issue",))):
         for r in frappe.db.sql(
-                """SELECT c.owner, c.content, COUNT(*) n FROM `tabComment` c
+                """SELECT c.owner, c.content, c.reference_name rn FROM `tabComment` c
                    WHERE c.reference_doctype IN %(dts)s
                      AND c.creation >= %(start)s
                      AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
-                     AND c.content LIKE %(pfx)s
-                   GROUP BY c.owner, c.content""",
+                     AND c.content LIKE %(pfx)s""",
                 {"dts": dts, "start": f"{month}-01 00:00:00",
                  "pfx": prefix + ": %"}, as_dict=True):
             if " bulk " in r.content or "(bulk)" in r.content:
@@ -285,10 +292,14 @@ def _cc_board(month, pts):
             key = f"{lane}.{action}"
             if key not in pts:
                 continue
+            dedupe = (r.owner, r.rn or "", key)
+            if dedupe in seen:
+                continue
+            seen.add(dedupe)
             a = per_agent.setdefault(r.owner, {"cf": 0.0, "rs": 0.0, "cs": 0.0,
                                                "actions": 0})
-            a[lane] += pts[key] * int(r.n or 0)
-            a["actions"] += int(r.n or 0)
+            a[lane] += pts[key]
+            a["actions"] += 1
     # The outcome points: parcels that LANDED this month, per agent. Credited
     # to the month of delivery — that is when the money arrived, whenever the
     # call happened.
@@ -456,7 +467,11 @@ def _streak_days(user, group, month):
     prev = _date.fromisoformat(days[0])
     for d in days[1:]:
         cur = _date.fromisoformat(d)
-        run = run + 1 if (cur - prev).days == 1 else 1
+        # ≤2-day gaps keep the run alive: strictly-consecutive calendar days
+        # reset every streak at the weekend, making the cap unreachable for a
+        # normal working week — the bonus was rewarding weekend work, not
+        # consistency. Same slack the anchor check below already used.
+        run = run + 1 if (cur - prev).days <= 2 else 1
         prev = cur
     # A streak is only a streak if it reaches the end of the period being
     # looked at. Returning the run that ends at the last day worked paid a 20%
@@ -603,7 +618,8 @@ def overview():
     cf_counts = {k: 0 for k in QUEUES}
     for r in frappe.db.sql(
             """SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
-               WHERE docstatus = 1 AND custom_sales_status IN %(sts)s
+               WHERE docstatus = 1 AND company = 'Justyol Morocco'
+                 AND custom_sales_status IN %(sts)s
                  AND creation >= DATE_SUB(NOW(), INTERVAL 30 DAY)
                GROUP BY custom_sales_status""",
             {"sts": tuple(QUEUES.values())}, as_dict=True):
@@ -612,7 +628,8 @@ def overview():
                 cf_counts[k] = int(r.n or 0)
     cf_breached = int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabSales Order`
-           WHERE docstatus = 1 AND custom_sales_status = 'Pending'
+           WHERE docstatus = 1 AND company = 'Justyol Morocco'
+             AND custom_sales_status = 'Pending'
              AND creation >= DATE_SUB(NOW(), INTERVAL 30 DAY)
              AND creation < DATE_SUB(NOW(), INTERVAL %(h)s HOUR)
              AND COALESCE(custom_call_attempts, 0) = 0""",
@@ -624,23 +641,23 @@ def overview():
                        ("failed", "Failed Attempt")):
         rs_counts[key] = int(frappe.db.sql(
             """SELECT COUNT(*) FROM `tabDelivery Note` dn
-               WHERE dn.docstatus = 1 AND COALESCE(dn.custom_exception_action,'') = ''
+               WHERE dn.docstatus = 1 AND dn.company = 'Justyol Morocco' AND COALESCE(dn.custom_exception_action,'') = ''
                  AND dn.custom_track_shipment_status = %(t)s
                  AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)""",
             {"t": track})[0][0])
     rs_counts["backlog"] = int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabDelivery Note` dn
-           WHERE dn.docstatus = 1 AND COALESCE(dn.custom_exception_action,'') = ''
+           WHERE dn.docstatus = 1 AND dn.company = 'Justyol Morocco' AND COALESCE(dn.custom_exception_action,'') = ''
              AND dn.custom_track_shipment_status IN %(tracks)s
              AND dn.posting_date < DATE_SUB(CURDATE(), INTERVAL 30 DAY)""",
         {"tracks": _BACKLOG_TRACKS})[0][0])
     rs_breached = int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabDelivery Note` dn
-           LEFT JOIN (SELECT dni.parent p, MAX(dni.against_sales_order) so_n
-                      FROM `tabDelivery Note Item` dni GROUP BY dni.parent) m
-                  ON m.p = dn.name
-           LEFT JOIN `tabSales Order` so ON so.name = m.so_n
-           WHERE dn.docstatus = 1 AND COALESCE(dn.custom_exception_action,'') = ''
+           LEFT JOIN `tabSales Order` so
+             ON so.name = (SELECT MIN(dni.against_sales_order)
+                           FROM `tabDelivery Note Item` dni WHERE dni.parent = dn.name)
+           WHERE dn.docstatus = 1 AND dn.company = 'Justyol Morocco'
+             AND COALESCE(dn.custom_exception_action,'') = ''
              AND dn.custom_track_shipment_status IN ('Delivery Exception', 'Failed Attempt')
              AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
              AND dn.posting_date < DATE_SUB(CURDATE(), INTERVAL CEIL(%(h)s / 24) DAY)
@@ -649,15 +666,16 @@ def overview():
 
     # ── Lane 3: tickets ─────────────────────────────────────────────────
     cs_open = int(frappe.db.sql(
-        "SELECT COUNT(*) FROM `tabIssue` WHERE status IN %s",
-        (_OPEN_STATUSES,))[0][0])
+        "SELECT COUNT(*) FROM `tabIssue` WHERE company = 'Justyol Morocco' "
+        "AND status IN %s", (_OPEN_STATUSES,))[0][0])
     cs_resolved7 = int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabIssue`
-           WHERE status IN ('Resolved', 'Closed')
+           WHERE company = 'Justyol Morocco' AND status IN ('Resolved', 'Closed')
              AND modified >= DATE_SUB(NOW(), INTERVAL 7 DAY)""")[0][0])
     cs_breached = int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabIssue`
-           WHERE status IN %(sts)s AND first_responded_on IS NULL
+           WHERE company = 'Justyol Morocco'
+             AND status IN %(sts)s AND first_responded_on IS NULL
              AND creation < DATE_SUB(NOW(), INTERVAL %(h)s HOUR)""",
         {"sts": _OPEN_STATUSES, "h": cs_s.get("firstResponseH", 4)})[0][0])
     cs_inbox = 0

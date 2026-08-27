@@ -183,16 +183,26 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     # after an action, and a window with no prior decisions would leave
     # them absent -> `undefined++` -> NaN in the tab badge.
     counts = {k: 0 for k in list(QUEUES) + list(DONE_QUEUES)}
-    for r in frappe.db.sql(
-            f"""SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
-                WHERE docstatus = 1 AND company = %(co)s
-                  AND custom_sales_status IN %(sts)s{me_q}
-                  AND {q_rng}
-                GROUP BY custom_sales_status""",
-            {"sts": tuple(QUEUES.values()), "co": _CO, **rng_vals}, as_dict=True):
-        for k, v in QUEUES.items():
-            if v == r.s:
-                counts[k] = int(r.n or 0)
+    # Live queues stop counting orders the warehouse already took (_IN_HAND —
+    # the dashboard applied it, the board didn't, so the two disagreed and
+    # agents were handed shipped orders). Retry queues are windowed on WHEN
+    # THEY'RE DUE (next_call), not on order creation: an order deferred past
+    # the window used to fall out of the queue exactly when it came due.
+    in_hand = _IN_HAND.replace("so.", "")
+    retry_rng = rng.format(col="COALESCE(custom_next_call_at, creation)")
+    for sts, rng_sql in ((("Pending",), q_rng),
+                         (tuple(v for k, v in QUEUES.items() if k != "pending"),
+                          retry_rng)):
+        for r in frappe.db.sql(
+                f"""SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
+                    WHERE docstatus = 1 AND company = %(co)s
+                      AND custom_sales_status IN %(sts)s{me_q}
+                      AND {in_hand} AND {rng_sql}
+                    GROUP BY custom_sales_status""",
+                {"sts": sts, "co": _CO, **rng_vals}, as_dict=True):
+            for k, v in QUEUES.items():
+                if v == r.s:
+                    counts[k] = int(r.n or 0)
     # Confirmed & Cancelled carry the automation's mass (176k / 59k on prod):
     # keyed on when the DECISION was taken (custom_last_call_at), not when the
     # order arrived — the agent looks for "what I did today", and a 40-day-old
@@ -224,13 +234,22 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     # this group still takes delivery 27% of the time.
     from logistics_portal.api.customers import risky_phones
     risky = tuple(risky_phones()) or ("",)
-    counts["monitor"] = int(frappe.db.sql(
-        f"""SELECT COUNT(*) FROM `tabSales Order` so
-            WHERE so.docstatus = 1 AND so.company = %(co)s
-              AND so.custom_sales_status IN %(sts)s{me_so}
-              AND {_CUST_KEY} IN %(risky)s""",
-        {"sts": tuple(QUEUES.values()), "co": _CO, "risky": risky,
-         **({"me_like": f'%"{frappe.session.user}"%'} if mine_only else {})})[0][0])
+    # The monitor count crosses a ~6.8k-phone IN list with a per-row REGEXP —
+    # the single heaviest piece of a cold board load. Cache it per scope; the
+    # exact rows are only computed when the monitor tab itself is open.
+    _mck = "lp_cf_monitor_" + (frappe.session.user if mine_only else "all")
+    _mc = frappe.cache().get_value(_mck)
+    if _mc is not None and tab != "monitor":
+        counts["monitor"] = int(_mc)
+    else:
+        counts["monitor"] = int(frappe.db.sql(
+            f"""SELECT COUNT(*) FROM `tabSales Order` so
+                WHERE so.docstatus = 1 AND so.company = %(co)s
+                  AND so.custom_sales_status IN %(sts)s{me_so}
+                  AND {_IN_HAND} AND {_CUST_KEY} IN %(risky)s""",
+            {"sts": tuple(QUEUES.values()), "co": _CO, "risky": risky,
+             **({"me_like": f'%"{frappe.session.user}"%'} if mine_only else {})})[0][0])
+        frappe.cache().set_value(_mck, counts["monitor"], expires_in_sec=300)
 
     # Not Delivered: shipped-then-failed parcels the confirmation team calls
     # back to arrange a redelivery/reship or to cancel. Post-shipment work
@@ -250,7 +269,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
     vals["co"] = _CO
     if tab == "monitor":
         conds = ["so.docstatus = 1", "so.company = %(co)s",
-                 "so.custom_sales_status IN %(statuses)s",
+                 "so.custom_sales_status IN %(statuses)s", _IN_HAND,
                  f"{_CUST_KEY} IN %(risky)s"]
         vals["statuses"] = tuple(QUEUES.values())
         vals["risky"] = risky
@@ -274,8 +293,9 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None):
         vals["ndays"] = max(days, 60)
     else:
         conds = ["so.docstatus = 1", "so.company = %(co)s",
-                 "so.custom_sales_status = %(status)s",
-                 rng.format(col="so.creation")]
+                 "so.custom_sales_status = %(status)s", _IN_HAND,
+                 rng.format(col=("so.creation" if tab == "pending" else
+                                 "COALESCE(so.custom_next_call_at, so.creation)"))]
         vals["status"] = QUEUES[tab]
     # Agent scope on the rows AND the search: an agent searching still only
     # reaches their own orders. Working queues scope by the ERPNext assignment
@@ -443,10 +463,11 @@ def _own_guard(role, orders):
 
 
 @frappe.whitelist()
-def act(order, action, note=None):
+def act(order, action, note=None, _bulk=False):
     """One call decision. confirm → enters the logistics pool; cancel needs a
     reason; dna/followup/onhold re-queue with a retry time and bump the
-    attempt counter."""
+    attempt counter. `_bulk` marks the comment "(bulk)" so bonus scoring can
+    exclude batch work, as the scheme promises."""
     role = _gate()
     order = (order or "").strip()
     _own_guard(role, order)
@@ -485,14 +506,34 @@ def act(order, action, note=None):
         if opts and note not in opts:
             frappe.throw("Pick a reason from the list — free text here would "
                          "invent a category the reports can't group.")
+        # Same fence as reopen: once the warehouse holds the order, a cancel
+        # here leaves the floor with a cancelled parcel in a tote. Those go
+        # through the dispatcher / rescue flow instead.
+        stage = frappe.db.get_value("Sales Order", order, "custom_logistics_status")
+        if stage and stage not in ("Pending", ""):
+            frappe.throw(f"Can't cancel — the order is already {stage} in the "
+                         "warehouse. Route it through Rescue/Exceptions.")
+        if frappe.db.exists("Pick List Item",
+                            {"sales_order": order, "docstatus": ["<", 2]}):
+            frappe.throw("Can't cancel — the order is already on a pick list. "
+                         "Ask the dispatcher to pull it first.")
 
     now = now_datetime()
     attempts = int(so.custom_call_attempts or 0)
     updates = {
         "custom_sales_status": _ACTIONS[action],
-        "custom_allocated_to": frappe.session.user,
         "custom_last_call_at": now,
     }
+    # Attribution: only a real DECISION claims the order. Retry touches
+    # (dna/followup/onhold) used to overwrite the owner too, which made
+    # spraying DNA a way to farm the delivered-outcome bonus of orders the
+    # automation later confirmed; they now claim only an unowned order, and
+    # reopen never re-attributes at all.
+    if action in ("confirm", "cancel", "duplicate"):
+        updates["custom_allocated_to"] = frappe.session.user
+    elif action != "reopen" and not (frappe.db.get_value(
+            "Sales Order", order, "custom_allocated_to") or ""):
+        updates["custom_allocated_to"] = frappe.session.user
     if action in _RETRY_HOURS:
         attempts += 1
         updates["custom_call_attempts"] = attempts
@@ -512,6 +553,7 @@ def act(order, action, note=None):
     doc = frappe.get_doc("Sales Order", order)
     doc.add_comment("Comment",
                     f"Confirmation: {action}"
+                    + (" (bulk)" if _bulk else "")
                     + (f" (attempt {attempts})" if action in _RETRY_HOURS else "")
                     + (f" — {note}" if note else "")
                     + f" · by {frappe.session.user}")
@@ -560,11 +602,12 @@ def bulk_act(orders=None, action=None, reason=None):
         try:
             # Reuse the single-order path: it owns the reopen guards (a picked
             # order can't be pulled back) and writes the same comment trail.
-            act(name, action, reason)
+            act(name, action, reason, _bulk=True)
             done.append(name)
         except Exception:
             skipped.append(name)
             frappe.db.rollback()
+            frappe.log_error(frappe.get_traceback(), "confirmation.bulk_act")
     frappe.db.commit()
     return {"ok": True, "done": len(done), "skipped": skipped}
 
@@ -608,7 +651,7 @@ def bulk_cancel(orders=None, reason=None):
             updates["custom_cancellation_reason"] = reason
         frappe.db.set_value("Sales Order", name, updates, update_modified=True)
         frappe.get_doc("Sales Order", name).add_comment(
-            "Comment", f"Confirmation: cancel — {reason} · bulk by {frappe.session.user}")
+            "Comment", f"Confirmation: cancel (bulk) — {reason} · by {frappe.session.user}")
         done.append(name)
     frappe.db.commit()
     for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
@@ -913,6 +956,7 @@ def report(days=7, frm=None, to=None):
                 FROM `tabSales Order` so
                 WHERE so.docstatus = 1 AND so.company = %(co)s
                   AND COALESCE(so.custom_allocated_to,'') != ''
+                  AND so.custom_allocated_to NOT IN ('Administrator', 'Guest')
                   AND {so_rng}
                 GROUP BY u""", {"sane": _SANE_MAX, "co": _CO, **rng_vals}, as_dict=True):
         money[r.u] = dict(r)
@@ -933,6 +977,7 @@ def report(days=7, frm=None, to=None):
                         ON dn.name = dni.parent AND dn.docstatus = 1
                       WHERE so.docstatus = 1 AND so.company = %(co)s
                         AND COALESCE(so.custom_allocated_to,'') != ''
+                        AND so.custom_allocated_to NOT IN ('Administrator', 'Guest')
                         AND {so_rng}
                       GROUP BY so.name) x
                 GROUP BY u""", {"sane": _SANE_MAX, "co": _CO, **rng_vals}, as_dict=True):
@@ -959,7 +1004,8 @@ def report(days=7, frm=None, to=None):
             # How fast the first human touch lands after the order arrives.
             "respH": round(float(g("resp_min")) / 60, 1) if g("resp_min") else None,
             "confirmedValue": round(float(g("confirmed_value"))),
-            # The money that actually arrived. A confirm that bounces is not revenue.
+            # Face value of orders with a Delivered parcel (partial returns not
+            # deducted) — an approximation of collected cash, not a cash ledger.
             "collected": round(float(g("collected"))),
             "delivered": int(g("delivered")),
             "failedParcels": int(g("failed")),

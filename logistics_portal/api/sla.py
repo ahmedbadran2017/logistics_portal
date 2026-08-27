@@ -111,11 +111,14 @@ def board(days=14):
     on_time_pct = round(delivered * 100.0 / max(1, delivered + late), 1)
 
     # Same-day ship: parcels whose order arrived the same day the manifest left.
+    # PARCEL grain (COUNT DISTINCT dn): the DN Item join fans out one row per
+    # line, so this rate was weighted by basket size — the same bug already
+    # fixed in confirmation/contact_center/customers, still live here.
     sd = frappe.db.sql(
-        """SELECT COUNT(*) total,
-                  SUM(CASE WHEN so.creation >= sh.pickup_date
+        """SELECT COUNT(DISTINCT sdn.delivery_note) total,
+                  COUNT(DISTINCT CASE WHEN so.creation >= sh.pickup_date
                             AND so.creation < sh.pickup_date + INTERVAL 1 DAY
-                      THEN 1 ELSE 0 END) same_day
+                      THEN sdn.delivery_note END) same_day
            FROM `tabShipment Delivery Note` sdn
            JOIN `tabShipment` sh ON sh.name = sdn.parent AND sh.docstatus = 1
            JOIN `tabDelivery Note Item` dni ON dni.parent = sdn.delivery_note
@@ -131,22 +134,32 @@ def board(days=14):
         {"key": "over1", "label": "1–3 days late", "count": 0},
         {"key": "over3", "label": "> 3 days late", "count": 0},
     ]
+    unknown = 0
     for r in frappe.db.sql(
         """SELECT custom_sla_days_remaining d, COUNT(*) c FROM `tabDelivery Note`
            WHERE docstatus = 1 AND posting_date >= %s
              AND custom_sla_status IN ('On Track','At Risk','Breached')
            GROUP BY custom_sla_days_remaining""", (since,), as_dict=True):
-        d = int(r.d if r.d is not None else 0)
+        if r.d is None:
+            # Unscored parcels are UNKNOWN, not "due today".
+            unknown += int(r.c or 0)
+            continue
+        d = int(r.d)
         c = int(r.c or 0)
         i = 0 if d > 2 else 1 if d >= 1 else 2 if d == 0 else 3 if d >= -3 else 4
         buckets[i]["count"] += c
 
+    # Parcel grain + the Address city: custom_shipping_city is filled on 0.9%
+    # of orders, so this panel was ~99% '?' AND multiplied by lines per parcel.
     cities = frappe.db.sql(
-        """SELECT COALESCE(NULLIF(so.custom_shipping_city,''),'?') city,
-                  COUNT(*) breached
+        """SELECT COALESCE(NULLIF(TRIM(so.custom_shipping_city),''),
+                           NULLIF(TRIM(addr.city),''), '?') city,
+                  COUNT(DISTINCT dn.name) breached
            FROM `tabDelivery Note` dn
            JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
            JOIN `tabSales Order` so ON so.name = dni.against_sales_order
+           LEFT JOIN `tabAddress` addr
+             ON addr.name = COALESCE(so.shipping_address_name, so.customer_address)
            WHERE dn.docstatus = 1 AND dn.posting_date >= %s
              AND dn.custom_sla_status = 'Breached'
              AND COALESCE(dn.custom_track_shipment_status,'') <> 'Delivered'
@@ -168,6 +181,7 @@ def board(days=14):
             "unscored": counts.get("none", 0),
         },
         "buckets": buckets,
+        "unknown": unknown,
         "cities": [{"city": (c.city or "?").title(), "breached": int(c.breached or 0)}
                    for c in cities],
         "breaches": breached_list(limit=8),

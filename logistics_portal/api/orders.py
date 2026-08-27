@@ -1187,7 +1187,13 @@ def activity(name):
 
 @frappe.whitelist()
 def detail(name):
-    """Full order detail for the shared OrderDetail screen."""
+    """Full order detail for the shared OrderDetail screen. Any portal role —
+    but a role is REQUIRED: this returns the customer's name, phone and
+    address, and it used to be open to every authenticated Frappe user by
+    ordinal-name enumeration."""
+    from logistics_portal.api.auth import resolve_role
+    if not resolve_role(frappe.session.user):
+        frappe.throw("Not authorized.", frappe.PermissionError)
     name = (name or "").lstrip("#")
     for cand in (name, f"#{name}"):
         if frappe.db.exists("Sales Order", cand):

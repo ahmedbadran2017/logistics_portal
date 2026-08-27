@@ -120,12 +120,18 @@ _DN_SELECT = """
            so.custom_shipping_city AS city,
            COALESCE(so.custom_call_attempts, 0) AS attempts,
            so.custom_next_call_at AS next_call,
-           DATEDIFF(CURDATE(), dn.posting_date) AS age_d
+           DATEDIFF(CURDATE(), dn.posting_date) AS age_d,
+           TIMESTAMPDIFF(HOUR, dn.posting_date, NOW()) AS age_h
     FROM `tabDelivery Note` dn
-    LEFT JOIN (SELECT dni.parent AS p, MAX(dni.against_sales_order) AS so_n
-               FROM `tabDelivery Note Item` dni GROUP BY dni.parent) m ON m.p = dn.name
-    LEFT JOIN `tabSales Order` so ON so.name = m.so_n
+    LEFT JOIN `tabSales Order` so
+      ON so.name = (SELECT MIN(dni.against_sales_order)
+                    FROM `tabDelivery Note Item` dni WHERE dni.parent = dn.name)
 """
+# NB the SO link is a correlated MIN, not a whole-table GROUP BY: the old
+# derived table materialised every DN line on the site per board load (the
+# slowest query in the section), and MAX here vs an arbitrary row in act()
+# could show one order and act on another. MIN everywhere, evaluated only for
+# the filtered page.
 
 
 def _dn_where(tab, vals):
@@ -198,7 +204,8 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
                        so.custom_shipping_city AS city,
                        COALESCE(so.custom_call_attempts, 0) AS attempts,
                        so.custom_next_call_at AS next_call,
-                       DATEDIFF(NOW(), so.creation) AS age_d
+                       DATEDIFF(NOW(), so.creation) AS age_d,
+                       TIMESTAMPDIFF(HOUR, so.creation, NOW()) AS age_h
                 FROM `tabSales Order` so WHERE {where}
                 ORDER BY COALESCE(so.custom_next_call_at, so.creation)
                 LIMIT %(limit)s OFFSET %(offset)s""", vals, as_dict=True)
@@ -243,9 +250,10 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
             "ageD": int(r.age_d or 0), "attempts": int(r.attempts or 0),
             "nextCall": str(r.next_call)[:16] if r.next_call else "",
             "due": bool(r.next_call and str(r.next_call) <= now),
-            # Triage SLA: nobody touched the failing parcel within the target.
+            # Triage SLA in HOURS: the old day-grain math (age_d * 24) needed
+            # a full 2 days to breach a 24h target, understating every breach.
             "slaBreached": bool(int(r.attempts or 0) == 0
-                                and int(r.age_d or 0) * 24 > sla_h),
+                                and int(getattr(r, "age_h", 0) or 0) > sla_h),
         } for r in rows],
         "mine": mine,
         "reasons": _rs_settings().get("reasons", []),
@@ -275,8 +283,23 @@ def act(id=None, action=None, note=None):
     if not (is_dn or is_so):
         frappe.throw("Unknown parcel/order.")
     dn = id if is_dn else ""
-    order = id if is_so else frappe.db.get_value(
-        "Delivery Note Item", {"parent": dn}, "against_sales_order")
+    # MIN, matching the board's SO link — get_value picked an arbitrary line,
+    # so on multi-order parcels the agent could act on a different order than
+    # the one the row displayed.
+    order = id if is_so else (frappe.db.sql(
+        """SELECT MIN(against_sales_order) FROM `tabDelivery Note Item`
+           WHERE parent = %s""", (dn,))[0][0] or "")
+
+    # Ownership fence for the per-agent Not-Delivered scope: the confirmation
+    # board filters rows by _assign, but this endpoint used to accept ANY order
+    # id — one call could act on (and, worse, claim credit for) a colleague's
+    # order. Managers and section admins stay unrestricted; the shared DN
+    # queues (exceptions/failed/stale/backlog) are team-worked by design.
+    if is_so and not _is_rs_admin():
+        assigned = frappe.db.get_value("Sales Order", id, "_assign") or ""
+        if f'"{frappe.session.user}"' not in assigned:
+            frappe.throw("This order is assigned to another agent.",
+                         frappe.PermissionError)
 
     if action == "cancel" and not note:
         frappe.throw("A cancel needs a reason.")
@@ -306,10 +329,15 @@ def act(id=None, action=None, note=None):
             doc.db_set("custom_exception_actioned_at", now, update_modified=False)
         doc.add_comment("Comment", tag)
 
-    # Order-side record + state.
+    # Order-side record + state. Attribution: a rescue touch must NOT steal
+    # the confirming agent's credit — custom_allocated_to feeds the done tabs,
+    # the money report and the delivered bonus points, and this line used to
+    # overwrite it unconditionally (a one-call transfer of a colleague's
+    # delivered-parcel bonus). Claim it only when nobody holds it.
     if order:
-        so_updates = {"custom_allocated_to": frappe.session.user,
-                      "custom_last_call_at": now}
+        so_updates = {"custom_last_call_at": now}
+        if not (frappe.db.get_value("Sales Order", order, "custom_allocated_to") or ""):
+            so_updates["custom_allocated_to"] = frappe.session.user
         if action == "dna":
             attempts = int(frappe.db.get_value(
                 "Sales Order", order, "custom_call_attempts") or 0) + 1
@@ -359,15 +387,30 @@ def bulk_act(ids=None, action=None, note=None):
     done, skipped = [], []
     has_field = frappe.get_meta("Delivery Note").has_field("custom_exception_action")
     for dn in ids:
-        if not frappe.db.exists("Delivery Note", dn):
+        # Per-item isolation: one bad parcel must not abort (and discard) the
+        # rest of a 200-parcel triage batch.
+        try:
+            if not frappe.db.exists("Delivery Note", dn):
+                skipped.append(dn)
+                continue
+            doc = frappe.get_doc("Delivery Note", dn)
+            if has_field:
+                doc.db_set("custom_exception_action", dn_action, update_modified=False)
+                doc.db_set("custom_exception_actioned_at", now, update_modified=False)
+            doc.add_comment("Comment", tag)
+            # Mirror the tag on the ORDER too: the board's "mine" tally and the
+            # section report count SO comments only, so bulk triage — the tool
+            # built for the 17k backlog — was invisible in every rescue metric.
+            # The "(bulk)" marker keeps it out of bonus scoring.
+            so = frappe.db.sql(
+                """SELECT MIN(against_sales_order) FROM `tabDelivery Note Item`
+                   WHERE parent = %s""", (dn,))[0][0]
+            if so and frappe.db.exists("Sales Order", so):
+                frappe.get_doc("Sales Order", so).add_comment("Comment", tag)
+            done.append(dn)
+        except Exception:
             skipped.append(dn)
-            continue
-        doc = frappe.get_doc("Delivery Note", dn)
-        if has_field:
-            doc.db_set("custom_exception_action", dn_action, update_modified=False)
-            doc.db_set("custom_exception_actioned_at", now, update_modified=False)
-        doc.add_comment("Comment", tag)
-        done.append(dn)
+            frappe.log_error(frappe.get_traceback(), "rescue.bulk_act")
     frappe.db.commit()
     return {"ok": True, "done": len(done), "skipped": skipped}
 
