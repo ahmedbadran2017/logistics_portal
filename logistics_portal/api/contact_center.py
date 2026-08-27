@@ -784,3 +784,129 @@ def lane_counts():
     out = {"confirmation": cf, "rescue": rs, "tickets": cs}
     frappe.cache().set_value(ck, _json.dumps(out), expires_in_sec=60)
     return out
+
+
+@frappe.whitelist()
+def speed_dashboard():
+    """The manager's landing screen for the contact-center portal. Three
+    questions, nothing else: how fast is the first touch (today vs 7d, with a
+    14-day trend), who is working right now and at what rate (Version-based,
+    so desk AND portal work both count), and where is the fire (queues, due
+    call-backs, unhandled WhatsApp). Heavy pieces cached 15 minutes."""
+    from logistics_portal.api.auth import resolve_role
+    from logistics_portal.api.confirmation import _IN_HAND, _is_cf_admin, _cf_settings
+    role = resolve_role(frappe.session.user)
+    if role != "manager" and not _is_cf_admin():
+        frappe.throw("Managers and section admins only.", frappe.PermissionError)
+    import json as _json
+    cache = frappe.cache()
+    co = "Justyol Morocco"
+    in_hand = _IN_HAND.replace("so.", "")
+
+    # ── speed: first touch (cached — tabVersion group-bys are the heavy part)
+    speed = None
+    hit = cache.get_value("lp_cc_speed")
+    if hit:
+        try:
+            speed = _json.loads(hit)
+        except Exception:
+            speed = None
+    if speed is None:
+        trend = frappe.db.sql("""
+            SELECT DATE(so.creation) d,
+                   ROUND(AVG(TIMESTAMPDIFF(MINUTE, so.creation, v.first_v))) m,
+                   COUNT(*) n
+            FROM (SELECT docname, MIN(creation) first_v FROM `tabVersion`
+                  WHERE ref_doctype = 'Sales Order'
+                    AND creation >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+                    AND data LIKE '%%custom_sales_status%%'
+                  GROUP BY docname) v
+            JOIN `tabSales Order` so ON so.name = v.docname
+            WHERE so.company = %s
+              AND so.creation >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+            GROUP BY DATE(so.creation) ORDER BY d""", (co,), as_dict=True)
+        days = [{"d": str(r.d), "min": int(r.m or 0), "n": int(r.n or 0)}
+                for r in trend]
+        today = str(now_datetime())[:10]
+        t_row = [r for r in days if r["d"] == today]
+        week = [r for r in days if r["d"] != today]
+        wn = sum(r["n"] for r in week)
+        speed = {
+            "todayMin": t_row[0]["min"] if t_row else None,
+            "todayN": t_row[0]["n"] if t_row else 0,
+            "weekMin": round(sum(r["min"] * r["n"] for r in week) / wn) if wn else None,
+            "trend": days,
+        }
+        cache.set_value("lp_cc_speed", _json.dumps(speed), expires_in_sec=900)
+
+    # ── who is working right now (today, Version flips — desk + portal alike)
+    agents = frappe.db.sql("""
+        SELECT owner, COUNT(*) n, MAX(creation) last_at, MIN(creation) first_at
+        FROM `tabVersion`
+        WHERE ref_doctype = 'Sales Order' AND creation >= CURDATE()
+          AND data LIKE '%%custom_sales_status%%'
+        GROUP BY owner ORDER BY n DESC LIMIT 20""", as_dict=True)
+    team, automation = [], 0
+    for a in agents:
+        if a.owner in ("Administrator", "Guest"):
+            automation += int(a.n or 0)
+            continue
+        hours = max(0.25, (now_datetime() - a.first_at).total_seconds() / 3600)
+        team.append({
+            "user": a.owner, "agent": a.owner.split("@")[0],
+            "today": int(a.n or 0),
+            "perHour": round(int(a.n or 0) / hours, 1),
+            "lastAt": str(a.last_at)[11:16],
+            "activeNow": (now_datetime() - a.last_at).total_seconds() < 900,
+        })
+
+    # ── the fire
+    sla_h = _cf_settings().get("slaFirstCallH", 6)
+    fire = {}
+    fire["pending"] = int(frappe.db.sql(f"""
+        SELECT COUNT(*) FROM `tabSales Order`
+        WHERE docstatus = 1 AND company = %s AND custom_sales_status = 'Pending'
+          AND {in_hand} AND creation >= DATE_SUB(NOW(), INTERVAL 30 DAY)""",
+        (co,))[0][0])
+    fire["pendingLate"] = int(frappe.db.sql(f"""
+        SELECT COUNT(*) FROM `tabSales Order`
+        WHERE docstatus = 1 AND company = %s AND custom_sales_status = 'Pending'
+          AND {in_hand} AND creation >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+          AND creation < DATE_SUB(NOW(), INTERVAL %s HOUR)
+          AND COALESCE(custom_call_attempts, 0) = 0""", (co, sla_h))[0][0])
+    fire["dueRetries"] = int(frappe.db.sql(f"""
+        SELECT COUNT(*) FROM `tabSales Order` so
+        WHERE so.docstatus = 1 AND so.company = %s
+          AND so.custom_sales_status IN ('Did not Answer', 'Follow Up', 'On Hold')
+          AND {_IN_HAND} AND so.custom_next_call_at IS NOT NULL
+          AND so.custom_next_call_at <= NOW()""", (co,))[0][0])
+    fire["rescueOpen"] = int(frappe.db.sql("""
+        SELECT COUNT(*) FROM `tabDelivery Note` dn
+        WHERE dn.docstatus = 1 AND dn.company = %s
+          AND COALESCE(dn.custom_exception_action,'') = ''
+          AND dn.custom_track_shipment_status IN
+              ('Delivery Exception', 'Failed Attempt')
+          AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)""",
+        (co,))[0][0])
+    try:
+        from logistics_portal.api.tickets import _has_wa
+        fire["waUnhandled"] = int(frappe.db.sql("""
+            SELECT COUNT(DISTINCT wm.`from`) FROM `tabWhatsApp Message` wm
+            WHERE wm.type = 'Incoming' AND COALESCE(wm.custom_lp_handled, 0) = 0
+              AND wm.creation >= DATE_SUB(NOW(), INTERVAL 7 DAY)""")[0][0]) \
+            if _has_wa() else 0
+    except Exception:
+        fire["waUnhandled"] = 0
+
+    # today's outcomes
+    today0 = str(now_datetime())[:10] + " 00:00:00"
+    r = frappe.db.sql("""
+        SELECT SUM(data LIKE '%%"Confirmed"%%'), SUM(data LIKE '%%"Cancelled"%%')
+        FROM `tabVersion`
+        WHERE ref_doctype = 'Sales Order' AND creation >= %s
+          AND data LIKE '%%custom_sales_status%%'""", (today0,))[0]
+    outcomes = {"confirmed": int(r[0] or 0), "cancelled": int(r[1] or 0)}
+
+    return {"speed": speed, "team": team, "automationToday": automation,
+            "fire": fire, "outcomes": outcomes, "slaH": sla_h,
+            "serverNow": str(now_datetime())[:19]}

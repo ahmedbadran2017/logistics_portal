@@ -63,6 +63,7 @@ const routes = [
       },
       // The single-pane agent workspace — the confirmation portal's real home.
       { path: "work", name: "Workspace", component: () => import("@/pages/Workspace.vue") },
+      { path: "cc-dashboard", name: "CCDashboard", component: () => import("@/pages/CCDashboard.vue") },
       { path: "contact-center", name: "ContactCenter", component: () => import("@/pages/ContactCenter.vue") },
       { path: "bonus", name: "Bonus", component: () => import("@/pages/Bonus.vue") },
 

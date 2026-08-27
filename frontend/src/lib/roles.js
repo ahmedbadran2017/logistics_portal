@@ -203,12 +203,12 @@ export const ROLE_CONFIG = {
 // manager nav below holds NO contact-center entries any more — the lanes
 // moved out of /logistics entirely (Ahmed, 2026-08-27).
 const CC_MANAGER = {
-  home: "ContactCenter",
+  home: "CCDashboard",
   nav: [
     {
       section: "nav.overview",
       items: [
-        { to: "ContactCenter", label: "nav.ccOverview", icon: "message-circle" },
+        { to: "CCDashboard", label: "nav.ccDashboard", icon: "gauge" },
       ],
     },
     {
