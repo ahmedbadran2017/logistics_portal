@@ -596,7 +596,16 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
         frappe.throw("Only a dispatcher or manager can create pick lists.",
                      frappe.PermissionError)
     items = (items or "any").strip()
+    # `supplier` accepts one name or a JSON array of names (multi-select).
     supplier = (supplier or "").strip()
+    if supplier.startswith("["):
+        import json
+        try:
+            suppliers = {str(s).strip() for s in json.loads(supplier) if str(s).strip()}
+        except Exception:
+            suppliers = set()
+    else:
+        suppliers = {supplier} if supplier else set()
     city = (city or "").strip()
     sku = (sku or "").strip()
     zone = (zone or "").strip().upper()[:1]
@@ -653,7 +662,7 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
             return False
         if items == "multi" and lc <= 1:
             return False
-        if supplier and not (int(r.sup_count or 0) == 1 and r.one_supplier == supplier):
+        if suppliers and not (int(r.sup_count or 0) == 1 and r.one_supplier in suppliers):
             return False
         if city and (r.city or "") != city:
             return False

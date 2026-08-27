@@ -700,6 +700,8 @@ export default {
     itemsLabel: "Order size",
     items_any: "Any", items_single: "Single-item", items_multi: "Multi-item",
     supplierLabel: "Supplier", anySupplier: "Any supplier",
+    searchSuppliers: "Search suppliers\u2026", suppliersN: "{n} suppliers",
+    clearSuppliers: "Clear", noSupplierMatch: "No supplier matches",
     cityLabel: "City", anyCity: "Any city",
     skuLabel: "SKU", skuPh: "Scan or type a SKUâ¦",
     zoneLabel: "Zone", anyZone: "Any zone", zone: "Zone",

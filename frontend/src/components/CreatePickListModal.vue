@@ -34,13 +34,39 @@
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <!-- supplier -->
-            <div>
+            <!-- supplier: searchable multi-select -->
+            <div class="relative">
               <div class="text-[11px] font-semibold uppercase tracking-wide text-stone-400 mb-1.5">{{ t("cpl.supplierLabel") }}</div>
-              <select v-model="supplier" class="w-full h-9 ps-3 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] focus:outline-none focus:ring-stone-400" @change="reload">
-                <option value="">{{ t("cpl.anySupplier") }}</option>
-                <option v-for="s in facets.suppliers" :key="s.name" :value="s.name">{{ s.name }} ({{ s.orders }})</option>
-              </select>
+              <button type="button"
+                      class="w-full h-9 ps-3 pe-8 rounded-lg bg-white ring-1 text-[12.5px] text-start truncate focus:outline-none"
+                      :class="supPanel ? 'ring-stone-400' : 'ring-stone-200'"
+                      @click="supPanel = !supPanel">
+                <span :class="suppliers.length ? 'text-stone-900' : 'text-stone-500'">{{ supplierSummary }}</span>
+                <Icon name="chevron-down" :size="14" class="absolute end-2.5 bottom-2.5 text-stone-400 pointer-events-none" />
+              </button>
+              <template v-if="supPanel">
+                <div class="fixed inset-0 z-[10]" @click="supPanel = false" />
+                <div class="absolute z-[20] mt-1 w-full bg-white rounded-xl ring-1 ring-stone-200 shadow-lg overflow-hidden">
+                  <div class="p-2 border-b border-stone-100">
+                    <input ref="supSearchEl" v-model="supQuery" :placeholder="t('cpl.searchSuppliers')"
+                           class="w-full h-8 ps-2.5 pe-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12.5px] focus:outline-none focus:ring-stone-400" />
+                  </div>
+                  <div class="max-h-[220px] overflow-y-auto">
+                    <label v-for="s in supplierOptions" :key="s.name"
+                           class="flex items-center gap-2.5 px-3 py-2 text-[12.5px] cursor-pointer hover:bg-stone-50">
+                      <input type="checkbox" class="accent-[var(--accent-600)]"
+                             :checked="suppliers.includes(s.name)" @change="toggleSupplier(s.name)" />
+                      <span class="flex-1 truncate text-stone-800">{{ s.name }}</span>
+                      <span class="text-[11px] tabular-nums text-stone-400">{{ s.orders }}</span>
+                    </label>
+                    <div v-if="!supplierOptions.length" class="px-3 py-4 text-center text-[12px] text-stone-400">{{ t("cpl.noSupplierMatch") }}</div>
+                  </div>
+                  <div v-if="suppliers.length" class="px-3 py-2 border-t border-stone-100 flex items-center justify-between">
+                    <span class="text-[11.5px] text-stone-500">{{ t("cpl.suppliersN").replace("{n}", String(suppliers.length)) }}</span>
+                    <button class="text-[11.5px] font-semibold text-[var(--accent-700)] hover:underline" @click="suppliers = []; reload()">{{ t("cpl.clearSuppliers") }}</button>
+                  </div>
+                </div>
+              </template>
             </div>
             <!-- city -->
             <div>
@@ -151,7 +177,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from "vue";
+import { ref, reactive, computed, watch, nextTick } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -166,7 +192,10 @@ const CAP_PRESETS = [10, 20, 40];
 
 const open = ref(false);
 const items = ref("any");
-const supplier = ref("");
+const suppliers = ref([]);
+const supPanel = ref(false);
+const supQuery = ref("");
+const supSearchEl = ref(null);
 const city = ref("");
 const sku = ref("");
 const zone = ref("");
@@ -185,6 +214,24 @@ const loading = ref(false);
 const loadError = ref("");
 const creating = ref(false);
 
+const supplierSummary = computed(() => {
+  if (!suppliers.value.length) return t("cpl.anySupplier");
+  if (suppliers.value.length === 1) return suppliers.value[0];
+  return t("cpl.suppliersN").replace("{n}", String(suppliers.value.length));
+});
+const supplierOptions = computed(() => {
+  const q = supQuery.value.trim().toLowerCase();
+  const all = facets.suppliers || [];
+  return q ? all.filter((s) => s.name.toLowerCase().includes(q)) : all;
+});
+function toggleSupplier(name) {
+  suppliers.value = suppliers.value.includes(name)
+    ? suppliers.value.filter((s) => s !== name)
+    : [...suppliers.value, name];
+  reload();
+}
+watch(supPanel, (v) => { if (v) nextTick(() => supSearchEl.value?.focus()); else supQuery.value = ""; });
+
 let reloadTimer = null;
 function reload() {
   clearTimeout(reloadTimer);
@@ -195,7 +242,8 @@ async function load() {
   loading.value = true;
   try {
     const r = await api("picking.pick_candidates", {
-      items: items.value, supplier: supplier.value || undefined,
+      items: items.value,
+      supplier: suppliers.value.length ? JSON.stringify(suppliers.value) : undefined,
       city: city.value || undefined, sku: sku.value || undefined,
       zone: zone.value || undefined,
     });
@@ -205,7 +253,7 @@ async function load() {
     pickable.value = r.pickable != null ? r.pickable : (r.matched || 0);
     // Facets are only refreshed when nothing is filtered, so the dropdowns
     // don't collapse to the current selection.
-    if (!supplier.value && !city.value && !sku.value && !zone.value && items.value === "any") {
+    if (!suppliers.value.length && !city.value && !sku.value && !zone.value && items.value === "any") {
       facets.suppliers = r.suppliers || [];
       facets.cities = r.cities || [];
       facets.zones = r.zones || [];
@@ -221,7 +269,8 @@ async function load() {
 
 async function openModal() {
   open.value = true;
-  items.value = "any"; supplier.value = ""; city.value = ""; sku.value = ""; zone.value = ""; cap.value = 20; picker.value = "";
+  items.value = "any"; suppliers.value = []; supPanel.value = false; supQuery.value = "";
+  city.value = ""; sku.value = ""; zone.value = ""; cap.value = 20; picker.value = "";
   await load();
   try {
     const pk = await api("picking.pickers");

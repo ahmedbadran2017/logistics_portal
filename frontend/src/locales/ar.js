@@ -700,6 +700,8 @@ export default {
     itemsLabel: "حجم الأوردر",
     items_any: "الكل", items_single: "صنف واحد", items_multi: "أكتر من صنف",
     supplierLabel: "المورّد", anySupplier: "كل المورّدين",
+    searchSuppliers: "ابحث عن مورّد\u2026", suppliersN: "{n} مورّدين",
+    clearSuppliers: "مسح", noSupplierMatch: "لا يوجد مورّد مطابق",
     cityLabel: "المدينة", anyCity: "كل المدن",
     skuLabel: "SKU", skuPh: "امسح أو اكتب SKU…",
     zoneLabel: "الزون", anyZone: "كل الزونات", zone: "زون",
