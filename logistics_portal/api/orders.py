@@ -489,26 +489,6 @@ def _row(r, **extra):
 # configurable pickable-warehouse policy (structural families always excluded;
 # Return/Receiving/etc. zones toggled by a manager in Settings). Values are %s
 # params so this splices safely into queries that also carry %s args.
-def _pickable_bin_subquery():
-    from logistics_portal.api.warehouses import pickable_condition
-    cond, args = pickable_condition("b.warehouse")
-    # Available to pick = actual - reserved (a reserved unit is spoken for),
-    # summed per item so availability can be compared to the ORDERED quantity —
-    # not just "has a unit". An item with 2 free but 5 ordered is short, not
-    # ready, and used to slip into the ready tab as "missing items".
-    #
-    # NB (audited 2026-08-18): Bin.reserved_qty carries a lot of stale phantom
-    # reservation on non-shelf SYSTEM warehouses (Morocco - JM, ERPNext - JM …)
-    # that never got released. The PER-BIN `(actual - reserved) > 0` filter below
-    # already excludes those bins, so this stays correct and the phantom is a
-    # no-op here. Do NOT "fix" it to plain SUM(actual_qty): that would drop the
-    # genuine reservations that DO sit on shelves and re-open double-allocation.
-    sql = ("SELECT item_code, SUM(b.actual_qty - b.reserved_qty) AS aq "
-           "FROM `tabBin` b WHERE (b.actual_qty - b.reserved_qty) > 0 AND " + cond +
-           " GROUP BY item_code")
-    return sql, args
-
-
 _EMPTY_AVAIL = {"ready": [], "partial": [], "oos": [], "missing": {},
                 "blocking": [], "stuck": {"oos": 0, "partial": 0}}
 
@@ -525,17 +505,14 @@ def _pick_availability():
     if cached:
         return _json.loads(cached)
     w = _win(BOARD_WINDOW_DAYS)
-    pk_sql, pk_args = _pickable_bin_subquery()
     try:
-        rows = frappe.db.sql(f"""
+        rows = frappe.db.sql("""
             SELECT so.name AS so, so.grand_total AS val, so.creation AS created,
                    soi.item_code AS code,
                    COALESCE(NULLIF(soi.item_name,''), soi.item_code) AS item_name,
-                   SUM(GREATEST(soi.qty - soi.delivered_qty, 0)) AS need,
-                   MAX(COALESCE(pk.aq, 0)) AS avail_qty
+                   SUM(GREATEST(soi.qty - soi.delivered_qty, 0)) AS need
             FROM `tabSales Order` so
             JOIN `tabSales Order Item` soi ON soi.parent = so.name
-            LEFT JOIN ({pk_sql}) pk ON pk.item_code = soi.item_code
             LEFT JOIN (SELECT pli.sales_order FROM `tabPick List Item` pli
                        JOIN `tabPick List` p ON p.name=pli.parent
                        WHERE p.docstatus < 2 GROUP BY pli.sales_order) pl ON pl.sales_order = so.name
@@ -543,7 +520,20 @@ def _pick_availability():
               AND so.custom_logistics_status='Pending' AND pl.sales_order IS NULL
               AND so.creation >= %s
             GROUP BY so.name, soi.item_code, item_name, val, created""",
-            tuple(pk_args) + (w,), as_dict=True)
+            (w,), as_dict=True)
+        # The SAME availability the create runs (audited 2026-08-27: the old
+        # raw-Bin math called 50 orders "ready" when only 12 could actually be
+        # picked — no ee-rejected-warehouse exclusion, no batch-ledger cap, no
+        # reservation accounting, no draft-claim subtraction). One source of
+        # truth: shared pool = _available_totals minus every active Stock
+        # Reservation Entry; each order then gets its OWN reservation back.
+        from logistics_portal.api.picking import _available_totals, _sre_by_order
+        codes = {r.code for r in rows}
+        totals = _available_totals(codes)
+        sre = _sre_by_order(codes)
+        shared = dict(totals)
+        for (_so, code), q in sre.items():
+            shared[code] = shared.get(code, 0) - q
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal._pick_availability")
         return dict(_EMPTY_AVAIL)
@@ -555,7 +545,8 @@ def _pick_availability():
                                   "miss_codes": [], "val": float(r.val or 0),
                                   "created": r.created})
         d["n"] += 1
-        need, aq = float(r.need or 0), float(r.avail_qty or 0)
+        need = float(r.need or 0)
+        aq = shared.get(r.code, 0) + sre.get((r.so, r.code), 0)
         if aq > 0:
             d["some"] += 1
         if aq >= need:
