@@ -25,12 +25,23 @@
     <!-- The CC scheme isn't approved yet (Ahmed 2026-08-28): agents see a
          promise, not a leaderboard. Managers and section admins keep the full
          page to finish designing it; view-as renders the agent truth. -->
-    <div v-if="comingSoon" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-12 text-center">
-      <span class="inline-flex w-14 h-14 rounded-2xl items-center justify-center bg-amber-50 text-amber-500 ring-1 ring-amber-200/60 mb-3">
-        <Icon name="sparkles" :size="24" />
-      </span>
-      <div class="text-[16px] font-bold text-stone-900">{{ t('bn.soonTitle') }}</div>
+    <div v-if="comingSoon" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-12 text-center overflow-hidden">
+      <!-- coins raining into the wallet — the money is on its way -->
+      <div class="bn-scene mx-auto">
+        <span class="bn-coin bn-c1"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="rgb(252 211 77)" stroke="rgb(217 119 6)" stroke-width="1.6"/><circle cx="12" cy="12" r="5.5" fill="none" stroke="rgb(217 119 6)" stroke-width="1.4"/></svg></span>
+        <span class="bn-coin bn-c2"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="rgb(252 211 77)" stroke="rgb(217 119 6)" stroke-width="1.6"/><circle cx="12" cy="12" r="5.5" fill="none" stroke="rgb(217 119 6)" stroke-width="1.4"/></svg></span>
+        <span class="bn-coin bn-c3"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="rgb(252 211 77)" stroke="rgb(217 119 6)" stroke-width="1.6"/><circle cx="12" cy="12" r="5.5" fill="none" stroke="rgb(217 119 6)" stroke-width="1.4"/></svg></span>
+        <span class="bn-wallet inline-flex w-16 h-16 rounded-2xl items-center justify-center bg-amber-50 text-amber-500 ring-1 ring-amber-200/60">
+          <Icon name="wallet" :size="30" />
+        </span>
+      </div>
+      <div class="text-[17px] font-bold text-stone-900 mt-4">{{ t('bn.soonTitle') }}</div>
       <div class="text-[12.5px] text-stone-500 mt-1.5 max-w-[440px] mx-auto leading-relaxed">{{ t('bn.soonBody') }}</div>
+      <!-- the "loading the money" shimmer -->
+      <div class="h-2 w-[220px] mx-auto mt-5 rounded-full bg-stone-100 overflow-hidden">
+        <div class="bn-shimmer h-full w-1/3 rounded-full" />
+      </div>
+      <div class="text-[11px] font-semibold text-amber-600 mt-2">{{ t('bn.soonFun') }}</div>
     </div>
 
     <div v-else-if="loading" class="space-y-2">
@@ -479,6 +490,41 @@ onMounted(() => { if (comingSoon.value) return; load(); loadScheme(); });
 </script>
 
 <style scoped>
+.bn-scene { position: relative; width: 120px; height: 96px; }
+.bn-wallet {
+  position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+  animation: bn-catch 2.4s ease-in-out infinite;
+}
+.bn-coin { position: absolute; width: 18px; height: 18px; top: -6px; opacity: 0; }
+.bn-c1 { left: 26px; animation: bn-fall 2.4s ease-in infinite; }
+.bn-c2 { left: 51px; animation: bn-fall 2.4s ease-in .5s infinite; }
+.bn-c3 { left: 76px; animation: bn-fall 2.4s ease-in 1.1s infinite; }
+@keyframes bn-fall {
+  0%   { transform: translateY(0) rotate(0); opacity: 0; }
+  12%  { opacity: 1; }
+  62%  { transform: translateY(58px) rotate(160deg); opacity: 1; }
+  74%  { transform: translateY(52px) rotate(180deg); }
+  86%  { transform: translateY(60px) rotate(200deg); opacity: 0; }
+  100% { opacity: 0; }
+}
+@keyframes bn-catch {
+  0%, 55%, 100% { transform: translateX(-50%) translateY(0); }
+  66% { transform: translateX(-50%) translateY(-4px) rotate(-3deg); }
+  76% { transform: translateX(-50%) translateY(0) rotate(2deg); }
+}
+.bn-shimmer {
+  background: linear-gradient(90deg, rgb(252 211 77), rgb(245 158 11));
+  animation: bn-slide 1.6s ease-in-out infinite;
+}
+@keyframes bn-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(320%); }
+}
+[dir="rtl"] .bn-shimmer { animation-name: bn-slide-r; }
+@keyframes bn-slide-r {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-320%); }
+}
 .bn-hero {
   background: linear-gradient(135deg, rgb(255 251 235) 0%, #fff 50%, rgb(255 251 235) 100%);
   box-shadow: inset 0 0 0 1px rgb(253 230 138 / 0.6), 0 1px 2px rgb(0 0 0 / 0.03);

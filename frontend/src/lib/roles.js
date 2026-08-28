@@ -158,7 +158,9 @@ export const ROLE_CONFIG = {
       {
         section: "nav.me",
         items: [
+          { to: "MyDashboard", label: "nav.myDashboard", icon: "gauge" },
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         ],
       },
     ],
@@ -179,6 +181,7 @@ export const ROLE_CONFIG = {
         section: "nav.me",
         items: [
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         ],
       },
     ],
@@ -198,6 +201,7 @@ export const ROLE_CONFIG = {
         section: "nav.me",
         items: [
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         ],
       },
     ],

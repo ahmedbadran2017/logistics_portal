@@ -943,6 +943,72 @@ def save_cf_settings(settings=None):
 
 
 @frappe.whitelist()
+def my_report(days=7, frm=None, to=None):
+    """The agent's OWN numbers over a window — same DNA as the admin
+    dashboard, zero team data: decisions from THEIR comment trail, money and
+    delivery outcome from THEIR allocated cohort. Any CC role."""
+    _gate()
+    me = frappe.session.user
+    rng, rng_vals = _range(days, frm, to)
+    rng_vals = {**rng_vals, "co": _CO, "me": me}
+    c_rng = rng.format(col="c.creation")
+    so_rng = rng.format(col="so.creation")
+
+    acts = {"confirm": 0, "cancel": 0, "dna": 0, "followup": 0,
+            "onhold": 0, "duplicate": 0}
+    daily = {}
+    for r in frappe.db.sql(
+            f"""SELECT DATE(c.creation) d, c.content, COUNT(*) n
+                FROM `tabComment` c
+                WHERE c.reference_doctype = 'Sales Order' AND c.owner = %(me)s
+                  AND c.content LIKE 'Confirmation: %%' AND {c_rng}
+                GROUP BY DATE(c.creation), c.content""", rng_vals, as_dict=True):
+        if "(bulk)" in (r.content or ""):
+            continue
+        action = (r.content.split("Confirmation: ", 1)[1] or "").split(" ", 1)[0]
+        action = action.strip("()\u2014- ")
+        if action not in acts:
+            continue
+        acts[action] += int(r.n or 0)
+        day = daily.setdefault(str(r.d), {"confirm": 0, "cancel": 0, "dna": 0})
+        if action in day:
+            day[action] += int(r.n or 0)
+
+    sane = 100000
+    money = frappe.db.sql(
+        f"""SELECT COUNT(*) n,
+                   SUM(CASE WHEN so.custom_sales_status = 'Confirmed'
+                            AND so.grand_total <= %(sane)s
+                       THEN so.grand_total ELSE 0 END) confirmed_value
+            FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_allocated_to = %(me)s AND {so_rng}""",
+        {**rng_vals, "sane": sane})[0]
+
+    stick = frappe.db.sql(
+        f"""SELECT COUNT(DISTINCT so.name),
+                   COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status
+                                            = 'Delivered'
+                                       THEN so.name END)
+            FROM `tabSales Order` so
+            JOIN `tabDelivery Note Item` dni
+              ON dni.against_sales_order = so.name AND dni.docstatus = 1
+            JOIN `tabDelivery Note` dn
+              ON dn.name = dni.parent AND dn.docstatus = 1
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_allocated_to = %(me)s AND {so_rng}""", rng_vals)[0]
+
+    return {
+        "acts": acts,
+        "daily": [{"date": d, **v} for d, v in sorted(daily.items())],
+        "cohort": {"n": int(money[0] or 0),
+                   "value": round(float(money[1] or 0))},
+        "stick": {"shipped": int(stick[0] or 0), "delivered": int(stick[1] or 0)},
+        "target": int(_cf_settings().get("dayTarget", 40)),
+    }
+
+
+@frappe.whitelist()
 def report(days=7, frm=None, to=None):
     """The section's report. Manager or section admin.
 

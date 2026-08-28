@@ -43,6 +43,11 @@
               >
                 <Icon :name="item.icon" :size="16" :class="isActive(item) ? 'text-[var(--accent-600)]' : 'text-stone-400 group-hover:text-stone-600'" />
                 <span class="flex-1 truncate">{{ t(item.label) }}</span>
+                <!-- live pull: same-customer clusters waiting on THIS agent -->
+                <span v-if="item.to === 'Consolidation' && consolCount"
+                      class="text-[10px] font-bold tabular-nums text-violet-700 bg-violet-100 ring-1 ring-violet-200/70 rounded-full px-1.5 py-px animate-pulse">
+                  {{ consolCount }}
+                </span>
               </a>
             </router-link>
           </div>
@@ -152,7 +157,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import InstallApp from "@/components/ui/InstallApp.vue";
@@ -187,6 +192,24 @@ const route = useRoute();
 const menuOpen = ref(false);
 
 const nav = computed(() => navFor(role.value, hiddenPages.value, IS_CC));
+
+// Consolidation badge — the agent must SEE that a cluster of their own
+// customers appeared without having to visit the page.
+const consolCount = ref(0);
+async function loadConsolCount() {
+  if (!IS_CC) return;
+  const has = nav.value.some((g) => g.items.some((i) => i.to === "Consolidation"));
+  if (!has) { consolCount.value = 0; return; }
+  try {
+    const r = await api("orders.consolidation_count");
+    consolCount.value = Number(r?.n) || 0;
+  } catch (_) { /* the badge is a bonus, never an error */ }
+}
+onMounted(loadConsolCount);
+const consolTimer = setInterval(() => {
+  if (document.visibilityState === "visible") loadConsolCount();
+}, 120000);
+onUnmounted(() => clearInterval(consolTimer));
 
 const initials = computed(() =>
   (fullName.value || "?").split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase()

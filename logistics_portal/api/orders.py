@@ -734,6 +734,24 @@ def _norm_phone(p):
     return d[-9:] if len(d) >= 9 else d
 
 
+def _consol_scope(groups):
+    """A confirmation agent sees the clusters of THEIR customers only —
+    a cluster is theirs when any of its orders is assigned to them. Managers,
+    section admins and the floor see the whole set."""
+    from logistics_portal.api.auth import resolve_role
+    from logistics_portal.api.confirmation import _is_cf_admin
+    u = frappe.session.user
+    if resolve_role(u) != "confirmation" or _is_cf_admin():
+        return groups
+    return [g for g in groups if u in (g.get("assigns") or [])]
+
+
+@frappe.whitelist()
+def consolidation_count():
+    """Just the number, for the sidebar badge — same cache, same scope."""
+    return {"n": len(consolidation_groups(limit=60))}
+
+
 @frappe.whitelist()
 def consolidation_groups(limit=30):
     """Same-customer clusters still waiting to be picked: 2+ Confirmed orders
@@ -748,13 +766,14 @@ def consolidation_groups(limit=30):
     cached = cache.get_value("lp_consolidation")
     if cached:
         groups = _json.loads(cached)
-        return groups[: min(int(limit), 60)]
+        return _consol_scope(groups)[: min(int(limit), 60)]
     w = _win(BOARD_WINDOW_DAYS)
     try:
         rows = frappe.db.sql("""
             SELECT so.name AS no, so.customer_name AS customer, so.grand_total AS total,
                    so.custom_items_count AS nitems, so.creation AS created,
                    COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone) AS phone,
+                   so._assign AS assign,
                    COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address) AS addr,
                    COALESCE(NULLIF(so.custom_shipping_city,''), addr.city) AS city
             FROM `tabSales Order` so
@@ -798,8 +817,15 @@ def consolidation_groups(limit=30):
                            "city": (it.city or "") if len(it.city or "") <= 28 else "",
                            "items": it.nitems or 1, "ageMins": a})
         orders.sort(key=lambda o: o["no"])
+        assigns = set()
+        for it in items:
+            try:
+                assigns.update(a for a in _json.loads(it.assign or "[]") if a)
+            except Exception:
+                pass
         groups.append({
             "key": key,
+            "assigns": sorted(assigns),
             "customer": items[0].customer or "",
             "phone": items[0].phone or "",
             "city": (cities[0] if cities else "") if len((cities[0] if cities else "")) <= 28 else "",
@@ -811,7 +837,7 @@ def consolidation_groups(limit=30):
         })
     groups.sort(key=lambda g: (-g["count"], -g["mad"]))
     cache.set_value("lp_consolidation", _json.dumps(groups), expires_in_sec=120)
-    return groups[: min(int(limit), 60)]
+    return _consol_scope(groups)[: min(int(limit), 60)]
 
 
 def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dates=None, pick_names=None):

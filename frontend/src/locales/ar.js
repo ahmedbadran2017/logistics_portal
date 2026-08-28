@@ -34,6 +34,7 @@ export default {
     returns: "المرتجعات",
   },
   nav: {
+    myDashboard: "لوحتي",
     logistics: "اللوجستيات",
     ccPortal: "مركز التواصل",
     workspace: "مساحة الشغل",
@@ -1152,6 +1153,13 @@ export default {
     signIn: "دخول",
     badLogin: "البريد أو كلمة المرور غير صحيحة.",
   },
+  md: {
+    title: "لوحتي",
+    intro: "أرقامك انت — قراراتك ونسبة تأكيدك وفلوسك ومصير التسليم.",
+    myOrders: "أوردر مخصص ليّا",
+    deliveredOfShipped: "اتسلّم من اللي اتشحن",
+    targetToday: "تارجت النهارده",
+  },
   ccd: {
     stickTitle: "مصير التسليم",
     stickHint: "اتسلّم ÷ اتشحن، يوم بيوم",
@@ -1462,6 +1470,7 @@ export default {
     done_reopen: "اتفتحت تاني",
   },
   bn: {
+    soonFun: "بنعدّ الفلوس… قربنا نخلص",
     myPoints: "نقاطي",
     rankOf: "المركز {r} من {n}",
     prizeOrder: "الأول / الثاني / الثالث",

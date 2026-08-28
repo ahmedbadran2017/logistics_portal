@@ -34,6 +34,7 @@ export default {
     returns: "Retours",
   },
   nav: {
+    myDashboard: "Mon tableau de bord",
     logistics: "Logistique",
     ccPortal: "Centre de contact",
     workspace: "Espace de travail",
@@ -1153,6 +1154,13 @@ export default {
     signIn: "Se connecter",
     badLogin: "E-mail ou mot de passe incorrect.",
   },
+  md: {
+    title: "Mon tableau de bord",
+    intro: "Vos propres chiffres — décisions, taux de confirmation, argent et sort des livraisons.",
+    myOrders: "commandes qui me sont allouées",
+    deliveredOfShipped: "livrées sur expédiées",
+    targetToday: "Objectif du jour",
+  },
   ccd: {
     stickTitle: "Sort des livraisons",
     stickHint: "livré / expédié, par jour",
@@ -1463,6 +1471,7 @@ export default {
     done_reopen: "Rouvert",
   },
   bn: {
+    soonFun: "On compte l'argent… presque prêt",
     myPoints: "Mes points",
     rankOf: "rang {r} sur {n}",
     prizeOrder: "1er / 2e / 3e",

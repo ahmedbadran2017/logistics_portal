@@ -34,6 +34,7 @@ export default {
     returns: "Returns",
   },
   nav: {
+    myDashboard: "My dashboard",
     logistics: "Logistics",
     ccPortal: "Contact Center",
     workspace: "Workspace",
@@ -1152,6 +1153,13 @@ export default {
     signIn: "Sign in",
     badLogin: "Invalid email or password.",
   },
+  md: {
+    title: "My dashboard",
+    intro: "Your own numbers — decisions, confirm rate, money and delivery outcome.",
+    myOrders: "orders allocated to me",
+    deliveredOfShipped: "delivered of shipped",
+    targetToday: "Today's target",
+  },
   ccd: {
     stickTitle: "Delivery outcome",
     stickHint: "delivered / shipped, per day",
@@ -1462,6 +1470,7 @@ export default {
     done_reopen: "Reopened",
   },
   bn: {
+    soonFun: "Counting the money… almost there",
     myPoints: "My points",
     rankOf: "rank {r} of {n}",
     prizeOrder: "1st / 2nd / 3rd",

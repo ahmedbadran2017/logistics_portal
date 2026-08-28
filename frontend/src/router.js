@@ -119,6 +119,7 @@ const routes = [
 
       // Shared
       { path: "performance", name: "Performance", component: () => import("@/pages/Performance.vue") },
+      { path: "my-dashboard", name: "MyDashboard", component: () => import("@/pages/MyDashboard.vue") },
       { path: "settings", name: "Settings", component: () => import("@/pages/Settings.vue") },
       { path: "order/:name", name: "OrderDetail", component: () => import("@/pages/OrderDetail.vue"), props: true },
       // Anything unknown (incl. links to removed demo pages) → role home.
