@@ -35,6 +35,20 @@
     <!-- Scanner -->
     <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4">
       <ScanInput ref="scanner" :placeholder="t('restock.scanPh')" @scan="onScan" />
+      <!-- what happened to this item's returns — the "no stock" story -->
+      <div v-if="zoneTrail.length" class="mt-3 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-3">
+        <div class="text-[11.5px] font-semibold text-stone-700 mb-1.5">{{ t('restock.trailTitle') }}</div>
+        <div class="space-y-1">
+          <div v-for="(m2, i) in zoneTrail" :key="i" class="flex items-center gap-2 text-[11.5px] tabular-nums">
+            <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :class="m2.qty > 0 ? 'bg-emerald-400' : 'bg-amber-400'" />
+            <span class="text-stone-400">{{ m2.date.slice(5) }}</span>
+            <span class="font-semibold" :class="m2.qty > 0 ? 'text-emerald-600' : 'text-amber-700'">{{ m2.qty > 0 ? '+' + m2.qty : m2.qty }}</span>
+            <span v-if="m2.qty < 0 && m2.to" class="text-stone-600">→ {{ m2.to }}</span>
+            <span v-if="m2.by" class="text-stone-400">· {{ m2.by }}</span>
+            <span v-else-if="m2.qty > 0" class="text-stone-400">· {{ t('restock.trailReturn') }}</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Scanned item card -->
@@ -186,6 +200,8 @@ const { t } = useI18n();
 const { success, warn } = useToast();
 
 const scanner = ref(null);
+const zoneTrail = ref([]);
+const trailFor = ref("");
 const summary = ref(null);
 const loadingSummary = ref(true);
 const current = ref(null);
@@ -235,8 +251,12 @@ async function onScan(raw) {
   if (!res.ok) {
     scanner.value?.showError(
       res.reason === "not_in_zone" ? t("restock.notInZone") : t("pickm.unknown"));
+    // The zone story: returns that WERE here and where they went (who, when).
+    zoneTrail.value = res.reason === "not_in_zone" ? (res.trail || []) : [];
+    trailFor.value = res.itemCode || "";
     return;
   }
+  zoneTrail.value = [];
   current.value = res;
   qty.value = res.inZone;
   target.value = res.suggestions?.[0]?.warehouse || summary.value?.targets?.[0] || "";

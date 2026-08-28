@@ -376,7 +376,7 @@ export default {
     moving: "Moving…",
     restocked: "Restocked — sellable again",
     markedDefective: "Parked as defective",
-    notInZone: "This item has no stock in the Return Zone",
+    notInZone: "This item has no stock in the Return Zone", trailTitle: "Where this item's returns went", trailReturn: "return received",
     zoneTitle: "In the Return Zone now (highest value first)",
     movedTitle: "Moved this session",
     moveFail: "Couldn't move",

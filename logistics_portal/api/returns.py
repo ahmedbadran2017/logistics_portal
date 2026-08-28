@@ -552,8 +552,35 @@ def restock_scan(code):
     in_zone = int(frappe.db.get_value(
         "Bin", {"warehouse": RETURN_ZONE, "item_code": item_code}, "actual_qty") or 0)
     if in_zone <= 0:
+        # "No stock here" alone reads as lost data when returns WERE posted —
+        # measured case (MCH09177): a colleague had already restocked every
+        # return, Return Zone → PLT, batch by batch. Tell the story: the last
+        # movements in and out of the zone, who made them, and where they went.
+        trail = frappe.db.sql(
+            """SELECT sle.posting_date, sle.actual_qty, sle.voucher_type,
+                      sle.voucher_no
+               FROM `tabStock Ledger Entry` sle
+               WHERE sle.item_code = %s AND sle.warehouse = 'Return Zone - JM'
+                 AND sle.is_cancelled = 0
+               ORDER BY sle.posting_date DESC, sle.posting_time DESC,
+                        sle.creation DESC
+               LIMIT 6""", (item_code,), as_dict=True)
+        moves = []
+        for t2 in trail:
+            m = {"date": str(t2.posting_date), "qty": int(t2.actual_qty or 0),
+                 "voucher": t2.voucher_no, "kind": t2.voucher_type,
+                 "to": "", "by": ""}
+            if t2.voucher_type == "Stock Entry":
+                m["by"] = (frappe.db.get_value(
+                    "Stock Entry", t2.voucher_no, "owner") or "").split("@")[0]
+                m["to"] = (frappe.db.get_value(
+                    "Stock Entry Detail",
+                    {"parent": t2.voucher_no, "item_code": item_code,
+                     "s_warehouse": "Return Zone - JM"},
+                    "t_warehouse") or "").replace(" - JM", "")
+            moves.append(m)
         return {"ok": False, "reason": "not_in_zone", "itemCode": item_code,
-                "name": r.get("name"), "sku": r.get("sku")}
+                "name": r.get("name"), "sku": r.get("sku"), "trail": moves}
     cond, args = _putaway_condition("b.warehouse")
     suggestions = frappe.db.sql(
         f"""SELECT b.warehouse, b.actual_qty AS qty FROM `tabBin` b
