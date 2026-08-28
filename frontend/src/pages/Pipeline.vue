@@ -220,7 +220,12 @@
               <span v-if="b.incoming" class="text-[10px] font-bold text-sky-700 bg-sky-50 ring-1 ring-sky-200 rounded px-1.5 py-px whitespace-nowrap" :title="t('ordersPg.blIncomingHint')">
                 {{ t('ordersPg.blIncoming').replace('{n}', b.incoming) }}
               </span>
-              <span v-else-if="b.supplier !== undefined" class="text-[10px] font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200 rounded px-1.5 py-px whitespace-nowrap" :title="t('ordersPg.blNoPoHint')">
+              <span v-if="b.reserve" class="text-[10px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded px-1.5 py-px whitespace-nowrap cursor-pointer hover:bg-amber-100"
+                    :title="t('ordersPg.blReserveHint')"
+                    @click.stop="$router.push({ name: 'MoveStock', query: { item: b.sku } })">
+                {{ t('ordersPg.blReserve').replace('{n}', Number(b.reserve).toLocaleString('en-US')) }}
+              </span>
+              <span v-else-if="b.supplier !== undefined && !b.incoming" class="text-[10px] font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200 rounded px-1.5 py-px whitespace-nowrap" :title="t('ordersPg.blNoPoHint')">
                 {{ t('ordersPg.blNoPo') }}
               </span>
             </div>

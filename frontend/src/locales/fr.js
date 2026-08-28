@@ -485,6 +485,8 @@ export default {
     emptyBody: "Chaque commande en attente appartient à un client unique.",
   },
   ordersPg: {
+    blReserve: "{n} en réserve",
+    blReserveHint: "Le stock dort en zone SLOW/STOCK — il faut un transfert vers le mur rapide, pas un achat. Cliquer ouvre Move Stock.",
     title: "Commandes",
     subtitle: "Théâtre des opérations — le flux Confirmé",
     searchPh: "Commande · client · AWB…",
@@ -556,6 +558,12 @@ export default {
     dupesNone: "Aucun doublon réparti trouvé", dupCodes: "{n} codes",
   },
   brepair: {
+    sreTitle: "Réservations orphelines — commandes annulées qui bloquent du stock",
+    sreHint: "Le flux commercial annule le STATUT sans annuler le document, la réservation ne se libère donc jamais — le pool la soustrait pour toujours et des articles en stock passent en rupture. La libération utilise l'annulation du framework et commente chaque commande.",
+    sreClean: "Aucune réservation orpheline — chaque réservation vivante appartient à une commande vivante.",
+    sreCount: "Réservations orphelines",
+    sreUnits: "Unités bloquées",
+    sreItems: "Articles touchés",
     title: "R\u00e9paration des lots",
     intro: "Les commandes exp\u00e9di\u00e9es laissent derri\u00e8re elles une r\u00e9servation de lot p\u00e9rim\u00e9e : le registre des lots cache alors du stock pourtant pr\u00e9sent sur les \u00e9tag\u00e8res. Lib\u00e9rer une r\u00e9servation p\u00e9rim\u00e9e ne d\u00e9place aucun stock \u2014 cela rend simplement visible ce qui existe vraiment.",
     rescan: "Rescanner",

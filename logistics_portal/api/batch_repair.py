@@ -75,7 +75,7 @@ def scan():
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def release(limit=50):
     """Release up to `limit` stale holds (oldest first). Framework cancel with a
     raw-flag fallback; every release leaves an audit Comment on the pick list.
@@ -126,6 +126,83 @@ def release(limit=50):
     for k in ("lp_pick_avail", "lp_board_summary", "lp_problem_radar"):
         cache.delete_value(k)
 
+    top = sorted(items_touched.items(), key=lambda x: -x[1])[:10]
+    return {"released": released, "failed": failed,
+            "unitsFreed": round(sum(items_touched.values())),
+            "items": [{"itemCode": k, "units": round(v)} for k, v in top]}
+
+
+# ── The SRE sibling (found 2026-08-28, item 45779760283902): the sales flow
+# flips custom_sales_status to Cancelled WITHOUT cancelling the Sales Order
+# document, so ERPNext never releases its Stock Reservation Entries. Measured:
+# 497 live SREs on Cancelled orders holding 539 units across 212 items — each
+# one a false-OOS in the pick pool (the pool subtracts every active SRE).
+_SRE_STALE = """
+    FROM `tabStock Reservation Entry` sre
+    JOIN `tabSales Order` so ON so.name = sre.voucher_no
+    WHERE sre.docstatus = 1
+      AND sre.status IN ('Reserved', 'Partially Delivered')
+      AND so.custom_sales_status IN ('Cancelled', 'Duplicated')
+"""
+
+
+@frappe.whitelist()
+def sre_scan():
+    """The evidence: reservations still alive on orders sales already killed."""
+    _gate()
+    tot = frappe.db.sql(
+        f"""SELECT COUNT(*), COALESCE(SUM(sre.reserved_qty - sre.delivered_qty), 0),
+                   COUNT(DISTINCT sre.item_code) {_SRE_STALE}""")[0]
+    sample = frappe.db.sql(
+        f"""SELECT sre.item_code, sre.voucher_no,
+                   (sre.reserved_qty - sre.delivered_qty), DATE(sre.creation)
+            {_SRE_STALE} ORDER BY sre.creation LIMIT 12""")
+    return {
+        "staleRes": int(tot[0] or 0),
+        "staleResUnits": round(float(tot[1] or 0)),
+        "staleResItems": int(tot[2] or 0),
+        "sample": [{"item": r[0], "order": r[1], "qty": round(float(r[2] or 0)),
+                    "since": str(r[3])} for r in sample],
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def sre_release(limit=50):
+    """Cancel up to `limit` stale reservations (oldest first) — the framework's
+    own cancel, so ERPNext updates Bin.reserved_qty itself. Audited with a
+    Comment on each order."""
+    _gate()
+    limit = min(max(int(limit or 50), 1), 1000)
+    names = [r[0] for r in frappe.db.sql(
+        f"SELECT sre.name {_SRE_STALE} ORDER BY sre.creation LIMIT %s", (limit,))]
+    if not names:
+        return {"released": 0, "unitsFreed": 0, "failed": 0, "items": []}
+    released, failed = 0, 0
+    items_touched = {}
+    for nm in names:
+        try:
+            doc = frappe.get_doc("Stock Reservation Entry", nm)
+            qty = float(doc.reserved_qty or 0) - float(doc.delivered_qty or 0)
+            doc.flags.ignore_permissions = True
+            doc.cancel()
+            items_touched[doc.item_code] = items_touched.get(doc.item_code, 0) + qty
+            if doc.voucher_no and frappe.db.exists("Sales Order", doc.voucher_no):
+                try:
+                    frappe.get_doc("Sales Order", doc.voucher_no).add_comment(
+                        "Comment",
+                        f"Stale stock reservation {nm} released ({qty:g}u) — the "
+                        f"order is sales-cancelled, the reservation was blocking "
+                        f"live orders · by {frappe.session.user}")
+                except Exception:
+                    pass
+            released += 1
+        except Exception:
+            failed += 1
+            frappe.log_error(frappe.get_traceback(), "batch_repair.sre_release")
+    frappe.db.commit()
+    cache = frappe.cache()
+    for k in ("lp_pick_avail", "lp_board_summary", "lp_problem_radar"):
+        cache.delete_value(k)
     top = sorted(items_touched.items(), key=lambda x: -x[1])[:10]
     return {"released": released, "failed": failed,
             "unitsFreed": round(sum(items_touched.values())),

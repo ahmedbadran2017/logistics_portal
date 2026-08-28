@@ -594,6 +594,14 @@ def _pick_availability():
     if blocking:
         codes = tuple(b["sku"] for b in blocking)
         ph = ",".join(["%s"] * len(codes))
+        # Stock sleeping in the RESERVE zones (SLOW/STOCK feed the fast wall):
+        # "out of stock" with 3k in SLOW ZONE is a replenishment job, not a
+        # purchase — the chip sends the floor to Move Stock, not to a vendor.
+        reserve = {r[0]: float(r[1] or 0) for r in frappe.db.sql(
+            f"""SELECT item_code, SUM(actual_qty) FROM `tabBin`
+                WHERE item_code IN ({ph})
+                  AND warehouse IN ('SLOW ZONE - JM', 'STOCK ZONE  - JM')
+                  AND actual_qty > 0 GROUP BY item_code""", codes)}
         sup = {r[0]: r[1] for r in frappe.db.sql(
             f"""SELECT name, COALESCE(NULLIF(default_supplier,''),'')
                 FROM `tabItem` WHERE name IN ({ph})""", codes)}
@@ -608,6 +616,7 @@ def _pick_availability():
         for b in blocking:
             b["supplier"] = sup.get(b["sku"], "")
             b["incoming"] = round(incoming.get(b["sku"], 0))
+            b["reserve"] = round(reserve.get(b["sku"], 0))
 
     rescuable = _sku_rescue(miss_by_order)
 

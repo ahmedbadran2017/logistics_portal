@@ -485,6 +485,8 @@ export default {
     emptyBody: "Every waiting order belongs to a unique customer right now.",
   },
   ordersPg: {
+    blReserve: "{n} in reserve",
+    blReserveHint: "Stock is sleeping in the SLOW/STOCK zone — this needs a Move to the fast wall, not a purchase. Click to open Move Stock.",
     title: "Orders",
     subtitle: "Operations theater — the Confirmed flow",
     searchPh: "Order · customer · AWB…",
@@ -556,6 +558,12 @@ export default {
     dupesNone: "No split duplicates found", dupCodes: "{n} codes",
   },
   brepair: {
+    sreTitle: "Stale reservations — cancelled orders still holding stock",
+    sreHint: "The sales flow cancels the ORDER STATUS without cancelling the document, so its stock reservation never releases — the pick pool subtracts it forever and stocked items read as out of stock. Releasing uses the framework's own cancel and comments every order.",
+    sreClean: "No stale reservations — every live reservation belongs to a live order.",
+    sreCount: "Stale reservations",
+    sreUnits: "Units held",
+    sreItems: "Items touched",
     title: "Batch Repair",
     intro: "Shipped orders leave a stale batch reservation behind, so the batch ledger hides stock that is physically on the shelves. Releasing a stale hold moves no stock — it only lets the picker see what is really there.",
     rescan: "Rescan",

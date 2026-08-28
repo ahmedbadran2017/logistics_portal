@@ -98,6 +98,67 @@
     <div v-else class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-8 text-center">
       <div class="text-[13px] text-stone-500">{{ t('brepair.loadFail') }}</div>
     </div>
+
+    <!-- ═══ The SRE sibling: reservations still held by sales-cancelled orders ═══ -->
+    <div v-if="sre" class="space-y-4 pt-2">
+      <div class="flex items-center gap-2">
+        <Icon name="shield-alert" :size="15" class="text-rose-500" />
+        <h2 class="text-[15px] font-bold text-stone-900">{{ t('brepair.sreTitle') }}</h2>
+      </div>
+      <p class="text-[12.5px] text-stone-500 -mt-2">{{ t('brepair.sreHint') }}</p>
+
+      <div v-if="!sre.staleRes" class="bg-white rounded-xl ring-1 ring-emerald-200/70 p-6 text-center">
+        <Icon name="check-circle" :size="20" class="mx-auto mb-1.5 text-emerald-500" />
+        <div class="text-[13px] font-semibold text-stone-800">{{ t('brepair.sreClean') }}</div>
+      </div>
+      <template v-else>
+        <div class="grid grid-cols-3 gap-3">
+          <div class="bg-white rounded-xl ring-1 ring-rose-200/70 p-4">
+            <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('brepair.sreCount') }}</div>
+            <div class="text-[24px] font-extrabold tabular-nums text-rose-600 mt-1">{{ fmt(sre.staleRes) }}</div>
+          </div>
+          <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+            <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('brepair.sreUnits') }}</div>
+            <div class="text-[24px] font-extrabold tabular-nums text-stone-900 mt-1">{{ fmt(sre.staleResUnits) }}</div>
+          </div>
+          <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+            <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('brepair.sreItems') }}</div>
+            <div class="text-[24px] font-extrabold tabular-nums text-stone-900 mt-1">{{ fmt(sre.staleResItems) }}</div>
+          </div>
+        </div>
+        <div v-if="(sre.sample || []).length" class="bg-white rounded-xl ring-1 ring-stone-200/70 divide-y divide-stone-100">
+          <div v-for="r in sre.sample" :key="r.order + r.item" class="px-4 py-2 flex items-center gap-3 text-[12px] tabular-nums">
+            <span class="font-mono text-stone-800 truncate">{{ r.item }}</span>
+            <span class="font-mono text-stone-400">{{ r.order }}</span>
+            <span class="ms-auto text-stone-700"><b>{{ r.qty }}</b> u</span>
+            <span class="text-stone-400">{{ r.since }}</span>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 flex items-center gap-2 flex-wrap">
+          <span class="text-[12px] text-stone-500">{{ t('brepair.limitLabel') }}</span>
+          <button v-for="n in [1, 50, 500]" :key="n"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold tabular-nums ring-1 transition-colors"
+                  :class="sreLimit === n ? 'text-white bg-[var(--accent-600)] ring-[var(--accent-600)]' : 'text-stone-700 bg-white ring-stone-200 hover:bg-stone-50'"
+                  @click="sreLimit = n">{{ n }}</button>
+          <button
+            class="h-9 px-4 rounded-lg text-[13px] font-semibold transition-colors disabled:opacity-50 ms-auto"
+            :class="sreArmed ? 'text-white bg-rose-600' : 'text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]'"
+            :disabled="sreBusy" @click="doSreRelease">
+            <span class="inline-flex items-center gap-1.5">
+              <Icon name="unlock" :size="14" />
+              {{ sreBusy ? t('brepair.releasing') : sreArmed ? t('brepair.releaseSure').replace('{n}', String(sreLimit)) : t('brepair.releaseBtn').replace('{n}', String(sreLimit)) }}
+            </span>
+          </button>
+        </div>
+        <div v-if="sreRes" class="bg-white rounded-xl ring-1 ring-emerald-200/70 px-4 py-2.5 flex items-center gap-2 flex-wrap">
+          <Icon name="check-circle" :size="14" class="text-emerald-600" />
+          <span class="text-[12px] font-semibold text-stone-900">
+            {{ t('brepair.resultLine').replace('{b}', fmt(sreRes.released)).replace('{u}', fmt(sreRes.unitsFreed)) }}
+          </span>
+          <span v-if="sreRes.failed" class="text-[11.5px] text-rose-600 font-medium">{{ t('brepair.resultFailed').replace('{n}', String(sreRes.failed)) }}</span>
+        </div>
+      </template>
+    </div>
   </div>
 </template>
 
@@ -105,6 +166,8 @@
 import { ref, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost, liveOr } from "@/lib/resource";
+// eslint-disable-next-line no-unused-vars — SRE repair state
+
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
 
@@ -113,6 +176,33 @@ const { success, warn } = useToast();
 
 const sc = ref(null);
 const res = ref(null);
+const sre = ref(null);
+const sreLimit = ref(1);
+const sreArmed = ref(false);
+const sreBusy = ref(false);
+const sreRes = ref(null);
+let sreArmT = null;
+async function doSreRelease() {
+  if (!sreArmed.value) {
+    sreArmed.value = true;
+    clearTimeout(sreArmT);
+    sreArmT = setTimeout(() => { sreArmed.value = false; }, 4000);
+    return;
+  }
+  sreArmed.value = false;
+  sreBusy.value = true;
+  try {
+    const r = await apiPost("batch_repair.sre_release", { limit: sreLimit.value });
+    sreRes.value = r;
+    success(t("brepair.releaseDone"),
+      t("brepair.resultLine").replace("{b}", fmt(r.released)).replace("{u}", fmt(r.unitsFreed)));
+    sre.value = await api("batch_repair.sre_scan");
+  } catch (e) {
+    warn(t("brepair.releaseFail"), String(e.message || e));
+  } finally {
+    sreBusy.value = false;
+  }
+}
 const probes = ref({});
 const probing = ref("");
 const limit = ref(1);
@@ -125,6 +215,7 @@ const fmt = (v) => (Number(v) || 0).toLocaleString("en-US");
 async function load() {
   loading.value = true;
   sc.value = await liveOr(null, () => api("batch_repair.scan"));
+  sre.value = await liveOr(null, () => api("batch_repair.sre_scan"));
   loading.value = false;
 }
 
