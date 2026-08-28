@@ -171,7 +171,7 @@ export default {
     statusStuck: "Printed, but the status didn't update \u2014 try again",
     printNow: "Print label",
     badgeSorted: "Sorted",
-    badgePrinted: "Printed",
+    badgeShipped: "Shipped", badgePrinted: "Printed",
     loadFail: "Couldn't load",
   },
   recv: {

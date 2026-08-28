@@ -171,7 +171,7 @@ export default {
     statusStuck: "اتطبعت لكن الحالة ماتحدثتش \u2014 جرب تاني",
     printNow: "اطبع البوليصة",
     badgeSorted: "اتفرز",
-    badgePrinted: "اتطبع",
+    badgeShipped: "اتشحنت", badgePrinted: "اتطبع",
     loadFail: "تعذّر التحميل",
   },
   recv: {

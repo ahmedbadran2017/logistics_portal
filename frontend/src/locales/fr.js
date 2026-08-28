@@ -171,7 +171,7 @@ export default {
     statusStuck: "Imprim\u00e9e, mais le statut n'a pas suivi \u2014 r\u00e9essayez",
     printNow: "Imprimer l'étiquette",
     badgeSorted: "Trié",
-    badgePrinted: "Imprimé",
+    badgeShipped: "Expédiée", badgePrinted: "Imprimé",
     loadFail: "Échec du chargement",
   },
   recv: {

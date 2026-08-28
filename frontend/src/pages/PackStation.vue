@@ -89,7 +89,10 @@
               <!-- Two stages: sorted (items scanned) vs printed (the label
                    actually spooled). Blue = sorted but label not confirmed out,
                    green = both done. -->
-              <span v-if="o.printed" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200">
+              <span v-if="o.shipped" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300">
+                <Icon name="truck" :size="10" />{{ t('sort.badgeShipped') }}
+              </span>
+              <span v-else-if="o.printed" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200">
                 <Icon name="printer" :size="10" />{{ t('sort.badgePrinted') }}
               </span>
               <span v-else-if="o.done && o.labelUrl" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-sky-700 bg-sky-50 ring-1 ring-sky-200">
@@ -114,7 +117,7 @@
             </div>
           </div>
           <button
-            v-if="o.done && o.labelUrl"
+            v-if="o.done && o.labelUrl && !o.shipped"
             class="mt-2.5 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5 transition-colors"
             :class="o.printed ? 'bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50' : 'bg-sky-600 text-white hover:bg-sky-700'"
             @click="printAndMark(o)"
@@ -180,7 +183,13 @@ onMounted(async () => {
 // Orders that load already 'Label Printed' were printed in an earlier session —
 // show them green, not blue. Fresh completions get `printed` from afterprint.
 function normalizeWall(w) {
-  if (w && w.orders) w.orders.forEach((o) => { o.printed = o.status === "Label Printed"; });
+  if (w && w.orders) w.orders.forEach((o) => {
+    // Anything at or past the label stage is printed — parcels can leave the
+    // building (Shipped / Out For Delivery / Delivered) while this screen is
+    // open, and they were rendering as merely-SORTED (PL-54797).
+    o.shipped = ["Shipped", "Delivered"].includes(o.status);
+    o.printed = o.status === "Label Printed" || o.shipped;
+  });
   return w;
 }
 
