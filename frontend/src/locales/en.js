@@ -887,6 +887,7 @@ export default {
       sub: "Manage your profile and preferences.",
       opsSub: "These drive the whole portal — the manifest countdown, the floor pace, low-stock flags and the delivery promise.",
       deployHint: "Couldn't load — deploy the latest backend.",
+      whVetoed: "engine vetoes picks", whVetoedHint: "The allocation engine (ecommerce controller) strips this warehouse from every pick list at save, regardless of this toggle. Measured: zero pick rows from it in 90 days. To truly open it, its entry must be removed from the rejected-warehouses list in the ERPNext ecommerce settings.",
       whTitle: "Pickable warehouses",
       whSub: "Which stock zones the pick engine and Orders board draw from. Turn a zone off to keep its stock out of picking (it will show as out of stock). Aisle bins are always pickable; transit/defective zones are always excluded.",
       whLoading: "Loading zones…",

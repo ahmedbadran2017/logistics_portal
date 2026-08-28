@@ -136,6 +136,12 @@ def warehouse_settings():
                       FROM `tabBin` GROUP BY warehouse) b ON b.warehouse = w.name
            WHERE w.name LIKE %s AND w.is_group = 0 AND w.disabled = 0""",
         ("% - JM",), as_dict=True)
+    # The OTHER policy layer: ee's pick controller strips these warehouses at
+    # save time no matter what the portal toggle says (measured: zero PL rows
+    # from SLOW ZONE in 90 days while its toggle read ON). The page must show
+    # that veto, or the toggle is a lie.
+    from logistics_portal.api.picking import _ee_rejected
+    vetoed = _ee_rejected()
     zones = []
     for r in rows:
         name = r.warehouse or ""
@@ -147,11 +153,12 @@ def warehouse_settings():
             if qty == 0:
                 continue  # empty AND permanently locked — nothing to decide
             zones.append({"name": name, "short": short, "qty": qty,
-                          "items": int(r.item_count or 0), "pickable": False, "locked": True})
+                          "items": int(r.item_count or 0), "pickable": False,
+                          "locked": True, "vetoed": name in vetoed})
         else:
             zones.append({"name": name, "short": short, "qty": qty,
                           "items": int(r.item_count or 0), "pickable": name not in excluded,
-                          "locked": False})
+                          "locked": False, "vetoed": name in vetoed})
     zones.sort(key=lambda z: (z["locked"], -z["qty"], z["short"].lower()))
     return {"zones": zones}
 

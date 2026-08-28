@@ -147,7 +147,14 @@
       <ul v-else-if="zones.length" class="divide-y divide-stone-100">
         <li v-for="z in zones" :key="z.name" class="flex items-center justify-between py-3 gap-3">
           <div class="min-w-0">
-            <div class="text-[12.5px] font-medium text-stone-900 truncate">{{ z.short }}</div>
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="text-[12.5px] font-medium text-stone-900 truncate">{{ z.short }}</span>
+              <!-- ee's pick controller refuses this warehouse at save time —
+                   the toggle below cannot override it -->
+              <span v-if="z.vetoed && !z.locked"
+                    class="text-[9.5px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200/80 rounded-full px-2 py-px whitespace-nowrap"
+                    :title="t('px.set.whVetoedHint')">{{ t('px.set.whVetoed') }}</span>
+            </div>
             <div class="text-[11px] text-stone-500 tabular-nums">
               {{ z.qty }} units · {{ z.items }} items<span v-if="z.locked" class="text-stone-400"> · always excluded</span>
             </div>
@@ -155,7 +162,7 @@
           <button
             type="button" role="switch" :aria-checked="z.pickable" :disabled="z.locked || whSaving"
             class="relative w-11 h-6 rounded-full transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-            :class="z.pickable ? 'bg-[var(--accent-600)]' : 'bg-stone-200'"
+            :class="z.pickable && !z.vetoed ? 'bg-[var(--accent-600)]' : z.pickable ? 'bg-amber-300' : 'bg-stone-200'"
             @click="toggleZone(z)"
           >
             <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform"

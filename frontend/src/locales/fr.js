@@ -887,6 +887,7 @@ export default {
       sub: "Gérez votre profil et vos préférences.",
       opsSub: "Ces réglages pilotent tout le portail — compte à rebours du manifeste, rythme de l'atelier, seuils de stock bas et promesse de livraison.",
       deployHint: "Chargement impossible — déployez le dernier backend.",
+      whVetoed: "veto du moteur", whVetoedHint: "Le moteur d'allocation retire cet entrepôt de chaque liste de préparation à l'enregistrement, quel que soit ce bouton. Mesuré : zéro ligne de picking en 90 jours. Pour l'ouvrir vraiment, il faut le retirer de la liste des entrepôts rejetés dans les réglages ecommerce d'ERPNext.",
       whTitle: "Entrepôts préparables",
       whSub: "Les zones de stock où puisent le moteur de préparation et le tableau des commandes. Désactivez une zone pour exclure son stock de la préparation (il apparaîtra en rupture). Les casiers d'allée sont toujours préparables ; les zones transit/défectueux sont toujours exclues.",
       whLoading: "Chargement des zones…",
