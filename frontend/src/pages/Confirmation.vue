@@ -27,9 +27,11 @@
       </div>
     </header>
 
-    <!-- segmented queues + search -->
-    <div class="flex items-center gap-3 flex-wrap">
-      <div class="cf-seg">
+    <!-- segmented queues + search — one sticky toolbar, tabs scroll in one
+         line instead of wrapping into a two-row wall -->
+    <div class="sticky top-[41px] z-10 -mx-2 px-2 py-1.5 rounded-xl flex items-center gap-3 flex-wrap lg:flex-nowrap"
+         style="background: rgb(var(--bg) / 0.92); backdrop-filter: blur(6px)">
+      <div class="cf-seg overflow-x-auto flex-shrink min-w-0" style="scrollbar-width: none">
         <template v-for="(tb, i) in visibleTabs" :key="tb.key">
           <span v-if="tb.group && tb.group !== visibleTabs[i - 1]?.group" class="cf-seg-div" />
           <button
@@ -54,7 +56,13 @@
           <span>{{ t('cf.history') }}</span>
         </button>
       </div>
-      <div class="flex items-center gap-2 ms-auto flex-wrap">
+      <div class="flex items-center gap-2 ms-auto flex-wrap lg:flex-nowrap flex-shrink-0">
+        <label v-if="canBulk && !isNd && tab !== 'citycheck' && rows.length"
+               class="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl text-[12px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200/80 cursor-pointer whitespace-nowrap">
+          <input type="checkbox" :checked="selected.size === rows.length && rows.length > 0" class="w-3.5 h-3.5"
+                 style="accent-color: var(--accent-600)" @change="toggleAll" />
+          {{ t('rs.selectPage') }}
+        </label>
         <button v-if="!canBulk && !isDone && !isNd && rows.length && WORK_TABS.has(tab)"
                 class="h-10 px-4 rounded-xl text-[12.5px] font-bold text-white inline-flex items-center gap-1.5 shadow-sm hover:shadow transition-shadow"
                 :style="{ background: 'var(--accent-600)' }" @click="workList">
@@ -73,14 +81,13 @@
     <!-- bulk bar — on every tab, with the actions that tab honestly allows.
          Hidden on Not-Delivered: those are per-customer redelivery calls, with
          no honest batch equivalent (same reasoning as the absent bulk confirm). -->
-    <div v-if="!loading && rows.length && !isNd && tab !== 'citycheck' && canBulk"
-         class="flex items-center gap-2.5 flex-wrap bg-white rounded-2xl ring-1 ring-stone-200/80 px-4 py-3">
-      <label class="inline-flex items-center gap-2 text-[12.5px] font-medium text-stone-700 cursor-pointer">
-        <input type="checkbox" :checked="selected.size === rows.length && rows.length > 0" class="w-4 h-4"
-               style="accent-color: var(--accent-600)" @change="toggleAll" />
-        {{ t('rs.selectPage') }}
-      </label>
-      <span class="text-[12px] text-stone-400 tabular-nums">{{ selected.size }} {{ t('rs.selectedN') }}</span>
+    <!-- Floating action bar: appears only once something is selected — the
+         permanent strip of disabled buttons was pure noise. -->
+    <Transition name="cfslide">
+    <div v-if="!loading && selected.size && !isNd && tab !== 'citycheck' && canBulk"
+         class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2.5 flex-wrap bg-white rounded-2xl shadow-floating ring-1 ring-stone-200/80 px-4 py-2.5 max-w-[94vw]">
+      <span class="text-[12.5px] font-bold text-stone-800 tabular-nums whitespace-nowrap">{{ selected.size }} {{ t('rs.selectedN') }}</span>
+      <button class="text-[11.5px] font-semibold text-stone-400 hover:text-stone-700" @click="selected = new Set()">{{ t('common.close') }}</button>
       <div class="flex items-center gap-2 ms-auto flex-wrap">
         <!-- done tabs: undo a batch of wrong decisions -->
         <button v-if="isDone"
@@ -108,6 +115,7 @@
       <!-- Deliberately absent: bulk confirm. A confirmation means a customer
            said yes on a call; there is no honest way to do that to 50 rows. -->
     </div>
+    </Transition>
 
     <!-- rows -->
     <div v-if="loading" class="space-y-2.5">
@@ -125,7 +133,7 @@
     </div>
     <TransitionGroup v-else name="cfrow" tag="div" class="space-y-2.5 relative">
       <div v-for="r in rows" :key="r.order"
-           class="cf-card rounded-2xl p-4"
+           class="cf-card rounded-2xl px-4 py-3"
            :class="r.due ? 'cf-card-due' : ''">
         <div class="flex items-center gap-3.5 flex-wrap">
           <!-- customer identity -->
@@ -796,6 +804,7 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
   height: 36px; padding: 0 12px; border-radius: 11px;
   font-size: 12.5px; font-weight: 600; color: rgb(var(--text3));
   transition: all .18s ease;
+  white-space: nowrap;
 }
 .cf-seg-btn:hover { color: rgb(var(--text)); }
 .cf-seg-on {
@@ -829,7 +838,7 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
   box-shadow: inset 0 0 0 1.5px rgb(252 211 77), 0 4px 16px -8px rgb(245 158 11 / 0.25);
 }
 .cf-avatar {
-  width: 42px; height: 42px; border-radius: 999px; flex-shrink: 0;
+  width: 34px; height: 34px; border-radius: 999px; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 13px; font-weight: 800; color: var(--accent-700);
   background: linear-gradient(135deg, var(--accent-50), var(--accent-100));
@@ -870,7 +879,7 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
 .cf-wa { color: rgb(22 163 74); }
 .cf-wa:hover { box-shadow: inset 0 0 0 1px rgb(134 239 172); background: rgb(240 253 244); }
 .cf-act {
-  height: 38px; border-radius: 12px; font-size: 12.5px; font-weight: 700;
+  height: 32px; border-radius: 10px; font-size: 12px; font-weight: 700;
   transition: all .15s ease; white-space: nowrap;
 }
 .cf-act:disabled { opacity: .5; }

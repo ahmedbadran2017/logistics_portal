@@ -35,9 +35,10 @@
       </div>
     </Transition>
 
-    <!-- tabs + search -->
-    <div class="flex items-center gap-3 flex-wrap">
-      <div class="cs-seg">
+    <!-- tabs + search — one sticky toolbar, tabs scroll in one line -->
+    <div class="sticky top-[41px] z-10 -mx-2 px-2 py-1.5 rounded-xl flex items-center gap-3 flex-wrap lg:flex-nowrap"
+         style="background: rgb(var(--bg) / 0.92); backdrop-filter: blur(6px)">
+      <div class="cs-seg overflow-x-auto flex-shrink min-w-0" style="scrollbar-width: none">
         <button v-for="tb in tabs" :key="tb.key" class="cs-seg-btn" :class="tab === tb.key ? 'cs-seg-on' : ''"
                 @click="tab = tb.key; page = 1; load()">
           <Icon :name="tb.icon" :size="14" />
@@ -507,6 +508,7 @@ function ageLabel(hs) {
   height: 36px; padding: 0 12px; border-radius: 11px;
   font-size: 12.5px; font-weight: 600; color: rgb(var(--text3));
   transition: all .18s ease;
+  white-space: nowrap;
 }
 .cs-seg-btn:hover { color: rgb(var(--text)); }
 .cs-seg-on { background: rgb(var(--card)); color: rgb(var(--text)); box-shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.04); }

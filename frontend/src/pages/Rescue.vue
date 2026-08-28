@@ -27,9 +27,10 @@
       </div>
     </header>
 
-    <!-- queues + search -->
-    <div class="flex items-center gap-3 flex-wrap">
-      <div class="rs-seg">
+    <!-- queues + search — one sticky toolbar, tabs scroll in one line -->
+    <div class="sticky top-[41px] z-10 -mx-2 px-2 py-1.5 rounded-xl flex items-center gap-3 flex-wrap lg:flex-nowrap"
+         style="background: rgb(var(--bg) / 0.92); backdrop-filter: blur(6px)">
+      <div class="rs-seg overflow-x-auto flex-shrink min-w-0" style="scrollbar-width: none">
         <button
           v-for="tb in TABS" :key="tb.key"
           class="rs-seg-btn"
@@ -43,7 +44,12 @@
           </span>
         </button>
       </div>
-      <div class="relative ms-auto">
+      <label v-if="tab === 'backlog' && rows.length"
+             class="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl text-[12px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200/80 cursor-pointer whitespace-nowrap ms-auto">
+        <input type="checkbox" :checked="selected.size === rows.length" class="accent-sky-600 w-3.5 h-3.5" @change="toggleAll" />
+        {{ t('rs.selectPage') }}
+      </label>
+      <div class="relative" :class="tab === 'backlog' && rows.length ? '' : 'ms-auto'">
         <Icon name="search" :size="13" class="absolute start-3 top-1/2 -translate-y-1/2 text-stone-400" />
         <input v-model="q" :placeholder="t('rs.searchPh')" @input="debouncedLoad"
                class="h-10 w-[240px] ps-9 pe-3 text-[12.5px] bg-white rounded-xl ring-1 ring-stone-200/80 focus:ring-2 outline-none transition-shadow"
@@ -51,15 +57,11 @@
       </div>
     </div>
 
-    <!-- backlog bulk bar -->
-    <div v-if="tab === 'backlog' && !loading && rows.length"
-         class="flex items-center gap-2.5 flex-wrap bg-white rounded-2xl ring-1 ring-stone-200/80 px-4 py-3">
-      <label class="inline-flex items-center gap-2 text-[12.5px] font-medium text-stone-700 cursor-pointer">
-        <input type="checkbox" :checked="selected.size === rows.length" class="accent-sky-600 w-4 h-4"
-               @change="toggleAll" />
-        {{ t('rs.selectPage') }}
-      </label>
-      <span class="text-[12px] text-stone-400 tabular-nums">{{ selected.size }} {{ t('rs.selectedN') }}</span>
+    <!-- floating bulk bar: appears only once something is selected -->
+    <div v-if="tab === 'backlog' && !loading && selected.size"
+         class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2.5 flex-wrap bg-white rounded-2xl shadow-floating ring-1 ring-stone-200/80 px-4 py-2.5 max-w-[94vw]">
+      <span class="text-[12.5px] font-bold text-stone-800 tabular-nums whitespace-nowrap">{{ selected.size }} {{ t('rs.selectedN') }}</span>
+      <button class="text-[11.5px] font-semibold text-stone-400 hover:text-stone-700" @click="selected = new Set()">{{ t('common.close') }}</button>
       <div class="flex items-center gap-2 ms-auto flex-wrap">
         <input v-model="bulkNote" :placeholder="t('rs.bulkNotePh')" maxlength="120"
                class="h-9 w-[200px] ps-3 pe-3 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] focus:outline-none" />
@@ -460,6 +462,7 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
   height: 36px; padding: 0 12px; border-radius: 11px;
   font-size: 12.5px; font-weight: 600; color: rgb(var(--text3));
   transition: all .18s ease;
+  white-space: nowrap;
 }
 .rs-seg-btn:hover { color: rgb(var(--text)); }
 .rs-seg-on { background: rgb(var(--card)); color: rgb(var(--text)); box-shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.04); }
