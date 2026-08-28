@@ -895,6 +895,20 @@ def speed_dashboard():
           AND so.custom_sales_status IN ('Did not Answer', 'Follow Up', 'On Hold')
           AND {_IN_HAND} AND so.custom_next_call_at IS NOT NULL
           AND so.custom_next_call_at <= NOW()""", (co,))[0][0])
+    # Confirmed orders the warehouse hasn't touched — the silent-death bucket
+    # the stranded audit found. 4h grace keeps the fresh flow out.
+    fire["stranded"] = int(frappe.db.sql("""
+        SELECT COUNT(*) FROM `tabSales Order` so
+        WHERE so.docstatus = 1 AND so.company = %s
+          AND so.custom_sales_status = 'Confirmed'
+          AND (so.custom_logistics_status IS NULL
+               OR so.custom_logistics_status IN ('', 'Pending'))
+          AND so.creation >= DATE_SUB(NOW(), INTERVAL 60 DAY)
+          AND so.modified <= DATE_SUB(NOW(), INTERVAL 4 HOUR)
+          AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
+                          JOIN `tabPick List` pl ON pl.name = pli.parent
+                          WHERE pli.sales_order = so.name AND pl.docstatus < 2)""",
+        (_CO,))[0][0])
     fire["rescueOpen"] = int(frappe.db.sql("""
         SELECT COUNT(*) FROM `tabDelivery Note` dn
         WHERE dn.docstatus = 1 AND dn.company = %s

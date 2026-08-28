@@ -1135,6 +1135,36 @@ def report(days=7, frm=None, to=None):
                   "n": int(ladder.n or 0)}
 
     from logistics_portal.api.settings import get_ops
+    # ── delivery outcome of what shipped in the window (parcel grain):
+    # confirming a lot that never gets taken is a double loss — this is the
+    # honesty check on the confirm rate above it.
+    dn_rng = rng.format(col="dn.posting_date")
+    stick = frappe.db.sql(
+        f"""SELECT dn.posting_date d, COUNT(*) shipped,
+                   SUM(dn.custom_track_shipment_status = 'Delivered') delivered
+            FROM `tabDelivery Note` dn
+            WHERE dn.docstatus = 1 AND dn.company = %(co)s AND {dn_rng}
+            GROUP BY dn.posting_date ORDER BY dn.posting_date""",
+        rng_vals, as_dict=True)
+
+    # ── where parcels die: top failing cities for the same window ──
+    cities = frappe.db.sql(
+        f"""SELECT t.city, COUNT(*) parcels, SUM(t.bad) failed FROM (
+              SELECT COALESCE(NULLIF(TRIM(so.custom_shipping_city), ''),
+                              NULLIF(TRIM(addr.city), ''), '?') city,
+                     dn.custom_track_shipment_status IN
+                       ('Delivery Exception', 'Failed Attempt') bad
+              FROM `tabDelivery Note` dn
+              LEFT JOIN `tabSales Order` so
+                ON so.name = (SELECT MIN(dni.against_sales_order)
+                              FROM `tabDelivery Note Item` dni
+                              WHERE dni.parent = dn.name)
+              LEFT JOIN `tabAddress` addr ON addr.name = so.shipping_address_name
+              WHERE dn.docstatus = 1 AND dn.company = %(co)s AND {dn_rng}
+            ) t GROUP BY t.city HAVING failed > 0
+            ORDER BY failed DESC LIMIT 8""",
+        rng_vals, as_dict=True)
+
     # Headline intake for the window — every order that arrived, allocated
     # or not (the per-agent cohort above only sees allocated ones).
     _oi = frappe.db.sql(
@@ -1146,6 +1176,10 @@ def report(days=7, frm=None, to=None):
     _out = {
         "days": days, "frm": frm or "", "to": to or "",
         "ordersIn": {"n": int(_oi[0] or 0), "value": round(float(_oi[1] or 0))},
+        "stick": [{"d": str(r_.d), "shipped": int(r_.shipped or 0),
+                   "delivered": int(r_.delivered or 0)} for r_ in stick],
+        "cities": [{"city": (r_.city or "?").title(), "parcels": int(r_.parcels or 0),
+                    "failed": int(r_.failed or 0)} for r_ in cities],
         "agents": agents,
         "reasons": reason_rows,
         "funnel": [{"date": str(f.d), "confirm": int(f.conf or 0),

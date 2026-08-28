@@ -27,7 +27,7 @@
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div class="ccd-kpi">
           <div class="ccd-kpi-l"><Icon name="shopping-bag" :size="12" class="inline -mt-px me-1" />{{ t('ccd.kOrders') }}</div>
-          <div class="text-[26px] font-extrabold tabular-nums text-stone-900 mt-1">{{ fmtN(r.ordersIn?.n) }}</div>
+          <div class="flex items-baseline gap-2 mt-1"><span class="text-[26px] font-extrabold tabular-nums text-stone-900">{{ fmtN(r.ordersIn?.n) }}</span><span v-if="deltas.orders" class="ccd-delta" :class="deltas.orders.up ? 'ccd-up' : 'ccd-down'">{{ deltas.orders.txt }}</span></div>
           <div class="text-[11px] text-stone-400 tabular-nums">{{ fmtN(r.ordersIn?.value) }} MAD</div>
         </div>
         <div class="ccd-kpi flex items-center gap-3">
@@ -46,17 +46,17 @@
           <div class="min-w-0">
             <div class="ccd-kpi-l">{{ t('ccd.kRate') }}</div>
             <div class="text-[11.5px] tabular-nums mt-1"><span class="text-emerald-600 font-bold">{{ fmtN(tot.confirm) }}</span> <span class="text-stone-400">/</span> <span class="text-rose-500 font-bold">{{ fmtN(tot.cancel) }}</span></div>
-            <div class="text-[10px] text-stone-400 mt-0.5">{{ t('ccd.kRateHint') }}</div>
+            <div class="text-[10px] text-stone-400 mt-0.5">{{ t('ccd.kRateHint') }} <span v-if="deltas.rate" class="ccd-delta" :class="deltas.rate.up ? 'ccd-up' : 'ccd-down'">{{ deltas.rate.txt }}</span></div>
           </div>
         </div>
         <div class="ccd-kpi">
           <div class="ccd-kpi-l"><Icon name="activity" :size="12" class="inline -mt-px me-1" />{{ t('ccd.kDecisions') }}</div>
-          <div class="text-[26px] font-extrabold tabular-nums text-stone-900 mt-1">{{ fmtN(tot.total) }}</div>
+          <div class="flex items-baseline gap-2 mt-1"><span class="text-[26px] font-extrabold tabular-nums text-stone-900">{{ fmtN(tot.total) }}</span><span v-if="deltas.total" class="ccd-delta" :class="deltas.total.up ? 'ccd-up' : 'ccd-down'">{{ deltas.total.txt }}</span></div>
           <div class="text-[11px] text-stone-400 tabular-nums">{{ fmtN(tot.dna) }} {{ t('cf.actDna') }} · {{ fmtN(tot.followup) }} {{ t('cf.actFollowup') }}</div>
         </div>
         <div class="ccd-kpi">
           <div class="ccd-kpi-l"><Icon name="wallet" :size="12" class="inline -mt-px me-1" />{{ t('ccd.kValue') }}</div>
-          <div class="text-[26px] font-extrabold tabular-nums text-stone-900 mt-1">{{ fmtN(tot.value) }}</div>
+          <div class="flex items-baseline gap-2 mt-1"><span class="text-[26px] font-extrabold tabular-nums text-stone-900">{{ fmtN(tot.value) }}</span><span v-if="deltas.value" class="ccd-delta" :class="deltas.value.up ? 'ccd-up' : 'ccd-down'">{{ deltas.value.txt }}</span></div>
           <div class="text-[11px] tabular-nums" :class="collectedPct === null ? 'text-stone-400' : collectedPct >= 60 ? 'text-emerald-600' : 'text-amber-600'">
             {{ collectedPct === null ? '—' : t('ccd.kCollected').replace('{v}', fmtN(tot.collected)).replace('{p}', String(collectedPct)) }}
           </div>
@@ -126,6 +126,50 @@
                       class="block text-center text-[12px] font-semibold text-[var(--accent-600)] bg-white rounded-xl ring-1 ring-stone-200/70 py-2.5 hover:bg-stone-50">
             {{ t('ccd.fullReport') }}
           </RouterLink>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
+        <!-- did the confirms actually get taken? -->
+        <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+          <div class="flex items-center gap-2 mb-3">
+            <Icon name="package-check" :size="14" class="text-emerald-600" />
+            <span class="text-[12px] font-semibold text-stone-900">{{ t('ccd.stickTitle') }}</span>
+            <span class="text-[11px] text-stone-400 hidden sm:inline">{{ t('ccd.stickHint') }}</span>
+            <span v-if="stickPct !== null" class="ms-auto text-[13px] font-extrabold tabular-nums"
+                  :class="stickPct >= 60 ? 'text-emerald-600' : stickPct >= 40 ? 'text-amber-600' : 'text-rose-600'">{{ stickPct }}%</span>
+          </div>
+          <div v-if="(r.stick || []).length" class="flex items-end gap-1 h-[92px]">
+            <div v-for="f2 in r.stick" :key="f2.d" class="flex-1 flex flex-col items-center gap-0.5 min-w-0"
+                 :title="`${f2.d} · ${f2.delivered}/${f2.shipped}`">
+              <div class="w-full max-w-[26px] h-[76px] bg-stone-100 rounded-t flex flex-col justify-end overflow-hidden">
+                <div class="w-full bg-emerald-400 transition-all" :style="{ height: stickH(f2) }" />
+              </div>
+              <span class="text-[8.5px] text-stone-400 tabular-nums">{{ f2.d.slice(8) }}</span>
+            </div>
+          </div>
+          <div v-else class="text-center text-[12px] text-stone-400 py-8">{{ t('ccd.noData') }}</div>
+        </div>
+
+        <!-- where parcels die -->
+        <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+          <div class="text-[12px] font-semibold text-stone-900 flex items-center gap-2 mb-2.5">
+            <Icon name="map-pin" :size="13" class="text-rose-500" />{{ t('ccd.citiesTitle') }}
+          </div>
+          <div v-if="(r.cities || []).length" class="space-y-2">
+            <div v-for="c in r.cities" :key="c.city" class="min-w-0">
+              <div class="flex items-center justify-between gap-2 text-[11.5px]">
+                <span class="text-stone-700 truncate" dir="auto">{{ c.city }}</span>
+                <span class="tabular-nums flex-shrink-0"><b class="text-rose-600">{{ c.failed }}</b><span class="text-stone-400"> / {{ c.parcels }}</span></span>
+              </div>
+              <div class="h-1.5 rounded-full bg-stone-100 overflow-hidden mt-0.5">
+                <div class="h-full rounded-full"
+                     :class="(c.failed / Math.max(1, c.parcels)) > 0.3 ? 'bg-rose-400' : 'bg-amber-300'"
+                     :style="{ width: Math.round((c.failed * 100) / Math.max(1, c.parcels)) + '%' }" />
+              </div>
+            </div>
+          </div>
+          <div v-else class="text-[11.5px] text-stone-400 py-2 text-center">{{ t('ccd.noData') }}</div>
         </div>
       </div>
     </template>
@@ -250,6 +294,10 @@
             <span>{{ t('ccd.fDue') }}</span>
             <b class="tabular-nums">{{ d.fire.dueRetries }}</b>
           </RouterLink>
+          <RouterLink :to="{ name: 'Stranded' }" class="ccd-fire" :class="d.fire.stranded ? 'ccd-hot' : ''">
+            <span>{{ t('ccd.fStranded') }}</span>
+            <b class="tabular-nums">{{ d.fire.stranded ?? '—' }}</b>
+          </RouterLink>
           <RouterLink :to="{ name: 'Rescue' }" class="ccd-fire">
             <span>{{ t('ccd.fRescue') }}</span>
             <b class="tabular-nums">{{ d.fire.rescueOpen }}</b>
@@ -282,37 +330,82 @@ const r = ref(null);
 const rLoading = ref(false);
 const localIso = (dt) =>
   `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-function rangeArgs() {
+const day = 86400000;
+function windowFor(key) {
   const now = new Date();
-  if (range.value === "today") { const d0 = localIso(now); return { frm: d0, to: d0 }; }
-  if (range.value === "yest") {
-    const y = new Date(now.getTime() - 86400000); const d0 = localIso(y);
-    return { frm: d0, to: d0 };
-  }
-  if (range.value === "7d") return { days: 7 };
-  if (range.value === "month") {
-    return { frm: localIso(new Date(now.getFullYear(), now.getMonth(), 1)), to: localIso(now) };
-  }
-  return { frm: localIso(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
-           to: localIso(new Date(now.getFullYear(), now.getMonth(), 0)) };
+  if (key === "today") { const d0 = localIso(now); return [d0, d0]; }
+  if (key === "yest") { const d0 = localIso(new Date(now.getTime() - day)); return [d0, d0]; }
+  if (key === "7d") return [localIso(new Date(now.getTime() - 6 * day)), localIso(now)];
+  if (key === "month") return [localIso(new Date(now.getFullYear(), now.getMonth(), 1)), localIso(now)];
+  return [localIso(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+          localIso(new Date(now.getFullYear(), now.getMonth(), 0))];
 }
+// The window right before the picked one, same length — the Δ chips' baseline.
+function prevWindowFor(key) {
+  const now = new Date();
+  if (key === "month") return windowFor("lastMonth");
+  if (key === "lastMonth") {
+    return [localIso(new Date(now.getFullYear(), now.getMonth() - 2, 1)),
+            localIso(new Date(now.getFullYear(), now.getMonth() - 1, 0))];
+  }
+  const [f, t2] = windowFor(key);
+  const len = Math.round((new Date(t2) - new Date(f)) / day) + 1;
+  return [localIso(new Date(new Date(f).getTime() - len * day)),
+          localIso(new Date(new Date(f).getTime() - day))];
+}
+const rp = ref(null);   // previous-window report, for the Δ chips
 let rSeq = 0;
 async function loadReport() {
   const seq = ++rSeq;
   rLoading.value = true;
   try {
-    const res = await api("confirmation.report", rangeArgs());
-    if (seq === rSeq) r.value = res;
+    const [f, t2] = windowFor(range.value);
+    const [pf, pt] = prevWindowFor(range.value);
+    const [cur, prev] = await Promise.all([
+      api("confirmation.report", { frm: f, to: t2 }),
+      api("confirmation.report", { frm: pf, to: pt }).catch(() => null),
+    ]);
+    if (seq === rSeq) { r.value = cur; rp.value = prev; }
   } catch (e) { /* the KPI strip keeps its last good state */ }
   if (seq === rSeq) rLoading.value = false;
+}
+function totalsOf(rep) {
+  const ag = rep?.agents || [];
+  const sum = (k) => ag.reduce((a, x) => a + (Number(x[k]) || 0), 0);
+  const confirm = sum("confirm"), cancel = sum("cancel");
+  return { confirm, cancel, total: sum("total"), value: sum("confirmedValue"),
+    rate: confirm + cancel ? Math.round((confirm * 100) / (confirm + cancel)) : null };
+}
+// Δ vs the previous window. Rate compares in points, the rest in percent.
+function deltaOf(cur, prev, isPts = false) {
+  if (cur == null || prev == null || (!prev && !isPts)) return null;
+  const d2 = isPts ? cur - prev : Math.round(((cur - prev) * 100) / prev);
+  return { v: d2, up: d2 > 0, txt: (d2 > 0 ? "+" : "") + d2 + (isPts ? " pt" : "%") };
+}
+const deltas = computed(() => {
+  if (!rp.value) return {};
+  const c = tot.value, p2 = totalsOf(rp.value);
+  return {
+    orders: deltaOf(r.value?.ordersIn?.n, rp.value?.ordersIn?.n),
+    rate: deltaOf(c.rate, p2.rate, true),
+    total: deltaOf(c.total, p2.total),
+    value: deltaOf(c.value, p2.value),
+  };
+})
+const stickPct = computed(() => {
+  const st = r.value?.stick || [];
+  const sh = st.reduce((a, x) => a + x.shipped, 0);
+  const dv = st.reduce((a, x) => a + x.delivered, 0);
+  return sh ? Math.round((dv * 100) / sh) : null;
+});
+function stickH(f2) {
+  return Math.max(4, Math.round(((f2.delivered || 0) * 72) / Math.max(1, f2.shipped || 0))) + "px";
 }
 const tot = computed(() => {
   const ag = r.value?.agents || [];
   const sum = (k) => ag.reduce((a, x) => a + (Number(x[k]) || 0), 0);
-  const confirm = sum("confirm"), cancel = sum("cancel");
-  return { confirm, cancel, dna: sum("dna"), followup: sum("followup"),
-    total: sum("total"), value: sum("confirmedValue"), collected: sum("collected"),
-    rate: confirm + cancel ? Math.round((confirm * 100) / (confirm + cancel)) : null };
+  return { ...totalsOf(r.value), dna: sum("dna"), followup: sum("followup"),
+           collected: sum("collected") };
 });
 const collectedPct = computed(() =>
   tot.value.value ? Math.round((tot.value.collected * 100) / tot.value.value) : null);
@@ -364,6 +457,12 @@ onUnmounted(() => clearInterval(timer));
   background: white; border-radius: 16px; padding: 16px;
   box-shadow: inset 0 0 0 1px rgb(231 229 228 / .7);
 }
+.ccd-delta {
+  font-size: 10.5px; font-weight: 700; border-radius: 9999px;
+  padding: 1px 7px; letter-spacing: 0;
+}
+.ccd-up { color: rgb(5 150 105); background: rgb(209 250 229 / .7); }
+.ccd-down { color: rgb(190 18 60); background: rgb(255 228 230 / .8); }
 .ccd-kpi-l {
   font-size: 11px; font-weight: 600; text-transform: uppercase;
   letter-spacing: .05em; color: rgb(168 162 158);
