@@ -145,7 +145,7 @@
                         @click="rrLimit = n">{{ n }}</button>
                 <button class="h-8 px-3.5 rounded-lg text-[12px] font-semibold transition-colors disabled:opacity-50"
                         :class="rrArmed === doc.ret ? 'text-white bg-rose-600' : 'text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]'"
-                        :disabled="rrBusy" @click="doCredit(doc)">
+                        :disabled="!!rrBusy" @click="doCredit(doc)">
                   {{ rrBusy === doc.ret ? t('brepair.releasing') : rrArmed === doc.ret ? t('brepair.rrSure').replace('{n}', String(rrLimit)) : t('brepair.rrBtn') }}
                 </button>
               </div>
