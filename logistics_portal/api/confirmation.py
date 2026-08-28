@@ -1391,7 +1391,8 @@ def dashboard(days=30, frm=None, to=None, mine=0):
             WHERE so.docstatus = 1 AND so.company = %(co)s
               AND so.custom_sales_status IN %(live)s {active}{me_cond}
             GROUP BY bucket""",
-        {"live": live, "sane": _SANE_MAX, **rng_vals}, as_dict=True)
+        {"live": live, "sane": _SANE_MAX,
+         "now": str(now_datetime())[:19], **rng_vals}, as_dict=True)
     order = ["0-6h", "6-24h", "1-3d", "3-7d", "7d+"]
     ag = {r.bucket: r for r in aging}
     aging_rows = [{"bucket": b,
