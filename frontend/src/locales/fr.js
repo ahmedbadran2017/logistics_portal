@@ -1086,6 +1086,8 @@ export default {
     bulkDuplicate: "Marquer dupliquées",
     bulkReopen: "Remettre dans la file",
     bulkDone: "Lot annulé",
+    history: "Historique",
+    historyHint: "Confirmées / annulées / dupliquées",
     slaLate: "1ᵉʳ APPEL EN RETARD",
     actDuplicate: "Commande dupliquée",
     done_duplicate: "Marquée comme dupliquée",

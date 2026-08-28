@@ -1085,6 +1085,8 @@ export default {
     bulkDuplicate: "علّمها مكررة",
     bulkReopen: "رجّعها للطابور",
     bulkDone: "الدفعة اتلغت",
+    history: "السجل",
+    historyHint: "المؤكدة / الملغية / المكررة",
     slaLate: "أول مكالمة متأخرة",
     actDuplicate: "أوردر مكرر",
     done_duplicate: "اتعلّم إنه مكرر",

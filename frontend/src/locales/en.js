@@ -1085,6 +1085,8 @@ export default {
     bulkDuplicate: "Mark duplicate",
     bulkReopen: "Put back in the queue",
     bulkDone: "Batch cancelled",
+    history: "History",
+    historyHint: "Confirmed / cancelled / duplicated",
     slaLate: "1ST CALL LATE",
     actDuplicate: "Duplicate order",
     done_duplicate: "Marked as duplicate",

@@ -358,6 +358,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -729,8 +730,13 @@ function onKey(e) {
   else if (c === "KeyM") panel.value = panel.value === "note" ? "" : "note";
 }
 
+const route = useRoute();
 onMounted(() => {
   loadBoard();
+  // Deep link from the Confirmation board: open THIS order with the full
+  // context instead of whatever serve-next would pick.
+  const o = String(route.query.order || "");
+  if (o) openOrder(o);
   window.addEventListener("keydown", onKey);
 });
 // The plan pane goes stale over a shift — silent refresh like every queue.

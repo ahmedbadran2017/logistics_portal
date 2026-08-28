@@ -1,58 +1,37 @@
 <template>
   <div class="p-5 sm:p-6 space-y-5 max-w-[1200px] mx-auto">
-    <!-- hero header -->
-    <header class="cf-hero rounded-2xl p-5 sm:p-6">
-      <div class="flex items-center justify-between gap-4 flex-wrap">
-        <div class="flex items-center gap-3.5">
-          <span class="cf-hero-icon"><Icon name="phone" :size="22" /></span>
-          <div>
-            <h1 class="text-[21px] font-bold text-stone-900 tracking-tight leading-none">{{ t('cf.title') }}</h1>
-            <p class="text-[12.5px] text-stone-500 mt-1.5">{{ t('cf.intro') }}</p>
+    <!-- Slim header: the Workspace owns the scoreboard — this page is the
+         browse/exception surface, so the chrome stays out of the queue's way. -->
+    <header class="flex items-center gap-3 flex-wrap bg-white rounded-2xl ring-1 ring-stone-200/80 px-4 py-2.5">
+      <span class="w-9 h-9 rounded-xl bg-[var(--accent-50)] text-[var(--accent-600)] ring-1 ring-[var(--accent-200)]/50 flex items-center justify-center shrink-0"><Icon name="phone" :size="17" /></span>
+      <div class="min-w-0">
+        <h1 class="text-[15.5px] font-bold text-stone-900 tracking-tight leading-none">{{ t('cf.title') }}</h1>
+        <p class="hidden sm:block text-[11px] text-stone-400 mt-1 leading-none truncate">{{ t('cf.intro') }}</p>
+      </div>
+      <div v-if="data" class="flex items-center gap-3.5 ms-auto flex-wrap">
+        <span class="inline-flex items-center gap-1 text-[12px] tabular-nums font-semibold text-emerald-600" :title="t('cf.actConfirm')"><Icon name="check-circle" :size="12" />{{ data.mine.confirm }}</span>
+        <span class="inline-flex items-center gap-1 text-[12px] tabular-nums font-semibold text-amber-600" :title="t('cf.actDna')"><Icon name="phone-off" :size="12" />{{ data.mine.dna }}</span>
+        <span class="inline-flex items-center gap-1 text-[12px] tabular-nums font-semibold text-rose-500" :title="t('cf.actCancel')"><Icon name="circle-x" :size="12" />{{ data.mine.cancel }}</span>
+        <RouterLink v-if="data.myTarget" :to="{ name: 'Performance' }" class="flex items-center gap-2" :title="t('px.perf.dailyTarget')">
+          <div class="h-1.5 rounded-full bg-stone-200/70 overflow-hidden w-[72px]">
+            <div class="h-full rounded-full transition-all duration-700"
+                 :class="hitTarget ? 'bg-emerald-500' : 'bg-[var(--accent-500)]'"
+                 :style="{ width: dayPct + '%' }" />
           </div>
-        </div>
-        <div v-if="data" class="flex items-center gap-2 flex-wrap">
-          <div class="cf-stat">
-            <span class="cf-stat-n text-emerald-600">{{ data.mine.confirm }}</span>
-            <span class="cf-stat-l"><Icon name="check-circle" :size="10" class="inline -mt-px me-0.5" />{{ t('cf.actConfirm') }}</span>
-          </div>
-          <div class="cf-stat">
-            <span class="cf-stat-n text-amber-600">{{ data.mine.dna }}</span>
-            <span class="cf-stat-l"><Icon name="phone-off" :size="10" class="inline -mt-px me-0.5" />{{ t('cf.actDna') }}</span>
-          </div>
-          <div class="cf-stat">
-            <span class="cf-stat-n text-rose-500">{{ data.mine.cancel }}</span>
-            <span class="cf-stat-l"><Icon name="circle-x" :size="10" class="inline -mt-px me-0.5" />{{ t('cf.actCancel') }}</span>
-          </div>
-
-          <!-- my day, on the same line: how far to the target, what it's worth -->
-          <RouterLink v-if="data.myTarget" :to="{ name: 'Performance' }" class="cf-prog" :title="t('px.perf.dailyTarget')">
-            <div class="flex items-baseline gap-1">
-              <span class="text-[17px] font-extrabold tabular-nums leading-none"
-                    :class="hitTarget ? 'text-emerald-600' : 'text-stone-900'">{{ data.myTotal }}</span>
-              <span class="text-[10.5px] text-stone-400 tabular-nums">/ {{ data.myTarget }}</span>
-              <Icon v-if="hitTarget" name="check-circle" :size="11" class="text-emerald-600" />
-            </div>
-            <div class="h-1.5 rounded-full bg-stone-200/70 overflow-hidden mt-1.5 w-[92px]">
-              <div class="h-full rounded-full transition-all duration-700"
-                   :class="hitTarget ? 'bg-emerald-500' : 'bg-[var(--accent-500)]'"
-                   :style="{ width: dayPct + '%' }" />
-            </div>
-            <span class="cf-stat-l mt-1">{{ hitTarget ? t('cf.targetHit') : t('cf.targetGo', String(togo)).replace('{n}', togo) }}</span>
-          </RouterLink>
-
-          <RouterLink v-if="data.points" :to="{ name: 'Bonus' }" class="cf-stat cf-stat-link">
-            <span class="cf-stat-n text-violet-600">{{ data.points.month }}</span>
-            <span class="cf-stat-l"><Icon name="wallet" :size="10" class="inline -mt-px me-0.5" />{{ t('bn.pts') }} / {{ data.points.target }}</span>
-          </RouterLink>
-        </div>
+          <span class="text-[11.5px] tabular-nums font-bold" :class="hitTarget ? 'text-emerald-600' : 'text-stone-700'">{{ data.myTotal }}<span class="text-stone-400 font-normal">/{{ data.myTarget }}</span></span>
+        </RouterLink>
+        <!-- Points are an admin instrument while the CC scheme is unapproved. -->
+        <RouterLink v-if="data.points && canBulk" :to="{ name: 'Bonus' }" class="inline-flex items-center gap-1 text-[12px] tabular-nums font-bold text-violet-600">
+          <Icon name="wallet" :size="12" />{{ data.points.month }}
+        </RouterLink>
       </div>
     </header>
 
     <!-- segmented queues + search -->
     <div class="flex items-center gap-3 flex-wrap">
       <div class="cf-seg">
-        <template v-for="(tb, i) in TABS" :key="tb.key">
-          <span v-if="tb.group && tb.group !== TABS[i - 1]?.group" class="cf-seg-div" />
+        <template v-for="(tb, i) in visibleTabs" :key="tb.key">
+          <span v-if="tb.group && tb.group !== visibleTabs[i - 1]?.group" class="cf-seg-div" />
           <button
             class="cf-seg-btn"
             :class="[tab === tb.key ? 'cf-seg-on' : '', tb.group ? 'cf-seg-alt' : '']"
@@ -65,6 +44,12 @@
             </span>
           </button>
         </template>
+        <span class="cf-seg-div" />
+        <button class="cf-seg-btn" :class="showHistory ? 'cf-seg-on' : ''"
+                :title="t('cf.historyHint')" @click="toggleHistory">
+          <Icon name="archive" :size="14" />
+          <span>{{ t('cf.history') }}</span>
+        </button>
       </div>
       <div class="flex items-center gap-2 ms-auto flex-wrap">
         <DateRange v-model:days="days" v-model:frm="frm" v-model:to="to" @change="page = 1; load()" />
@@ -151,7 +136,6 @@
                 <span v-if="r.cust.rate !== null" class="opacity-70 tabular-nums">{{ r.cust.rate }}%</span>
               </button>
               <span v-if="r.due" class="cf-due-badge">{{ t('cf.due') }}</span>
-              <span v-else-if="r.slaBreached" class="cf-due-badge">{{ t('cf.slaLate') }}</span>
             </div>
             <div class="flex items-center gap-2.5 text-[11.5px] text-stone-500 tabular-nums mt-1 flex-wrap">
               <span class="font-semibold text-stone-800">{{ fmtMAD(r.total) }} <span class="text-stone-400 font-normal">MAD</span></span>
@@ -163,7 +147,7 @@
                     :title="t('cf.chasedHint')">
                 <Icon name="send" :size="11" />{{ t('cf.chased') }} ×{{ r.chased }}
               </span>
-              <span v-if="r.agent" class="text-stone-400">{{ r.agent }}</span>
+              <span v-if="r.agent && canBulk" class="text-stone-400">{{ r.agent }}</span>
               <span v-if="r.nextCall" class="text-stone-400">→ {{ r.nextCall.slice(5) }}</span>
             </div>
             <!-- what's in the order: one line, click for the whole thing -->
@@ -205,7 +189,14 @@
                     :class="cancelFor === r.order ? 'ring-2' : ''"
                     @click="cancelFor = cancelFor === r.order ? '' : r.order"><Icon name="circle-x" :size="15" /></button>
           </div>
-          <!-- decisions -->
+          <!-- decisions: agents decide in the Workspace (customer grade,
+               blocked banner, caps, activity — none of it exists here);
+               inline buttons stay a manager/section-admin instrument. -->
+          <div v-else-if="!isDone && !canBulk" class="flex items-center">
+            <button class="cf-act cf-act-confirm" @click="openWs(r)">
+              <Icon name="sparkles" :size="14" class="inline -mt-px me-1" />{{ t('nav.workspace') }}
+            </button>
+          </div>
           <div v-else-if="!isDone" class="flex items-center gap-1.5 flex-wrap">
             <button class="cf-act cf-act-confirm" :disabled="busy === r.order" @click="act(r, 'confirm')">
               <Icon name="check" :size="14" class="inline -mt-px me-1" />{{ t('cf.actConfirm') }}
@@ -354,7 +345,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import Pager from "@/components/ui/Pager.vue";
 import DateRange from "@/components/ui/DateRange.vue";
@@ -392,6 +383,22 @@ const TAB_KEYS = ["pending", "dna", "followup", "onhold", "monitor",
   "notdelivered", "confirmed", "cancelled", "duplicated"];
 const initialTab = String(route.query.tab || "");
 const tab = ref(TAB_KEYS.includes(initialTab) ? initialTab : "pending");
+const router = useRouter();
+// The three done tabs are an archive — folded behind one History toggle so
+// the live queues own the strip. Landing on a done tab unfolds it.
+const DONE_TABS = ["confirmed", "cancelled", "duplicated"];
+const showHistory = ref(DONE_TABS.includes(tab.value));
+const visibleTabs = computed(() =>
+  TABS.filter((tb) => showHistory.value || tb.group !== "done"));
+function toggleHistory() {
+  showHistory.value = !showHistory.value;
+  if (!showHistory.value && DONE_TABS.includes(tab.value)) {
+    tab.value = "pending"; page.value = 1; load();
+  }
+}
+function openWs(r) {
+  router.push({ name: "Workspace", query: { order: r.order } });
+}
 const q = ref("");
 const page = ref(1);
 const pageSize = ref(20);
@@ -715,9 +722,13 @@ function ageLabel(h) {
   return h < 48 ? `${h}${t('cf.hrs')}` : `${Math.round(h / 24)}${t('cf.days')}`;
 }
 function ageColor(h) {
-  if (h < 12) return "text-emerald-600";
-  if (h < 48) return "text-amber-600";
-  return "text-rose-500 font-medium";
+  // Keyed to the section's real first-call SLA (board payload), not fixed
+  // steps — when everything is "late" a uniform badge says nothing, a color
+  // scale still ranks the queue.
+  const sla = Number(data.value?.slaHours) || 6;
+  if (h < sla) return "text-emerald-600";
+  if (h < sla * 4) return "text-amber-600";
+  return "text-rose-500 font-semibold";
 }
 function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFractionDigits: 0 }); }
 </script>
