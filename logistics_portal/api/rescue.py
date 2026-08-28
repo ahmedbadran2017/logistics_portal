@@ -110,6 +110,12 @@ def save_rs_settings(settings=None):
         for a in admins:
             if not frappe.db.exists("User", a):
                 frappe.throw(f"Unknown user: {a}")
+            # The _is_*_admin checks ignore users without a live CC role —
+            # accepting one here would be a silent no-op.
+            if resolve_role(a) not in ("confirmation", "cs", "tracking",
+                                       "manager"):
+                frappe.throw(f"{a} has no contact-center role — assign one "
+                             "in Team first.")
         out["admins"] = admins[:10]
     frappe.db.set_default(_RS_KEY, _json.dumps(out))
     frappe.db.commit()
@@ -287,6 +293,10 @@ def act(id=None, action=None, note=None):
     is_so = not is_dn and frappe.db.exists("Sales Order", id)
     if not (is_dn or is_so):
         frappe.throw("Unknown parcel/order.")
+    # Every rescue queue is company-scoped; the write must be too.
+    if frappe.db.get_value("Delivery Note" if is_dn else "Sales Order",
+                           id, "company") != _CO:
+        frappe.throw("Unknown parcel/order.")
     dn = id if is_dn else ""
     # MIN, matching the board's SO link — get_value picked an arbitrary line,
     # so on multi-order parcels the agent could act on a different order than
@@ -395,7 +405,7 @@ def bulk_act(ids=None, action=None, note=None):
         # Per-item isolation: one bad parcel must not abort (and discard) the
         # rest of a 200-parcel triage batch.
         try:
-            if not frappe.db.exists("Delivery Note", dn):
+            if frappe.db.get_value("Delivery Note", dn, "company") != _CO:
                 skipped.append(dn)
                 continue
             doc = frappe.get_doc("Delivery Note", dn)

@@ -656,8 +656,18 @@ def bulk_cancel(orders=None, reason=None):
     done, skipped = [], []
     for name in orders:
         so = frappe.db.get_value(
-            "Sales Order", name, ["docstatus", "custom_sales_status"], as_dict=True)
-        if not so or so.docstatus != 1 or so.custom_sales_status not in QUEUES.values():
+            "Sales Order", name,
+            ["docstatus", "custom_sales_status", "company",
+             "custom_logistics_status"], as_dict=True)
+        if not so or so.docstatus != 1 or so.company != _CO \
+                or so.custom_sales_status not in QUEUES.values():
+            skipped.append(name)
+            continue
+        # Same physical guards as a single cancel: an order the warehouse has
+        # already picked must not become a cancelled parcel in a tote.
+        if (so.custom_logistics_status or "") not in ("", "Pending") \
+                or frappe.db.exists("Pick List Item",
+                                    {"sales_order": name, "docstatus": ["<", 2]}):
             skipped.append(name)
             continue
         updates = {"custom_sales_status": "Cancelled",
@@ -692,7 +702,7 @@ def update_contact(order, phone=None, city=None, address_line=None):
     """
     role = _gate()
     order = (order or "").strip()
-    if not frappe.db.exists("Sales Order", order):
+    if frappe.db.get_value("Sales Order", order, "company") != _CO:
         frappe.throw("Unknown order.")
     _own_guard(role, order)
     phone = (phone or "").strip()
@@ -904,6 +914,12 @@ def save_cf_settings(settings=None):
         for a in admins:
             if not frappe.db.exists("User", a):
                 frappe.throw(f"Unknown user: {a}")
+            # The _is_*_admin checks ignore users without a live CC role —
+            # accepting one here would be a silent no-op.
+            if resolve_role(a) not in ("confirmation", "cs", "tracking",
+                                       "manager"):
+                frappe.throw(f"{a} has no contact-center role — assign one "
+                             "in Team first.")
         out["admins"] = admins[:10]
     frappe.db.set_default(_CF_KEY, _json.dumps(out))
     frappe.db.commit()
@@ -1302,6 +1318,7 @@ def dashboard(days=30, frm=None, to=None, mine=0):
                          GROUP BY docname) v
                    JOIN `tabSales Order` so ON so.name = v.docname
                    WHERE so.company = %(co)s
+                     AND so.amended_from IS NULL
                      AND so.creation >= DATE_SUB(NOW(), INTERVAL 7 DAY)""",
                 {"co": _CO})[0]
             ft = {"avgMin": round(float(r[0] or 0)), "orders": int(r[1] or 0)}
@@ -1570,7 +1587,7 @@ def add_note(order, note):
     note = (note or "").strip()
     if not note:
         frappe.throw("Empty note.")
-    if not frappe.db.exists("Sales Order", order):
+    if frappe.db.get_value("Sales Order", order, "company") != _CO:
         frappe.throw("Unknown order.")
     _own_guard(role, order)
     frappe.get_doc("Sales Order", order).add_comment(

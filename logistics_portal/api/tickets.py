@@ -112,6 +112,12 @@ def save_cs_settings(settings=None):
         for a in admins:
             if not frappe.db.exists("User", a):
                 frappe.throw(f"Unknown user: {a}")
+            # The _is_*_admin checks ignore users without a live CC role —
+            # accepting one here would be a silent no-op.
+            if resolve_role(a) not in ("confirmation", "cs", "tracking",
+                                       "manager"):
+                frappe.throw(f"{a} has no contact-center role — assign one "
+                             "in Team first.")
         out["admins"] = admins[:10]
     frappe.db.set_default(_CS_KEY, _json.dumps(out))
     frappe.db.commit()
@@ -397,6 +403,11 @@ def act(name, action, note=None):
     name = (name or "").strip()
     note = (note or "").strip()
     if not frappe.db.exists("Issue", name):
+        frappe.throw("Unknown ticket.")
+    _t_co = frappe.db.get_value("Issue", name, "company")
+    if _t_co and _t_co != _CO:
+        # The board only lists this company; acting must match. Legacy
+        # tickets with no company at all stay actionable.
         frappe.throw("Unknown ticket.")
     if action not in ("take", "reply", "hold", "resolve", "reopen"):
         frappe.throw("Unknown action.")

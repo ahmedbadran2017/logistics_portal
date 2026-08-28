@@ -182,7 +182,7 @@ def bonus_settings():
             "group": bonus_group_for(role), "groups": list(GROUPS)}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_bonus_settings(settings=None):
     import json as _json
     from logistics_portal.api.auth import resolve_role
@@ -929,8 +929,14 @@ def speed_dashboard():
 
 def _is_any_cc_admin():
     from logistics_portal.api.auth import resolve_role
-    if resolve_role(frappe.session.user) == "manager":
+    role = resolve_role(frappe.session.user)
+    if role == "manager":
         return True
+    # Same rule as the per-lane twins: an admin listing is a capability, not
+    # a role — losing the CC role (or moving to the floor) revokes it even if
+    # the lists are stale.
+    if role not in ("confirmation", "cs", "tracking"):
+        return False
     u = frappe.session.user
     try:
         from logistics_portal.api.confirmation import _cf_settings

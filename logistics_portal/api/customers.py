@@ -270,11 +270,8 @@ def segment_settings():
     # Unused by the SPA; kept for API compat but manager-gated — the
     # heavy scan behind it was reachable by any agent over raw HTTP.
     from logistics_portal.api.auth import resolve_role
-    if resolve_role(frappe.session.user) != "manager":
-        frappe.throw("Not authorized.", frappe.PermissionError)
-    from logistics_portal.api.auth import resolve_role
     from logistics_portal.api.confirmation import _is_cf_admin
-    if resolve_role(frappe.session.user) not in ("confirmation", "manager"):
+    if resolve_role(frappe.session.user) != "manager":
         frappe.throw("Not authorized.", frappe.PermissionError)
     return {**_seg_settings(), "canEdit": _is_cf_admin()}
 
@@ -330,9 +327,6 @@ def distribution():
     # heavy scan behind it was reachable by any agent over raw HTTP.
     from logistics_portal.api.auth import resolve_role
     if resolve_role(frappe.session.user) != "manager":
-        frappe.throw("Not authorized.", frappe.PermissionError)
-    from logistics_portal.api.auth import resolve_role
-    if resolve_role(frappe.session.user) not in ("confirmation", "manager"):
         frappe.throw("Not authorized.", frappe.PermissionError)
     cache = frappe.cache()
     hit = cache.get_value("lp_seg_dist")
