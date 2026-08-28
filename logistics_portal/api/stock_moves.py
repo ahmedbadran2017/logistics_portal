@@ -20,15 +20,26 @@ _BLOCK_LIKE = [
 ]
 _BLOCK_EXACT = ["Morocco - JM"]
 
+# Warehouses stock may be pulled FROM but never pushed INTO: upstream supply
+# points that live outside the Moroccan floor. Measured 2026-08-28: Yakuplu
+# 1st Floor took 444 purchase receipts in 90 days and the team transferred
+# from it onto Moroccan shelves 91 times (all to D3B) — from the DESK, because
+# this screen blocked it. Sending Moroccan stock the other way would be a
+# physical shipment, not a bin move, so the direction stays one-way.
+_SUPPLY_ONLY_LIKE = ["Yakuplu%"]
+
 SLOW_WH = "SLOW ZONE - JM"
 _RECEIVING_LIKE = ["%receiv%", "%reception%"]
 
 
-def _movable_condition(col="name"):
+def _movable_condition(col="name", as_source=False):
     """(sql, args) — WHERE fragment selecting warehouses stock may move
-    between. Params only, no interpolated names."""
-    parts = [f"{col} LIKE %s"] + [f"{col} NOT LIKE %s"] * len(_BLOCK_LIKE)
-    args = ["% - JM"] + list(_BLOCK_LIKE)
+    between. `as_source=True` also admits the supply-only warehouses (pull
+    from them, never push into them). Params only, no interpolated names."""
+    blocked = [b for b in _BLOCK_LIKE
+               if not (as_source and b in _SUPPLY_ONLY_LIKE)]
+    parts = [f"{col} LIKE %s"] + [f"{col} NOT LIKE %s"] * len(blocked)
+    args = ["% - JM"] + list(blocked)
     parts.append(f"{col} NOT IN ({', '.join(['%s'] * len(_BLOCK_EXACT))})")
     args += _BLOCK_EXACT
     return " AND ".join(parts), args
@@ -113,7 +124,7 @@ def move_lookup(code):
         return {"ok": False, "reason": "unknown_item", "code": code,
                 "near": [{"sku": n.custom_sku, "itemCode": n.name,
                           "name": n.item_name or n.name} for n in near]}
-    cond, args = _movable_condition("b.warehouse")
+    cond, args = _movable_condition("b.warehouse", as_source=True)
     bins = frappe.db.sql(
         f"""SELECT b.warehouse, b.actual_qty AS qty FROM `tabBin` b
             WHERE b.item_code = %s AND b.actual_qty > 0 AND {cond}
@@ -153,14 +164,21 @@ def move_stock(item_code, qty, source, target):
         frappe.throw("Pick a source and a target bin.")
     if source == target:
         frappe.throw("Source and target are the same bin.")
-    cond, args = _movable_condition("name")
-    valid = {w[0] for w in frappe.db.sql(
-        f"""SELECT name FROM `tabWarehouse` WHERE name IN (%s, %s)
-            AND is_group = 0 AND disabled = 0 AND {cond}""",
-        tuple([source, target, *args]))}
-    if source not in valid:
+    # Each end gets its own rule: a supply point may be pulled from, never
+    # pushed into.
+    scond, sargs = _movable_condition("name", as_source=True)
+    ok_source = frappe.db.sql(
+        f"""SELECT name FROM `tabWarehouse` WHERE name = %s
+            AND is_group = 0 AND disabled = 0 AND {scond}""",
+        tuple([source, *sargs]))
+    if not ok_source:
         frappe.throw(f"{source} is not a movable bin.")
-    if target not in valid:
+    tcond, targs = _movable_condition("name")
+    ok_target = frappe.db.sql(
+        f"""SELECT name FROM `tabWarehouse` WHERE name = %s
+            AND is_group = 0 AND disabled = 0 AND {tcond}""",
+        tuple([target, *targs]))
+    if not ok_target:
         frappe.throw(f"{target} is not a valid target bin.")
     available = int(frappe.db.get_value(
         "Bin", {"warehouse": source, "item_code": item_code}, "actual_qty") or 0)
