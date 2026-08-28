@@ -184,7 +184,17 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     # put 167,046 automation-confirmed orders in the agent's "Confirmed" tab.
     # These tabs answer "what did WE decide", and the search box still reaches
     # any order.
-    d_rng = "custom_last_call_at IS NOT NULL AND " + rng.format(col="custom_last_call_at")
+    # Desk/automation confirms never stamp custom_last_call_at (measured:
+    # 9,163 of 9,178 Confirmed in 30d carry none) — requiring it emptied the
+    # agent's own Confirmed/Cancelled tabs. In the agent scope the
+    # custom_allocated_to fence already keeps the automation's mass out, so
+    # fall back to the order's last touch; the TEAM scope keeps the strict
+    # portal-decision clock (the fallback would pour ~167k automation rows in).
+    if mine_only:
+        d_rng = rng.format(col="COALESCE(custom_last_call_at, modified)")
+    else:
+        d_rng = ("custom_last_call_at IS NOT NULL AND "
+                 + rng.format(col="custom_last_call_at"))
 
     # Seed the DONE tabs too: the board increments these optimistically
     # after an action, and a window with no prior decisions would leave
@@ -282,9 +292,14 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
         vals["risky"] = risky
     elif tab in _AUTOMATION_DONE:
         conds = ["so.docstatus = 1", "so.company = %(co)s",
-                 "so.custom_sales_status = %(status)s",
-                 "so.custom_last_call_at IS NOT NULL",
-                 rng.format(col="so.custom_last_call_at")]
+                 "so.custom_sales_status = %(status)s"]
+        # Same clock split as the counts: agents (allocated_to-fenced) see
+        # their desk-era decisions too; the team view stays portal-stamped.
+        if mine_only:
+            conds.append(rng.format(col="COALESCE(so.custom_last_call_at, so.modified)"))
+        else:
+            conds.append("so.custom_last_call_at IS NOT NULL")
+            conds.append(rng.format(col="so.custom_last_call_at"))
         vals["status"] = _AUTOMATION_DONE[tab]
     elif tab == "duplicated":
         # Human-only decision with legacy rows that predate custom_last_call_at
@@ -325,7 +340,8 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     # Retry queues surface what's DUE first (next_call in the past, oldest
     # deferral first); pending is simply oldest-first.
     if tab in _AUTOMATION_DONE:
-        order_by = "so.custom_last_call_at DESC"  # newest decision first
+        # newest decision first (desk decisions fall back to last touch)
+        order_by = "COALESCE(so.custom_last_call_at, so.modified) DESC"
     elif tab == "duplicated":
         order_by = "so.creation DESC"             # newest duplicate first
     elif tab in ("pending", "monitor"):
