@@ -1801,9 +1801,19 @@ def order_activity(order, limit=15):
            WHERE c.reference_doctype = 'Sales Order' AND c.reference_name = %s
              AND c.comment_type = 'Comment'
            ORDER BY c.creation DESC LIMIT %s""", (order, limit), as_dict=True)
+    # Desk comments arrive as Quill HTML — the timeline was rendering raw
+    # '<div class="ql-editor...' markup. Strip to text before slicing.
+    import re as _re
+    from frappe.utils import strip_html_tags
+
+    def _plain(c):
+        c = strip_html_tags(c or "")
+        c = c.replace("&nbsp;", " ").replace("&amp;", "&")
+        return _re.sub(r"\s+", " ", c).strip()
+
     return {"rows": [{
         "by": (r.owner or "").split("@")[0],
-        "text": (r.content or "")[:300],
+        "text": _plain(r.content)[:300],
         "at": str(r.creation)[:16],
     } for r in rows]}
 
