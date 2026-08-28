@@ -272,6 +272,68 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
     }
 
 
+@frappe.whitelist()
+def my_report(days=7, frm=None, to=None):
+    """The tracking agent's OWN numbers — measured in THEIR craft: rescue
+    decisions, the save rate (kept moving vs. sent back), and how many of the
+    parcels they touched actually got delivered afterwards."""
+    _gate()
+    from logistics_portal.api.confirmation import _range
+    me = frappe.session.user
+    rng, rng_vals = _range(days, frm, to)
+    rng_vals = {**rng_vals, "me": me}
+    c_rng = rng.format(col="c.creation")
+
+    acts = {"redeliver": 0, "reship": 0, "returnreq": 0, "dna": 0,
+            "cancel": 0, "resolve": 0}
+    daily = {}
+    for r in frappe.db.sql(
+            f"""SELECT DATE(c.creation) d, c.content, COUNT(*) n
+                FROM `tabComment` c
+                WHERE c.owner = %(me)s AND c.content LIKE 'Rescue: %%' AND {c_rng}
+                GROUP BY DATE(c.creation), c.content""", rng_vals, as_dict=True):
+        if "(bulk)" in (r.content or ""):
+            continue
+        action = (r.content.split("Rescue: ", 1)[1] or "").split(" ", 1)[0].strip("()—-→ ")
+        if action not in acts:
+            continue
+        n = int(r.n or 0)
+        acts[action] += n
+        day = daily.setdefault(str(r.d), {"save": 0, "dna": 0, "back": 0})
+        if action in ("redeliver", "reship"):
+            day["save"] += n
+        elif action == "dna":
+            day["dna"] += n
+        elif action in ("returnreq", "cancel"):
+            day["back"] += n
+
+    saves = acts["redeliver"] + acts["reship"]
+    closed = saves + acts["returnreq"] + acts["cancel"]
+
+    # Of the orders this agent touched in the window: how many are DELIVERED
+    # now — the number that says the rescue actually worked.
+    outcome = frappe.db.sql(
+        f"""SELECT COUNT(DISTINCT c.reference_name),
+                   COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status
+                                            = 'Delivered'
+                                       THEN c.reference_name END)
+            FROM `tabComment` c
+            JOIN `tabDelivery Note Item` dni
+              ON dni.against_sales_order = c.reference_name AND dni.docstatus = 1
+            JOIN `tabDelivery Note` dn
+              ON dn.name = dni.parent AND dn.docstatus = 1
+            WHERE c.owner = %(me)s AND c.reference_doctype = 'Sales Order'
+              AND c.content LIKE 'Rescue: %%' AND {c_rng}""", rng_vals)[0]
+
+    return {
+        "acts": acts,
+        "daily": [{"date": d, **v} for d, v in sorted(daily.items())],
+        "saveRate": round(saves * 100 / closed) if closed else None,
+        "acted": int(outcome[0] or 0),
+        "deliveredAfter": int(outcome[1] or 0),
+    }
+
+
 @frappe.whitelist(methods=["POST"])
 def act(id=None, action=None, note=None):
     """One rescue decision. `id` is the Delivery Note (DN queues) or the Sales

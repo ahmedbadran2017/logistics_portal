@@ -120,6 +120,8 @@ const routes = [
       // Shared
       { path: "performance", name: "Performance", component: () => import("@/pages/Performance.vue") },
       { path: "my-dashboard", name: "MyDashboard", component: () => import("@/pages/MyDashboard.vue") },
+      { path: "my-cs-dashboard", name: "MyCsDashboard", component: () => import("@/pages/MyCsDashboard.vue") },
+      { path: "my-tracking-dashboard", name: "MyTrackingDashboard", component: () => import("@/pages/MyTrackingDashboard.vue") },
       { path: "settings", name: "Settings", component: () => import("@/pages/Settings.vue") },
       { path: "order/:name", name: "OrderDetail", component: () => import("@/pages/OrderDetail.vue"), props: true },
       // Anything unknown (incl. links to removed demo pages) → role home.

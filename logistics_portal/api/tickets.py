@@ -306,6 +306,63 @@ def board(tab="inbox", days=7, q="", limit=30, offset=0):
     }
 
 
+@frappe.whitelist()
+def my_report(days=7, frm=None, to=None):
+    """The CS agent's OWN numbers over a window — same DNA as the other
+    personal dashboards, measured in THEIR craft: tickets resolved, how fast,
+    and the daily action mix. Zero team data."""
+    _gate()
+    from logistics_portal.api.confirmation import _range
+    me = frappe.session.user
+    rng, rng_vals = _range(days, frm, to)
+    rng_vals = {**rng_vals, "me": me, "co": _CO}
+    c_rng = rng.format(col="c.creation")
+    r_rng = rng.format(col="i.resolution_date")
+
+    acts = {"take": 0, "reply": 0, "hold": 0, "resolve": 0, "reopen": 0,
+            "create": 0, "dismissed": 0}
+    daily = {}
+    for r in frappe.db.sql(
+            f"""SELECT DATE(c.creation) d, c.content, COUNT(*) n
+                FROM `tabComment` c
+                WHERE c.owner = %(me)s AND c.content LIKE 'CS: %%' AND {c_rng}
+                GROUP BY DATE(c.creation), c.content""", rng_vals, as_dict=True):
+        action = (r.content.split("CS: ", 1)[1] or "").split(" ", 1)[0].strip("()—-→ ")
+        if action not in acts:
+            continue
+        n = int(r.n or 0)
+        acts[action] += n
+        day = daily.setdefault(str(r.d), {"resolve": 0, "reply": 0, "other": 0})
+        day["resolve" if action == "resolve" else
+            "reply" if action == "reply" else "other"] += n
+
+    # Resolution outcome on MY tickets, resolved inside the window.
+    res = frappe.db.sql(
+        f"""SELECT COUNT(*),
+                   AVG(TIMESTAMPDIFF(HOUR, i.creation, i.resolution_date)),
+                   SUM(TIMESTAMPDIFF(HOUR, i.creation, i.resolution_date) <= 24)
+            FROM `tabIssue` i
+            WHERE i.custom_agent = %(me)s
+              AND (i.company = %(co)s OR COALESCE(i.company, '') = '')
+              AND i.resolution_date IS NOT NULL AND {r_rng}""", rng_vals)[0]
+    open_now = int(frappe.db.sql(
+        """SELECT COUNT(*) FROM `tabIssue` i
+           WHERE i.custom_agent = %(me)s
+             AND (i.company = %(co)s OR COALESCE(i.company, '') = '')
+             AND i.status NOT IN ('Resolved', 'Closed')""", rng_vals)[0][0])
+
+    resolved_n = int(res[0] or 0)
+    return {
+        "acts": acts,
+        "daily": [{"date": d, **v} for d, v in sorted(daily.items())],
+        "resolved": resolved_n,
+        "avgResH": round(float(res[1]), 1) if res[1] is not None else None,
+        "res24Pct": (round(float(res[2] or 0) * 100 / resolved_n)
+                     if resolved_n else None),
+        "openNow": open_now,
+    }
+
+
 @frappe.whitelist(methods=["POST"])
 def create_ticket(subject, phone=None, order=None, category=None,
                   description=None, channel="manual", wa_phone=None):

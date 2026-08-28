@@ -170,7 +170,8 @@ export const ROLE_CONFIG = {
   // Contact-center sub-teams (Ahmed 2026-08-27): كونفيرميشن / خدمة عملاء
   // وشكاوى / متابعة الشحنات — each sees only its own lane(s).
   cs: {
-    home: "Tickets",
+    // Landing = their own dashboard (same rule as confirmation).
+    home: "MyCsDashboard",
     nav: [
       {
         section: "nav.contactSection",
@@ -182,6 +183,7 @@ export const ROLE_CONFIG = {
       {
         section: "nav.me",
         items: [
+          { to: "MyCsDashboard", label: "nav.myDashboard", icon: "gauge" },
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
           { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         ],
@@ -189,7 +191,8 @@ export const ROLE_CONFIG = {
     ],
   },
   tracking: {
-    home: "Rescue",
+    // Landing = their own dashboard (same rule as confirmation).
+    home: "MyTrackingDashboard",
     nav: [
       {
         section: "nav.contactSection",
@@ -202,6 +205,7 @@ export const ROLE_CONFIG = {
       {
         section: "nav.me",
         items: [
+          { to: "MyTrackingDashboard", label: "nav.myDashboard", icon: "gauge" },
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
           { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         ],
