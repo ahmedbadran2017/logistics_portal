@@ -1169,6 +1169,7 @@ export default {
     badLogin: "Invalid email or password.",
   },
   md: {
+    cohortSrc: "Built from your allocated orders (desk decisions leave no portal trail yet).",
     title: "My dashboard",
     intro: "Your own numbers — decisions, confirm rate, money and delivery outcome.",
     myOrders: "orders allocated to me",

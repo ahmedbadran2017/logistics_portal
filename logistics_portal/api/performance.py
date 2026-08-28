@@ -333,6 +333,36 @@ def _agent_me(user, days=7):
                                    "action": action, "win": is_win,
                                    "at": str(r.creation)[11:16]})
 
+    # Desk-era fallback (same rule as confirmation.my_report): an agent who
+    # decides on the DESK writes no portal comments — the page read 0/40 with
+    # an empty week while their allocated cohort held hundreds of orders.
+    # Derive the story from the cohort's current statuses, dated by arrival.
+    if today_total == 0 and not trend_map:
+        st_act = {"Confirmed": "confirm", "Cancelled": "cancel",
+                  "Did not Answer": "dna", "Follow Up": "followup",
+                  "On Hold": "onhold", "Duplicated": "duplicate"}
+        for r in frappe.db.sql(
+                """SELECT DATE(so.creation) d, so.custom_sales_status st,
+                          COUNT(*) n
+                   FROM `tabSales Order` so
+                   WHERE so.docstatus = 1 AND so.custom_allocated_to = %(u)s
+                     AND so.creation >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)
+                   GROUP BY DATE(so.creation), so.custom_sales_status""",
+                {"u": user, "days": days - 1}, as_dict=True):
+            action = st_act.get(r.st)
+            if not action:
+                continue
+            n = int(r.n or 0)
+            d = str(r.d)
+            is_win = action == "confirm"
+            t = trend_map.setdefault(d, {"date": d, "total": 0, "wins": 0})
+            t["total"] += n
+            t["wins"] += n if is_win else 0
+            if d == today:
+                by_action["cf." + action] = by_action.get("cf." + action, 0) + n
+                today_total += n
+                today_wins += n if is_win else 0
+
     # Confirm rate: the decisions that actually closed an order today.
     closed = by_action.get("cf.confirm", 0) + by_action.get("cf.cancel", 0)
     rate = round(by_action.get("cf.confirm", 0) * 100.0 / closed, 1) if closed else None

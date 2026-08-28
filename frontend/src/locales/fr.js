@@ -1170,6 +1170,7 @@ export default {
     badLogin: "E-mail ou mot de passe incorrect.",
   },
   md: {
+    cohortSrc: "Construit à partir de vos commandes allouées (les décisions desk ne laissent pas encore de trace portail).",
     title: "Mon tableau de bord",
     intro: "Vos propres chiffres — décisions, taux de confirmation, argent et sort des livraisons.",
     myOrders: "commandes qui me sont allouées",

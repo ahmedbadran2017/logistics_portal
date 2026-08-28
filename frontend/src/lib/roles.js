@@ -145,7 +145,9 @@ export const ROLE_CONFIG = {
     // only. Rescue/Tracking belong to the tracking team, Tickets to cs —
     // their pages stay reachable to this role at the API level solely for
     // the shared Not-Delivered engine, but never in the nav.
-    home: "Workspace",
+    // Landing = My dashboard (Ahmed 2026-08-28): the agent opens on their
+    // own numbers, one click into the Workspace to work.
+    home: "MyDashboard",
     nav: [
       {
         section: "nav.contactSection",

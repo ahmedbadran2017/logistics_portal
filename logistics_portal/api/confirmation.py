@@ -974,6 +974,32 @@ def my_report(days=7, frm=None, to=None):
         if action in day:
             day[action] += int(r.n or 0)
 
+    # Desk-era fallback: an agent who still decides on the DESK leaves no
+    # portal comment trail, so acts/daily read zero while their allocated
+    # cohort carries hundreds of orders. When the trail is empty, derive the
+    # story from the cohort's CURRENT statuses instead (dated by arrival) —
+    # honest enough for a personal dashboard, and flagged so the UI can say so.
+    source = "portal"
+    if not any(acts.values()):
+        source = "cohort"
+        st_act = {"Confirmed": "confirm", "Cancelled": "cancel",
+                  "Did not Answer": "dna", "Follow Up": "followup",
+                  "On Hold": "onhold", "Duplicated": "duplicate"}
+        for r in frappe.db.sql(
+                f"""SELECT DATE(so.creation) d, so.custom_sales_status st, COUNT(*) n
+                    FROM `tabSales Order` so
+                    WHERE so.docstatus = 1 AND so.company = %(co)s
+                      AND so.custom_allocated_to = %(me)s AND {so_rng}
+                    GROUP BY DATE(so.creation), so.custom_sales_status""",
+                rng_vals, as_dict=True):
+            action = st_act.get(r.st)
+            if not action:
+                continue
+            acts[action] += int(r.n or 0)
+            day = daily.setdefault(str(r.d), {"confirm": 0, "cancel": 0, "dna": 0})
+            if action in day:
+                day[action] += int(r.n or 0)
+
     sane = 100000
     money = frappe.db.sql(
         f"""SELECT COUNT(*) n,
@@ -1003,6 +1029,7 @@ def my_report(days=7, frm=None, to=None):
         "daily": [{"date": d, **v} for d, v in sorted(daily.items())],
         "cohort": {"n": int(money[0] or 0),
                    "value": round(float(money[1] or 0))},
+        "source": source,
         "stick": {"shipped": int(stick[0] or 0), "delivered": int(stick[1] or 0)},
         "target": int(_cf_settings().get("dayTarget", 40)),
     }
