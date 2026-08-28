@@ -452,6 +452,10 @@ _NOT_PUTAWAY_LIKE = [
 ]
 _NOT_PUTAWAY_EXACT = ["Morocco - JM", RETURN_ZONE, ADJUST_WH]
 
+# The most expensive real piece on this site is in the low thousands; anything
+# past this is a typo or a bad import, not a price.
+_SANE_RATE = 50000
+
 
 def _putaway_condition(col):
     """(sql, args) — WHERE fragment selecting valid restock shelves."""
@@ -488,17 +492,21 @@ def restock_summary(limit=500, q=""):
     q = (q or "").strip().lower()
 
     # Per-item selling rate = the average line rate the item has actually sold
-    # at (rate > 0 only, so unpriced lines don't drag the average to zero).
+    # at, inside a SANE BAND. Guarding only the bottom (rate > 0) was half a
+    # guard: three corrupt order lines carried rates of 60,000,240 /
+    # 26,250,248 / 11,341,566 MAD, and those three pieces alone priced the
+    # Return Zone at 97.6M against a real ~88k (measured 2026-08-28).
     rows = frappe.db.sql(
         """SELECT b.item_code, b.actual_qty AS qty,
                   it.custom_sku AS sku,
                   COALESCE(NULLIF(it.item_name,''), b.item_code) AS name, it.image,
                   COALESCE((SELECT AVG(soi.rate) FROM `tabSales Order Item` soi
-                            WHERE soi.item_code = b.item_code AND soi.rate > 0), 0) AS sell_rate
+                            WHERE soi.item_code = b.item_code
+                              AND soi.rate > 0 AND soi.rate <= %s), 0) AS sell_rate
            FROM `tabBin` b
            LEFT JOIN `tabItem` it ON it.name = b.item_code
            WHERE b.warehouse = %s AND b.actual_qty > 0""",
-        (RETURN_ZONE,), as_dict=True)
+        (_SANE_RATE, RETURN_ZONE), as_dict=True)
 
     total_qty = sum(int(r.qty or 0) for r in rows)
     for r in rows:
@@ -545,7 +553,8 @@ def restock_scan(code):
     siblings live (best shelf suggestions, by existing stock)."""
     _recv_gate()
     from logistics_portal.api.picking import resolve_scan
-    r = resolve_scan(code)
+    # Duplicate SKUs: prefer the twin that actually holds the returned piece.
+    r = resolve_scan(code, warehouse=RETURN_ZONE)
     item_code = r.get("itemCode")
     if not item_code:
         return {"ok": False, "reason": "unknown_item", "code": (code or "").strip()}

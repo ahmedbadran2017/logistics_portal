@@ -129,16 +129,44 @@ def pick_items(order):
 
 
 @frappe.whitelist()
-def resolve_scan(code):
+def resolve_scan(code, warehouse=None):
     """Map a scanned code to an item. The PDA reads the label, which carries the
     SKU (or a barcode alias of it) — item_code (the Shopify variant id) is never
     on a label. Priority: exact custom_sku → Item Barcode → item_code.
+
+    One SKU can belong to SEVERAL item codes (the catalog's duplicate-item
+    problem: same physical product imported twice). Picking an arbitrary twin
+    made the portal say "no stock" while the piece sat on the shelf under the
+    other code, so when a SKU is ambiguous the twin holding stock wins —
+    in `warehouse` when one is named, anywhere otherwise.
     Returns {itemCode, sku, name} or {} if nothing matches."""
     code = (code or "").strip()
     if not code:
         return {}
-    it = frappe.db.get_value(
-        "Item", {"custom_sku": code}, ["name", "custom_sku", "item_name"], as_dict=True)
+    twins = frappe.db.sql(
+        """SELECT name, custom_sku, item_name FROM `tabItem`
+           WHERE custom_sku = %s AND COALESCE(disabled, 0) = 0
+           ORDER BY modified DESC LIMIT 10""", (code,), as_dict=True)
+    it = None
+    if len(twins) > 1:
+        codes = tuple(t.name for t in twins)
+        if warehouse:
+            best = frappe.db.sql(
+                """SELECT item_code FROM `tabBin`
+                   WHERE item_code IN %s AND warehouse = %s AND actual_qty > 0
+                   ORDER BY actual_qty DESC LIMIT 1""", (codes, warehouse))
+        else:
+            best = frappe.db.sql(
+                """SELECT item_code FROM `tabBin`
+                   WHERE item_code IN %s AND actual_qty > 0
+                   ORDER BY actual_qty DESC LIMIT 1""", (codes,))
+        if best:
+            it = next((t for t in twins if t.name == best[0][0]), None)
+    if it is None and twins:
+        it = twins[0]
+    if it is None:
+        it = frappe.db.get_value(
+            "Item", {"custom_sku": code}, ["name", "custom_sku", "item_name"], as_dict=True)
     if not it:
         parent = frappe.db.get_value("Item Barcode", {"barcode": code}, "parent")
         if parent:
