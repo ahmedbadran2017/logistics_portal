@@ -1254,6 +1254,7 @@ export default {
     location: "موقع", reaction: "تفاعل", flow: "نموذج",
   },
   ws: {
+    queueTeam: "طابور الفريق",
     moreActivity: "كل النشاط",
     exitList: "خروج",
     listDone: "القايمة خلصت — رجعنا للتوزيع التلقائي",

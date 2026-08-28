@@ -1719,7 +1719,10 @@ def next_order(skip=None, as_user=None):
         scope_user = view_as
         mine = True
     me_q = ""
-    vals = {"co": _CO}
+    # The DB server's NOW() runs on a different clock than the site (fresh
+    # orders read negative ages; due call-backs fired an hour late) — every
+    # time comparison here uses the SITE clock.
+    vals = {"co": _CO, "now": str(now_datetime())[:19]}
     if mine:
         vals["me_like"] = f'%"{scope_user}"%'
         me_q = " AND so._assign LIKE %(me_like)s"
@@ -1730,7 +1733,7 @@ def next_order(skip=None, as_user=None):
              WHERE so.docstatus = 1 AND so.company = %(co)s
                AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
                AND so.custom_next_call_at IS NOT NULL
-               AND so.custom_next_call_at <= NOW(){me_q}
+               AND so.custom_next_call_at <= %(now)s{me_q}
              ORDER BY so.custom_next_call_at LIMIT 25""",
          {"sts": retry_sts}),
         (f"""SELECT so.name FROM `tabSales Order` so
@@ -1835,7 +1838,7 @@ def next_up(limit=20, as_user=None):
         scope_user = as_user
         mine = True
     me_q = ""
-    vals = {"co": _CO, "limit": limit}
+    vals = {"co": _CO, "limit": limit, "now": str(now_datetime())[:19]}
     if mine:
         vals["me_like"] = f'%"{scope_user}"%'
         me_q = " AND so._assign LIKE %(me_like)s"
@@ -1845,13 +1848,13 @@ def next_up(limit=20, as_user=None):
                     so.custom_sales_status status,
                     COALESCE(so.custom_call_attempts, 0) attempts,
                     so.custom_next_call_at next_call,
-                    TIMESTAMPDIFF(HOUR, so.creation, NOW()) age_h"""
+                    GREATEST(0, TIMESTAMPDIFF(HOUR, so.creation, %(now)s)) age_h"""
     due = frappe.db.sql(
         f"""{sel} FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s
               AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
               AND so.custom_next_call_at IS NOT NULL
-              AND so.custom_next_call_at <= NOW(){me_q}
+              AND so.custom_next_call_at <= %(now)s{me_q}
             ORDER BY so.custom_next_call_at LIMIT %(limit)s""",
         {**vals, "sts": retry_sts}, as_dict=True)
     room = max(0, limit - len(due))
@@ -1867,7 +1870,7 @@ def next_up(limit=20, as_user=None):
         f"""SELECT MIN(so.custom_next_call_at) FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s
               AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
-              AND so.custom_next_call_at > NOW(){me_q}""",
+              AND so.custom_next_call_at > %(now)s{me_q}""",
         {**vals, "sts": retry_sts})[0][0]
 
     status_tab = {"Did not Answer": "dna", "Follow Up": "followup",
@@ -1889,4 +1892,7 @@ def next_up(limit=20, as_user=None):
         "nextCall": _when(r.next_call),
     } for r in list(due) + list(fresh)]
     return {"rows": rows, "nextDueAt": _when(upcoming),
-            "dueCount": len(due)}
+            "dueCount": len(due),
+            # Admin scope serves the whole pool — the pane must not call the
+            # team's plan "my queue".
+            "scope": "mine" if mine else "team"}

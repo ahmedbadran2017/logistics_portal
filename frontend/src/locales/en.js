@@ -1254,6 +1254,7 @@ export default {
     location: "Location", reaction: "Reaction", flow: "Form",
   },
   ws: {
+    queueTeam: "Team queue",
     moreActivity: "Full activity",
     exitList: "Exit list",
     listDone: "List finished — back to serve-next",

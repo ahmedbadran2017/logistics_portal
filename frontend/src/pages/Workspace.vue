@@ -70,7 +70,7 @@
       <!-- LEFT: the queue, dense like the desk list they live in -->
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden lg:sticky lg:top-3">
         <div class="px-3 py-2 border-b border-stone-100 flex items-center gap-2">
-          <span class="text-[11.5px] font-semibold" :class="tabMode ? 'text-[var(--accent-700)]' : 'text-stone-700'">{{ tabMode ? t(WORK_TAB_LABEL[tabMode]) : t('ws.queue') }}</span>
+          <span class="text-[11.5px] font-semibold" :class="tabMode ? 'text-[var(--accent-700)]' : 'text-stone-700'">{{ tabMode ? t(WORK_TAB_LABEL[tabMode]) : t(plan?.scope === 'team' ? 'ws.queueTeam' : 'ws.queue') }}</span>
           <span class="text-[10.5px] text-stone-400 tabular-nums">{{ tabMode ? tabRows.length : (board?.counts?.pending ?? '–') }}</span>
           <button v-if="tabMode" class="ms-auto text-[10px] font-semibold text-stone-500 hover:text-stone-800 bg-stone-100 rounded-md px-1.5 py-0.5" @click="exitTabMode()">{{ t('ws.exitList') }}</button>
           <button :class="tabMode ? '' : 'ms-auto'" class="text-stone-400 hover:text-stone-700" :title="t('common.refresh')" @click="tabMode ? loadTabQueue(tabMode) : loadBoard()">

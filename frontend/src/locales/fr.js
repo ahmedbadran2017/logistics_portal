@@ -1255,6 +1255,7 @@ export default {
     location: "Position", reaction: "R\u00e9action", flow: "Formulaire",
   },
   ws: {
+    queueTeam: "File de l'équipe",
     moreActivity: "Toute l'activit\u00e9",
     exitList: "Quitter la liste",
     listDone: "Liste termin\u00e9e \u2014 retour au service auto",
