@@ -70,13 +70,14 @@
       <!-- LEFT: the queue, dense like the desk list they live in -->
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden lg:sticky lg:top-3">
         <div class="px-3 py-2 border-b border-stone-100 flex items-center gap-2">
-          <span class="text-[11.5px] font-semibold text-stone-700">{{ t('ws.queue') }}</span>
-          <span class="text-[10.5px] text-stone-400 tabular-nums">{{ board?.counts?.pending ?? '–' }}</span>
-          <button class="ms-auto text-stone-400 hover:text-stone-700" :title="t('common.refresh')" @click="loadBoard">
+          <span class="text-[11.5px] font-semibold" :class="tabMode ? 'text-[var(--accent-700)]' : 'text-stone-700'">{{ tabMode ? t(WORK_TAB_LABEL[tabMode]) : t('ws.queue') }}</span>
+          <span class="text-[10.5px] text-stone-400 tabular-nums">{{ tabMode ? tabRows.length : (board?.counts?.pending ?? '–') }}</span>
+          <button v-if="tabMode" class="ms-auto text-[10px] font-semibold text-stone-500 hover:text-stone-800 bg-stone-100 rounded-md px-1.5 py-0.5" @click="exitTabMode()">{{ t('ws.exitList') }}</button>
+          <button :class="tabMode ? '' : 'ms-auto'" class="text-stone-400 hover:text-stone-700" :title="t('common.refresh')" @click="tabMode ? loadTabQueue(tabMode) : loadBoard()">
             <Icon name="refresh-cw" :size="12" />
           </button>
         </div>
-        <div v-if="boardLoading" class="p-3 space-y-1.5">
+        <div v-if="boardLoading || tabLoading" class="p-3 space-y-1.5">
           <span v-for="n in 8" :key="n" class="block h-8 rounded bg-stone-100 animate-pulse" />
         </div>
         <div v-else class="max-h-[70vh] overflow-y-auto divide-y divide-stone-50">
@@ -124,6 +125,7 @@
                 <span class="text-[16px] font-bold text-stone-900">{{ active.customer }}</span>
                 <span v-if="grade" class="text-[10.5px] font-bold rounded-full px-2 py-0.5 ring-1" :class="grade.cls" :title="grade.hint">{{ grade.label }}</span>
                 <span class="font-mono text-[11.5px] text-stone-400">{{ active.name }}</span>
+                <span v-if="stChip" class="text-[10px] font-bold uppercase rounded-full px-2 py-0.5" :class="stChip.cls">{{ stChip.label }}</span>
                 <span v-if="activeRow?.due" class="text-[10px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-full px-2 py-0.5">{{ t('cf.due') }}</span>
                 <span class="text-[10.5px] font-mono tabular-nums rounded-full px-2 py-0.5 ring-1"
                       :class="cardSeconds > 240 ? 'text-rose-700 bg-rose-50 ring-rose-200' : 'text-stone-500 bg-stone-50 ring-stone-200'">
@@ -138,7 +140,9 @@
               <div class="flex items-center gap-2.5 text-[12px] text-stone-500 mt-1 flex-wrap tabular-nums">
                 <a :href="'tel:' + active.phone" class="font-mono text-sky-700 font-semibold">{{ active.phone }}</a>
                 <span v-if="active.city" class="inline-flex items-center gap-1"><Icon name="map-pin" :size="11" />{{ active.city }}</span>
-                <span v-if="activeRow?.attempts" class="text-amber-600">×{{ activeRow.attempts }} {{ t('ws.attempts') }}</span>
+                <span v-if="cardAge" class="inline-flex items-center gap-1"><Icon name="clock" :size="11" />{{ cardAge }}</span>
+                <span v-if="cardAttempts" class="text-amber-600 font-medium">×{{ cardAttempts }} {{ t('ws.attempts') }}</span>
+                <span v-if="active.next_call" class="text-stone-400">→ {{ active.next_call.slice(5) }}</span>
               </div>
             </div>
             <div class="flex items-center gap-1.5">
@@ -146,6 +150,17 @@
               <a :href="waUrl" target="_blank" class="ws-contact bg-emerald-50 text-emerald-700 ring-emerald-200" title="WhatsApp"><Icon name="message-circle" :size="16" /></a>
               <button class="ws-contact bg-amber-50 text-amber-700 ring-amber-200" :title="t('cf.editContact')" @click="panel = panel === 'contact' ? '' : 'contact'"><Icon name="edit" :size="15" /></button>
             </div>
+          </div>
+
+          <!-- the order's story so far — auto-loaded for anything not fresh,
+               so the agent knows the history BEFORE dialing -->
+          <div v-if="miniActivity.length && !showActivity" class="rounded-xl bg-stone-50 ring-1 ring-stone-200/60 px-3 py-2 space-y-1">
+            <div v-for="(a, i) in miniActivity" :key="i" class="flex items-center gap-2 text-[11px] text-stone-600 min-w-0">
+              <span class="w-1 h-1 rounded-full bg-stone-300 flex-shrink-0" />
+              <span class="truncate" dir="auto">{{ a.text }}</span>
+              <span class="ms-auto flex-shrink-0 text-stone-400 font-mono text-[10px]">{{ a.by }} · {{ a.at.slice(5) }}</span>
+            </div>
+            <button class="text-[10.5px] font-semibold text-[var(--accent-600)] hover:underline" @click="toggleActivity">{{ t('ws.moreActivity') }}</button>
           </div>
 
           <!-- items -->
@@ -340,15 +355,27 @@
             <Icon name="message-circle" :size="12" class="text-emerald-600" />{{ t('cs.thread') }}
           </div>
           <div v-if="threadLoading" class="h-20 rounded bg-stone-100 animate-pulse" />
-          <div v-else class="max-h-[260px] overflow-y-auto space-y-1.5">
-            <div v-for="(m, i) in thread" :key="i" class="flex" :class="m.in ? 'justify-start' : 'justify-end'">
-              <div class="max-w-[85%] rounded-lg px-2.5 py-1.5 text-[11.5px]"
-                   :class="m.in ? 'bg-stone-50 ring-1 ring-stone-200 text-stone-800' : 'bg-emerald-50 ring-1 ring-emerald-200 text-emerald-900'" dir="auto">
-                <template v-if="m.text">{{ m.text }}</template>
-                <span v-else class="text-stone-400">📷</span>
-                <div class="text-[9px] text-stone-400 tabular-nums mt-0.5">{{ m.at.slice(5) }}</div>
+          <div v-else ref="threadBox" class="max-h-[300px] overflow-y-auto space-y-1.5">
+            <template v-for="(m, i) in thread" :key="i">
+              <!-- day separator whenever the calendar flips -->
+              <div v-if="!i || m.at.slice(0, 10) !== thread[i - 1].at.slice(0, 10)" class="text-center pt-1">
+                <span class="text-[9.5px] font-semibold text-stone-400 bg-stone-100 rounded-full px-2 py-0.5 tabular-nums">{{ m.at.slice(5, 10) }}</span>
               </div>
-            </div>
+              <div class="flex" :class="m.in ? 'justify-start' : 'justify-end'">
+                <div class="max-w-[85%] rounded-lg px-2.5 py-1.5 text-[11.5px]"
+                     :class="m.in ? 'bg-stone-50 ring-1 ring-stone-200 text-stone-800' : 'bg-emerald-50 ring-1 ring-emerald-200 text-emerald-900'" dir="auto">
+                  <div v-if="m.kind && m.kind !== 'text' && m.kind !== 'button'"
+                       class="flex items-center gap-1.5 text-stone-500" :class="m.text ? 'mb-0.5' : ''">
+                    <Icon :name="WA_KIND_ICON[m.kind] || 'file-text'" :size="12" />
+                    <span class="text-[10.5px] font-medium">{{ t('wa.' + m.kind, m.kind) }}</span>
+                  </div>
+                  <template v-if="m.text">{{ m.text }}</template>
+                  <div class="text-[9px] tabular-nums mt-0.5" :class="m.in ? 'text-stone-400' : 'text-emerald-700/70'">
+                    {{ m.at.slice(11) }}<template v-if="!m.in"> · Justyol</template>
+                  </div>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
       </div>
@@ -357,7 +384,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
@@ -381,6 +408,15 @@ const cust = ref(null);
 const custLoading = ref(false);
 const thread = ref([]);
 const threadLoading = ref(false);
+const threadBox = ref(null);
+const WA_KIND_ICON = { image: "image", audio: "mic", video: "video",
+  document: "file-text", location: "map-pin", reaction: "thumbs-up",
+  flow: "file-text" };
+// The latest message is the one that matters — land scrolled to the bottom.
+watch(thread, async () => {
+  await nextTick();
+  if (threadBox.value) threadBox.value.scrollTop = threadBox.value.scrollHeight;
+});
 const amendItems = ref([]);
 const discAmt = ref(null);
 const discPct = ref(null);
@@ -396,12 +432,13 @@ const slaLate = computed(() => {
   return queueRows.value.filter((r) => !r.attempts && r.ageH >= h).length;
 });
 const slaChip = computed(() => {
-  const row = activeRow.value;
   const h = board.value?.slaHours || 6;
-  if (!row || row.attempts) return null;   // the clock is about the FIRST touch
-  const leftMin = h * 60 - (row.ageH || 0) * 60;
+  // Order-first: the plan row is absent for deep-linked opens.
+  const ageH = activeRow.value?.ageH ?? cardAgeH.value;
+  if (ageH == null || cardAttempts.value) return null;   // first-touch clock only
+  const leftMin = h * 60 - (ageH || 0) * 60;
   if (leftMin <= 0) {
-    const over = Math.round(((row.ageH || 0) - h) * 10) / 10;
+    const over = Math.round(((ageH || 0) - h) * 10) / 10;
     return { text: t("ws.slaOver").replace("{h}", String(over)),
              cls: "text-white bg-rose-600 ring-rose-600" };
   }
@@ -429,7 +466,8 @@ const myTotal = computed(() =>
 // The queue pane mirrors the SERVE PLAN (due call-backs first, then fresh) —
 // not just the pending slice; the agent sees exactly what N will hand out.
 const plan = ref(null);
-const queueRows = computed(() => plan.value?.rows || []);
+const queueRows = computed(() =>
+  tabMode.value ? tabRows.value : (plan.value?.rows || []));
 const nextDueAt = computed(() => plan.value?.nextDueAt || "");
 const dueCount = computed(() => plan.value?.dueCount || 0);
 const KIND_CLS = {
@@ -437,6 +475,70 @@ const KIND_CLS = {
   followup: "text-sky-700 bg-sky-100",
   onhold: "text-stone-600 bg-stone-200",
 };
+
+// The card tells the ORDER's truth from the order itself (orders.detail) —
+// never from the plan row, which deep-linked opens aren't part of.
+const ST_KIND = { "Did not Answer": "dna", "Follow Up": "followup", "On Hold": "onhold" };
+const stChip = computed(() => {
+  const st = active.value?.sales_status;
+  if (!st) return null;
+  const kind = ST_KIND[st];
+  if (kind) return { label: t("ws.k_" + kind), cls: KIND_CLS[kind] };
+  if (st === "Pending") return { label: t("cf.tabPending"), cls: "text-[var(--accent-700)] bg-[var(--accent-100)]" };
+  return { label: st, cls: "text-stone-600 bg-stone-200" };
+});
+const cardAgeH = computed(() => {
+  const c = active.value?.created;
+  if (!c) return null;
+  return Math.max(0, Math.round((Date.now() - new Date(c.replace(" ", "T")).getTime()) / 3600000));
+});
+const cardAge = computed(() => {
+  const h = cardAgeH.value;
+  return h == null ? "" : (h < 48 ? h + "h" : Math.round(h / 24) + "d");
+});
+const cardAttempts = computed(() =>
+  active.value?.attempts ?? activeRow.value?.attempts ?? 0);
+const miniActivity = ref([]);
+
+// Board-tab list mode: the agent picked a queue on the Confirmation board and
+// works it here start to finish — no bouncing back after every decision.
+const WORK_TAB_LABEL = { pending: "cf.tabPending", dna: "cf.tabDna",
+  followup: "cf.tabFollowup", onhold: "cf.tabOnhold", monitor: "cf.tabMonitor" };
+const tabMode = ref("");
+const tabRows = ref([]);
+const tabLoading = ref(false);
+async function loadTabQueue(tb) {
+  tabLoading.value = true;
+  try {
+    const r = await api("confirmation.board", { tab: tb, limit: 50 });
+    tabRows.value = (r?.rows || []).map((x) => ({
+      order: x.order, customer: x.customer, total: x.total, ageH: x.ageH,
+      attempts: x.attempts, due: !!x.due, kind: ST_KIND[x.status] || (KIND_CLS[tb] ? tb : "pending"),
+    }));
+  } catch (e) { tabRows.value = []; }
+  tabLoading.value = false;
+}
+function exitTabMode() {
+  tabMode.value = "";
+  tabRows.value = [];
+  router.replace({ query: {} });
+}
+function gotoOrder(name) {
+  // Drive navigation through the URL — the query watcher opens the card, and
+  // refresh/back land exactly where the agent was.
+  router.replace({ query: { ...(tabMode.value ? { tab: tabMode.value } : {}), order: name } });
+}
+async function advanceTab(decided) {
+  const idx = tabRows.value.findIndex((r) => r.order === decided);
+  tabRows.value = tabRows.value.filter((r) => r.order !== decided);
+  const next = tabRows.value[Math.min(Math.max(idx, 0), tabRows.value.length - 1)];
+  if (next) gotoOrder(next.order);
+  else {
+    success(t("ws.listDone"));
+    exitTabMode();
+    await _serve(false);
+  }
+}
 const waUrl = computed(() =>
   "https://wa.me/" + String(active.value?.phone || "").replace(/\D/g, ""));
 const isBlocked = computed(() => cust.value?.flag?.flag === "blocked");
@@ -598,6 +700,12 @@ async function openOrder(name) {
     editPhone.value = active.value.phone || "";
     editCity.value = active.value.city || "";
     editAddress.value = active.value.address_line || "";
+    miniActivity.value = [];
+    if (det.sales_status !== "Pending" || (det.attempts || 0) > 0) {
+      api("confirmation.order_activity", { order: name, limit: 3 })
+        .then((r) => { if (seq === openSeq) miniActivity.value = r?.rows || []; })
+        .catch(() => {});
+    }
     loadContext();
   } catch (e) {
     if (seq !== openSeq) return;
@@ -629,6 +737,17 @@ async function serveNext(skipCurrent = false) {
   // its own busy flag is still up here, and this guard silently ate the
   // auto-advance (decision recorded, next order never served).
   if (serving.value || busy.value) return;
+  if (tabMode.value) {
+    // List mode: N walks the picked queue instead of asking serve-next.
+    const rows = tabRows.value;
+    if (rows.length) {
+      const idx = rows.findIndex((r) => r.order === active.value?.name);
+      const next = rows[(idx + 1) % rows.length];
+      if (next && next.order !== active.value?.name) return gotoOrder(next.order);
+    }
+    success(t("ws.listDone"));
+    exitTabMode();
+  }
   return _serve(skipCurrent);
 }
 
@@ -669,7 +788,8 @@ async function decide(action, note) {
     if (board.value?.mine && action in board.value.mine) board.value.mine[action]++;
     if (plan.value?.rows) plan.value.rows = plan.value.rows.filter((r) => r.order !== active.value.name);
     panel.value = ""; cancelReason.value = "";
-    await _serve(false);
+    if (tabMode.value) await advanceTab(active.value?.name);
+    else await _serve(false);
   } catch (e) {
     warn(t("cf.actFail"), String(e.message || e));
   } finally {
@@ -756,9 +876,16 @@ const route = useRoute();
 const router = useRouter();
 onMounted(() => {
   loadBoard();
-  // Deep link from the Confirmation board: open THIS order with the full
-  // context instead of whatever serve-next would pick.
+  // Deep link from the Confirmation board: open THIS order (and, in list
+  // mode, THIS queue) instead of whatever serve-next would pick.
+  const tb = String(route.query.tab || "");
   const o = String(route.query.order || "");
+  if (WORK_TAB_LABEL[tb]) {
+    tabMode.value = tb;
+    loadTabQueue(tb).then(() => {
+      if (!o && tabRows.value.length) gotoOrder(tabRows.value[0].order);
+    });
+  }
   if (o) openOrder(o);
   window.addEventListener("keydown", onKey);
 });
@@ -767,6 +894,17 @@ onMounted(() => {
 watch(() => route.query.order, (o) => {
   const name = String(o || "");
   if (name && name !== active.value?.name) openOrder(name);
+});
+watch(() => route.query.tab, (tb2) => {
+  const tb = String(tb2 || "");
+  if (tb === tabMode.value) return;
+  if (WORK_TAB_LABEL[tb]) {
+    tabMode.value = tb;
+    loadTabQueue(tb);
+  } else {
+    tabMode.value = "";
+    tabRows.value = [];
+  }
 });
 // The plan pane goes stale over a shift — silent refresh like every queue.
 const planTimer = setInterval(() => {

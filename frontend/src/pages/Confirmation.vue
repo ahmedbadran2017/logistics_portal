@@ -52,6 +52,11 @@
         </button>
       </div>
       <div class="flex items-center gap-2 ms-auto flex-wrap">
+        <button v-if="!canBulk && !isDone && !isNd && rows.length && WORK_TABS.has(tab)"
+                class="h-10 px-4 rounded-xl text-[12.5px] font-bold text-white inline-flex items-center gap-1.5 shadow-sm hover:shadow transition-shadow"
+                :style="{ background: 'var(--accent-600)' }" @click="workList">
+          <Icon name="sparkles" :size="14" />{{ t('ws.workList') }}
+        </button>
         <DateRange v-model:days="days" v-model:frm="frm" v-model:to="to" @change="page = 1; load()" />
         <div class="relative">
           <Icon name="search" :size="13" class="absolute start-3 top-1/2 -translate-y-1/2 text-stone-400" />
@@ -396,8 +401,15 @@ function toggleHistory() {
     tab.value = "pending"; page.value = 1; load();
   }
 }
+const WORK_TABS = new Set(["pending", "dna", "followup", "onhold", "monitor"]);
 function openWs(r) {
-  router.push({ name: "Workspace", query: { order: r.order } });
+  // Carry the tab too: the Workspace then walks THIS queue after each
+  // decision instead of bouncing the agent back here.
+  router.push({ name: "Workspace", query: {
+    order: r.order, ...(WORK_TABS.has(tab.value) ? { tab: tab.value } : {}) } });
+}
+function workList() {
+  router.push({ name: "Workspace", query: { tab: tab.value } });
 }
 const q = ref("");
 const page = ref(1);

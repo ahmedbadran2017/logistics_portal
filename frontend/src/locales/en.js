@@ -1169,7 +1169,15 @@ export default {
     fWa: "WhatsApp unanswered (7d)",
     faster: "{h}h faster today", slower: "{h}h slower today", noData: "\u2014",
   },
+  wa: {
+    image: "Photo", audio: "Voice note", video: "Video", document: "Document",
+    location: "Location", reaction: "Reaction", flow: "Form",
+  },
   ws: {
+    moreActivity: "Full activity",
+    exitList: "Exit list",
+    listDone: "List finished — back to serve-next",
+    workList: "Work this list",
     k_dna: "call back",
     k_followup: "follow-up",
     k_onhold: "on hold",

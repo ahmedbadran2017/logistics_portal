@@ -1244,6 +1244,8 @@ def detail(name):
         "taxes": so.total_taxes_and_charges or 0,
         "total": so.grand_total,
         "sales_status": so.get("custom_sales_status") or "",
+        "attempts": int(so.get("custom_call_attempts") or 0),
+        "next_call": str(so.get("custom_next_call_at") or "")[:16],
         "payment_collection": so.get("custom_payment_collection") or "",
         "stage": so.get("custom_logistics_status") or "Pending",
         # contact & destination

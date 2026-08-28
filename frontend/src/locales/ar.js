@@ -1169,7 +1169,15 @@ export default {
     fWa: "واتساب بلا رد (7 أيام)",
     faster: "أسرع بـ {h} ساعة النهاردة", slower: "أبطأ بـ {h} ساعة النهاردة", noData: "\u2014",
   },
+  wa: {
+    image: "صورة", audio: "تسجيل صوتي", video: "فيديو", document: "ملف",
+    location: "موقع", reaction: "تفاعل", flow: "نموذج",
+  },
   ws: {
+    moreActivity: "كل النشاط",
+    exitList: "خروج",
+    listDone: "القايمة خلصت — رجعنا للتوزيع التلقائي",
+    workList: "اشتغل على القايمة",
     k_dna: "معاودة",
     k_followup: "متابعة",
     k_onhold: "معلق",

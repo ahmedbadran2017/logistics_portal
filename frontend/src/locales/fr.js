@@ -1170,7 +1170,15 @@ export default {
     fWa: "WhatsApp sans r\u00e9ponse (7j)",
     faster: "{h}h plus rapide aujourd'hui", slower: "{h}h plus lent aujourd'hui", noData: "\u2014",
   },
+  wa: {
+    image: "Photo", audio: "Vocal", video: "Vid\u00e9o", document: "Document",
+    location: "Position", reaction: "R\u00e9action", flow: "Formulaire",
+  },
   ws: {
+    moreActivity: "Toute l'activit\u00e9",
+    exitList: "Quitter la liste",
+    listDone: "Liste termin\u00e9e \u2014 retour au service auto",
+    workList: "Travailler cette liste",
     k_dna: "\u00e0 rappeler",
     k_followup: "relance",
     k_onhold: "en attente",
