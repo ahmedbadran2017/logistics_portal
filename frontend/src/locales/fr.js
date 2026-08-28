@@ -327,6 +327,10 @@ export default {
     recentEmpty: "Aucun reçu d'achat ces 7 derniers jours.",
   },
   mv: {
+    parkedTitle: "Cet article a du stock — hors du réseau déplaçable",
+    parkedHint: "Ces entrepôts sont exclus des transferts (Turquie, transit, quarantaine). Rien à déplacer d'ici.",
+    parkedErr: "{n} — stock garé hors du réseau déplaçable",
+    nearTitle: "Vouliez-vous dire l'un de ceux-ci ?",
     targetHint: "Plan de slotting : placez-le sur une \u00e9tag\u00e8re {z}",
     title: "Déplacer le stock",
     intro: "Transferts casier à casier : rangement depuis Réception, réassort depuis SLOW, ou re-slotting — sans le desk.",

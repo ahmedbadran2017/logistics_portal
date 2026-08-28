@@ -327,6 +327,10 @@ export default {
     recentEmpty: "No purchase receipts in the last 7 days.",
   },
   mv: {
+    parkedTitle: "This item has stock — outside the movable network",
+    parkedHint: "Those warehouses are excluded from bin-to-bin moves (Turkey, transit, quarantine). Nothing to move from here.",
+    parkedErr: "{n} — stock is parked outside the movable network",
+    nearTitle: "Did you mean one of these?",
     targetHint: "Slotting plan: put it on any {z} shelf",
     title: "Move stock",
     intro: "Bin-to-bin transfers: put-away from Receiving, replenish shelves from SLOW, or re-slot — no desk needed.",

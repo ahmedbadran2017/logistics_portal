@@ -95,10 +95,24 @@ def move_lookup(code):
     (source candidates) — biggest holdings first."""
     _gate()
     from logistics_portal.api.picking import resolve_scan
+    code = (code or "").strip()
     r = resolve_scan(code)
     item_code = r.get("itemCode")
     if not item_code:
-        return {"ok": False, "reason": "unknown_item", "code": (code or "").strip()}
+        # A dead end helps nobody: this catalog is full of sibling SKUs that
+        # differ by colour/size (…-blk-11y, …-wht/ant-12y), so a mistyped or
+        # half-scanned code is the common case. Offer the family.
+        head = code.split("-")[0][:12]
+        near = []
+        if len(head) >= 4:
+            near = frappe.db.sql(
+                """SELECT custom_sku, name, item_name FROM `tabItem`
+                   WHERE custom_sku LIKE %s AND COALESCE(disabled, 0) = 0
+                   ORDER BY custom_sku LIMIT 6""",
+                (head + "%",), as_dict=True)
+        return {"ok": False, "reason": "unknown_item", "code": code,
+                "near": [{"sku": n.custom_sku, "itemCode": n.name,
+                          "name": n.item_name or n.name} for n in near]}
     cond, args = _movable_condition("b.warehouse")
     bins = frappe.db.sql(
         f"""SELECT b.warehouse, b.actual_qty AS qty FROM `tabBin` b
@@ -106,8 +120,18 @@ def move_lookup(code):
             ORDER BY b.actual_qty DESC LIMIT 20""",
         tuple([item_code, *args]), as_dict=True)
     if not bins:
-        return {"ok": False, "reason": "no_stock", "itemCode": item_code,
-                "name": r.get("name"), "sku": r.get("sku")}
+        # "No stock anywhere" is often a lie: the piece exists but sits in a
+        # warehouse this screen may not touch (Yakuplu, transit, quarantine).
+        # Name the place — the operator can then decide, instead of guessing.
+        parked = frappe.db.sql(
+            """SELECT warehouse, actual_qty qty FROM `tabBin`
+               WHERE item_code = %s AND actual_qty > 0
+               ORDER BY actual_qty DESC LIMIT 6""", (item_code,), as_dict=True)
+        return {"ok": False,
+                "reason": "parked" if parked else "no_stock",
+                "itemCode": item_code, "name": r.get("name"), "sku": r.get("sku"),
+                "parked": [{"warehouse": b.warehouse.replace(" - JM", ""),
+                            "qty": int(b.qty or 0)} for b in parked]}
     image = frappe.db.get_value("Item", item_code, "image") or ""
     return {"ok": True, "itemCode": item_code, "sku": r.get("sku") or "",
             "name": r.get("name") or item_code, "image": image,

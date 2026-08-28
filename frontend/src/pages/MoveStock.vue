@@ -24,6 +24,31 @@
     <!-- Scanner -->
     <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4">
       <ScanInput ref="scanner" :placeholder="t('mv.scanPh')" @scan="onScan" />
+
+      <!-- The stock exists, just not where this screen can reach it. Say where. -->
+      <div v-if="parked.length" class="mt-3 rounded-xl bg-amber-50 ring-1 ring-amber-200/70 p-3">
+        <div class="text-[11.5px] font-semibold text-amber-800 mb-1.5">{{ t('mv.parkedTitle') }}</div>
+        <div class="flex flex-wrap gap-1.5">
+          <span v-for="b in parked" :key="b.warehouse"
+                class="text-[11px] font-mono text-amber-900 bg-white ring-1 ring-amber-200/70 rounded px-2 py-0.5">
+            {{ b.warehouse }} · {{ b.qty }}
+          </span>
+        </div>
+        <div class="text-[11px] text-amber-700/80 mt-1.5">{{ t('mv.parkedHint') }}</div>
+      </div>
+
+      <!-- Mistyped or half-scanned code: offer the SKU family. -->
+      <div v-if="near.length" class="mt-3 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-3">
+        <div class="text-[11.5px] font-semibold text-stone-700 mb-1.5">{{ t('mv.nearTitle') }}</div>
+        <div class="space-y-1">
+          <button v-for="n in near" :key="n.itemCode"
+                  class="w-full text-start flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white transition-colors"
+                  @click="onScan(n.sku)">
+            <span class="font-mono text-[11.5px] text-stone-800 flex-shrink-0">{{ n.sku }}</span>
+            <span class="text-[11px] text-stone-500 truncate">{{ n.name }}</span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Move card -->
@@ -208,6 +233,8 @@ const RowImg = (props) => props.src
 RowImg.props = ["src"];
 
 const scanner = ref(null);
+const parked = ref([]);   // stock that exists outside the movable network
+const near = ref([]);     // sibling SKUs, when the code resolved to nothing
 const boot = ref(null);
 const loadingBoot = ref(true);
 const current = ref(null);
@@ -292,8 +319,18 @@ async function onScan(raw) {
     scanner.value?.showError(String(e.message || e));
     return;
   }
+  parked.value = [];
+  near.value = [];
   if (!res.ok) {
-    scanner.value?.showError(res.reason === "no_stock" ? t("mv.noStock") : t("pickm.unknown"));
+    if (res.reason === "parked") {
+      parked.value = res.parked || [];
+      scanner.value?.showError(t("mv.parkedErr").replace("{n}", res.name || res.sku || ""));
+    } else if (res.reason === "no_stock") {
+      scanner.value?.showError(t("mv.noStock"));
+    } else {
+      near.value = res.near || [];
+      scanner.value?.showError(t("pickm.unknown"));
+    }
     return;
   }
   current.value = res;
