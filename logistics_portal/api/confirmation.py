@@ -139,7 +139,8 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     section admin only) scopes the board to that agent — the view-as feature:
     the manager sees exactly the queue the agent sees, read-only fidelity."""
     role = _gate()
-    if tab not in QUEUES and tab not in DONE_QUEUES and tab not in ("monitor", "notdelivered"):
+    if tab not in QUEUES and tab not in DONE_QUEUES and tab not in (
+            "monitor", "notdelivered", "citycheck"):
         tab = "pending"
     days = min(max(int(days or 30), 1), 365)
     limit = min(max(int(limit or 30), 1), 100)
@@ -268,6 +269,28 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
              **({"me_like": f'%"{me}"%'} if mine_only else {})})[0][0])
         frappe.cache().set_value(_mck, counts["monitor"], expires_in_sec=300)
 
+    # City check: the agent's own confirmed orders whose city Cathedis can't
+    # turn into an AWB (Arabic / junk / never-seen town). SAME predicate as
+    # the floor's City Check page — one shared pool, whoever fixes it first
+    # (confirmation or logistics) clears it for both.
+    from logistics_portal.api.picking import _BAD_CITY, _EFF_CITY
+    from logistics_portal.api.city import _accepted_cities
+    _acc = tuple({c.lower() for c in _accepted_cities()}) or ("",)
+    counts["citycheck"] = int(frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status = 'Confirmed'
+              AND so.custom_logistics_status = 'Pending'
+              AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+              AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
+                              JOIN `tabPick List` p ON p.name = pli.parent
+                              WHERE pli.sales_order = so.name AND p.docstatus < 2)
+              AND ({_BAD_CITY}
+                   OR LOWER(TRIM(COALESCE({_EFF_CITY}, ''))) NOT IN %(acc)s)
+              {me_so}""",
+        {"co": _CO, "acc": _acc,
+         **({"me_like": f'%"{me}"%'} if mine_only else {})})[0][0])
+
     # Not Delivered: shipped-then-failed parcels the confirmation team calls
     # back to arrange a redelivery/reship or to cancel. Post-shipment work
     # shared with the Rescue lane — the SAME rescue.act engine runs the
@@ -307,6 +330,17 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
         conds = ["so.docstatus = 1", "so.company = %(co)s",
                  "so.custom_sales_status = 'Duplicated'",
                  rng.format(col="so.creation")]
+    elif tab == "citycheck":
+        conds = ["so.docstatus = 1", "so.company = %(co)s",
+                 "so.custom_sales_status = 'Confirmed'",
+                 "so.custom_logistics_status = 'Pending'",
+                 "so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)",
+                 """NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
+                     JOIN `tabPick List` p ON p.name = pli.parent
+                     WHERE pli.sales_order = so.name AND p.docstatus < 2)""",
+                 f"""({_BAD_CITY}
+                     OR LOWER(TRIM(COALESCE({_EFF_CITY}, ''))) NOT IN %(acc)s)"""]
+        vals["acc"] = _acc
     elif tab == "notdelivered":
         conds = ["so.docstatus = 1", "so.company = %(co)s",
                  "so.custom_sales_status = 'Not Delivered'",

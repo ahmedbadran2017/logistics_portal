@@ -39,7 +39,10 @@
           >
             <Icon :name="tb.icon" :size="14" />
             <span>{{ t(tb.label) }}</span>
-            <span class="cf-seg-count" :class="tab === tb.key ? tb.onColor : 'bg-stone-200/70 text-stone-500'">
+            <span class="cf-seg-count"
+                  :class="tab === tb.key ? tb.onColor
+                    : (tb.key === 'citycheck' && data?.counts?.citycheck
+                       ? 'bg-amber-100 text-amber-700 animate-pulse' : 'bg-stone-200/70 text-stone-500')">
               {{ data?.counts?.[tb.key] ?? '–' }}
             </span>
           </button>
@@ -70,7 +73,7 @@
     <!-- bulk bar — on every tab, with the actions that tab honestly allows.
          Hidden on Not-Delivered: those are per-customer redelivery calls, with
          no honest batch equivalent (same reasoning as the absent bulk confirm). -->
-    <div v-if="!loading && rows.length && !isNd && canBulk"
+    <div v-if="!loading && rows.length && !isNd && tab !== 'citycheck' && canBulk"
          class="flex items-center gap-2.5 flex-wrap bg-white rounded-2xl ring-1 ring-stone-200/80 px-4 py-3">
       <label class="inline-flex items-center gap-2 text-[12.5px] font-medium text-stone-700 cursor-pointer">
         <input type="checkbox" :checked="selected.size === rows.length && rows.length > 0" class="w-4 h-4"
@@ -197,12 +200,12 @@
           <!-- decisions: agents decide in the Workspace (customer grade,
                blocked banner, caps, activity — none of it exists here);
                inline buttons stay a manager/section-admin instrument. -->
-          <div v-else-if="!isDone && !canBulk" class="flex items-center">
+          <div v-else-if="!isDone && !canBulk && tab !== 'citycheck'" class="flex items-center">
             <button class="cf-act cf-act-confirm" @click="openWs(r)">
               <Icon name="sparkles" :size="14" class="inline -mt-px me-1" />{{ t('nav.workspace') }}
             </button>
           </div>
-          <div v-else-if="!isDone" class="flex items-center gap-1.5 flex-wrap">
+          <div v-else-if="!isDone && tab !== 'citycheck'" class="flex items-center gap-1.5 flex-wrap">
             <button class="cf-act cf-act-confirm" :disabled="busy === r.order" @click="act(r, 'confirm')">
               <Icon name="check" :size="14" class="inline -mt-px me-1" />{{ t('cf.actConfirm') }}
             </button>
@@ -369,12 +372,16 @@ const { success, warn } = useToast();
 
 const TABS = [
   { key: "pending", label: "cf.tabPending", icon: "shopping-bag", onColor: "bg-[var(--accent-100)] text-[var(--accent-700)]" },
+  // Confirmed sits right after New (Ahmed 2026-08-28) — the agent's win pile
+  // is a first-class tab, not archive.
+  { key: "confirmed", label: "cf.tabConfirmed", icon: "check-circle", onColor: "bg-emerald-100 text-emerald-700" },
   { key: "dna", label: "cf.tabDna", icon: "phone-off", onColor: "bg-amber-100 text-amber-700" },
   { key: "followup", label: "cf.tabFollowup", icon: "clock", onColor: "bg-sky-100 text-sky-700" },
   { key: "onhold", label: "cf.tabOnhold", icon: "pause", onColor: "bg-stone-200 text-stone-600" },
   { key: "monitor", label: "cf.tabMonitor", icon: "shield-alert", onColor: "bg-rose-100 text-rose-700" },
   { key: "notdelivered", label: "cf.tabNotDelivered", icon: "package-x", onColor: "bg-orange-100 text-orange-700" },
-  { key: "confirmed", label: "cf.tabConfirmed", icon: "check-circle", onColor: "bg-emerald-100 text-emerald-700", group: "done" },
+  // Same pool as the floor's City Check — whoever fixes the city first wins.
+  { key: "citycheck", label: "cf.tabCityCheck", icon: "map-pin", onColor: "bg-orange-100 text-orange-700" },
   { key: "cancelled", label: "cf.tabCancelled", icon: "x", onColor: "bg-rose-100 text-rose-700", group: "done" },
   { key: "duplicated", label: "cf.tabDuplicated", icon: "copy", onColor: "bg-violet-100 text-violet-700", group: "done" },
 ];
@@ -385,13 +392,13 @@ const DONE = ["confirmed", "cancelled", "duplicated"];
 // pass ?tab= — landing on pending regardless made those links decorative.
 const route = useRoute();
 const TAB_KEYS = ["pending", "dna", "followup", "onhold", "monitor",
-  "notdelivered", "confirmed", "cancelled", "duplicated"];
+  "notdelivered", "confirmed", "cancelled", "duplicated", "citycheck"];
 const initialTab = String(route.query.tab || "");
 const tab = ref(TAB_KEYS.includes(initialTab) ? initialTab : "pending");
 const router = useRouter();
 // The three done tabs are an archive — folded behind one History toggle so
 // the live queues own the strip. Landing on a done tab unfolds it.
-const DONE_TABS = ["confirmed", "cancelled", "duplicated"];
+const DONE_TABS = ["cancelled", "duplicated"];   // the History fold (confirmed is first-class)
 const showHistory = ref(DONE_TABS.includes(tab.value));
 const visibleTabs = computed(() =>
   TABS.filter((tb) => showHistory.value || tb.group !== "done"));

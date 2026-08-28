@@ -1078,7 +1078,7 @@ export default {
     contactSaved: "Contact mis à jour",
     contactFail: "Échec de la mise à jour",
     tabMonitor: "Surveillance",
-    tabNotDelivered: "Non livrées",
+    tabNotDelivered: "Non livrées", tabCityCheck: "Villes à corriger",
     chased: "relancé auto",
     chasedHint: "L'automatisation WhatsApp a déjà envoyé une relance à ce client — il n'y a pas répondu non plus.",
     targetHit: "objectif atteint",
