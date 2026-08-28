@@ -1119,8 +1119,17 @@ def report(days=7, frm=None, to=None):
                   "n": int(ladder.n or 0)}
 
     from logistics_portal.api.settings import get_ops
+    # Headline intake for the window — every order that arrived, allocated
+    # or not (the per-agent cohort above only sees allocated ones).
+    _oi = frappe.db.sql(
+        f"""SELECT COUNT(*), COALESCE(SUM(so.grand_total), 0)
+            FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.company = %(co)s AND {so_rng}""",
+        rng_vals)[0]
+
     _out = {
         "days": days, "frm": frm or "", "to": to or "",
+        "ordersIn": {"n": int(_oi[0] or 0), "value": round(float(_oi[1] or 0))},
         "agents": agents,
         "reasons": reason_rows,
         "funnel": [{"date": str(f.d), "confirm": int(f.conf or 0),

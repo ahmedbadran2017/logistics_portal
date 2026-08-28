@@ -5,11 +5,130 @@
         <h1 class="text-[19px] font-bold text-stone-900 tracking-tight">{{ t('ccd.title') }}</h1>
         <p class="text-[12.5px] text-stone-500 mt-1">{{ t('ccd.intro') }}</p>
       </div>
-      <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[12.5px] font-semibold text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50"
-              :disabled="loading" @click="load">
-        <Icon name="refresh-cw" :size="13" />{{ t('common.refresh') }}
-      </button>
+      <div class="flex items-center gap-2 flex-wrap">
+        <div class="flex items-center gap-0.5 bg-white ring-1 ring-stone-200/80 rounded-xl p-1">
+          <button v-for="rk in RANGES" :key="rk"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors"
+                  :class="range === rk ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'"
+                  @click="range = rk; loadReport()">{{ t('ccd.r_' + rk) }}</button>
+        </div>
+        <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[12.5px] font-semibold text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50"
+                :disabled="loading" @click="load(); loadReport();">
+          <Icon name="refresh-cw" :size="13" />{{ t('common.refresh') }}
+        </button>
+      </div>
     </header>
+
+    <!-- RANGE KPIs: the numbers the section is judged on, over the picked window -->
+    <div v-if="rLoading && !r" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <span v-for="n in 4" :key="n" class="h-[104px] rounded-2xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
+    </div>
+    <template v-else-if="r">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="ccd-kpi">
+          <div class="ccd-kpi-l"><Icon name="shopping-bag" :size="12" class="inline -mt-px me-1" />{{ t('ccd.kOrders') }}</div>
+          <div class="text-[26px] font-extrabold tabular-nums text-stone-900 mt-1">{{ fmtN(r.ordersIn?.n) }}</div>
+          <div class="text-[11px] text-stone-400 tabular-nums">{{ fmtN(r.ordersIn?.value) }} MAD</div>
+        </div>
+        <div class="ccd-kpi flex items-center gap-3">
+          <div class="relative w-[64px] h-[64px] flex-shrink-0">
+            <svg viewBox="0 0 64 64" class="w-full h-full -rotate-90">
+              <circle cx="32" cy="32" r="26" fill="none" stroke="rgb(231 229 228)" stroke-width="7" />
+              <circle cx="32" cy="32" r="26" fill="none" stroke-width="7" stroke-linecap="round"
+                      :stroke="tot.rate === null ? 'rgb(214 211 209)' : tot.rate >= 50 ? 'rgb(16 185 129)' : 'rgb(244 63 94)'"
+                      :stroke-dasharray="163.4" :stroke-dashoffset="163.4 - (163.4 * (tot.rate || 0)) / 100"
+                      style="transition: stroke-dashoffset .7s ease" />
+            </svg>
+            <span class="absolute inset-0 flex items-center justify-center text-[15px] font-extrabold tabular-nums"
+                  :class="tot.rate === null ? 'text-stone-300' : tot.rate >= 50 ? 'text-emerald-600' : 'text-rose-600'">
+              {{ tot.rate === null ? '—' : tot.rate + '%' }}</span>
+          </div>
+          <div class="min-w-0">
+            <div class="ccd-kpi-l">{{ t('ccd.kRate') }}</div>
+            <div class="text-[11.5px] tabular-nums mt-1"><span class="text-emerald-600 font-bold">{{ fmtN(tot.confirm) }}</span> <span class="text-stone-400">/</span> <span class="text-rose-500 font-bold">{{ fmtN(tot.cancel) }}</span></div>
+            <div class="text-[10px] text-stone-400 mt-0.5">{{ t('ccd.kRateHint') }}</div>
+          </div>
+        </div>
+        <div class="ccd-kpi">
+          <div class="ccd-kpi-l"><Icon name="activity" :size="12" class="inline -mt-px me-1" />{{ t('ccd.kDecisions') }}</div>
+          <div class="text-[26px] font-extrabold tabular-nums text-stone-900 mt-1">{{ fmtN(tot.total) }}</div>
+          <div class="text-[11px] text-stone-400 tabular-nums">{{ fmtN(tot.dna) }} {{ t('cf.actDna') }} · {{ fmtN(tot.followup) }} {{ t('cf.actFollowup') }}</div>
+        </div>
+        <div class="ccd-kpi">
+          <div class="ccd-kpi-l"><Icon name="wallet" :size="12" class="inline -mt-px me-1" />{{ t('ccd.kValue') }}</div>
+          <div class="text-[26px] font-extrabold tabular-nums text-stone-900 mt-1">{{ fmtN(tot.value) }}</div>
+          <div class="text-[11px] tabular-nums" :class="collectedPct === null ? 'text-stone-400' : collectedPct >= 60 ? 'text-emerald-600' : 'text-amber-600'">
+            {{ collectedPct === null ? '—' : t('ccd.kCollected').replace('{v}', fmtN(tot.collected)).replace('{p}', String(collectedPct)) }}
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
+        <!-- daily decisions, stacked -->
+        <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+          <div class="flex items-center gap-2 mb-3">
+            <Icon name="trending-up" :size="14" class="text-[var(--accent-600)]" />
+            <span class="text-[12px] font-semibold text-stone-900">{{ t('ccd.dailyTitle') }}</span>
+            <span class="ms-auto flex items-center gap-3 text-[10.5px] text-stone-500">
+              <span><span class="inline-block w-2 h-2 rounded-full bg-emerald-400 me-1" />{{ t('cf.actConfirm') }}</span>
+              <span><span class="inline-block w-2 h-2 rounded-full bg-rose-400 me-1" />{{ t('cf.actCancel') }}</span>
+              <span><span class="inline-block w-2 h-2 rounded-full bg-amber-300 me-1" />{{ t('cf.actDna') }}</span>
+            </span>
+          </div>
+          <div v-if="(r.funnel || []).length" class="flex items-end gap-1 h-[110px]">
+            <div v-for="f in r.funnel" :key="f.date" class="flex-1 flex flex-col items-center gap-0.5 min-w-0"
+                 :title="`${f.date} · ${f.confirm}✓ ${f.cancel}✗ ${f.dna}·`">
+              <div class="w-full max-w-[26px] flex flex-col justify-end rounded-t overflow-hidden" :style="{ height: '92px' }">
+                <div class="w-full bg-amber-300" :style="{ height: fH(f.dna) }" />
+                <div class="w-full bg-rose-400" :style="{ height: fH(f.cancel) }" />
+                <div class="w-full bg-emerald-400" :style="{ height: fH(f.confirm) }" />
+              </div>
+              <span class="text-[8.5px] text-stone-400 tabular-nums">{{ f.date.slice(8) }}</span>
+            </div>
+          </div>
+          <div v-else class="text-center text-[12px] text-stone-400 py-8">{{ t('ccd.noData') }}</div>
+        </div>
+
+        <div class="space-y-4">
+          <!-- automation share -->
+          <div v-if="r.ladder" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+            <div class="text-[12px] font-semibold text-stone-900 flex items-center gap-2 mb-2">
+              <Icon name="send" :size="13" class="text-sky-600" />{{ t('ccd.chaseTitle') }}
+            </div>
+            <div class="h-2 rounded-full bg-stone-100 overflow-hidden">
+              <div class="h-full rounded-full bg-sky-400 transition-all duration-700"
+                   :style="{ width: Math.min(100, Math.round(((r.ladder.r1 || 0) * 100) / Math.max(1, r.ladder.n))) + '%' }" />
+            </div>
+            <div class="text-[11px] text-stone-500 tabular-nums mt-1.5">
+              {{ fmtN(r.ladder.r1) }} + {{ fmtN(r.ladder.r2) }} / {{ fmtN(r.ladder.n) }} · {{ t('ccd.chaseHint') }}
+            </div>
+          </div>
+          <!-- top cancel reasons -->
+          <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+            <div class="text-[12px] font-semibold text-stone-900 flex items-center gap-2 mb-2.5">
+              <Icon name="circle-x" :size="13" class="text-rose-500" />{{ t('ccd.reasonsTitle') }}
+            </div>
+            <div v-if="(r.reasons || []).length" class="space-y-2">
+              <div v-for="rr in r.reasons.slice(0, 5)" :key="rr.reason" class="min-w-0">
+                <div class="flex items-center justify-between gap-2 text-[11.5px]">
+                  <span class="text-stone-700 truncate" dir="auto">{{ rr.reason }}</span>
+                  <b class="tabular-nums text-stone-900 flex-shrink-0">{{ fmtN(rr.n) }}</b>
+                </div>
+                <div class="h-1.5 rounded-full bg-stone-100 overflow-hidden mt-0.5">
+                  <div class="h-full rounded-full bg-rose-300"
+                       :style="{ width: Math.round((rr.n * 100) / Math.max(1, r.reasons[0]?.n || 1)) + '%' }" />
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-[11.5px] text-stone-400 py-2 text-center">{{ t('ccd.noData') }}</div>
+          </div>
+          <RouterLink :to="{ name: 'ConfirmationReports' }"
+                      class="block text-center text-[12px] font-semibold text-[var(--accent-600)] bg-white rounded-xl ring-1 ring-stone-200/70 py-2.5 hover:bg-stone-50">
+            {{ t('ccd.fullReport') }}
+          </RouterLink>
+        </div>
+      </div>
+    </template>
 
     <div v-if="loading && !d" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <span v-for="n in 4" :key="n" class="h-[92px] rounded-2xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
@@ -20,7 +139,12 @@
       <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
     </div>
 
-    <template v-else-if="d">
+    <template v-if="d">
+      <div class="flex items-center gap-2 pt-1">
+        <Icon name="shield-alert" :size="15" class="text-[var(--accent-600)]" />
+        <span class="text-[13px] font-bold text-stone-900">{{ t('ccd.slaSection') }}</span>
+        <span class="text-[11px] text-stone-400">{{ t('ccd.slaSectionHint') }}</span>
+      </div>
       <!-- SPEED hero -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div class="bg-white rounded-2xl ring-1 p-4" :class="todayH > 2 ? 'ring-rose-200' : 'ring-emerald-200'">
@@ -151,6 +275,52 @@ const d = ref(null);
 const loading = ref(true);
 const loadError = ref("");
 
+// ── Range KPIs (confirmation.report over the picked window) ──
+const RANGES = ["today", "yest", "7d", "month", "lastMonth"];
+const range = ref("month");
+const r = ref(null);
+const rLoading = ref(false);
+const localIso = (dt) =>
+  `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+function rangeArgs() {
+  const now = new Date();
+  if (range.value === "today") { const d0 = localIso(now); return { frm: d0, to: d0 }; }
+  if (range.value === "yest") {
+    const y = new Date(now.getTime() - 86400000); const d0 = localIso(y);
+    return { frm: d0, to: d0 };
+  }
+  if (range.value === "7d") return { days: 7 };
+  if (range.value === "month") {
+    return { frm: localIso(new Date(now.getFullYear(), now.getMonth(), 1)), to: localIso(now) };
+  }
+  return { frm: localIso(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+           to: localIso(new Date(now.getFullYear(), now.getMonth(), 0)) };
+}
+let rSeq = 0;
+async function loadReport() {
+  const seq = ++rSeq;
+  rLoading.value = true;
+  try {
+    const res = await api("confirmation.report", rangeArgs());
+    if (seq === rSeq) r.value = res;
+  } catch (e) { /* the KPI strip keeps its last good state */ }
+  if (seq === rSeq) rLoading.value = false;
+}
+const tot = computed(() => {
+  const ag = r.value?.agents || [];
+  const sum = (k) => ag.reduce((a, x) => a + (Number(x[k]) || 0), 0);
+  const confirm = sum("confirm"), cancel = sum("cancel");
+  return { confirm, cancel, dna: sum("dna"), followup: sum("followup"),
+    total: sum("total"), value: sum("confirmedValue"), collected: sum("collected"),
+    rate: confirm + cancel ? Math.round((confirm * 100) / (confirm + cancel)) : null };
+});
+const collectedPct = computed(() =>
+  tot.value.value ? Math.round((tot.value.collected * 100) / tot.value.value) : null);
+const fMax = computed(() =>
+  Math.max(1, ...(r.value?.funnel || []).map((f) => (f.confirm || 0) + (f.cancel || 0) + (f.dna || 0))));
+function fH(n) { return Math.round(((n || 0) * 92) / fMax.value) + "px"; }
+function fmtN(v) { return Number(v || 0).toLocaleString("en-US", { maximumFractionDigits: 0 }); }
+
 const todayH = computed(() => Math.round(((d.value?.speed?.todayMin || 0) / 60) * 10) / 10);
 const weekH = computed(() => Math.round(((d.value?.speed?.weekMin || 0) / 60) * 10) / 10);
 const teamToday = computed(() => (d.value?.team || []).reduce((a, x) => a + x.today, 0));
@@ -182,14 +352,22 @@ async function load() {
     loading.value = false;
   }
 }
-onMounted(load);
+onMounted(() => { load(); loadReport(); });
 const timer = setInterval(() => {
-  if (document.visibilityState === "visible" && !loading.value) load();
+  if (document.visibilityState === "visible" && !loading.value) { load(); loadReport(); }
 }, 120000);
 onUnmounted(() => clearInterval(timer));
 </script>
 
 <style scoped>
+.ccd-kpi {
+  background: white; border-radius: 16px; padding: 16px;
+  box-shadow: inset 0 0 0 1px rgb(231 229 228 / .7);
+}
+.ccd-kpi-l {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .05em; color: rgb(168 162 158);
+}
 .ccd-fire {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 12px; border-radius: 10px; font-size: 12.5px;
