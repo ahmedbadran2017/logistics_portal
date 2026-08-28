@@ -99,6 +99,72 @@
       <div class="text-[13px] text-stone-500">{{ t('brepair.loadFail') }}</div>
     </div>
 
+    <!-- ═══ Returns marked received but never credited to stock ═══ -->
+    <div v-if="rr" class="space-y-4 pt-2">
+      <div class="flex items-center gap-2">
+        <Icon name="package-check" :size="15" class="text-amber-600" />
+        <h2 class="text-[15px] font-bold text-stone-900">{{ t('brepair.rrTitle') }}</h2>
+      </div>
+      <p class="text-[12.5px] text-stone-500 -mt-2">{{ t('brepair.rrHint') }}</p>
+
+      <div v-if="!rr.docs.length" class="bg-white rounded-xl ring-1 ring-emerald-200/70 p-6 text-center">
+        <Icon name="check-circle" :size="20" class="mx-auto mb-1.5 text-emerald-500" />
+        <div class="text-[13px] font-semibold text-stone-800">{{ t('brepair.rrClean') }}</div>
+      </div>
+      <template v-else>
+        <div class="grid grid-cols-3 gap-3">
+          <div class="bg-white rounded-xl ring-1 ring-amber-200/70 p-4">
+            <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('brepair.rrDocs') }}</div>
+            <div class="text-[24px] font-extrabold tabular-nums text-amber-600 mt-1">{{ fmt(rr.totalDocs) }}</div>
+          </div>
+          <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+            <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('brepair.rrUnits') }}</div>
+            <div class="text-[24px] font-extrabold tabular-nums text-stone-900 mt-1">{{ fmt(rr.totalUnits) }}</div>
+          </div>
+          <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+            <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('brepair.rrValue') }}</div>
+            <div class="text-[24px] font-extrabold tabular-nums text-stone-900 mt-1">{{ fmt(rr.totalValue) }}</div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl ring-1 ring-stone-200/70 divide-y divide-stone-100">
+          <div v-for="doc in rr.docs" :key="doc.ret" class="px-4 py-3">
+            <div class="flex items-center gap-3 flex-wrap">
+              <span class="font-mono text-[12.5px] font-semibold text-stone-900">{{ doc.ret }}</span>
+              <span class="text-[11.5px] text-stone-400 tabular-nums">{{ doc.date }}</span>
+              <span class="text-[11.5px] text-stone-500 tabular-nums">
+                {{ t('brepair.rrLine').replace('{r}', String(doc.received)).replace('{c}', String(doc.credited)) }}
+              </span>
+              <span class="text-[11.5px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200/70 rounded-full px-2 py-0.5 tabular-nums">
+                {{ t('brepair.rrMissing').replace('{n}', String(doc.units)) }}
+              </span>
+              <div class="ms-auto flex items-center gap-2">
+                <button v-for="n in [1, 20, 200]" :key="n"
+                        class="h-8 px-2.5 rounded-lg text-[11.5px] font-semibold tabular-nums ring-1 transition-colors"
+                        :class="rrLimit === n ? 'text-white bg-[var(--accent-600)] ring-[var(--accent-600)]' : 'text-stone-700 bg-white ring-stone-200 hover:bg-stone-50'"
+                        @click="rrLimit = n">{{ n }}</button>
+                <button class="h-8 px-3.5 rounded-lg text-[12px] font-semibold transition-colors disabled:opacity-50"
+                        :class="rrArmed === doc.ret ? 'text-white bg-rose-600' : 'text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]'"
+                        :disabled="rrBusy" @click="doCredit(doc)">
+                  {{ rrBusy === doc.ret ? t('brepair.releasing') : rrArmed === doc.ret ? t('brepair.rrSure').replace('{n}', String(rrLimit)) : t('brepair.rrBtn') }}
+                </button>
+              </div>
+            </div>
+            <div v-if="(doc.sample || []).length" class="flex flex-wrap gap-1.5 mt-2">
+              <span v-for="sm in doc.sample" :key="sm.idx" class="text-[10.5px] font-mono text-stone-500 bg-stone-50 ring-1 ring-stone-200/70 rounded px-1.5 py-0.5">
+                #{{ sm.idx }} · {{ sm.item }} · {{ sm.qty }}u
+              </span>
+              <span v-if="doc.missing > doc.sample.length" class="text-[10.5px] text-stone-400">+{{ doc.missing - doc.sample.length }}</span>
+            </div>
+            <div v-if="rrRes[doc.ret]" class="mt-2 text-[11.5px] font-semibold text-emerald-700">
+              {{ t('brepair.rrDone').replace('{n}', String(rrRes[doc.ret].created)).replace('{u}', String(rrRes[doc.ret].units)).replace('{m}', String(rrRes[doc.ret].remaining)) }}
+              <span v-if="rrRes[doc.ret].failed" class="text-rose-600 ms-1">{{ t('brepair.resultFailed').replace('{n}', String(rrRes[doc.ret].failed)) }}</span>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
     <!-- ═══ The SRE sibling: reservations still held by sales-cancelled orders ═══ -->
     <div v-if="sre" class="space-y-4 pt-2">
       <div class="flex items-center gap-2">
@@ -177,6 +243,33 @@ const { success, warn } = useToast();
 const sc = ref(null);
 const res = ref(null);
 const sre = ref(null);
+const rr = ref(null);
+const rrLimit = ref(1);
+const rrArmed = ref("");
+const rrBusy = ref("");
+const rrRes = ref({});
+let rrArmT = null;
+async function doCredit(doc) {
+  if (rrArmed.value !== doc.ret) {
+    rrArmed.value = doc.ret;
+    clearTimeout(rrArmT);
+    rrArmT = setTimeout(() => { rrArmed.value = ""; }, 4000);
+    return;
+  }
+  rrArmed.value = "";
+  rrBusy.value = doc.ret;
+  try {
+    const r = await apiPost("returns_repair.complete", { ret: doc.ret, limit: rrLimit.value });
+    rrRes.value = { ...rrRes.value, [doc.ret]: r };
+    success(t("brepair.rrDoneToast"),
+      t("brepair.rrDone").replace("{n}", String(r.created)).replace("{u}", String(r.units)).replace("{m}", String(r.remaining)));
+    rr.value = await api("returns_repair.scan");
+  } catch (e) {
+    warn(t("brepair.releaseFail"), String(e.message || e));
+  } finally {
+    rrBusy.value = "";
+  }
+}
 const sreLimit = ref(1);
 const sreArmed = ref(false);
 const sreBusy = ref(false);
@@ -216,6 +309,7 @@ async function load() {
   loading.value = true;
   sc.value = await liveOr(null, () => api("batch_repair.scan"));
   sre.value = await liveOr(null, () => api("batch_repair.sre_scan"));
+  rr.value = await liveOr(null, () => api("returns_repair.scan"));
   loading.value = false;
 }
 
