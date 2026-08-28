@@ -908,7 +908,7 @@ def speed_dashboard():
           AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
                           JOIN `tabPick List` pl ON pl.name = pli.parent
                           WHERE pli.sales_order = so.name AND pl.docstatus < 2)""",
-        (_CO,))[0][0])
+        ("Justyol Morocco",))[0][0])
     fire["rescueOpen"] = int(frappe.db.sql("""
         SELECT COUNT(*) FROM `tabDelivery Note` dn
         WHERE dn.docstatus = 1 AND dn.company = %s
