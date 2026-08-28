@@ -63,15 +63,26 @@
         </div>
         <div class="divide-y divide-stone-100">
           <div v-for="it in g.items" :key="it.code" class="px-4 py-3" :class="it.avail > 0 ? 'bg-emerald-50/30' : ''">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
               <span class="font-mono text-[12px] text-stone-600">{{ it.code }}</span>
               <span v-if="it.ordered" class="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-700 bg-violet-50 ring-1 ring-violet-200/60 rounded px-1.5 py-0.5">{{ t('sku.ordered') }}</span>
+              <span v-if="it.pickable !== undefined" class="inline-flex items-center gap-1 text-[10.5px] font-bold rounded px-2 py-0.5 ring-1"
+                    :class="it.pickable > 0 ? 'text-emerald-700 bg-emerald-50 ring-emerald-200/70' : 'text-rose-700 bg-rose-50 ring-rose-200/70'"
+                    :title="t('sku.pickableHint')">
+                {{ t('sku.pickable') }} {{ it.pickable }}
+              </span>
+              <span v-if="it.sreHeld" class="inline-flex items-center gap-1 text-[10.5px] font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200/70 rounded px-2 py-0.5"
+                    :title="t('sku.sreHeldHint')">
+                {{ t('sku.sreHeld') }} {{ it.sreHeld }}
+              </span>
               <span class="ms-auto text-[15px] font-bold tabular-nums" :class="it.avail > 0 ? 'text-emerald-600' : 'text-stone-400'">{{ it.avail }} <span class="text-[11px] font-medium text-stone-400">{{ t('sku.avail') }}</span></span>
             </div>
             <div class="text-[12.5px] text-stone-700 mt-1 truncate">{{ it.name }}</div>
             <div v-if="it.bins.length" class="flex flex-wrap gap-1 mt-2">
-              <span v-for="b in it.bins" :key="b.bin" class="inline-flex items-center gap-1 text-[11px] font-mono text-stone-600 bg-stone-100 rounded px-2 py-0.5">
-                <Icon name="map-pin" :size="10" />{{ b.bin.replace(' - JM', '') }} · {{ b.net }}
+              <span v-for="b in it.bins" :key="b.bin" class="inline-flex items-center gap-1 text-[11px] font-mono rounded px-2 py-0.5"
+                    :class="b.veto ? 'text-amber-700 bg-amber-50 ring-1 ring-amber-200/60' : 'text-stone-600 bg-stone-100'"
+                    :title="b.veto ? t('sku.vetoBinHint') : ''">
+                <Icon name="map-pin" :size="10" />{{ b.bin.replace(' - JM', '') }} · {{ b.net }}<template v-if="b.veto"> · {{ t('sku.reserveTag') }}</template>
               </span>
             </div>
           </div>

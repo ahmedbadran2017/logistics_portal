@@ -277,9 +277,13 @@ def sku_lookup(query, limit=80):
 
         codes = [it.code for it in items]
         binmap = {}
+        pickable = {}
+        sre_held = {}
         if codes:
             from logistics_portal.api.warehouses import pickable_condition
+            from logistics_portal.api.picking import _available_totals, _ee_rejected
             cond, wargs = pickable_condition("warehouse")
+            vetoed = _ee_rejected()
             cph = ", ".join(["%s"] * len(codes))
             for b in frappe.db.sql(
                 f"""SELECT item_code, warehouse,
@@ -288,7 +292,23 @@ def sku_lookup(query, limit=80):
                     WHERE item_code IN ({cph}) AND actual_qty <> 0 AND {cond}""",
                 tuple(codes) + tuple(wargs), as_dict=True):
                 binmap.setdefault(b.item_code, []).append(
-                    {"bin": b.warehouse, "net": int(b.net or 0), "onHand": int(b.onhand or 0)})
+                    {"bin": b.warehouse, "net": int(b.net or 0),
+                     "onHand": int(b.onhand or 0),
+                     # ee's controller refuses this warehouse — reserve stock,
+                     # needs a Move to the fast wall before it can be picked
+                     "veto": b.warehouse in vetoed})
+            # The POOL's truth for each code: pickable bins ∩ ee policy, minus
+            # draft claims and batch caps (_available_totals), minus every
+            # active Stock Reservation Entry — the exact math the Orders board
+            # runs, so this card can never contradict it again.
+            pickable = _available_totals(codes)
+            for r in frappe.db.sql(
+                f"""SELECT item_code, SUM(reserved_qty - delivered_qty)
+                    FROM `tabStock Reservation Entry`
+                    WHERE docstatus = 1 AND status IN ('Reserved', 'Partially Delivered')
+                      AND item_code IN ({cph}) GROUP BY item_code""",
+                tuple(codes)):
+                sre_held[r[0]] = float(r[1] or 0)
 
         groups = {}
         for it in items:
@@ -297,8 +317,11 @@ def sku_lookup(query, limit=80):
             avail = sum(x["net"] for x in bins)
             if avail > 0:
                 g["anyStock"] = True
+            free = max(0, round(pickable.get(it.code, 0) - sre_held.get(it.code, 0)))
             g["items"].append({
                 "code": it.code, "name": it.name or it.code, "avail": avail,
+                "pickable": free,
+                "sreHeld": round(sre_held.get(it.code, 0)),
                 "ordered": it.code in ordered_codes, "bins": bins[:4],
             })
         out = []

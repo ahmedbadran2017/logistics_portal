@@ -546,6 +546,12 @@ export default {
     rescueBadge: "In stock under another code · {n}", rescueHint: "This SKU has stock under a different item code — open SKU lookup",
   },
   sku: {
+    pickable: "pickable",
+    pickableHint: "What the pick engine can actually allocate right now: pickable bins ∩ engine policy, minus draft claims and every live stock reservation — the exact number the Orders board uses.",
+    sreHeld: "reserved",
+    sreHeldHint: "Units held by live Stock Reservation Entries. If their orders are cancelled, release them in Batch Repair.",
+    vetoBinHint: "Reserve zone — the allocation engine refuses picks from here; stock must be moved to the fast wall first.",
+    reserveTag: "reserve",
     title: "SKU lookup", subtitle: "Find a product's stock across every item code that shares its SKU",
     placeholder: "SKU, item code, order number, or product name…",
     search: "Search", searching: "Searching", inStock: "In stock", allOut: "All out",
