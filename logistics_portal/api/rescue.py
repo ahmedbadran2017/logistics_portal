@@ -12,6 +12,13 @@ Production workload at build time: 3,678 untriaged Delivery Exceptions +
 """
 
 import frappe
+
+
+def _site_now():
+    """The SITE clock as a bound param. The DB server runs on its own
+    time zone, so NOW() made fresh rows read negative ages."""
+    from frappe.utils import now_datetime
+    return str(now_datetime())[:19]
 from frappe.utils import add_to_date, now_datetime
 
 TABS = ("exceptions", "failed", "notdelivered", "stale", "backlog")
@@ -216,10 +223,10 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
                        COALESCE(so.custom_call_attempts, 0) AS attempts,
                        so.custom_next_call_at AS next_call,
                        DATEDIFF(NOW(), so.creation) AS age_d,
-                       TIMESTAMPDIFF(HOUR, so.creation, NOW()) AS age_h
+                       TIMESTAMPDIFF(HOUR, so.creation, %(now)s) AS age_h
                 FROM `tabSales Order` so WHERE {where}
                 ORDER BY COALESCE(so.custom_next_call_at, so.creation)
-                LIMIT %(limit)s OFFSET %(offset)s""", vals, as_dict=True)
+                LIMIT %(limit)s OFFSET %(offset)s""", {**vals, "now": _site_now()}, as_dict=True)
     else:
         where = _dn_where(tab, vals)
         if q and str(q).strip():
@@ -589,17 +596,17 @@ def dashboard():
     vals.pop("track", None)
     aging = frappe.db.sql(
         f"""SELECT
-              SUM(TIMESTAMPDIFF(HOUR, dn.creation, NOW()) <= 24),
-              SUM(TIMESTAMPDIFF(HOUR, dn.creation, NOW()) BETWEEN 25 AND 72),
-              SUM(TIMESTAMPDIFF(HOUR, dn.creation, NOW()) > 72),
+              SUM(TIMESTAMPDIFF(HOUR, dn.creation, %(now)s) <= 24),
+              SUM(TIMESTAMPDIFF(HOUR, dn.creation, %(now)s) BETWEEN 25 AND 72),
+              SUM(TIMESTAMPDIFF(HOUR, dn.creation, %(now)s) > 72),
               SUM(COALESCE(so.custom_call_attempts, 0) = 0
-                  AND TIMESTAMPDIFF(HOUR, dn.creation, NOW()) > %(sla)s)
+                  AND TIMESTAMPDIFF(HOUR, dn.creation, %(now)s) > %(sla)s)
             FROM `tabDelivery Note` dn
             LEFT JOIN `tabSales Order` so
               ON so.name = (SELECT MIN(dni.against_sales_order)
                             FROM `tabDelivery Note Item` dni
                             WHERE dni.parent = dn.name)
-            WHERE {where}""", {**vals, "sla": sla_h})[0]
+            WHERE {where}""", {"now": _site_now(), **vals, "sla": sla_h})[0]
     ages = {"d1": int(aging[0] or 0), "d3": int(aging[1] or 0),
             "older": int(aging[2] or 0), "breached": int(aging[3] or 0)}
 

@@ -19,6 +19,13 @@ the portal manager or the section's own admins.
 """
 
 import frappe
+
+
+def _site_now():
+    """The SITE clock as a bound param. The DB server runs on its own
+    time zone, so NOW() made fresh rows read negative ages."""
+    from frappe.utils import now_datetime
+    return str(now_datetime())[:19]
 from frappe.utils import add_to_date, now_datetime
 
 _OPEN_STATUSES = ("Open", "Replied", "On Hold")
@@ -266,10 +273,10 @@ def board(tab="inbox", days=7, q="", limit=30, offset=0):
                        i.custom_order AS so_name, i.custom_category AS category,
                        i.custom_channel AS channel, i.custom_agent AS agent,
                        i.opening_date, i.creation, i.first_responded_on,
-                       TIMESTAMPDIFF(HOUR, i.creation, NOW()) AS age_h
+                       TIMESTAMPDIFF(HOUR, i.creation, %(now)s) AS age_h
                 FROM `tabIssue` i WHERE {where}
                 ORDER BY i.creation {'DESC' if tab == 'resolved' else ''}
-                LIMIT %(limit)s OFFSET %(offset)s""", vals, as_dict=True)
+                LIMIT %(limit)s OFFSET %(offset)s""", {**vals, "now": _site_now()}, as_dict=True)
         for r in data:
             resp_due = add_to_date(r.creation, hours=s["firstResponseH"])
             reso_due = add_to_date(r.creation, hours=s["resolutionH"])

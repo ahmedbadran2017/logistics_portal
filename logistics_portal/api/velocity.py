@@ -12,6 +12,13 @@ side event, not a portal action, so it counts desk work too.
 """
 
 import frappe
+
+
+def _site_now():
+    """The SITE clock as a bound param. The DB server runs on its own
+    time zone, so NOW() made fresh rows read negative ages."""
+    from frappe.utils import now_datetime
+    return str(now_datetime())[:19]
 from frappe.utils import add_days, now_datetime, nowdate
 
 _CO = "Justyol Morocco"
@@ -84,16 +91,17 @@ def _stuck():
     """The tails: parcels past the age their stage should take. Each is a
     different owner's fix, so they're separate buckets."""
     def _rows(where, thresh_h, extra_join=""):
+        # All params NAMED: %s and %(now)s cannot be mixed in one query.
         return frappe.db.sql(
             f"""SELECT so.name, so.customer_name customer,
-                       ROUND(TIMESTAMPDIFF(HOUR, so.creation, NOW()) / 24) age_d
+                       ROUND(TIMESTAMPDIFF(HOUR, so.creation, %(now)s) / 24) age_d
                 FROM `tabSales Order` so {extra_join}
-                WHERE so.docstatus = 1 AND so.company = %s
+                WHERE so.docstatus = 1 AND so.company = %(co)s
                   AND so.custom_sales_status = 'Confirmed'
                   AND {where}
-                  AND TIMESTAMPDIFF(HOUR, so.creation, NOW()) > %s
+                  AND TIMESTAMPDIFF(HOUR, so.creation, %(now)s) > %(thresh)s
                 GROUP BY so.name ORDER BY so.creation LIMIT 40""",
-            (_CO, thresh_h), as_dict=True)
+            {"co": _CO, "thresh": thresh_h, "now": _site_now()}, as_dict=True)
 
     # Has a submitted DN but no AWB on EITHER the order or the DN, still Pending
     # in logistics — labelling failed (most often an Arabic city). NB the SO's
@@ -101,17 +109,18 @@ def _stuck():
     # DN), so both must be empty to be a real stuck-at-label case.
     no_awb = frappe.db.sql(
         """SELECT so.name, so.customer_name customer,
-                  ROUND(TIMESTAMPDIFF(HOUR, so.creation, NOW()) / 24) age_d
+                  ROUND(TIMESTAMPDIFF(HOUR, so.creation, %(now)s) / 24) age_d
            FROM `tabSales Order` so
            JOIN `tabDelivery Note Item` dni ON dni.against_sales_order = so.name
            JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
-           WHERE so.docstatus = 1 AND so.company = %s
+           WHERE so.docstatus = 1 AND so.company = %(co)s
              AND so.custom_sales_status = 'Confirmed'
              AND so.custom_logistics_status = 'Pending'
              AND (so.custom_awb IS NULL OR so.custom_awb = '')
              AND (dn.custom_awb IS NULL OR dn.custom_awb = '')
-             AND TIMESTAMPDIFF(HOUR, so.creation, NOW()) > 24
-           GROUP BY so.name ORDER BY so.creation LIMIT 40""", _CO, as_dict=True)
+             AND TIMESTAMPDIFF(HOUR, so.creation, %(now)s) > 24
+           GROUP BY so.name ORDER BY so.creation LIMIT 40""",
+        {"co": _CO, "now": _site_now()}, as_dict=True)
     # Picked / AWB-ready but never sorted+printed, > 3 days.
     picked = _rows("so.custom_logistics_status IN ('Picked', 'Label Generated')", 24 * 3)
     # Printed/sorted but not handed to the carrier, > 5 days.

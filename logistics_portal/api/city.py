@@ -13,6 +13,13 @@ here. Dispatcher / manager only.
 """
 
 import frappe
+
+
+def _site_now():
+    """The SITE clock as a bound param. The DB server runs on its own
+    time zone, so NOW() made fresh rows read negative ages."""
+    from frappe.utils import now_datetime
+    return str(now_datetime())[:19]
 from frappe.utils import now_datetime
 
 from logistics_portal.api.picking import _ARABIC_CLASS, _BAD_CITY, _EFF_CITY
@@ -140,7 +147,7 @@ def city_check_queue(limit=200):
                    COALESCE(NULLIF(so.custom_customer_phone,''),
                             so.custom_shipping_phone) phone,
                    {_EFF_CITY} city,
-                   TIMESTAMPDIFF(HOUR, so.creation, NOW()) age_h,
+                   TIMESTAMPDIFF(HOUR, so.creation, %(now)s) age_h,
                    {_BAD_CITY} blocked
             FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
@@ -154,7 +161,7 @@ def city_check_queue(limit=200):
                    OR LOWER(TRIM(COALESCE({_EFF_CITY}, ''))) NOT IN %(acc)s)
             ORDER BY blocked DESC, so.creation
             LIMIT %(limit)s""",
-        {"co": _CO, "acc": accepted_lc, "limit": limit}, as_dict=True)
+        {"now": _site_now(), "co": _CO, "acc": accepted_lc, "limit": limit}, as_dict=True)
     # IN-FLOW casualties: already picked (Picked / Label Generated) but the AWB
     # never came back — usually the same bad-city cause, discovered only at the
     # sort wall ("no carrier label" cards). They used to be invisible here
@@ -165,7 +172,7 @@ def city_check_queue(limit=200):
                    COALESCE(NULLIF(so.custom_customer_phone,''),
                             so.custom_shipping_phone) phone,
                    {_EFF_CITY} city,
-                   TIMESTAMPDIFF(HOUR, so.creation, NOW()) age_h,
+                   TIMESTAMPDIFF(HOUR, so.creation, %(now)s) age_h,
                    {_BAD_CITY} blocked
             FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
@@ -174,7 +181,7 @@ def city_check_queue(limit=200):
               AND COALESCE(so.custom_awb, '') = ''
               AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
             ORDER BY so.creation LIMIT 100""",
-        {"co": _CO}, as_dict=True)
+        {"now": _site_now(), "co": _CO}, as_dict=True)
 
     def _row(r, in_flow=False):
         return {"order": r.name, "customer": r.customer or "",

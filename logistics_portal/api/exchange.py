@@ -15,6 +15,13 @@ Statuses: Draft / Waiting for Cathedis API -> Label Generated -> Settled.
 """
 
 import frappe
+
+
+def _site_now():
+    """The SITE clock as a bound param. The DB server runs on its own
+    time zone, so NOW() made fresh rows read negative ages."""
+    from frappe.utils import now_datetime
+    return str(now_datetime())[:19]
 from frappe.utils import now_datetime
 
 _SE_MOD = ("ecommerce_integrations.ecommerce_integrations.doctype."
@@ -77,10 +84,10 @@ def board(tab="waiting", q="", limit=30, offset=0):
                    se.settlement_status, se.settlement_direction,
                    se.original_total, se.exchange_total, se.difference_amount,
                    se.old_awb, se.new_awb, se.new_label_url,
-                   TIMESTAMPDIFF(HOUR, se.creation, NOW()) AS age_h
+                   TIMESTAMPDIFF(HOUR, se.creation, %(now)s) AS age_h
             FROM `tabSales Exchange` se WHERE {where}
             ORDER BY se.modified DESC
-            LIMIT %(limit)s OFFSET %(offset)s""", vals, as_dict=True)
+            LIMIT %(limit)s OFFSET %(offset)s""", {**vals, "now": _site_now()}, as_dict=True)
 
     items_map = {}
     if rows:
