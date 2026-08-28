@@ -433,6 +433,7 @@ watch(d, (v) => {
 onUnmounted(() => cancelAnimationFrame(rafId));
 
 async function load() {
+  if (comingSoon.value) return;   // the header's month buttons bypass mount
   loading.value = true;
   loadError.value = "";
   try {

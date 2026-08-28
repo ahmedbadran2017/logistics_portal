@@ -84,7 +84,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { api } from "@/lib/resource";
@@ -112,8 +112,10 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
-  setInterval(() => (nowMs.value = Date.now()), 30000);
+  nowTimer = setInterval(() => (nowMs.value = Date.now()), 30000);
 });
+let nowTimer = null;
+onUnmounted(() => clearInterval(nowTimer));
 
 function ageMins(pl) {
   const created = new Date(String(pl.created).replace(" ", "T"));

@@ -477,7 +477,6 @@ const dayPct = computed(() => {
   return Math.min(100, Math.round((d.myTotal * 100) / d.myTarget));
 });
 const hitTarget = computed(() => (data.value?.myTotal || 0) >= (data.value?.myTarget || 1));
-const togo = computed(() => Math.max(0, (data.value?.myTarget || 0) - (data.value?.myTotal || 0)));
 
 // Who is this customer? The chip is on the card; the whole history is one
 // click behind it. Nothing here blocks an order — the team decides.
@@ -495,10 +494,13 @@ async function toggleCust(r) {
     if (custFor.value !== r.order) return;
     cust.value = { ...res, orders_list: res.recent || [] };
   } catch (e) {
-    warn(t("cf.loadFail"), String(e.message || e));
-    custFor.value = "";
+    if (custFor.value === r.order) {
+      warn(t("cf.loadFail"), String(e.message || e));
+      custFor.value = "";
+    }
   } finally {
-    custLoading.value = false;
+    // A superseded request must not clear the flag the newer one holds.
+    if (custFor.value === r.order) custLoading.value = false;
   }
 }
 
@@ -533,9 +535,9 @@ async function toggleDetail(r) {
     if (!res || !res.items) { detailError.value = t("cf.dFail"); return; }
     detail.value = res;
   } catch (e) {
-    detailError.value = String(e.message || e);
+    if (detailFor.value === r.order) detailError.value = String(e.message || e);
   } finally {
-    detailLoading.value = false;
+    if (detailFor.value === r.order) detailLoading.value = false;
   }
 }
 

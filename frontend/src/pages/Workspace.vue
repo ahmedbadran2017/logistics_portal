@@ -357,8 +357,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -544,7 +544,19 @@ async function loadBoard() {
     plan.value = p2;
     syncFromBoard(b);
     if (b?.reasons?.length) reasons.value = b.reasons;
-  } catch (e) { /* the queue pane is a helper; serve-next still works */ }
+    // A deep-linked open usually beats this load — re-resolve the plan row
+    // so the due badge / attempts / SLA chip appear once the plan lands.
+    if (active.value && !activeRow.value) {
+      activeRow.value = queueRows.value.find((r) => r.order === active.value.name) || null;
+    }
+  } catch (e) {
+    // The queue pane is a helper — but reasons/caps ride this payload and a
+    // cancel is impossible without them, so one quiet retry beats waiting
+    // for the 120s poll.
+    if (!board.value) setTimeout(() => {
+      if (!board.value) loadBoard();
+    }, 15000);
+  }
   boardLoading.value = false;
 }
 
@@ -613,7 +625,14 @@ async function loadContext() {
 }
 
 async function serveNext(skipCurrent = false) {
-  if (serving.value || busy.value) return;   // double-N fired two server locks
+  // Guarded entry for N / the button only. decide() chains _serve() directly:
+  // its own busy flag is still up here, and this guard silently ate the
+  // auto-advance (decision recorded, next order never served).
+  if (serving.value || busy.value) return;
+  return _serve(skipCurrent);
+}
+
+async function _serve(skipCurrent = false) {
   serving.value = true;
   try {
     // Walking away UNDECIDED marks the order skipped for 10 minutes —
@@ -631,6 +650,9 @@ async function serveNext(skipCurrent = false) {
       clearInterval(cardTick);
       success(t("ws.allDone"));
     }
+    // The deep-link marker went stale the moment we moved on — a refresh
+    // must not resurrect a decided order's card.
+    if (route.query.order) router.replace({ query: {} });
   } catch (e) {
     warn(t("cf.loadFail"), String(e.message || e));
   } finally {
@@ -647,7 +669,7 @@ async function decide(action, note) {
     if (board.value?.mine && action in board.value.mine) board.value.mine[action]++;
     if (plan.value?.rows) plan.value.rows = plan.value.rows.filter((r) => r.order !== active.value.name);
     panel.value = ""; cancelReason.value = "";
-    await serveNext(false);
+    await _serve(false);
   } catch (e) {
     warn(t("cf.actFail"), String(e.message || e));
   } finally {
@@ -731,6 +753,7 @@ function onKey(e) {
 }
 
 const route = useRoute();
+const router = useRouter();
 onMounted(() => {
   loadBoard();
   // Deep link from the Confirmation board: open THIS order with the full
@@ -738,6 +761,12 @@ onMounted(() => {
   const o = String(route.query.order || "");
   if (o) openOrder(o);
   window.addEventListener("keydown", onKey);
+});
+// Query changes don't remount (router-view keys on name+params) — Back/
+// Forward between ?order= entries and repeat board clicks land here.
+watch(() => route.query.order, (o) => {
+  const name = String(o || "");
+  if (name && name !== active.value?.name) openOrder(name);
 });
 // The plan pane goes stale over a shift — silent refresh like every queue.
 const planTimer = setInterval(() => {
