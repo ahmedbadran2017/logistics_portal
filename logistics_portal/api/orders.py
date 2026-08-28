@@ -1247,6 +1247,28 @@ def detail(name):
            WHERE soi.parent = %s ORDER BY soi.idx""",
         (name,), as_dict=True)
 
+    # Can this order actually be picked? The confirmation agent is on the phone
+    # with the customer — finding out days later that a line was out of stock
+    # is a cancelled order and a lost call. Same pool math the Orders board
+    # runs: free stock across pickable bins minus every live reservation, with
+    # THIS order's own reservation credited back.
+    try:
+        from logistics_portal.api.picking import _available_totals, _sre_by_order
+        _codes = {r.sku for r in items if r.sku}
+        if _codes:
+            _totals = _available_totals(_codes)
+            _sre = _sre_by_order(_codes)
+            _shared = dict(_totals)
+            for (_o, _c), _q in _sre.items():
+                _shared[_c] = _shared.get(_c, 0) - _q
+            for r in items:
+                _need = float(r.qty or 0)
+                _free = _shared.get(r.sku, 0) + _sre.get((name, r.sku), 0)
+                r["avail"] = int(max(0, _free))
+                r["short"] = bool(_free < _need)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "orders.detail stock")
+
     # Real shipping address (city lives on the linked Address, not the SO).
     addr = {}
     addr_name = so.get("shipping_address_name") or so.get("customer_address")
@@ -1279,6 +1301,7 @@ def detail(name):
         "taxes": so.total_taxes_and_charges or 0,
         "total": so.grand_total,
         "sales_status": so.get("custom_sales_status") or "",
+        "stockShort": [r.get("name") or r.get("sku") for r in items if r.get("short")],
         "attempts": int(so.get("custom_call_attempts") or 0),
         "next_call": str(so.get("custom_next_call_at") or "")[:16],
         "payment_collection": so.get("custom_payment_collection") or "",

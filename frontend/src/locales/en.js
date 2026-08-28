@@ -1,6 +1,7 @@
 export default {
   brand: "Justyol Logistics",
   common: {
+    less: "Show less",
     menu: "Menu",
     next: "Next",
     close: "Close",
@@ -1270,6 +1271,20 @@ export default {
     location: "Location", reaction: "Reaction", flow: "Form",
   },
   ws: {
+    oosOne: "Out of stock — one item can't be picked",
+    oosN: "Out of stock — {n} items can't be picked",
+    oosHint: "Offer a swap or a partial order now, or cancel — don't confirm what the warehouse can't ship.",
+    oosFix: "Fix items",
+    availN: "only {n} left",
+    availZero: "out of stock",
+    availHint: "Free stock across pickable bins, minus live reservations",
+    jPending: "In the queue",
+    jPicked: "Picked",
+    jLabel: "Labelled",
+    jShipped: "Shipped",
+    jDelivered: "Delivered",
+    histTitle: "Their past orders",
+    histMore: "+{n} more",
     queueTeam: "Team queue",
     moreActivity: "Full activity",
     exitList: "Exit list",

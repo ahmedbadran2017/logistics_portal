@@ -144,6 +144,22 @@
                 <span v-if="cardAttempts" class="text-amber-600 font-medium">×{{ cardAttempts }} {{ t('ws.attempts') }}</span>
                 <span v-if="active.next_call" class="text-stone-400">→ {{ active.next_call.slice(5) }}</span>
               </div>
+              <!-- "Where is my order?" answered before the customer finishes
+                   asking: the warehouse journey, with the live carrier status. -->
+              <div v-if="journey.show" class="flex items-center gap-1.5 mt-2 flex-wrap">
+                <span v-for="(st, i) in journey.steps" :key="st.key"
+                      class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 whitespace-nowrap"
+                      :class="i < journey.at ? 'text-emerald-700 bg-emerald-50 ring-emerald-200'
+                        : i === journey.at ? 'text-white bg-[var(--accent-600)] ring-[var(--accent-600)]'
+                        : 'text-stone-400 bg-stone-50 ring-stone-200'">{{ t(st.label) }}</span>
+                <span v-if="active.tracking_status" class="text-[10.5px] font-semibold text-sky-700 bg-sky-50 ring-1 ring-sky-200 rounded-full px-2 py-0.5">
+                  {{ active.tracking_status }}
+                </span>
+                <a v-if="active.awb" :href="active.tracking_url || '#'" target="_blank"
+                   class="text-[10.5px] font-mono text-stone-500 hover:text-[var(--accent-700)] hover:underline">
+                  AWB {{ active.awb }}
+                </a>
+              </div>
             </div>
             <div class="flex items-center gap-1.5">
               <a :href="'tel:' + active.phone" class="ws-contact bg-sky-50 text-sky-700 ring-sky-200" :title="t('ws.call')"><Icon name="phone" :size="16" /></a>
@@ -163,6 +179,24 @@
             <button class="text-[10.5px] font-semibold text-[var(--accent-600)] hover:underline" @click="toggleActivity">{{ t('ws.moreActivity') }}</button>
           </div>
 
+          <!-- Stock reality, while the customer is still on the line: finding
+               out days later that a line can't be picked is a dead order. -->
+          <div v-if="(active.stockShort || []).length"
+               class="ws-oos rounded-xl px-3.5 py-3 flex items-start gap-2.5">
+            <span class="w-7 h-7 rounded-lg bg-rose-600 text-white flex items-center justify-center flex-shrink-0">
+              <Icon name="alert-triangle" :size="15" />
+            </span>
+            <div class="min-w-0 flex-1">
+              <div class="text-[12.5px] font-bold text-rose-800">
+                {{ active.stockShort.length === 1 ? t('ws.oosOne') : t('ws.oosN').replace('{n}', String(active.stockShort.length)) }}
+              </div>
+              <div class="text-[11.5px] text-rose-700/90 truncate" dir="auto">{{ active.stockShort.join(' · ') }}</div>
+              <div class="text-[11px] text-rose-600/80 mt-0.5">{{ t('ws.oosHint') }}</div>
+            </div>
+            <button class="h-8 px-3 rounded-lg text-[11.5px] font-bold text-white bg-rose-600 hover:bg-rose-700 flex-shrink-0"
+                    @click="panel = panel === 'amend' ? '' : 'amend'">{{ t('ws.oosFix') }}</button>
+          </div>
+
           <!-- items -->
           <div class="rounded-xl ring-1 ring-stone-100 divide-y divide-stone-50">
             <div v-for="it in active.items" :key="it.sku" class="px-3 py-2 flex items-center gap-3">
@@ -172,6 +206,10 @@
                 <div class="text-[12.5px] text-stone-800 truncate">{{ it.name }}</div>
                 <div class="text-[10.5px] text-stone-400 font-mono">{{ it.sku }}</div>
               </div>
+              <span v-if="it.short" class="text-[10px] font-bold rounded-full px-2 py-0.5 bg-rose-50 text-rose-700 ring-1 ring-rose-200 whitespace-nowrap flex-shrink-0"
+                    :title="t('ws.availHint')">
+                {{ it.avail ? t('ws.availN').replace('{n}', String(it.avail)) : t('ws.availZero') }}
+              </span>
               <span class="text-[12.5px] font-bold tabular-nums text-stone-700">{{ Math.round(it.qty) }}×</span>
               <span class="text-[12px] tabular-nums text-stone-500 w-[70px] text-end">{{ Math.round((it.price || 0) * it.qty) }} MAD</span>
             </div>
@@ -330,6 +368,23 @@
               <div><div class="text-[16px] font-bold tabular-nums text-emerald-600">{{ cust.delivered ?? '—' }}</div><div class="text-[9.5px] text-stone-400 uppercase">{{ t('ws.took') }}</div></div>
               <div><div class="text-[16px] font-bold tabular-nums text-rose-600">{{ cust.failed ?? '—' }}</div><div class="text-[9.5px] text-stone-400 uppercase">{{ t('ws.refused') }}</div></div>
             </div>
+            <!-- Their past orders: the customer asks "and my last one?" and the
+                 agent should not have to leave the call to find out. -->
+            <div v-if="(cust.recent || []).length" class="mt-2.5 pt-2.5 border-t border-stone-100 space-y-1">
+              <div class="text-[10px] font-semibold uppercase tracking-wide text-stone-400 mb-1">{{ t('ws.histTitle') }}</div>
+              <div v-for="o in cust.recent.slice(0, histOpen ? 12 : 4)" :key="o.order"
+                   class="flex items-center gap-2 text-[11px] tabular-nums">
+                <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :class="histDot(o)" />
+                <span class="text-stone-400 flex-shrink-0">{{ o.at.slice(5) }}</span>
+                <span class="text-stone-600 truncate flex-1" :title="o.track || o.status">{{ o.track || o.status }}</span>
+                <span class="font-semibold text-stone-800 flex-shrink-0">{{ Math.round(o.total) }}</span>
+              </div>
+              <button v-if="cust.recent.length > 4" class="text-[10.5px] font-semibold text-[var(--accent-600)] hover:underline"
+                      @click="histOpen = !histOpen">
+                {{ histOpen ? t('common.less') : t('ws.histMore').replace('{n}', String(cust.recent.length - 4)) }}
+              </button>
+            </div>
+
             <!-- the decision about this customer, not just the data -->
             <div class="flex items-center gap-1.5 mt-2.5 pt-2.5 border-t border-stone-100">
               <button class="flex-1 h-8 rounded-lg text-[11px] font-bold ring-1 transition-colors disabled:opacity-50"
@@ -406,6 +461,30 @@ const reasons = ref([]);
 const cancelReason = ref("");
 const cust = ref(null);
 const custLoading = ref(false);
+const histOpen = ref(false);
+function histDot(o) {
+  const t2 = o.track || "";
+  if (t2 === "Delivered") return "bg-emerald-500";
+  if (t2 === "Delivery Exception" || t2 === "Failed Attempt") return "bg-rose-500";
+  if (o.status === "Cancelled") return "bg-stone-300";
+  return "bg-amber-400";
+}
+// The warehouse journey of THIS order — shown only once it has left the
+// confirmation lane, because before that every step is still ahead of it.
+const JOURNEY = [
+  { key: "Pending", label: "ws.jPending" },
+  { key: "Picked", label: "ws.jPicked" },
+  { key: "Label Printed", label: "ws.jLabel" },
+  { key: "Shipped", label: "ws.jShipped" },
+  { key: "Delivered", label: "ws.jDelivered" },
+];
+const journey = computed(() => {
+  const stage = active.value?.stage || "";
+  const alias = { "Label Generated": "Label Printed", "Out For Delivery": "Shipped" };
+  const at = JOURNEY.findIndex((s2) => s2.key === (alias[stage] || stage));
+  return { steps: JOURNEY, at: at < 0 ? 0 : at,
+           show: !!(active.value && (at > 0 || active.value.awb)) };
+});
 const thread = ref([]);
 const threadLoading = ref(false);
 const threadBox = ref(null);
@@ -920,6 +999,15 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.ws-oos {
+  background: linear-gradient(135deg, rgb(255 241 242), rgb(255 228 230));
+  box-shadow: inset 0 0 0 1px rgb(253 164 175 / .7);
+  animation: ws-oos-in .35s cubic-bezier(.2,.7,.3,1);
+}
+@keyframes ws-oos-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .ws-contact {
   display: inline-flex; align-items: center; justify-content: center;
   width: 38px; height: 38px; border-radius: 10px;

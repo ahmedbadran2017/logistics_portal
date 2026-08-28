@@ -1,6 +1,7 @@
 export default {
   brand: "جوستيول للوجستيات",
   common: {
+    less: "أقل",
     menu: "القائمة",
     next: "التالي",
     close: "إغلاق",
@@ -1270,6 +1271,20 @@ export default {
     location: "موقع", reaction: "تفاعل", flow: "نموذج",
   },
   ws: {
+    oosOne: "مفيش مخزون — صنف مش هيتلقط",
+    oosN: "مفيش مخزون — {n} أصناف مش هيتلقطوا",
+    oosHint: "اعرض بديل أو أوردر جزئي دلوقتي، أو الغِ — ماتأكدش حاجة المخزن مش قادر يشحنها.",
+    oosFix: "عدّل الأصناف",
+    availN: "فاضل {n} بس",
+    availZero: "مخزون صفر",
+    availHint: "المخزون الحر في الأرفف القابلة للالتقاط، ناقص الحجوزات الحية",
+    jPending: "في الطابور",
+    jPicked: "اتلقط",
+    jLabel: "اتطبع",
+    jShipped: "اتشحن",
+    jDelivered: "اتسلّم",
+    histTitle: "أوردراته السابقة",
+    histMore: "+{n} كمان",
     queueTeam: "طابور الفريق",
     moreActivity: "كل النشاط",
     exitList: "خروج",

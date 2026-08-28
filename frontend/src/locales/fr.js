@@ -1,6 +1,7 @@
 export default {
   brand: "Justyol Logistique",
   common: {
+    less: "Voir moins",
     menu: "Menu",
     next: "Suivant",
     close: "Fermer",
@@ -1271,6 +1272,20 @@ export default {
     location: "Position", reaction: "R\u00e9action", flow: "Formulaire",
   },
   ws: {
+    oosOne: "Rupture de stock — un article ne peut pas être préparé",
+    oosN: "Rupture de stock — {n} articles ne peuvent pas être préparés",
+    oosHint: "Proposez un échange ou une commande partielle maintenant, ou annulez — ne confirmez pas ce que l'entrepôt ne peut pas expédier.",
+    oosFix: "Modifier",
+    availN: "plus que {n}",
+    availZero: "rupture",
+    availHint: "Stock libre des emplacements préparables, moins les réservations vivantes",
+    jPending: "En file",
+    jPicked: "Préparée",
+    jLabel: "Étiquetée",
+    jShipped: "Expédiée",
+    jDelivered: "Livrée",
+    histTitle: "Ses commandes passées",
+    histMore: "+{n} autres",
     queueTeam: "File de l'équipe",
     moreActivity: "Toute l'activit\u00e9",
     exitList: "Quitter la liste",
