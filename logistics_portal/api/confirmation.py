@@ -147,7 +147,9 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     offset = max(int(offset or 0), 0)
     rng, rng_vals = _range(days, frm, to)
     custom_range = "frm" in rng_vals or "to" in rng_vals
-    vals = {"days": days, "limit": limit, "offset": offset, **rng_vals}
+    # Site clock, not the DB server's — fresh orders were reading "-2h".
+    vals = {"days": days, "limit": limit, "offset": offset,
+            "now": str(now_datetime())[:19], **rng_vals}
 
     # Each agent sees ONLY their own orders; a manager or section admin sees the
     # whole section. "Their own" = the ERPNext assignment (_assign), the field
@@ -1362,13 +1364,14 @@ def dashboard(days=30, frm=None, to=None, mine=0):
                    COALESCE(SUM(CASE WHEN so.grand_total <= %(sane)s
                                      THEN so.grand_total ELSE 0 END), 0) value,
                    SUM(so.grand_total > %(sane)s) absurd,
-                   SUM(TIMESTAMPDIFF(HOUR, so.creation, NOW()) > %(sla)s
+                   SUM(TIMESTAMPDIFF(HOUR, so.creation, %(now)s) > %(sla)s
                        AND COALESCE(so.custom_call_attempts, 0) = 0) late
             FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s
               AND so.custom_sales_status IN %(live)s {active}{me_cond}
             GROUP BY st""",
-        {"live": live, "sla": sla_h, "sane": _SANE_MAX, **rng_vals}, as_dict=True)
+        {"live": live, "sla": sla_h, "sane": _SANE_MAX,
+         "now": str(now_datetime())[:19], **rng_vals}, as_dict=True)
     queue = {r.st: {"n": int(r.n or 0), "value": round(float(r.value or 0)),
                     "late": int(r.late or 0)} for r in q}
     absurd = sum(int(r.absurd or 0) for r in q)
@@ -1376,10 +1379,10 @@ def dashboard(days=30, frm=None, to=None, mine=0):
     # ── how old is the pile ──────────────────────────────────────────────
     aging = frappe.db.sql(
         f"""SELECT CASE
-                     WHEN TIMESTAMPDIFF(HOUR, so.creation, NOW()) <= 6 THEN '0-6h'
-                     WHEN TIMESTAMPDIFF(HOUR, so.creation, NOW()) <= 24 THEN '6-24h'
-                     WHEN TIMESTAMPDIFF(HOUR, so.creation, NOW()) <= 72 THEN '1-3d'
-                     WHEN TIMESTAMPDIFF(HOUR, so.creation, NOW()) <= 168 THEN '3-7d'
+                     WHEN TIMESTAMPDIFF(HOUR, so.creation, %(now)s) <= 6 THEN '0-6h'
+                     WHEN TIMESTAMPDIFF(HOUR, so.creation, %(now)s) <= 24 THEN '6-24h'
+                     WHEN TIMESTAMPDIFF(HOUR, so.creation, %(now)s) <= 72 THEN '1-3d'
+                     WHEN TIMESTAMPDIFF(HOUR, so.creation, %(now)s) <= 168 THEN '3-7d'
                      ELSE '7d+' END bucket,
                    COUNT(*) n,
                    COALESCE(SUM(CASE WHEN so.grand_total <= %(sane)s
@@ -1428,13 +1431,13 @@ def dashboard(days=30, frm=None, to=None, mine=0):
         f"""SELECT so.name, so.customer_name customer, so.grand_total total,
                    so.custom_sales_status st, {_CITY} city,
                    so.custom_allocated_to agent,
-                   TIMESTAMPDIFF(HOUR, so.creation, NOW()) age_h,
+                   GREATEST(0, TIMESTAMPDIFF(HOUR, so.creation, %(now)s)) age_h,
                    COALESCE(so.custom_call_attempts, 0) attempts
             FROM `tabSales Order` so {_CITY_JOIN}
             WHERE so.docstatus = 1 AND so.company = %(co)s
               AND so.custom_sales_status IN %(live)s {active}{me_cond}
             ORDER BY so.creation LIMIT 20""",
-        {"live": live, **rng_vals}, as_dict=True)
+        {"live": live, "now": str(now_datetime())[:19], **rng_vals}, as_dict=True)
 
     # ── where the queue is, geographically ───────────────────────────────
     cities = frappe.db.sql(
@@ -1443,7 +1446,7 @@ def dashboard(days=30, frm=None, to=None, mine=0):
             WHERE so.docstatus = 1 AND so.company = %(co)s
               AND so.custom_sales_status IN %(live)s {active}{me_cond}
             GROUP BY city ORDER BY n DESC LIMIT 8""",
-        {"live": live, **rng_vals}, as_dict=True)
+        {"live": live, "now": str(now_datetime())[:19], **rng_vals}, as_dict=True)
 
     # ── the outcome of the window's intake ───────────────────────────────
     so_rng = rng.format(col="so.creation")
