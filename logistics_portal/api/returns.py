@@ -452,8 +452,15 @@ _NOT_PUTAWAY_LIKE = [
 ]
 _NOT_PUTAWAY_EXACT = ["Morocco - JM", RETURN_ZONE, ADJUST_WH]
 
-# The most expensive real piece on this site is in the low thousands; anything
-# past this is a typo or a bad import, not a price.
+# THE root guard: this is a Morocco tool, and the item catalog is shared with
+# the other companies. Averaging every company's order lines pulled Maslak
+# prices into a Moroccan screen — the three items that showed 60M/26M/11M
+# each carry sane Moroccan rates (280 / 264 / 198 MAD) and one Maslak line at
+# ~420,000,000. Measured 2026-08-28: scoping alone takes the Return Zone from
+# 97.6M to 84,847 MAD.
+_CO = "Justyol Morocco"
+# Belt to the company braces: no real piece here is worth this much, so a
+# future typo inside Morocco's own books can't reprice the zone either.
 _SANE_RATE = 50000
 
 
@@ -501,12 +508,14 @@ def restock_summary(limit=500, q=""):
                   it.custom_sku AS sku,
                   COALESCE(NULLIF(it.item_name,''), b.item_code) AS name, it.image,
                   COALESCE((SELECT AVG(soi.rate) FROM `tabSales Order Item` soi
+                            JOIN `tabSales Order` so2 ON so2.name = soi.parent
                             WHERE soi.item_code = b.item_code
+                              AND so2.company = %s
                               AND soi.rate > 0 AND soi.rate <= %s), 0) AS sell_rate
            FROM `tabBin` b
            LEFT JOIN `tabItem` it ON it.name = b.item_code
            WHERE b.warehouse = %s AND b.actual_qty > 0""",
-        (_SANE_RATE, RETURN_ZONE), as_dict=True)
+        (_CO, _SANE_RATE, RETURN_ZONE), as_dict=True)
 
     total_qty = sum(int(r.qty or 0) for r in rows)
     for r in rows:
