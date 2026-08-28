@@ -2,7 +2,7 @@
   <div class="p-5 sm:p-6 space-y-5 max-w-[1200px] mx-auto">
     <!-- Slim header: the Workspace owns the scoreboard — this page is the
          browse/exception surface, so the chrome stays out of the queue's way. -->
-    <header class="flex items-center gap-3 flex-wrap bg-white rounded-2xl ring-1 ring-stone-200/80 px-4 py-2.5">
+    <header v-if="canBulk" class="flex items-center gap-3 flex-wrap bg-white rounded-2xl ring-1 ring-stone-200/80 px-4 py-2.5">
       <span class="w-9 h-9 rounded-xl bg-[var(--accent-50)] text-[var(--accent-600)] ring-1 ring-[var(--accent-200)]/50 flex items-center justify-center shrink-0"><Icon name="phone" :size="17" /></span>
       <div class="min-w-0">
         <h1 class="text-[15.5px] font-bold text-stone-900 tracking-tight leading-none">{{ t('cf.title') }}</h1>
@@ -133,8 +133,9 @@
     </div>
     <TransitionGroup v-else name="cfrow" tag="div" class="space-y-2.5 relative">
       <div v-for="r in rows" :key="r.order"
-           class="cf-card rounded-2xl px-4 py-3"
-           :class="r.due ? 'cf-card-due' : ''">
+           class="cf-card rounded-2xl px-4 py-3 group/row"
+           :class="[r.due ? 'cf-card-due' : '', rowsOpenWs ? 'cursor-pointer hover:ring-2 hover:ring-[var(--accent-300)]' : '']"
+           @click="rowsOpenWs && openWs(r)">
         <div class="flex items-center gap-3.5 flex-wrap">
           <!-- customer identity -->
           <input v-if="!isNd && canBulk" type="checkbox" class="w-4 h-4 shrink-0"
@@ -146,7 +147,7 @@
               <span class="text-[13.5px] font-bold text-stone-900 truncate max-w-[220px]">{{ r.customer || '—' }}</span>
               <span class="font-mono text-[11px] text-stone-400">{{ r.order }}</span>
               <button v-if="r.cust && r.cust.seg !== 'new'" class="seg-chip" :class="'seg-' + r.cust.seg"
-                      :title="t('seg.explain_' + r.cust.seg)" @click="toggleCust(r)">
+                      :title="t('seg.explain_' + r.cust.seg)" @click.stop="toggleCust(r)">
                 <Icon :name="segIcon(r.cust.seg)" :size="10" />
                 {{ t('seg.' + r.cust.seg) }}
                 <span v-if="r.cust.rate !== null" class="opacity-70 tabular-nums">{{ r.cust.rate }}%</span>
@@ -154,7 +155,7 @@
               <span v-if="r.due" class="cf-due-badge">{{ t('cf.due') }}</span>
             </div>
             <div class="flex items-center gap-2.5 text-[11.5px] text-stone-500 tabular-nums mt-1 flex-wrap">
-              <span class="font-semibold text-stone-800">{{ fmtMAD(r.total) }} <span class="text-stone-400 font-normal">MAD</span></span>
+              <span v-if="!rowsOpenWs" class="font-semibold text-stone-800">{{ fmtMAD(r.total) }} <span class="text-stone-400 font-normal">MAD</span></span>
               <span v-if="r.city" class="inline-flex items-center gap-1"><Icon name="map-pin" :size="11" class="text-stone-300" />{{ r.city }}</span>
               <span>{{ r.items }} {{ t('consol.items') }}</span>
               <span class="inline-flex items-center gap-1" :class="ageColor(r.ageH)"><Icon name="clock" :size="11" />{{ ageLabel(r.ageH) }}</span>
@@ -168,7 +169,7 @@
             </div>
             <!-- what's in the order: one line, click for the whole thing -->
             <button v-if="r.itemsText" class="flex items-center gap-1 text-[11.5px] text-stone-500 mt-1 max-w-[560px] group/it text-start"
-                    @click="toggleDetail(r)">
+                    @click.stop="toggleDetail(r)">
               <Icon name="package" :size="11" class="shrink-0 text-stone-300" />
               <span class="truncate" dir="auto">{{ r.itemsText }}</span>
               <Icon :name="detailFor === r.order ? 'chevron-up' : 'chevron-down'" :size="11"
@@ -181,15 +182,15 @@
           </div>
           <!-- contact -->
           <div class="flex items-center gap-1.5">
-            <a v-if="r.phone" :href="'tel:' + r.phone" :title="r.phone" class="cf-contact cf-tel">
+            <a v-if="r.phone" :href="'tel:' + r.phone" :title="r.phone" class="cf-contact cf-tel" @click.stop>
               <Icon name="phone" :size="15" />
             </a>
-            <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" title="WhatsApp" class="cf-contact cf-wa">
+            <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" title="WhatsApp" class="cf-contact cf-wa" @click.stop>
               <Icon name="message-circle" :size="15" />
             </a>
             <button class="cf-contact text-stone-400 hover:text-stone-700"
                     :class="editFor === r.order ? 'bg-stone-100' : ''"
-                    :title="t('cf.editContact')" @click="toggleEdit(r)">
+                    :title="t('cf.editContact')" @click.stop="toggleEdit(r)">
               <Icon name="edit" :size="13" />
             </button>
           </div>
@@ -208,10 +209,13 @@
           <!-- decisions: agents decide in the Workspace (customer grade,
                blocked banner, caps, activity — none of it exists here);
                inline buttons stay a manager/section-admin instrument. -->
-          <div v-else-if="!isDone && !canBulk && tab !== 'citycheck'" class="flex items-center">
-            <button class="cf-act cf-act-confirm" @click="openWs(r)">
-              <Icon name="sparkles" :size="14" class="inline -mt-px me-1" />{{ t('nav.workspace') }}
-            </button>
+          <div v-else-if="!isDone && !canBulk && tab !== 'citycheck'" class="flex items-center gap-3">
+            <!-- the row itself opens the Workspace — the value sits as a fixed
+                 column, the chevron just whispers "this goes somewhere" -->
+            <span class="text-[14px] font-bold tabular-nums text-stone-800 w-[76px] text-end flex-shrink-0">{{ fmtMAD(r.total) }}<span class="text-[10px] text-stone-400 font-normal"> MAD</span></span>
+            <span class="w-7 h-7 rounded-full flex items-center justify-center text-stone-300 transition-all group-hover/row:text-[var(--accent-600)] group-hover/row:bg-[var(--accent-50)] rtl:-scale-x-100">
+              <Icon name="chevron-right" :size="16" />
+            </span>
           </div>
           <div v-else-if="!isDone && tab !== 'citycheck'" class="flex items-center gap-1.5 flex-wrap">
             <button class="cf-act cf-act-confirm" :disabled="busy === r.order" @click="act(r, 'confirm')">
@@ -241,7 +245,7 @@
 
         <!-- who this customer is: every order they ever made -->
         <Transition name="cfslide">
-          <div v-if="custFor === r.order" class="mt-3 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-3">
+          <div v-if="custFor === r.order" class="mt-3 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-3" @click.stop>
             <div v-if="custLoading" class="text-[12px] text-stone-400 text-center py-4">…</div>
             <template v-else-if="cust">
               <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] tabular-nums pb-2.5 mb-2.5 border-b border-stone-200/70">
@@ -268,7 +272,7 @@
 
         <!-- the whole order, on demand -->
         <Transition name="cfslide">
-          <div v-if="detailFor === r.order" class="mt-3 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-3">
+          <div v-if="detailFor === r.order" class="mt-3 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-3" @click.stop>
             <div v-if="detailLoading" class="text-[12px] text-stone-400 text-center py-4">…</div>
             <div v-else-if="detailError" class="text-[12px] text-rose-500 text-center py-3 font-mono">{{ detailError }}</div>
             <template v-else-if="detail">
@@ -333,7 +337,7 @@
 
         <!-- contact edit -->
         <Transition name="cfslide">
-          <div v-if="editFor === r.order" class="bg-stone-50 rounded-xl p-2.5 mt-3 space-y-2">
+          <div v-if="editFor === r.order" class="bg-stone-50 rounded-xl p-2.5 mt-3 space-y-2" @click.stop>
             <div class="text-[10.5px] font-semibold uppercase tracking-wide text-stone-400">{{ t('cf.editAddrTitle') }}</div>
             <div class="flex items-center gap-2 flex-wrap">
               <input v-model="editPhone" :placeholder="t('cf.phonePh')" maxlength="20"
@@ -417,6 +421,9 @@ function toggleHistory() {
   }
 }
 const WORK_TABS = new Set(["pending", "dna", "followup", "onhold", "monitor"]);
+// Agent live rows: the whole card opens the Workspace.
+const rowsOpenWs = computed(() =>
+  !canBulk.value && !isDone.value && !isNd.value && tab.value !== "citycheck");
 function openWs(r) {
   // Carry the tab too: the Workspace then walks THIS queue after each
   // decision instead of bouncing the agent back here.
@@ -868,12 +875,16 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
 
 /* ── contact + action buttons ─────────────────────────── */
 .cf-contact {
-  width: 38px; height: 38px; border-radius: 12px;
+  width: 32px; height: 32px; border-radius: 10px;
   display: inline-flex; align-items: center; justify-content: center;
-  background: rgb(var(--card)); box-shadow: inset 0 0 0 1px rgb(var(--border));
+  background: transparent; opacity: .55;
   transition: all .15s ease;
 }
-.cf-contact:hover { transform: scale(1.06); }
+.cf-card:hover .cf-contact { opacity: 1; }
+.cf-contact:hover {
+  transform: scale(1.08); background: rgb(var(--card));
+  box-shadow: inset 0 0 0 1px rgb(var(--border));
+}
 .cf-tel { color: rgb(var(--text2)); }
 .cf-tel:hover { color: rgb(4 120 87); box-shadow: inset 0 0 0 1px rgb(110 231 183); }
 .cf-wa { color: rgb(22 163 74); }
@@ -921,8 +932,8 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
 /* ── list + panel animations ──────────────────────────── */
 .cfrow-leave-active { transition: all .28s ease; position: relative; }
 .cfrow-leave-to { opacity: 0; transform: translateX(24px) scale(.98); }
-.cfrow-enter-active { transition: all .25s ease; }
-.cfrow-enter-from { opacity: 0; transform: translateY(6px); }
+.cfrow-enter-active { transition: all .35s cubic-bezier(.2, .7, .3, 1); }
+.cfrow-enter-from { opacity: 0; transform: translateY(12px) scale(.99); }
 .cfrow-move { transition: transform .28s ease; }
 .cfslide-enter-active, .cfslide-leave-active { transition: all .2s ease; }
 .cfslide-enter-from, .cfslide-leave-to { opacity: 0; transform: translateY(-4px); }
