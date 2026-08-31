@@ -1098,28 +1098,71 @@ def _allocate_and_insert(sos, skipped, picker):
         frappe.log_error(frappe.get_traceback(),
                          "logistics_portal.combined_insert_fell_back")
 
-    # Fallback: live-stock contention emptied or blocked the combined insert
-    # (ecommerce_integrations' remove_incomplete_orders drops orders whose
-    # stock can't FULLY cover them — in a combined doc they compete for the
-    # same SKUs). Insert per order, commit each success, skip (and report)
-    # the ones that can't be picked right now.
-    made = []
-    for so in sos:
+    # SHRINK AND RETRY — one list, minus the order that blocked it.
+    #
+    # This used to insert per order, which is how a batch of 30 became 30 lists
+    # (measured 2026-08-31: 57 of 79 lists that day, in bursts inside a single
+    # second). Splitting was never the right answer: the desk does not do it.
+    # On the desk, ee's own remove_incomplete_orders quietly DROPS the orders
+    # that lack full stock, warns which ones, and saves ONE list with the rest.
+    # The only case it refuses outright is a document that ends up empty.
+    #
+    # So mirror that: find the order the failure names, drop just that one, and
+    # rebuild the combined list. Each round removes at least one order, so the
+    # loop is bounded by the batch size; a failure that names nobody costs one
+    # extra attempt and then stops.
+    attempts = 0
+    pool = list(sos)
+    while pool and attempts < min(len(sos), 12):
+        attempts += 1
+        culprit = _blamed_order(combined_err, pool)
+        if culprit is None:
+            # Nothing identifiable — drop the order that needs the scarcest
+            # item, which is the one most likely to be starving the others.
+            culprit = pool[-1]
+        pool = [so for so in pool if so.name != culprit.name]
+        skipped.append({"order": culprit.name,
+                        "reason": f"kept off the list — {combined_err}"})
+        if not pool:
+            break
         try:
-            m = _insert_one([so], picker)
-            m.pop("soNames", None)
-            made.append(m)
-            frappe.db.commit()
+            r = _insert_one(pool, picker)
+            on_pl = set(r.pop("soNames", []))
+            for so in pool:
+                if so.name not in on_pl:
+                    skipped.append({"order": so.name,
+                                    "reason": "dropped by stock validation on save"})
+            return {**r, "skipped": skipped, "pls": [r["pl"]],
+                    "fellBack": f"one order kept off ({attempts} retr"
+                                f"{'y' if attempts == 1 else 'ies'})"}
         except Exception as e:
             frappe.db.rollback()
-            skipped.append({"order": so.name, "reason": _short_err(e)})
-    if not made:
-        detail = "; ".join(f"{s['order']} — {s['reason']}" for s in skipped[:4])
-        frappe.throw(f"Couldn't pick any of the selected orders — {detail}")
-    return {"pl": made[0]["pl"], "orders": sum(m["orders"] for m in made),
-            "items": sum(m["items"] for m in made),
-            "pls": [m["pl"] for m in made], "skipped": skipped,
-            "fellBack": combined_err or "combined insert failed"}
+            combined_err = _short_err(e)
+
+    detail = "; ".join(f"{s['order']} — {s['reason']}" for s in skipped[:4])
+    frappe.throw(f"Couldn't pick any of the selected orders — {detail}")
+
+
+def _blamed_order(err, sos):
+    """Which order in the batch the controller's message points at.
+
+    ee names the item (and sometimes the sales order) in its throw; matching on
+    that removes exactly the blocker instead of guessing. Returns None when the
+    message identifies nobody."""
+    e = err or ""
+    for so in sos:
+        if so.name and so.name in e:
+            return so
+    # Otherwise: the item code is in the message — blame the order that needs
+    # the most of it, since that is the one the availability check tripped on.
+    hit = None
+    for so in sos:
+        for it in so.items:
+            if it.item_code and str(it.item_code) in e:
+                need = (it.qty or 0) - (it.delivered_qty or 0)
+                if not hit or need > hit[1]:
+                    hit = (so, need)
+    return hit[0] if hit else None
 
 
 @frappe.whitelist()
