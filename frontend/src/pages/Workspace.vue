@@ -203,7 +203,7 @@
 
           <!-- items -->
           <div class="rounded-xl ring-1 ring-stone-100 divide-y divide-stone-50">
-            <div v-for="it in active.items" :key="it.sku" class="px-3 py-2 flex items-center gap-3">
+            <div v-for="it in active.items" :key="it.idx || it.sku" class="px-3 py-2 flex items-center gap-3">
               <img v-if="it.image" :src="it.image" alt="" class="w-10 h-10 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50" @error="hideImg" />
               <span v-else class="w-10 h-10 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center text-stone-400"><Icon name="package" :size="15" /></span>
               <div class="min-w-0 flex-1">
@@ -218,7 +218,7 @@
               <span class="text-[12px] tabular-nums text-stone-500 w-[70px] text-end">{{ Math.round((it.price || 0) * it.qty) }} MAD</span>
             </div>
             <div class="px-3 py-2 flex items-center justify-between bg-stone-50/60">
-              <button class="text-[11.5px] font-semibold text-[var(--accent-700)] hover:underline" @click="panel = panel === 'amend' ? '' : 'amend'">
+              <button v-if="inLane" class="text-[11.5px] font-semibold text-[var(--accent-700)] hover:underline" @click="panel = panel === 'amend' ? '' : 'amend'">
                 {{ t('ws.amendBtn') }} <kbd class="text-[9px] font-mono text-stone-400">D</kbd>
               </button>
               <div class="text-[13px] tabular-nums">
@@ -233,7 +233,7 @@
             <div v-if="panel === 'amend'" class="rounded-xl bg-violet-50/60 ring-1 ring-violet-200/70 p-3 space-y-2.5">
               <div class="text-[11.5px] font-semibold text-violet-700">{{ t('ws.amendTitle') }}</div>
               <div class="space-y-1.5">
-                <div v-for="it in amendItems" :key="it.item_code" class="flex items-center gap-2">
+                <div v-for="it in amendItems" :key="it.idx || it.item_code" class="flex items-center gap-2">
                   <span class="text-[12px] text-stone-700 truncate flex-1">{{ it.name }}</span>
                   <div class="inline-flex items-center rounded-lg ring-1 ring-violet-200 bg-white overflow-hidden">
                     <button class="w-8 h-8 text-stone-500 hover:bg-stone-50" @click="it.qty = Math.max(0, it.qty - 1)">−</button>
@@ -294,8 +294,11 @@
             </div>
           </div>
 
-          <!-- THE decision row -->
-          <div class="flex flex-wrap gap-2">
+          <!-- THE decision row — only while the order is still ours. The
+               clickable history lands the agent on delivered / returned /
+               cancelled orders, where every one of these posts is rejected
+               by the backend; offering them was a guaranteed error toast. -->
+          <div v-if="inLane" class="flex flex-wrap gap-2">
             <button class="ws-decide flex-[2] min-w-[160px] text-white"
                     :class="isBlocked ? (confirmArmed ? 'bg-rose-600 hover:bg-rose-700' : 'bg-stone-400 hover:bg-stone-500') : 'bg-emerald-600 hover:bg-emerald-700'"
                     :disabled="busy" @click="onConfirm">
@@ -314,6 +317,10 @@
                     @click="panel = panel === 'cancel' ? '' : 'cancel'">
               <Icon name="x" :size="14" /><span>{{ t('rs.actCancel') }}</span> <kbd>4</kbd>
             </button>
+          </div>
+
+          <div v-if="!inLane" class="rounded-xl bg-stone-50 ring-1 ring-stone-200/70 px-3.5 py-2.5 text-[12px] text-stone-500">
+            {{ t('ws.outOfLane') }}
           </div>
 
           <!-- note + activity -->
@@ -503,7 +510,9 @@ const journey = computed(() => {
   // Returned is a real terminal stage on 1,303 orders — it is NOT step zero,
   // and showing "in the queue" for a parcel that came back would be a lie.
   const returned = stage === "Returned";
-  const at = returned ? JOURNEY.length - 1
+  // Past the end: every step reads as done and NONE is highlighted as the
+  // live one — the parcel came back, it never sat at "delivered".
+  const at = returned ? JOURNEY.length
     : JOURNEY.findIndex((s2) => s2.key === (alias[stage] || stage));
   return { steps: JOURNEY, at: at < 0 ? 0 : at, returned,
            show: !!(active.value && (at > 0 || returned || active.value.awb)) };
@@ -534,7 +543,10 @@ const caps = ref({ pct: 15, amt: 50 });
 // already blew it. Card-level: this order's countdown, flipping to "late by".
 const slaLate = computed(() => {
   const h = board.value?.slaHours || 6;
-  return queueRows.value.filter((r) => !r.attempts && r.ageH >= h).length;
+  // Always the SERVE PLAN, never the browsed list: on a retry list every row
+  // has attempts, so the tile flashed a green "✓" while the real pending
+  // queue was blowing its first-call SLA.
+  return (plan.value?.rows || []).filter((r) => !r.attempts && r.ageH >= h).length;
 });
 const slaChip = computed(() => {
   const h = board.value?.slaHours || 6;
@@ -584,13 +596,22 @@ const KIND_CLS = {
 // The card tells the ORDER's truth from the order itself (orders.detail) —
 // never from the plan row, which deep-linked opens aren't part of.
 const ST_KIND = { "Did not Answer": "dna", "Follow Up": "followup", "On Hold": "onhold" };
+// Is this order still ours to decide? The clickable history can land the
+// agent on a delivered, returned or cancelled order — the backend rejects a
+// decision there, so the buttons must not be offered in the first place.
+const inLane = computed(() => {
+  const st = active.value?.sales_status;
+  return !!st && (st === "Pending" || !!ST_KIND[st]);
+});
 const stChip = computed(() => {
   const st = active.value?.sales_status;
   if (!st) return null;
   const kind = ST_KIND[st];
   if (kind) return { label: t("ws.k_" + kind), cls: KIND_CLS[kind] };
   if (st === "Pending") return { label: t("cf.tabPending"), cls: "text-[var(--accent-700)] bg-[var(--accent-100)]" };
-  return { label: st, cls: "text-stone-600 bg-stone-200" };
+  const done = { Confirmed: "confirmed", Cancelled: "cancelled",
+                 Duplicated: "duplicated" }[st];
+  return { label: done ? t("cf.st" + done) : st, cls: "text-stone-600 bg-stone-200" };
 });
 const cardAgeH = computed(() => {
   const c = active.value?.created;
@@ -612,16 +633,19 @@ const WORK_TAB_LABEL = { pending: "cf.tabPending", dna: "cf.tabDna",
 const tabMode = ref("");
 const tabRows = ref([]);
 const tabLoading = ref(false);
+let tabSeq = 0;
 async function loadTabQueue(tb) {
+  const seq = ++tabSeq;   // Back/Forward between two tabs: newest reply wins
   tabLoading.value = true;
   try {
     const r = await api("confirmation.board", { tab: tb, limit: 50 });
+    if (seq !== tabSeq) return;
     tabRows.value = (r?.rows || []).map((x) => ({
       order: x.order, customer: x.customer, total: x.total, ageH: x.ageH,
       attempts: x.attempts, due: !!x.due, kind: ST_KIND[x.status] || (KIND_CLS[tb] ? tb : "pending"),
     }));
-  } catch (e) { tabRows.value = []; }
-  tabLoading.value = false;
+  } catch (e) { if (seq === tabSeq) tabRows.value = []; }
+  if (seq === tabSeq) tabLoading.value = false;
 }
 function exitTabMode() {
   tabMode.value = "";
@@ -760,9 +784,9 @@ async function loadBoard() {
     // The queue pane is a helper — but reasons/caps ride this payload and a
     // cancel is impossible without them, so one quiet retry beats waiting
     // for the 120s poll.
-    if (!board.value) setTimeout(() => {
-      if (!board.value) loadBoard();
-    }, 15000);
+    if (!board.value && !retryTimer) {
+      retryTimer = setTimeout(() => { retryTimer = null; if (!board.value) loadBoard(); }, 15000);
+    }
   }
   boardLoading.value = false;
 }
@@ -799,7 +823,8 @@ async function openOrder(name) {
     active.value = det;
     activeRow.value = queueRows.value.find((r) => r.order === name) || null;
     amendItems.value = (active.value.items || []).map((i) => ({
-      item_code: i.sku, name: i.name, qty: Math.round(i.qty), _orig: Math.round(i.qty),
+      idx: i.idx, item_code: i.sku, name: i.name,
+      qty: Math.round(i.qty), _orig: Math.round(i.qty),
     }));
     discAmt.value = null; discPct.value = null;
     editPhone.value = active.value.phone || "";
@@ -906,6 +931,7 @@ async function applyAmend() {
   if (!active.value) return;
   busy.value = true;
   try {
+    // Send the ROW, not the code — the same SKU can appear on several lines.
     const items = amendItems.value.filter((i) => i.qty !== i._orig)
       .map((i) => ({ item_code: i.item_code, qty: i.qty }));
     const res = await apiPost("confirmation.amend_order", {
@@ -967,7 +993,9 @@ function onKey(e) {
     e.preventDefault();
     serveNext(true);
   }
-  else if (!active.value || busy.value) return;
+  // While a new card is loading, `active` still holds the old order — a
+  // keystroke here decided (or skipped) the wrong one.
+  else if (!active.value || busy.value || cardLoading.value) return;
   else if (c === "Digit1" || c === "Numpad1") onConfirm();
   else if (c === "Digit2" || c === "Numpad2") decide("dna");
   else if (c === "Digit3" || c === "Numpad3") decide("followup");
@@ -1012,11 +1040,13 @@ watch(() => route.query.tab, (tb2) => {
   }
 });
 // The plan pane goes stale over a shift — silent refresh like every queue.
+let retryTimer = null;
 const planTimer = setInterval(() => {
   if (document.visibilityState === "visible" && !serving.value && !busy.value
       && !cardLoading.value) loadBoard();
 }, 120000);
 onUnmounted(() => {
+  clearTimeout(retryTimer);
   clearInterval(planTimer);
   clearInterval(cardTick);
   window.removeEventListener("keydown", onKey);

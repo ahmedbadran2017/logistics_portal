@@ -242,6 +242,16 @@
                     :class="cancelFor === r.order ? 'ring-2' : ''"
                     @click="cancelFor = cancelFor === r.order ? '' : r.order"><Icon name="circle-x" :size="15" /></button>
           </div>
+          <!-- City check: the order is CONFIRMED and only its city is wrong.
+               No outcome chip, no undo — the backend would happily reopen it
+               (Confirmed + stage Pending + no pick list is exactly what
+               act('reopen') allows), dropping a live order back into the call
+               queue on a mis-click. Only the fix toolkit above applies here. -->
+          <div v-else-if="tab === 'citycheck'" class="flex items-center gap-2">
+            <span class="text-[10.5px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-full px-2 py-0.5 whitespace-nowrap">
+              {{ t('cf.fixCity') }}
+            </span>
+          </div>
           <!-- already decided: the outcome + an undo -->
           <div v-else class="flex items-center gap-2 flex-wrap">
             <span class="cf-done" :class="doneClass(r.status)">
@@ -478,11 +488,12 @@ function debouncedLoad() {
 }
 
 let loadSeq = 0;
-async function load() {
+async function load(opts) {
   // Typing fires several searches; without a token the SLOWEST reply wins and
   // the list shows results for a query the agent already moved past.
   const seq = ++loadSeq;
-  loading.value = true;
+  // A background refresh must not blank the list the agent is reading.
+  if (!opts?.quiet) loading.value = true;
   selected.value = new Set();
   try {
     const res = await api("confirmation.board", {
@@ -500,7 +511,7 @@ async function load() {
     loadError.value = String(e.message || e);
     rows.value = [];
   } finally {
-    if (seq === loadSeq) loading.value = false;
+    if (seq === loadSeq && !opts?.quiet) loading.value = false;
   }
 }
 onMounted(load);
@@ -515,7 +526,7 @@ watch(() => route.query.tab, (v) => {
 // otherwise looking at a snapshot from whenever they opened the page.
 const pollTimer = setInterval(() => {
   if (document.visibilityState === "visible" && !loading.value
-      && !selected.value.size && !cancelFor.value && !editFor.value) load();
+      && !selected.value.size && !cancelFor.value && !editFor.value) load({ quiet: true });
 }, 120000);
 onUnmounted(() => { clearInterval(pollTimer); clearTimeout(qTimer); });
 
@@ -961,6 +972,7 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
 /* ── list + panel animations ──────────────────────────── */
 .cfrow-leave-active { transition: all .28s ease; position: relative; }
 .cfrow-leave-to { opacity: 0; transform: translateX(24px) scale(.98); }
+[dir="rtl"] .cfrow-leave-to { transform: translateX(-24px) scale(.98); }
 .cfrow-enter-active { transition: all .35s cubic-bezier(.2, .7, .3, 1); }
 .cfrow-enter-from { opacity: 0; transform: translateY(12px) scale(.99); }
 .cfrow-move { transition: transform .28s ease; }

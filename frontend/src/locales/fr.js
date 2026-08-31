@@ -1282,6 +1282,7 @@ export default {
     "Returned": "Retournée",
   },
   ws: {
+    outOfLane: "Cette commande a quitté la file de confirmation — consultation seule.",
     jReturned: "Retournée",
     oosOne: "Rupture de stock — un article ne peut pas être préparé",
     oosN: "Rupture de stock — {n} articles ne peuvent pas être préparés",

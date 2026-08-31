@@ -278,20 +278,29 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     from logistics_portal.api.picking import _BAD_CITY, _EFF_CITY
     from logistics_portal.api.city import _accepted_cities
     _acc = tuple({c.lower() for c in _accepted_cities()}) or ("",)
-    counts["citycheck"] = int(frappe.db.sql(
-        f"""SELECT COUNT(*) FROM `tabSales Order` so
-            WHERE so.docstatus = 1 AND so.company = %(co)s
-              AND so.custom_sales_status = 'Confirmed'
-              AND so.custom_logistics_status = 'Pending'
-              AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
-              AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
-                              JOIN `tabPick List` p ON p.name = pli.parent
-                              WHERE pli.sales_order = so.name AND p.docstatus < 2)
-              AND ({_BAD_CITY}
-                   OR LOWER(TRIM(COALESCE({_EFF_CITY}, ''))) NOT IN %(acc)s)
-              {me_so}""",
-        {"co": _CO, "acc": _acc,
-         **({"me_like": f'%"{me}"%'} if mine_only else {})})[0][0])
+    # Four correlated address subqueries deep and it ran on EVERY board load,
+    # for every tab — cache it per scope exactly like the monitor count above.
+    _cck = "lp_cf_citycheck_" + (me if mine_only else "all")
+    _cc = frappe.cache().get_value(_cck)
+    if _cc is not None and tab != "citycheck":
+        counts["citycheck"] = int(_cc)
+    else:
+        counts["citycheck"] = int(frappe.db.sql(
+            f"""SELECT COUNT(*) FROM `tabSales Order` so
+                WHERE so.docstatus = 1 AND so.company = %(co)s
+                  AND so.custom_sales_status = 'Confirmed'
+                  AND so.custom_logistics_status = 'Pending'
+                  AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+                  AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
+                                  JOIN `tabPick List` p ON p.name = pli.parent
+                                  WHERE pli.sales_order = so.name
+                                    AND p.docstatus < 2)
+                  AND ({_BAD_CITY}
+                       OR LOWER(TRIM(COALESCE({_EFF_CITY}, ''))) NOT IN %(acc)s)
+                  {me_so}""",
+            {"co": _CO, "acc": _acc,
+             **({"me_like": f'%"{me}"%'} if mine_only else {})})[0][0])
+        frappe.cache().set_value(_cck, counts["citycheck"], expires_in_sec=300)
 
     # Not Delivered: shipped-then-failed parcels the confirmation team calls
     # back to arrange a redelivery/reship or to cancel. Post-shipment work
@@ -370,8 +379,14 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
         # A search is a LOOKUP, not a report: the date window is dropped, or
         # an order older than the picked range answers "not found" while it
         # sits right there in the system.
-        conds = [c for c in conds if "%(days)s" not in c and "%(frm)s" not in c
-                 and "%(to)s" not in c]
+        # Drop EVERY date/recency fence, whatever placeholder it used: the
+        # notdelivered tab dates on %(ndays)s and the team-scope done tabs add
+        # a bare `custom_last_call_at IS NOT NULL` — a name-based strip left
+        # both standing, so searching still answered "not found" for 99.8% of
+        # confirmed orders (measured: 9,163 of 9,178 carry no last_call_at).
+        _date_marks = ("%(days)s", "%(frm)s", "%(to)s", "%(ndays)s",
+                       "custom_last_call_at IS NOT NULL")
+        conds = [c for c in conds if not any(m in c for m in _date_marks)]
         digits_only = q.lstrip("#").strip()
         if digits_only.isdigit():
             # Order numbers are '#257135'. Anchored patterns keep the index
@@ -515,7 +530,10 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
             "chased": int(r.r2 or 0) and 2 or (int(r.r1 or 0) and 1 or 0),
             # First-call SLA: never touched and older than the target. Only
             # meaningful while the order is still ours to call.
-            "slaBreached": bool(tab not in DONE_QUEUES
+            # Only the LIVE call queues carry a first-call clock: a citycheck
+            # row is already confirmed and a notdelivered parcel already
+            # shipped — the red badge was a lie on both tabs.
+            "slaBreached": bool(tab in QUEUES
                                 and int(r.attempts or 0) == 0
                                 and int(r.age_h or 0) > sla_h),
         } for r in rows],
@@ -1063,13 +1081,18 @@ def _decisions_by(user, rng, rng_vals, limit=6000):
     acts = {"confirm": 0, "cancel": 0, "dna": 0, "followup": 0,
             "onhold": 0, "duplicate": 0}
     daily = {}
+    # Company-fenced like every other read in this lane: the site also holds
+    # Maslak and China orders in the identical statuses, and a desk agent who
+    # touches one must not have it counted as Morocco confirmation work.
     rows = frappe.db.sql(
         f"""SELECT DATE(v.creation) d, v.data FROM `tabVersion` v
+            JOIN `tabSales Order` so ON so.name = v.docname
             WHERE v.ref_doctype = 'Sales Order' AND v.owner = %(u)s
+              AND so.company = %(co)s
               AND v.data LIKE '%%custom_sales_status%%'
               AND {rng.format(col="v.creation")}
             ORDER BY v.creation DESC LIMIT {int(limit)}""",
-        {**rng_vals, "u": user}, as_dict=True)
+        {**rng_vals, "u": user, "co": _CO}, as_dict=True)
     for r in rows:
         try:
             changed = _j.loads(r.data or "{}").get("changed") or []
@@ -1095,11 +1118,13 @@ def _auto_closed_for(user, rng, rng_vals):
         f"""SELECT COUNT(DISTINCT v.docname) FROM `tabVersion` v
             JOIN `tabSales Order` so ON so.name = v.docname
             WHERE v.ref_doctype = 'Sales Order'
-              AND v.owner IN {str(_AUTOMATION_USERS)}
+              AND v.owner IN %(auto)s
               AND v.data LIKE '%%custom_sales_status%%'
+              AND so.company = %(co)s
               AND so.custom_allocated_to = %(u)s
               AND {rng.format(col="v.creation")}""",
-        {**rng_vals, "u": user})[0][0] or 0)
+        {**rng_vals, "u": user, "co": _CO,
+         "auto": _AUTOMATION_USERS})[0][0] or 0)
 
 
 @frappe.whitelist()
@@ -1209,6 +1234,10 @@ def report(days=7, frm=None, to=None):
             pass
     days = min(max(int(days or 7), 1), 365)
     rng, rng_vals = _range(days, frm, to)
+    # Every query below is company-fenced; the param has to travel WITH the
+    # range or the ones binding %(co)s die — the section report was a 500
+    # (KeyError 'co') on every single load until this line existed.
+    rng_vals["co"] = _CO
     # Two windows, on purpose — the desk's own dashboard learned this too
     # ("Agents Leaderboard" vs "Agent Performance (By Order Creation Date)"):
     #   c_rng   ACTIVITY: decisions taken in the period. Answers "what did the
@@ -1301,12 +1330,13 @@ def report(days=7, frm=None, to=None):
     auto_by_agent = {r[0]: int(r[1] or 0) for r in frappe.db.sql(
         f"""SELECT so.custom_allocated_to, COUNT(DISTINCT v.docname)
             FROM `tabVersion` v JOIN `tabSales Order` so ON so.name = v.docname
-            WHERE v.ref_doctype = 'Sales Order' AND v.owner = 'Administrator'
+            WHERE v.ref_doctype = 'Sales Order' AND v.owner IN %(auto)s
               AND v.data LIKE '%%custom_sales_status%%'
               AND so.company = %(co)s
               AND COALESCE(so.custom_allocated_to, '') != ''
-              AND {so_rng}
-            GROUP BY so.custom_allocated_to""", rng_vals)}
+              AND {rng.format(col="v.creation")}
+            GROUP BY so.custom_allocated_to""",
+        {**rng_vals, "auto": _AUTOMATION_USERS})}
 
     agents = []
     for user in set(list(per_agent) + list(money)):
@@ -1759,11 +1789,19 @@ def amend_order(order, discount_amount=None, discount_percent=None,
     new.amended_from = so.name
     new.docstatus = 0
     if items:
+        # BY ROW, not by code. ERPNext allows the same item_code on several
+        # lines (routine after a consolidation merge), and a code-keyed map
+        # applied one edit to EVERY matching row — zeroing one short line
+        # silently removed the others too.
+        wanted_idx = {int(i["idx"]): flt(i.get("qty")) for i in items
+                      if str(i.get("idx") or "").strip().isdigit()}
         wanted = {str(i.get("item_code")): flt(i.get("qty")) for i in items
-                  if i.get("item_code")}
+                  if i.get("item_code") and not str(i.get("idx") or "").strip().isdigit()}
         rows = []
         for r in new.items:
-            q = wanted.get(r.item_code, None)
+            q = wanted_idx.get(int(r.idx), None)
+            if q is None:
+                q = wanted.get(r.item_code, None)
             if q is None:
                 rows.append(r)
             elif q > 0:

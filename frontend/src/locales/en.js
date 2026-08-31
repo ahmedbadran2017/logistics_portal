@@ -1281,6 +1281,7 @@ export default {
     "Returned": "Came back",
   },
   ws: {
+    outOfLane: "This order has left the confirmation lane — you're viewing it, not deciding it.",
     jReturned: "Came back",
     oosOne: "Out of stock — one item can't be picked",
     oosN: "Out of stock — {n} items can't be picked",
