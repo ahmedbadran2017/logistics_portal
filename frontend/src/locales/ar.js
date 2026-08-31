@@ -1094,7 +1094,7 @@ export default {
     contactSaved: "اتحدثت بيانات التواصل",
     contactFail: "تعذّر التحديث",
     tabMonitor: "المراقبة",
-    tabNotDelivered: "لم تُسلَّم", tabCityCheck: "تشييك المدن",
+    tabNotDelivered: "لم تُسلَّم", tabCityCheck: "تشييك المدن", fixCity: "المدينة محتاجة تصحيح",
     chased: "الأوتوميشن طارده",
     chasedHint: "أوتوميشن الواتساب بعتله تذكير خلاص — ومردش عليه هو كمان.",
     targetHit: "الهدف اتحقق",
