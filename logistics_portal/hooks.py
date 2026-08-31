@@ -60,6 +60,7 @@ after_migrate = [
     "logistics_portal.install.ensure_indexes",
     "logistics_portal.install.ensure_catalog_fields",
     "logistics_portal.install.ensure_pick_fields",
+    "logistics_portal.install.ensure_pick_field_lengths",
     "logistics_portal.install.ensure_cs_fields",
     "logistics_portal.install.ensure_desk_override_role",
     "logistics_portal.install.ensure_role_field_options",

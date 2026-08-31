@@ -185,3 +185,41 @@ def ensure_role_field_options():
         frappe.db.set_value("Custom Field", cf.name, "options", wanted,
                             update_modified=False)
         frappe.clear_cache(doctype="User")
+
+
+def ensure_pick_field_lengths():
+    """Widen Pick List Item.item_name so a long product title cannot shatter a
+    batch.
+
+    Frappe REFUSES to store a value longer than the column instead of
+    truncating it (CharacterLengthExceededError), and the field is a Data with
+    no explicit length — so 140 characters. This catalogue has 2,851 items
+    whose name is longer than that (longest 222), and on 2026-08-31 a single
+    one of them on a combined pick list threw at insert, which dropped the
+    whole batch to the one-list-per-order fallback.
+
+    Pre-trimming the value on our side does nothing: item_name is fetch_from
+    item_code.item_name with fetch_if_empty = 0, so _validate_links writes the
+    full name back over ours (measured: 140 in, 185 out). The only place the
+    limit can be raised is the field itself, via a Property Setter — which is
+    the supported way to customise a core doctype, and which `bench migrate`
+    turns into the matching column ALTER.
+    """
+    want = 250          # longest name in the catalogue today is 222
+    try:
+        meta = frappe.get_meta("Pick List Item")
+        df = meta.get_field("item_name")
+        if not df or int(df.length or 0) >= want:
+            return
+        frappe.make_property_setter({
+            "doctype": "Pick List Item",
+            "fieldname": "item_name",
+            "property": "length",
+            "value": want,
+            "property_type": "Int",
+        }, is_system_generated=True)
+        frappe.clear_cache(doctype="Pick List Item")
+    except Exception:
+        # Never block a migrate on a cosmetic widening.
+        frappe.log_error(frappe.get_traceback()[:2000],
+                         "logistics_portal.ensure_pick_field_lengths")

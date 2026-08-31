@@ -866,18 +866,52 @@ def _insert_one(sos, picker=None):
     if picker and frappe.get_meta("Pick List").has_field("custom_assigned_picker"):
         pl.custom_assigned_picker = picker
     bins = _resolve_bins({it.item_code for so in sos for it in so.items})
+    # Running pool per (item, bin): two orders on the same list must not both be
+    # written against the same single unit.
+    left = {}
+    for code, b in bins.items():
+        for c in b.get("pool") or [b]:
+            left[(code, c["bin"])] = c["qty"]
+
     for so in sos:
         for it in so.items:
             pending = (it.qty or 0) - (it.delivered_qty or 0)
             if pending <= 0:
                 continue
             b = bins.get(it.item_code)
-            pl.append("locations", {
-                "item_code": it.item_code, "qty": pending, "stock_qty": pending,
-                "conversion_factor": it.conversion_factor or 1,
-                "sales_order": so.name, "sales_order_item": it.name, "uom": it.uom,
-                "warehouse": b["bin"] if b else it.warehouse,
-            })
+            # Split the line across the bins that actually hold the stock, in
+            # walk order. ee validates picked qty PER WAREHOUSE, so a single row
+            # asking one bin for more than it holds fails the whole document.
+            rows_for_line = []
+            if b:
+                for c in (b.get("pool") or [b]):
+                    if pending <= 0:
+                        break
+                    have = left.get((it.item_code, c["bin"]), 0)
+                    take = min(pending, have)
+                    if take <= 0:
+                        continue
+                    left[(it.item_code, c["bin"])] = have - take
+                    rows_for_line.append((c["bin"], take))
+                    pending -= take
+            # Anything still unplaced keeps the old behaviour so the controller
+            # can have its say rather than the line vanishing here.
+            if pending > 0:
+                rows_for_line.append((b["bin"] if b else it.warehouse, pending))
+
+            for wh, q in rows_for_line:
+                pl.append("locations", {
+                    "item_code": it.item_code, "qty": q, "stock_qty": q,
+                    "conversion_factor": it.conversion_factor or 1,
+                    "sales_order": so.name, "sales_order_item": it.name,
+                    "uom": it.uom, "warehouse": wh,
+                })
+                # NB: item_name is deliberately NOT set here. It is a
+                # fetch_from field with fetch_if_empty = 0, so Frappe's
+                # _validate_links overwrites whatever we pass with the full
+                # Item name (verified on prod: a value trimmed to 140 came back
+                # 185 long). The length is fixed where it belongs — the field —
+                # in install.ensure_pick_field_lengths().
     if not pl.get("locations"):
         raise frappe.ValidationError("nothing pickable")
     pl.insert()
@@ -1394,7 +1428,7 @@ def _resolve_bins(item_codes):
             (tuple(item_codes),), as_dict=True):
         locked[(r.item_code, r.warehouse)] = float(r.q or 0)
 
-    best = {}
+    best, pool = {}, {}
     for r in rows:
         avail = float(r.avail or 0) - locked.get((r.item_code, r.warehouse), 0)
         if avail <= 0:
@@ -1407,10 +1441,20 @@ def _resolve_bins(item_codes):
             "walk": (m.group(1), int(m.group(2)), m.group(3)) if m else ("~", 0, ""),
             "qty": avail,
         }
+        pool.setdefault(r.item_code, []).append(cand)
         cur = best.get(r.item_code)
         # prefer shelf over staging; within the same class prefer more stock
         if not cur or (cand["shelf"], cand["qty"]) > (cur["shelf"], cur["qty"]):
             best[r.item_code] = cand
+    # EVERY candidate bin, richest shelf first. One line pinned to one bin was
+    # the bug: an item with 1 unit on the shelf and 19 in staging got its whole
+    # qty written against the shelf bin, and ee's per-WAREHOUSE check threw
+    # "picked quantity 2.0 is greater than available stock 1.0" — which fell the
+    # whole batch back to one list per order (57 of 79 lists on 2026-08-31).
+    for code, cands in pool.items():
+        cands.sort(key=lambda c: (not c["shelf"], -c["qty"], c["walk"]))
+        if code in best:
+            best[code]["pool"] = cands
     return best
 
 
