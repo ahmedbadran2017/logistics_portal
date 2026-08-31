@@ -158,6 +158,85 @@
         <div v-else class="text-center text-[12.5px] text-emerald-600 py-8">{{ t('slotting.moveDone') }}</div>
       </div>
 
+      <!-- The fastest SKUs with no picking face at all -->
+      <div v-if="noFace" class="bg-white rounded-xl ring-1 ring-rose-200/70 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+          <Icon name="alert-triangle" :size="14" class="text-rose-600" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('slotting.nfTitle') }}</span>
+          <span class="text-[11.5px] text-stone-400 tabular-nums">{{ noFace.total }} SKU</span>
+          <div class="ms-auto flex items-center gap-1">
+            <button v-for="c in ['A', 'B', 'C']" :key="c" @click="setNfCls(c)"
+                    class="h-7 px-2.5 rounded-lg text-[11.5px] font-semibold transition-colors"
+                    :class="nfCls === c ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'">{{ c }}</button>
+          </div>
+        </div>
+        <div class="px-4 py-2 bg-rose-50/50 text-[11.5px] text-stone-600 flex flex-wrap gap-x-3 gap-y-1 tabular-nums">
+          <span class="text-emerald-700 font-semibold">{{ noFace.sourced }} {{ t('slotting.nfReady') }}</span>
+          <span class="text-amber-700 font-semibold">{{ noFace.elsewhere }} {{ t('slotting.nfElsewhere') }}</span>
+          <span class="text-rose-700 font-semibold">{{ noFace.noStock }} {{ t('slotting.nfNoStock') }}</span>
+        </div>
+        <ul v-if="noFace.rows.length" class="divide-y divide-stone-100 max-h-[440px] overflow-y-auto">
+          <li v-for="it in noFace.rows" :key="it.itemCode" class="p-3 flex items-center gap-3">
+            <img v-if="it.image" :src="it.image" alt="" @error="hideImg"
+                 class="w-10 h-10 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
+            <span v-else class="w-10 h-10 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center flex-shrink-0 text-stone-400"><Icon name="package" :size="16" /></span>
+            <div class="min-w-0 flex-1">
+              <div class="text-[13px] font-semibold text-stone-900 truncate">{{ it.name }}</div>
+              <div class="font-mono text-[11.5px] text-stone-500 truncate">{{ it.sku || it.itemCode }} · {{ it.picks }} {{ t('slotting.picksShort') }}</div>
+            </div>
+            <span v-if="it.state === 'ready'" class="text-[12px] font-semibold text-stone-700 tabular-nums whitespace-nowrap">
+              {{ it.source }} ({{ it.available }}u) <Icon name="chevron-right" :size="12" class="inline flip-rtl text-stone-400" />
+              <b class="text-[var(--accent-700)]">{{ it.target }}</b>
+            </span>
+            <span v-else class="text-[11.5px] font-semibold whitespace-nowrap"
+                  :class="it.state === 'elsewhere' ? 'text-amber-600' : 'text-rose-600'">
+              {{ it.state === 'elsewhere' ? t('slotting.nfElsewhere') : t('slotting.nfNoStock') }}
+            </span>
+            <button v-if="it.state === 'ready'"
+                    class="h-8 px-3 rounded-lg text-[12px] font-semibold text-[var(--accent-700)] bg-[var(--accent-50)] ring-1 ring-[var(--accent-200,#f5d0b0)] hover:bg-[var(--accent-100,#fde8d7)] flex-shrink-0"
+                    @click="goFace(it)">{{ t('slotting.moveBtn') }}</button>
+          </li>
+        </ul>
+        <div v-else class="text-center text-[12.5px] text-emerald-600 py-8">{{ t('slotting.nfDone') }}</div>
+      </div>
+
+      <!-- Clear the zone before filling it -->
+      <div v-if="evac" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+          <Icon name="arrow-right" :size="14" class="text-amber-600" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('slotting.evTitle').replace('{z}', (evac.letters || []).join('+')) }}</span>
+          <span class="text-[11.5px] text-stone-400 tabular-nums">{{ evac.total }} SKU · {{ evac.unitsToClear.toLocaleString() }}u</span>
+          <div class="ms-auto flex items-center gap-1">
+            <button v-for="c in ['A', 'B', 'C']" :key="c" @click="setEvCls(c)"
+                    class="h-7 px-2.5 rounded-lg text-[11.5px] font-semibold transition-colors"
+                    :class="evCls === c ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'">{{ c }}</button>
+          </div>
+        </div>
+        <div class="px-4 py-2 text-[11.5px] text-stone-500">{{ t('slotting.evHint').replace('{n}', String(evac.coldRows)) }}</div>
+        <ul v-if="evac.rows.length" class="divide-y divide-stone-100 max-h-[440px] overflow-y-auto">
+          <li v-for="it in evac.rows" :key="it.itemCode" class="p-3 flex items-center gap-3">
+            <img v-if="it.image" :src="it.image" alt="" @error="hideImg"
+                 class="w-10 h-10 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
+            <span v-else class="w-10 h-10 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center flex-shrink-0 text-stone-400"><Icon name="package" :size="16" /></span>
+            <div class="min-w-0 flex-1">
+              <div class="text-[13px] font-semibold text-stone-900 truncate">{{ it.name }}</div>
+              <div class="font-mono text-[11.5px] text-stone-500 truncate">
+                {{ it.sku || it.itemCode }} · {{ it.qty }}u
+                <span v-if="it.cold" class="text-amber-600 font-semibold">· {{ t('slotting.evCold') }}</span>
+                <span v-else>· {{ t('slotting.cls') }} {{ it.cls }}</span>
+              </div>
+            </div>
+            <span class="text-[12px] font-semibold text-stone-700 tabular-nums whitespace-nowrap">
+              {{ it.from }} <Icon name="chevron-right" :size="12" class="inline flip-rtl text-stone-400" />
+              <b class="text-[var(--accent-700)]">{{ it.target }}</b>
+            </span>
+            <button class="h-8 px-3 rounded-lg text-[12px] font-semibold text-[var(--accent-700)] bg-[var(--accent-50)] ring-1 ring-[var(--accent-200,#f5d0b0)] hover:bg-[var(--accent-100,#fde8d7)] flex-shrink-0"
+                    @click="goEvac(it)">{{ t('slotting.moveBtn') }}</button>
+          </li>
+        </ul>
+        <div v-else class="text-center text-[12.5px] text-emerald-600 py-8">{{ t('slotting.evDone') }}</div>
+      </div>
+
       <!-- Phase 2: excess on the fast faces -> SLOW ZONE -->
       <div v-if="over" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
@@ -243,6 +322,10 @@ const loading = ref(true);
 const plan = ref(null);
 const over = ref(null);
 const moveCls = ref("A");
+const noFace = ref(null);
+const nfCls = ref("A");
+const evac = ref(null);
+const evCls = ref("A");
 const moveRows = ref([]);
 const moveTotal = ref(0);
 const moveLoading = ref(false);
@@ -279,7 +362,29 @@ async function load() {
   loadMovers();
   loadPlan();
   loadOver();
+  loadNoFace();
+  loadEvac();
 }
+
+// The two halves the plan was missing: what has no face at all, and what has
+// to leave a zone before its own class can move in.
+async function loadNoFace() {
+  try {
+    noFace.value = await api("slotting.no_face_list", { cls: nfCls.value, days: days.value });
+  } catch (e) {
+    noFace.value = null;
+  }
+}
+function setNfCls(c) { nfCls.value = c; loadNoFace(); }
+
+async function loadEvac() {
+  try {
+    evac.value = await api("slotting.evacuate_list", { cls: evCls.value, days: days.value });
+  } catch (e) {
+    evac.value = null;
+  }
+}
+function setEvCls(c) { evCls.value = c; loadEvac(); }
 
 function compOf(c) {
   return (plan.value?.compliance || []).find((x) => x.cls === c) || null;
@@ -324,6 +429,15 @@ async function loadMoves() {
 function setMoveCls(c) { moveCls.value = c; loadMoves(); }
 function goMove(it) {
   router.push({ name: "MoveStock", query: { item: it.itemCode, target: it.target } });
+}
+function goFace(it) {
+  // Pull from where the stock actually is, into the class's own letters.
+  router.push({ name: "MoveStock",
+                query: { item: it.itemCode, from: it.source, target: it.target } });
+}
+function goEvac(it) {
+  router.push({ name: "MoveStock",
+                query: { item: it.itemCode, from: it.from, target: it.target, qty: it.qty } });
 }
 function goSlow(it) {
   router.push({ name: "MoveStock", query: { item: it.itemCode, target: "SLOW ZONE - JM", qty: it.excess } });

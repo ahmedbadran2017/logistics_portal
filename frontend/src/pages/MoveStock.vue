@@ -295,6 +295,15 @@ onMounted(async () => {
   const qi = String(route.query.item || "").trim();
   if (qi) {
     await onScan(qi);
+    // ?from= names the bin the stock is actually in — the no-face and
+    // evacuate worklists know it, and making the mover hunt for it again is
+    // how a 300-row worklist stops getting done.
+    const fw = String(route.query.from || "").trim();
+    if (fw && current.value) {
+      const full = (current.value.bins || []).find(
+        (b) => b.warehouse === fw || b.warehouse === `${fw} - JM`);
+      if (full) source.value = full.warehouse;
+    }
     const tl = String(route.query.target || "").trim();
     if (tl && current.value) {
       // A full warehouse name pre-fills the target outright (e.g. SLOW ZONE);

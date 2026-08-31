@@ -17,6 +17,9 @@ import frappe
 
 _ROLES = ("manager", "dispatcher")
 
+# The bulk-overflow store the fast wall is fed from (NOT cold storage).
+from logistics_portal.api.stock_moves import SLOW_WH
+
 # A real, stocked shelf bin (zone-letter + number, JM). Same universe as the
 # shelf-label / pick tools.
 _SH = "b.warehouse REGEXP '^[A-Z][0-9]{1,2}[A-Z]?[.]? - JM'"
@@ -30,12 +33,19 @@ def _gate():
 
 
 def _velocity(days):
-    """item_code -> pick-line count over the window (real demand at the shelf)."""
+    """item_code -> pick-line count over the window (real demand at the shelf).
+
+    Company-fenced. Without the fence the 90-day window carried 483 Justyol
+    China pick lines into Moroccan demand and 161 SKUs landed in the wrong
+    class — 38 of them promoted into the fast wall on Chinese picking
+    (measured on prod 2026-08-31). This warehouse is re-arranged off this
+    number, so it has to be this warehouse's number."""
     rows = frappe.db.sql(
         """SELECT pli.item_code ic, COUNT(*) picks
            FROM `tabPick List Item` pli JOIN `tabPick List` pl ON pl.name = pli.parent
            WHERE pl.creation >= DATE_SUB(NOW(), INTERVAL %s DAY) AND pl.docstatus < 2
-           GROUP BY pli.item_code""", int(days), as_dict=True)
+             AND pl.company = %s
+           GROUP BY pli.item_code""", (int(days), _CO), as_dict=True)
     return {r.ic: int(r.picks) for r in rows}
 
 
@@ -51,6 +61,25 @@ def _placement():
         if r.ic not in best or q > best[r.ic][1]:
             best[r.ic] = (r.wh, q)
     return best
+
+
+def _decorate(rows):
+    """Attach SKU / name / image to worklist rows in one query, in place.
+    Every worklist needs the same three fields to be readable on the floor."""
+    codes = [r["itemCode"] for r in rows if r.get("itemCode")]
+    if not codes:
+        return rows
+    meta = {r.name: r for r in frappe.db.sql(
+        """SELECT name, custom_sku, item_name, image FROM `tabItem`
+           WHERE name IN %s""", (tuple(codes),), as_dict=True)}
+    for r in rows:
+        m = meta.get(r.get("itemCode")) or {}
+        r["sku"] = (m.get("custom_sku") or "").strip()
+        r["name"] = m.get("item_name") or r.get("itemCode")
+        r["image"] = m.get("image") or ""
+        if r.get("from"):
+            r["from"] = str(r["from"]).replace(" - JM", "")
+    return rows
 
 
 def _abc(pmap):
@@ -206,6 +235,26 @@ for _cls, _letters in ZONE_ROLES.items():
         _ROLE_OF[_l] = _cls
 
 
+def _excluded_letters():
+    """Letters whose bins the pick engine is configured to skip.
+
+    None today, but the plan sends the 80%-of-picks class into two letters:
+    if either is ever added to lp_excluded_zones, the fast wall becomes a wall
+    the engine never picks from. Cheap to check, expensive to discover on the
+    floor."""
+    try:
+        from logistics_portal.api.warehouses import excluded_zones
+        ex = excluded_zones() or []
+    except Exception:
+        ex = []
+    out = set()
+    for w in ex:
+        w = (w or "").strip()
+        if len(w) > 1 and w[0].isalpha() and w[0].isupper() and w[1].isdigit():
+            out.add(w[0])
+    return out
+
+
 def _letter_load():
     """letter -> (bins, distinct stocked SKUs) for capacity-aware suggestions."""
     bins = {}
@@ -259,10 +308,17 @@ def target_plan(days=90):
             comp[c]["toMove"] += 1
             comp[c]["unitsToMove"] += int(qty)
 
+    # A role letter the pick engine is configured to skip would make the plan
+    # send stock into a wall nobody picks from. Surfaced, not silently ignored.
+    ex = _excluded_letters()
+    conflicts = [{"cls": c, "letters": sorted(set(ZONE_ROLES[c]) & ex)}
+                 for c in ("A", "B", "C") if set(ZONE_ROLES[c]) & ex]
+
     out = {
         "days": days, "zones": zones,
         "reserved": {"X": load.get("X", (0, 0))[0]},
         "compliance": [{"cls": c, **comp[c]} for c in ("A", "B", "C")],
+        "excludedConflicts": conflicts,
     }
     frappe.cache().set_value(ck, json.dumps(out), expires_in_sec=600)
     return out
@@ -341,12 +397,17 @@ def overstock_list(limit=40, days=90):
     place = _placement()
 
     # Weekly demand in UNITS from real sales, same basis as the replenish tab.
+    # Company-fenced, and orders that died are not demand: a cancelled order
+    # never gets picked, so counting it holds stock on the face for nothing.
+    # (Measured impact today is ~1% of the excess — small, but the keep level
+    # decides what stays on a shelf, so it should be built on real demand.)
     sold = dict(frappe.db.sql(
         """SELECT soi.item_code, SUM(soi.qty) FROM `tabSales Order Item` soi
            JOIN `tabSales Order` so ON so.name = soi.parent
-           WHERE so.docstatus = 1
+           WHERE so.docstatus = 1 AND so.company = %s
+             AND so.custom_sales_status NOT IN ('Cancelled', 'Duplicated')
              AND so.creation >= DATE_SUB(NOW(), INTERVAL 14 DAY)
-           GROUP BY soi.item_code"""))
+           GROUP BY soi.item_code""", _CO))
 
     rows = []
     for ic, (wh, qty) in place.items():
@@ -379,3 +440,142 @@ def overstock_list(limit=40, days=90):
         p["image"] = m.get("image") or ""
         p["from"] = p["from"].replace(" - JM", "")
     return {"total": total, "unitsExcess": units, "rows": page}
+
+
+@frappe.whitelist()
+def evacuate_list(cls="A", limit=60, offset=0, days=90):
+    """The other half of the re-slot: what has to LEAVE a zone before its own
+    class can come in.
+
+    `move_list` only ever answered "which A-movers are outside E+G". On the
+    floor that is half an instruction. Measured on prod 2026-08-31, the fast
+    wall holds 75 A-movers and **334 SKUs that are not A** (1,311 units), and
+    E+G have 13 empty bins between them. A crew told only to bring A-movers in
+    arrives at a full wall and improvises — which is exactly how a slotting
+    plan dies in week one.
+
+    Rows are ordered by how much room they free (units), with the cold ones —
+    never picked in the window — first: they free a whole facing and belong in
+    reserve, not on a pick face.
+    """
+    _gate()
+    days = min(max(int(days or 90), 7), 365)
+    cls = (cls or "A").upper()
+    if cls not in ("A", "B", "C"):
+        frappe.throw("Unknown class.")
+    limit = min(max(int(limit or 60), 1), 200)
+    offset = max(int(offset or 0), 0)
+
+    pmap = _velocity(days)
+    place = _placement()
+    classmap, _ = _abc(pmap)
+    load = _letter_load()
+    letters = ZONE_ROLES[cls]
+
+    out = []
+    for ic, (wh, qty) in place.items():
+        if wh[0] not in letters:
+            continue
+        c = classmap.get(ic)
+        if c == cls:
+            continue                      # belongs here, stays
+        # Where it should go: its own class's letters, or reserve when it has
+        # no velocity at all.
+        # One concrete destination, not a menu: the least-crowded letter of the
+        # class it belongs to. A cold item has no class and goes to reserve.
+        if c:
+            target = min(ZONE_ROLES[c],
+                         key=lambda L: load.get(L, (1, 0))[1] / max(load.get(L, (1, 0))[0], 1))
+        else:
+            target = SLOW_WH
+        out.append({"itemCode": ic, "from": wh, "qty": int(qty),
+                    "cls": c or "cold", "cold": c is None,
+                    "target": target.replace(" - JM", ""),
+                    "picks": pmap.get(ic, 0)})
+    # Cold first (a whole facing freed), then by the room each one gives back.
+    out.sort(key=lambda r: (not r["cold"], -r["qty"]))
+    total = len(out)
+    units = sum(r["qty"] for r in out)
+    page = out[offset:offset + limit]
+    _decorate(page)
+    return {"cls": cls, "letters": list(letters), "total": total,
+            "unitsToClear": units, "coldRows": sum(1 for r in out if r["cold"]),
+            "rows": page}
+
+
+@frappe.whitelist()
+def no_face_list(cls="A", limit=60, offset=0, days=90):
+    """Fast movers with NO shelf face at all — the gap the whole plan missed.
+
+    Measured on prod 2026-08-31: **111 of the 317 A-movers have no picking
+    face**. 97 of them do have stock — sitting in SLOW ZONE, PLT, Receiving,
+    Return Zone, CORRECTING SOFT WH — and 14 have none anywhere. Every one of
+    those is either a walk into the bulk store or an order that strands, on
+    the SKUs the floor touches most. Re-arranging shelves without filling
+    these leaves the most expensive problem exactly where it is.
+
+    Only warehouses stock may actually be pulled from are offered as a source
+    (the Move Stock rules), so a row is never an instruction to move something
+    that cannot be moved — a Chinese or Maslak warehouse is reported as
+    'elsewhere', not as a source.
+    """
+    _gate()
+    days = min(max(int(days or 90), 7), 365)
+    cls = (cls or "A").upper()
+    if cls not in ("A", "B", "C"):
+        frappe.throw("Unknown class.")
+    limit = min(max(int(limit or 60), 1), 200)
+    offset = max(int(offset or 0), 0)
+
+    pmap = _velocity(days)
+    place = _placement()
+    classmap, _ = _abc(pmap)
+    load = _letter_load()
+    # Same rule the move worklist uses: send it to the emptiest letter of its
+    # class, so 111 placements spread across the wall instead of piling up.
+    letter = min(ZONE_ROLES[cls],
+                 key=lambda L: load.get(L, (1, 0))[1] / max(load.get(L, (1, 0))[0], 1))
+
+    missing = [ic for ic in sorted(pmap, key=lambda x: -pmap[x])
+               if classmap.get(ic) == cls and ic not in place]
+    if not missing:
+        return {"cls": cls, "total": 0, "sourced": 0, "noStock": 0, "rows": []}
+
+    from logistics_portal.api.stock_moves import _movable_condition
+    cond, args = _movable_condition("b.warehouse", as_source=True)
+    src = {}
+    for r in frappe.db.sql(
+            f"""SELECT b.item_code ic, b.warehouse wh, b.actual_qty q
+                FROM `tabBin` b
+                WHERE b.item_code IN %s AND b.actual_qty > 0 AND {cond}
+                ORDER BY b.actual_qty DESC""",
+            tuple([tuple(missing)] + args), as_dict=True):
+        # First row per item wins — the biggest holding is the source to pull.
+        src.setdefault(r.ic, (r.wh, float(r.q or 0)))
+
+    # Anything left has stock only where we may not pull from, or none at all.
+    anywhere = {r[0] for r in frappe.db.sql(
+        """SELECT DISTINCT item_code FROM `tabBin`
+           WHERE item_code IN %s AND actual_qty > 0""", (tuple(missing),))}
+
+    rows = []
+    for ic in missing:
+        wh, q = src.get(ic, ("", 0))
+        rows.append({
+            "itemCode": ic, "picks": pmap.get(ic, 0),
+            "source": (wh or "").replace(" - JM", ""),
+            "available": int(q),
+            # No pullable source: either the stock sits in another company's
+            # warehouse / a blocked family, or there is none at all.
+            "state": ("ready" if wh else
+                      ("elsewhere" if ic in anywhere else "nostock")),
+            "target": letter,
+        })
+    total = len(rows)
+    page = rows[offset:offset + limit]
+    _decorate(page)
+    return {"cls": cls, "total": total,
+            "sourced": sum(1 for r in rows if r["state"] == "ready"),
+            "elsewhere": sum(1 for r in rows if r["state"] == "elsewhere"),
+            "noStock": sum(1 for r in rows if r["state"] == "nostock"),
+            "rows": page}
