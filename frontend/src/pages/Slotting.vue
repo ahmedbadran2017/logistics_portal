@@ -165,6 +165,67 @@
         <div v-else class="text-center text-[12.5px] text-emerald-600 py-8">{{ t('slotting.moveDone') }}</div>
       </div>
 
+      <!-- The decision this whole page exists to support: which aisle plays which role -->
+      <div v-if="lay" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+          <Icon name="layout-grid" :size="14" class="text-[var(--accent-600)]" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('slotting.layoutTitle') }}</span>
+          <span class="text-[11px] text-stone-400 hidden sm:inline">{{ t('slotting.layoutHint') }}</span>
+          <div class="ms-auto flex items-center gap-2">
+            <button v-if="!editRoles" class="h-8 px-3 rounded-lg text-[12px] font-semibold text-stone-700 bg-stone-100 hover:bg-stone-200"
+                    @click="startEditRoles">{{ t('slotting.layoutEdit') }}</button>
+            <template v-else>
+              <button class="h-8 px-3 rounded-lg text-[12px] font-semibold text-stone-600 hover:bg-stone-100"
+                      @click="editRoles = false; roleErr = ''">{{ t('common.cancel') }}</button>
+              <button class="h-8 px-3 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+                      :disabled="savingRoles" @click="saveRoles">{{ t('common.save') }}</button>
+            </template>
+          </div>
+        </div>
+        <div v-if="roleErr" class="px-4 py-2 bg-rose-50 text-[12px] text-rose-700">{{ roleErr }}</div>
+        <div class="p-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          <div v-for="L in lay.letters" :key="L.letter"
+               class="rounded-lg ring-1 p-2.5"
+               :class="L.excluded ? 'ring-rose-200 bg-rose-50/40' : roleCls(draft[L.letter])">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-[15px] font-bold text-stone-900">{{ L.letter }}</span>
+              <span class="text-[10.5px] text-stone-500 tabular-nums">{{ L.bins }} {{ t('slotting.binsShort') }} · {{ L.freeBins }} {{ t('slotting.freeShort') }}</span>
+            </div>
+            <div class="text-[10.5px] text-stone-500 tabular-nums mt-0.5">{{ L.skus }} SKU · {{ L.units.toLocaleString() }}u</div>
+            <div v-if="L.excluded" class="text-[10.5px] text-rose-600 font-semibold mt-1">{{ t('slotting.layoutExcluded') }}</div>
+            <div v-else-if="editRoles" class="flex items-center gap-1 mt-1.5">
+              <button v-for="c in ['A', 'B', 'C', '']" :key="c || 'none'"
+                      class="h-6 flex-1 rounded text-[10.5px] font-bold transition-colors"
+                      :class="draft[L.letter] === (c || undefined) || (!c && !draft[L.letter])
+                        ? 'bg-stone-900 text-white' : 'bg-white text-stone-500 ring-1 ring-stone-200 hover:bg-stone-50'"
+                      @click="setRole(L.letter, c)">{{ c || '—' }}</button>
+            </div>
+            <div v-else class="text-[10.5px] font-semibold mt-1"
+                 :class="L.role ? 'text-stone-700' : 'text-stone-400'">
+              {{ L.role ? t('slotting.roleOf').replace('{c}', L.role) : t('slotting.roleNone') }}
+            </div>
+          </div>
+        </div>
+        <!-- execution: freeze the list the floor works to -->
+        <div class="px-4 py-3 border-t border-stone-100 flex items-center gap-3 flex-wrap"
+             :class="lay.plan ? 'bg-emerald-50/50' : ''">
+          <template v-if="lay.plan">
+            <Icon name="check-circle" :size="14" class="text-emerald-600" />
+            <span class="text-[12px] text-stone-700">
+              {{ t('slotting.planRunning').replace('{d}', lay.plan.startedAt.slice(0, 16)).replace('{n}', String(lay.plan.skus)) }}
+            </span>
+            <span class="text-[12px] font-bold text-emerald-700 tabular-nums">{{ lay.plan.movesSince }} {{ t('slotting.planMoves') }}</span>
+            <button class="ms-auto h-8 px-3 rounded-lg text-[12px] font-semibold text-stone-600 hover:bg-stone-100"
+                    :disabled="planBusy" @click="endPlan">{{ t('slotting.planEnd') }}</button>
+          </template>
+          <template v-else>
+            <span class="text-[12px] text-stone-500">{{ t('slotting.planHint') }}</span>
+            <button class="ms-auto h-8 px-3 rounded-lg text-[12px] font-semibold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-50"
+                    :disabled="planBusy" @click="freezePlan">{{ t('slotting.planStart') }}</button>
+          </template>
+        </div>
+      </div>
+
       <!-- The fastest SKUs with no picking face at all -->
       <div v-if="noFace" class="bg-white rounded-xl ring-1 ring-rose-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
@@ -316,7 +377,7 @@
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
-import { api } from "@/lib/resource";
+import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 
 const { t } = useI18n();
@@ -330,6 +391,12 @@ const plan = ref(null);
 const over = ref(null);
 const moveCls = ref("A");
 const loadError = ref("");
+const lay = ref(null);
+const editRoles = ref(false);
+const draft = ref({});
+const roleErr = ref("");
+const savingRoles = ref(false);
+const planBusy = ref(false);
 const noFace = ref(null);
 const nfCls = ref("A");
 const evac = ref(null);
@@ -376,6 +443,69 @@ async function load() {
   loadOver();
   loadNoFace();
   loadEvac();
+  loadLayout();
+}
+
+async function loadLayout() {
+  try {
+    lay.value = await api("slotting.layout");
+  } catch (e) {
+    lay.value = null;
+  }
+}
+function roleCls(c) {
+  return c === "A" ? "ring-emerald-300 bg-emerald-50/50"
+    : c === "B" ? "ring-sky-300 bg-sky-50/50"
+    : c === "C" ? "ring-stone-300 bg-stone-50" : "ring-stone-200";
+}
+function startEditRoles() {
+  const d = {};
+  for (const L of lay.value?.letters || []) if (L.role) d[L.letter] = L.role;
+  draft.value = d;
+  roleErr.value = "";
+  editRoles.value = true;
+}
+function setRole(letter, c) {
+  const d = { ...draft.value };
+  if (c) d[letter] = c; else delete d[letter];
+  draft.value = d;
+}
+async function saveRoles() {
+  savingRoles.value = true;
+  roleErr.value = "";
+  try {
+    const roles = { A: [], B: [], C: [] };
+    for (const [L, c] of Object.entries(draft.value)) if (roles[c]) roles[c].push(L);
+    await apiPost("slotting.save_roles", { roles: JSON.stringify(roles) });
+    editRoles.value = false;
+    await load();
+  } catch (e) {
+    roleErr.value = String(e.message || e);
+  } finally {
+    savingRoles.value = false;
+  }
+}
+async function freezePlan() {
+  planBusy.value = true;
+  try {
+    await apiPost("slotting.freeze_plan", { days: days.value });
+    await load();
+  } catch (e) {
+    roleErr.value = String(e.message || e);
+  } finally {
+    planBusy.value = false;
+  }
+}
+async function endPlan() {
+  planBusy.value = true;
+  try {
+    await apiPost("slotting.end_plan", {});
+    await load();
+  } catch (e) {
+    roleErr.value = String(e.message || e);
+  } finally {
+    planBusy.value = false;
+  }
 }
 
 // The two halves the plan was missing: what has no face at all, and what has

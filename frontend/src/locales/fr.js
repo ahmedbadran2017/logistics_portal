@@ -1,6 +1,7 @@
 export default {
   brand: "Justyol Logistique",
   common: {
+    save: "Enregistrer",
     less: "Voir moins",
     menu: "Menu",
     next: "Suivant",
@@ -388,6 +389,19 @@ export default {
     loadFail: "Échec du chargement",
   },
   slotting: {
+    layoutTitle: "Disposition des zones",
+    layoutHint: "quelle allée joue quel rôle — défini depuis le terrain, pas le code",
+    layoutEdit: "Modifier",
+    layoutExcluded: "exclue du picking",
+    roleOf: "zone {c}",
+    roleNone: "sans rôle",
+    binsShort: "bacs",
+    freeShort: "libres",
+    planStart: "Démarrer le re-slot",
+    planEnd: "Terminer",
+    planHint: "Démarrer fige la classification : la liste ne change plus sous l'équipe.",
+    planRunning: "Re-slot depuis {d} · {n} SKU figés",
+    planMoves: "mouvements faits",
     nfTitle: "Rotations rapides sans emplacement",
     nfReady: "prêt à placer",
     nfElsewhere: "stock ailleurs",

@@ -1,6 +1,7 @@
 export default {
   brand: "جوستيول للوجستيات",
   common: {
+    save: "حفظ",
     less: "أقل",
     menu: "القائمة",
     next: "التالي",
@@ -388,6 +389,19 @@ export default {
     loadFail: "تعذّر التحميل",
   },
   slotting: {
+    layoutTitle: "توزيع الزونات",
+    layoutHint: "أي ممر يلعب أي دور — يتحدد من الأرض مش من الكود",
+    layoutEdit: "تعديل التوزيع",
+    layoutExcluded: "مستبعد من السحب",
+    roleOf: "زون {c}",
+    roleNone: "بدون دور",
+    binsShort: "رف",
+    freeShort: "فاضي",
+    planStart: "ابدأ إعادة التوزيع",
+    planEnd: "إنهاء",
+    planHint: "البدء بيجمّد التصنيف، فالقايمة ماتتغيرش تحت إيد الفريق.",
+    planRunning: "إعادة توزيع شغالة من {d} · {n} صنف مجمّد",
+    planMoves: "نقلة تمت",
     nfTitle: "أصناف سريعة بدون مكان على الرف",
     nfReady: "جاهز للتوضيب",
     nfElsewhere: "المخزون في مكان آخر",

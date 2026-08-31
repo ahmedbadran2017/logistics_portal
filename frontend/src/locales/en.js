@@ -1,6 +1,7 @@
 export default {
   brand: "Justyol Logistics",
   common: {
+    save: "Save",
     less: "Show less",
     menu: "Menu",
     next: "Next",
@@ -388,6 +389,19 @@ export default {
     loadFail: "Couldn't load",
   },
   slotting: {
+    layoutTitle: "Zone layout",
+    layoutHint: "which aisle plays which role — set it from the floor, not the code",
+    layoutEdit: "Change layout",
+    layoutExcluded: "excluded from picking",
+    roleOf: "{c} zone",
+    roleNone: "no role",
+    binsShort: "bins",
+    freeShort: "free",
+    planStart: "Start re-slot",
+    planEnd: "End re-slot",
+    planHint: "Starting a re-slot freezes the classification, so the worklist can't change under the crew.",
+    planRunning: "Re-slot running since {d} · {n} SKUs frozen",
+    planMoves: "moves done",
     nfTitle: "Fast movers with no shelf face",
     nfReady: "ready to place",
     nfElsewhere: "stock elsewhere",

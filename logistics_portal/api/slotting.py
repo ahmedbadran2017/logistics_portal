@@ -15,6 +15,7 @@ import json
 import re
 
 import frappe
+from frappe.utils import now_datetime
 
 _CO = "Justyol Morocco"
 _ROLES = ("manager", "dispatcher")
@@ -84,6 +85,28 @@ def _decorate(rows):
         if r.get("from"):
             r["from"] = str(r["from"]).replace(" - JM", "")
     return rows
+
+
+def active_plan():
+    """The frozen classification, if execution has been started.
+
+    Velocity is a rolling window, so the class of a SKU moves as the window
+    slides. Over a re-slot that takes days that is a trap: an item classified
+    A on Monday can be B on Thursday, and the crew is sent to move the same
+    box twice — or worse, to undo Monday's work. Freezing the plan when
+    execution starts means the floor is working a stable list, and the change
+    in velocity is looked at on the NEXT plan, not during this one.
+    """
+    raw = frappe.db.get_default(_PLAN_KEY)
+    if not raw:
+        return None
+    try:
+        p = json.loads(raw)
+        if isinstance(p, dict) and p.get("cls"):
+            return p
+    except Exception:
+        pass
+    return None
 
 
 def _abc(pmap):
@@ -174,6 +197,15 @@ def overview(days=90):
     return out
 
 
+def _class_map(pmap):
+    """The classification the worklists must obey: frozen if a plan is running,
+    live otherwise. One place, so no screen can disagree with another."""
+    plan = active_plan()
+    if plan:
+        return dict(plan.get("cls") or {}), plan
+    return _abc(pmap)[0], None
+
+
 @frappe.whitelist()
 def movers(cls="A", q="", limit=60, offset=0, days=90):
     """Drill-down: the SKUs of one velocity class, with their pick count and where
@@ -188,7 +220,7 @@ def movers(cls="A", q="", limit=60, offset=0, days=90):
 
     pmap = _velocity(days)
     place = _placement()
-    classmap, _ = _abc(pmap)
+    classmap, _frozen = _class_map(pmap)
 
     items = [ic for ic in sorted(pmap, key=lambda x: -pmap[x]) if classmap.get(ic) == cls]
 
@@ -232,11 +264,31 @@ def movers(cls="A", q="", limit=60, offset=0, days=90):
 #   AG-/BAB- racks + SLOW ZONE = high-stock reserve feeding the fast wall
 #                      (SLOW ZONE is Justyol's bulk-overflow store, NOT cold
 #                      storage). None of them is a pick face in this plan.
-ZONE_ROLES = {"A": ("E", "G"), "B": ("H", "J", "F"), "C": ("A", "B", "C", "D", "I")}
-_ROLE_OF = {}
-for _cls, _letters in ZONE_ROLES.items():
-    for _l in _letters:
-        _ROLE_OF[_l] = _cls
+DEFAULT_ROLES = {"A": ["E", "G"], "B": ["H", "J", "F"],
+                 "C": ["A", "B", "C", "D", "I"]}
+_ROLES_KEY = "lp_slot_roles"
+_PLAN_KEY = "lp_slot_plan"
+
+
+def zone_roles():
+    """The letter→role map, as the MANAGER set it.
+
+    This used to be a constant in this file, which meant the one decision the
+    tool exists to support — which physical aisle becomes the fast wall —
+    could only be made by editing code. Which aisle is nearest packing is a
+    fact about the building, not about the software; it belongs to the person
+    standing in it. The seeded default is the 2026-08-27 sizing.
+    """
+    raw = frappe.db.get_default(_ROLES_KEY)
+    if raw:
+        try:
+            v = json.loads(raw)
+            if isinstance(v, dict) and all(c in v for c in ("A", "B", "C")):
+                return {c: tuple(str(x).strip().upper()[:1] for x in (v.get(c) or []))
+                        for c in ("A", "B", "C")}
+        except Exception:
+            pass
+    return {c: tuple(DEFAULT_ROLES[c]) for c in ("A", "B", "C")}
 
 
 def _excluded_letters():
@@ -293,12 +345,13 @@ def target_plan(days=90):
 
     pmap = _velocity(days)
     place = _placement()
-    cls, _total = _abc(pmap)
+    cls, _frozen = _class_map(pmap)
     load = _letter_load()
+    roles = zone_roles()
 
     zones = []
     for c in ("A", "B", "C"):
-        letters = ZONE_ROLES[c]
+        letters = roles[c]
         zones.append({
             "cls": c, "letters": list(letters),
             "bins": sum(load.get(L, (0, 0))[0] for L in letters),
@@ -310,7 +363,7 @@ def target_plan(days=90):
         if ic not in place:
             continue
         wh, qty = place[ic]
-        if wh[0] in ZONE_ROLES[c]:
+        if wh[0] in roles[c]:
             comp[c]["inPlace"] += 1
         else:
             comp[c]["toMove"] += 1
@@ -319,8 +372,8 @@ def target_plan(days=90):
     # A role letter the pick engine is configured to skip would make the plan
     # send stock into a wall nobody picks from. Surfaced, not silently ignored.
     ex = _excluded_letters()
-    conflicts = [{"cls": c, "letters": sorted(set(ZONE_ROLES[c]) & ex)}
-                 for c in ("A", "B", "C") if set(ZONE_ROLES[c]) & ex]
+    conflicts = [{"cls": c, "letters": sorted(set(roles[c]) & ex)}
+                 for c in ("A", "B", "C") if set(roles[c]) & ex]
 
     out = {
         "days": days, "zones": zones,
@@ -348,9 +401,9 @@ def move_list(cls="A", limit=40, offset=0, days=90):
 
     pmap = _velocity(days)
     place = _placement()
-    classmap, _ = _abc(pmap)
+    classmap, _frozen = _class_map(pmap)
     load = _letter_load()
-    letters = ZONE_ROLES[cls]
+    letters = zone_roles()[cls]
 
     # Track the running fill so consecutive suggestions spread, not pile up.
     fill = {L: (load.get(L, (1, 0))[1] / max(load.get(L, (1, 0))[0], 1)) for L in letters}
@@ -476,9 +529,10 @@ def evacuate_list(cls="A", limit=60, offset=0, days=90):
 
     pmap = _velocity(days)
     place = _placement()
-    classmap, _ = _abc(pmap)
+    classmap, _frozen = _class_map(pmap)
     load = _letter_load()
-    letters = ZONE_ROLES[cls]
+    roles = zone_roles()
+    letters = roles[cls]
 
     out = []
     for ic, (wh, qty) in place.items():
@@ -492,7 +546,7 @@ def evacuate_list(cls="A", limit=60, offset=0, days=90):
         # One concrete destination, not a menu: the least-crowded letter of the
         # class it belongs to. A cold item has no class and goes to reserve.
         if c:
-            target = min(ZONE_ROLES[c],
+            target = min(roles[c],
                          key=lambda L: load.get(L, (1, 0))[1] / max(load.get(L, (1, 0))[0], 1))
         else:
             target = SLOW_WH
@@ -537,11 +591,12 @@ def no_face_list(cls="A", limit=60, offset=0, days=90):
 
     pmap = _velocity(days)
     place = _placement()
-    classmap, _ = _abc(pmap)
+    classmap, _frozen = _class_map(pmap)
     load = _letter_load()
+    roles = zone_roles()
     # Same rule the move worklist uses: send it to the emptiest letter of its
     # class, so 111 placements spread across the wall instead of piling up.
-    letter = min(ZONE_ROLES[cls],
+    letter = min(roles[cls],
                  key=lambda L: load.get(L, (1, 0))[1] / max(load.get(L, (1, 0))[0], 1))
 
     missing = [ic for ic in sorted(pmap, key=lambda x: -pmap[x])
@@ -587,3 +642,137 @@ def no_face_list(cls="A", limit=60, offset=0, days=90):
             "elsewhere": sum(1 for r in rows if r["state"] == "elsewhere"),
             "noStock": sum(1 for r in rows if r["state"] == "nostock"),
             "rows": page}
+
+
+@frappe.whitelist()
+def layout():
+    """The floor's own map: every aisle letter with its bins, how full it is,
+    and the role it currently plays — what the manager needs in front of them
+    to decide which aisle becomes the fast wall."""
+    _gate()
+    roles = zone_roles()
+    role_of = {}
+    for c, letters in roles.items():
+        for L in letters:
+            role_of[L] = c
+
+    rows = frappe.db.sql(
+        """SELECT LEFT(w.name, 1) L, COUNT(*) bins,
+                  SUM(CASE WHEN x.skus IS NULL THEN 1 ELSE 0 END) freeBins,
+                  COALESCE(SUM(x.skus), 0) skus, COALESCE(SUM(x.units), 0) units
+           FROM `tabWarehouse` w
+           LEFT JOIN (SELECT warehouse, COUNT(DISTINCT item_code) skus,
+                             SUM(actual_qty) units
+                      FROM `tabBin` WHERE actual_qty > 0 GROUP BY warehouse) x
+             ON x.warehouse = w.name
+           WHERE w.is_group = 0 AND w.disabled = 0
+             AND w.name REGEXP '^[A-Z][0-9]{1,2}[A-Z]?[.]? - JM'
+           GROUP BY LEFT(w.name, 1) ORDER BY 1""", as_dict=True)
+
+    ex = _excluded_letters()
+    return {
+        "roles": {c: list(roles[c]) for c in ("A", "B", "C")},
+        "letters": [{"letter": r.L, "bins": int(r.bins or 0),
+                     "freeBins": int(r.freeBins or 0), "skus": int(r.skus or 0),
+                     "units": round(float(r.units or 0)),
+                     "role": role_of.get(r.L),
+                     "excluded": r.L in ex} for r in rows],
+        "plan": _plan_summary(),
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def save_roles(roles):
+    """Assign aisle letters to velocity roles. Manager only.
+
+    Validated hard, because a bad map here sends the floor to the wrong wall:
+    a letter may hold only one role, must be a real stocked aisle, must not be
+    a zone the pick engine skips, and the fast class must own at least one.
+    """
+    _gate()
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Only a manager can set the zone layout.",
+                     frappe.PermissionError)
+    if isinstance(roles, str):
+        roles = json.loads(roles)
+    if not isinstance(roles, dict):
+        frappe.throw("Bad layout.")
+
+    real = {r[0] for r in frappe.db.sql(
+        "SELECT DISTINCT LEFT(name, 1) FROM `tabWarehouse` WHERE is_group = 0 "
+        "AND disabled = 0 AND name REGEXP '^[A-Z][0-9]{1,2}[A-Z]?[.]? - JM'")}
+    ex = _excluded_letters()
+
+    out, seen = {}, {}
+    for c in ("A", "B", "C"):
+        letters = [str(x).strip().upper()[:1] for x in (roles.get(c) or []) if str(x).strip()]
+        for L in letters:
+            if L not in real:
+                frappe.throw(f"'{L}' is not a stocked aisle in this warehouse.")
+            if L in ex:
+                frappe.throw(f"Aisle {L} is excluded from picking — the engine "
+                             f"would never pick from it.")
+            if L in seen:
+                frappe.throw(f"Aisle {L} is already the {seen[L]} zone. "
+                             f"One aisle, one role.")
+            seen[L] = c
+        out[c] = letters
+    if not out["A"]:
+        frappe.throw("The fast zone needs at least one aisle.")
+
+    frappe.db.set_default(_ROLES_KEY, json.dumps(out))
+    frappe.cache().delete_keys("lp_slotting_")
+    return {"ok": True, "roles": out}
+
+
+def _plan_summary():
+    """What the running plan is, and how far the floor has got through it."""
+    plan = active_plan()
+    if not plan:
+        return None
+    started = plan.get("startedAt") or ""
+    roles = zone_roles()
+    targets = [L for c in ("A", "B", "C") for L in roles[c]]
+    done = 0
+    if started and targets:
+        like = " OR ".join(["sed.t_warehouse LIKE %s"] * len(targets))
+        done = int(frappe.db.sql(
+            f"""SELECT COUNT(DISTINCT sed.item_code, sed.t_warehouse)
+                FROM `tabStock Entry Detail` sed
+                JOIN `tabStock Entry` se ON se.name = sed.parent
+                WHERE se.docstatus = 1 AND se.company = %s
+                  AND se.posting_date >= %s AND ({like})""",
+            tuple([_CO, started[:10]] + [f"{L}%" for L in targets]))[0][0] or 0)
+    return {"startedAt": started, "days": plan.get("days"),
+            "skus": len(plan.get("cls") or {}),
+            "movesSince": done, "by": plan.get("by") or ""}
+
+
+@frappe.whitelist(methods=["POST"])
+def freeze_plan(days=90):
+    """Start execution: snapshot the classification the floor will work to."""
+    _gate()
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Only a manager can start a re-slot.", frappe.PermissionError)
+    days = min(max(int(days or 90), 7), 365)
+    cls, _t = _abc(_velocity(days))
+    frappe.db.set_default(_PLAN_KEY, json.dumps({
+        "cls": cls, "days": days, "by": frappe.session.user,
+        "startedAt": str(now_datetime())[:19],
+    }))
+    frappe.cache().delete_keys("lp_slotting_")
+    return {"ok": True, "plan": _plan_summary()}
+
+
+@frappe.whitelist(methods=["POST"])
+def end_plan():
+    """Finish execution — worklists go back to live velocity."""
+    _gate()
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Only a manager can end a re-slot.", frappe.PermissionError)
+    frappe.db.set_default(_PLAN_KEY, "")
+    frappe.cache().delete_keys("lp_slotting_")
+    return {"ok": True}
