@@ -337,7 +337,9 @@ def _agent_me(user, days=7):
     # Attribution comes from the Version trail — what THIS PERSON changed —
     # never from the allocated cohort, which is full of orders the WhatsApp
     # automation confirmed on their behalf (measured: 983 of 1,174 in a week).
-    if today_total == 0 and not trend_map:
+    # Always, not only when the portal trail is empty: the two trails are
+    # disjoint (portal → comment, desk → Version), so this is a sum.
+    if True:
         import json as _j
         vrows = frappe.db.sql(
             """SELECT DATE(creation) d, data FROM `tabVersion`

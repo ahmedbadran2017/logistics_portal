@@ -45,7 +45,11 @@
           </div>
           <div class="min-w-0">
             <div class="ccd-kpi-l">{{ t('ccd.kRate') }}</div>
-            <div class="text-[11.5px] tabular-nums mt-1"><span class="text-emerald-600 font-bold">{{ fmtN(tot.confirm) }}</span> <span class="text-stone-400">/</span> <span class="text-rose-500 font-bold">{{ fmtN(tot.cancel) }}</span></div>
+            <div class="text-[11.5px] tabular-nums mt-1 flex items-center gap-2">
+              <span class="text-emerald-600 font-bold">{{ fmtN(tot.confirm) }} <Icon name="check" :size="10" class="inline -mt-px" /></span>
+              <span class="text-rose-500 font-bold">{{ fmtN(tot.cancel) }} <Icon name="x" :size="10" class="inline -mt-px" /></span>
+              <span class="text-stone-400">{{ t('ccd.ofDecided').replace('{n}', fmtN(tot.confirm + tot.cancel)) }}</span>
+            </div>
             <div class="text-[10px] text-stone-400 mt-0.5">{{ t('ccd.kRateHint') }} <span v-if="deltas.rate" class="ccd-delta" :class="deltas.rate.up ? 'ccd-up' : 'ccd-down'">{{ deltas.rate.txt }}</span></div>
           </div>
         </div>

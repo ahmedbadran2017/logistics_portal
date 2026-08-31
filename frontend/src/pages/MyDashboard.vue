@@ -55,7 +55,10 @@
           </div>
           <div class="min-w-0">
             <div class="md-kpi-l">{{ t('ccd.kRate') }}</div>
-            <div class="text-[11.5px] tabular-nums mt-1"><span class="text-emerald-600 font-bold">{{ d.acts.confirm }}</span> <span class="text-stone-400">/</span> <span class="text-rose-500 font-bold">{{ d.acts.cancel }}</span></div>
+            <div class="text-[11.5px] tabular-nums mt-1 flex items-center gap-2">
+              <span class="text-emerald-600 font-bold">{{ d.acts.confirm }} <Icon name="check" :size="10" class="inline -mt-px" /></span>
+              <span class="text-rose-500 font-bold">{{ d.acts.cancel }} <Icon name="x" :size="10" class="inline -mt-px" /></span>
+            </div>
             <div class="text-[10px] text-stone-400 mt-0.5"><span v-if="deltas.rate" class="md-delta" :class="deltas.rate.up ? 'md-up' : 'md-down'">{{ deltas.rate.txt }}</span></div>
           </div>
         </div>

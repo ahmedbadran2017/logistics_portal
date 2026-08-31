@@ -1159,14 +1159,19 @@ def my_report(days=7, frm=None, to=None):
         if action in day:
             day[action] += int(r.n or 0)
 
-    # Desk work leaves no portal comment, so when the trail is empty fall back
-    # to the Version log — decisions THIS PERSON made, wherever they made them.
-    # (The earlier fallback read the allocated cohort's statuses, which handed
-    # the agent every order the automation had confirmed for them.)
-    source = "portal"
-    if not any(acts.values()):
-        source = "desk"
-        acts, daily = _decisions_by(me, rng, rng_vals)
+    # The portal writes a comment and no Version row; the desk writes a Version
+    # row and no comment. Disjoint trails → SUM them, so an agent who works in
+    # both places sees one honest total instead of whichever half was bigger.
+    d_acts, d_daily = _decisions_by(me, rng, rng_vals)
+    portal_n = sum(acts.values())
+    desk_n = sum(d_acts.values())
+    source = ("portal" if not desk_n else "desk" if not portal_n else "both")
+    for k, v in d_acts.items():
+        acts[k] = acts.get(k, 0) + v
+    for d, v in d_daily.items():
+        day = daily.setdefault(d, {"confirm": 0, "cancel": 0, "dna": 0})
+        for k2 in day:
+            day[k2] += v.get(k2, 0)
 
     sane = 100000
     money = frappe.db.sql(
@@ -1267,6 +1272,40 @@ def report(days=7, frm=None, to=None):
             a[action] += int(r.n or 0)
         if bulk:
             a["bulk"] += int(r.n or 0)
+
+    # ── the SAME people working on the DESK. The portal writes a comment and
+    # no Version row (act() goes through db.set_value), the desk writes a
+    # Version row and no comment — disjoint trails, so this is a sum, not a
+    # merge. Counting only the portal made the section read 6 decisions in a
+    # month while the team had taken ~5,900 (measured 2026-08-31), which put
+    # the headline confirm rate on a sample of five.
+    import json as _j_desk
+    _st_map = _status_action_map()
+    for r in frappe.db.sql(
+            f"""SELECT v.owner, v.data FROM `tabVersion` v
+                JOIN `tabSales Order` so ON so.name = v.docname
+                WHERE v.ref_doctype = 'Sales Order' AND so.company = %(co)s
+                  AND v.owner NOT IN %(auto)s
+                  AND v.data LIKE '%%custom_sales_status%%'
+                  AND {rng.format(col="v.creation")}
+                ORDER BY v.creation DESC LIMIT 40000""",
+            {**rng_vals, "auto": _AUTOMATION_USERS}, as_dict=True):
+        try:
+            changed = _j_desk.loads(r.data or "{}").get("changed") or []
+        except Exception:
+            continue
+        for f in changed:
+            if not f or f[0] != "custom_sales_status":
+                continue
+            action = _st_map.get(f[2])
+            if not action:
+                continue
+            a = per_agent.setdefault(r.owner, {"confirm": 0, "cancel": 0, "dna": 0,
+                                               "followup": 0, "onhold": 0,
+                                               "duplicate": 0, "reopen": 0,
+                                               "bulk": 0})
+            if action in a:
+                a[action] += 1
 
     # ── per-agent money, on the COHORT of orders that arrived in the window.
     # NB: `collected` is the money that actually reached us — a confirm whose

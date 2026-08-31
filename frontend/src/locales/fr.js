@@ -1223,6 +1223,7 @@ export default {
     lgBack: "Renvoyés",
   },
   ccd: {
+    ofDecided: "sur {n} décidées",
     stickTitle: "Sort des livraisons",
     stickHint: "livré / expédié, par jour",
     citiesTitle: "Où les colis échouent",

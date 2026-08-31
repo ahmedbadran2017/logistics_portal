@@ -1222,6 +1222,7 @@ export default {
     lgBack: "رجع",
   },
   ccd: {
+    ofDecided: "من {n} قرار",
     stickTitle: "مصير التسليم",
     stickHint: "اتسلّم ÷ اتشحن، يوم بيوم",
     citiesTitle: "المدن اللي البرسلات بتفشل فيها",

@@ -1222,6 +1222,7 @@ export default {
     lgBack: "Sent back",
   },
   ccd: {
+    ofDecided: "of {n} decided",
     stickTitle: "Delivery outcome",
     stickHint: "delivered / shipped, per day",
     citiesTitle: "Where parcels fail",
