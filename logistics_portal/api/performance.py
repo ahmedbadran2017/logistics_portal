@@ -346,10 +346,10 @@ def _agent_me(user, days=7):
                  AND creation >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)
                ORDER BY creation DESC LIMIT 4000""",
             {"u": user, "days": days - 1}, as_dict=True)
-        st_act = {"Confirmed": "confirm", "Cancelled": "cancel",
-                  "Did not Answer": "dna", "Follow Up": "followup",
-                  "On Hold": "onhold", "Duplicated": "duplicate",
-                  "Confirmé": "confirm", "Annulé(e)": "cancel"}
+        # Includes the translated labels the French desk writes into the
+        # Version log (built from Frappe's own translations, not guesses).
+        from logistics_portal.api.confirmation import _status_action_map
+        st_act = _status_action_map()
         counted = []
         for vr in vrows:
             try:

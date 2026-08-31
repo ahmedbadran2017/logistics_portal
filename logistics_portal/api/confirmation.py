@@ -988,16 +988,48 @@ def save_cf_settings(settings=None):
 _AUTOMATION_USERS = ("Administrator", "Guest")
 _ST_ACTION = {"Confirmed": "confirm", "Cancelled": "cancel",
               "Did not Answer": "dna", "Follow Up": "followup",
-              "On Hold": "onhold", "Duplicated": "duplicate",
-              # The desk has written French values at least once — map them so
-              # that work is not silently lost from the metrics.
-              "Confirmé": "confirm", "Annulé(e)": "cancel"}
+              "On Hold": "onhold", "Duplicated": "duplicate"}
+
+
+def _status_action_map():
+    """English statuses → action, PLUS every translation the desk can write.
+
+    Two agents run the desk in French (User.language = fr), and the Version
+    log captured their edits as the TRANSLATED label — 'Confirmé', 'Annulé(e)'
+    — while the stored field stayed English. Attribution reads that log, so it
+    must understand those labels; guessing the strings would rot, so they come
+    from Frappe's own translations for the languages the team actually uses.
+    Cached: it is a handful of dictionary lookups, but it runs per report."""
+    cache = frappe.cache()
+    hit = cache.get_value("lp_status_action_map")
+    if hit:
+        import json as _j
+        try:
+            return _j.loads(hit)
+        except Exception:
+            pass
+    out = dict(_ST_ACTION)
+    langs = [l[0] for l in frappe.db.sql(
+        """SELECT DISTINCT language FROM `tabUser`
+           WHERE enabled = 1 AND COALESCE(language, '') NOT IN ('', 'en')""")]
+    for lang in langs:
+        for en, action in _ST_ACTION.items():
+            try:
+                label = frappe._(en, lang=lang)
+            except Exception:
+                continue
+            if label and label not in out:
+                out[label] = action
+    import json as _j
+    cache.set_value("lp_status_action_map", _j.dumps(out), expires_in_sec=3600)
+    return out
 
 
 def _decisions_by(user, rng, rng_vals, limit=6000):
     """Status decisions this PERSON made in the window, from the Version trail.
     Returns (acts, daily) — the same shape the comment trail produced."""
     import json as _j
+    st_map = _status_action_map()
     acts = {"confirm": 0, "cancel": 0, "dna": 0, "followup": 0,
             "onhold": 0, "duplicate": 0}
     daily = {}
@@ -1016,7 +1048,7 @@ def _decisions_by(user, rng, rng_vals, limit=6000):
         for f in changed:
             if not f or f[0] != "custom_sales_status":
                 continue
-            action = _ST_ACTION.get(f[2])
+            action = st_map.get(f[2])
             if not action:
                 continue
             acts[action] += 1
