@@ -333,27 +333,34 @@ def _agent_me(user, days=7):
                                    "action": action, "win": is_win,
                                    "at": str(r.creation)[11:16]})
 
-    # Desk-era fallback (same rule as confirmation.my_report): an agent who
-    # decides on the DESK writes no portal comments — the page read 0/40 with
-    # an empty week while their allocated cohort held hundreds of orders.
-    # Derive the story from the cohort's current statuses, dated by arrival.
+    # Desk fallback: an agent deciding on the DESK writes no portal comment.
+    # Attribution comes from the Version trail — what THIS PERSON changed —
+    # never from the allocated cohort, which is full of orders the WhatsApp
+    # automation confirmed on their behalf (measured: 983 of 1,174 in a week).
     if today_total == 0 and not trend_map:
+        import json as _j
+        vrows = frappe.db.sql(
+            """SELECT DATE(creation) d, data FROM `tabVersion`
+               WHERE ref_doctype = 'Sales Order' AND owner = %(u)s
+                 AND data LIKE '%%custom_sales_status%%'
+                 AND creation >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)
+               ORDER BY creation DESC LIMIT 4000""",
+            {"u": user, "days": days - 1}, as_dict=True)
         st_act = {"Confirmed": "confirm", "Cancelled": "cancel",
                   "Did not Answer": "dna", "Follow Up": "followup",
-                  "On Hold": "onhold", "Duplicated": "duplicate"}
-        for r in frappe.db.sql(
-                """SELECT DATE(so.creation) d, so.custom_sales_status st,
-                          COUNT(*) n
-                   FROM `tabSales Order` so
-                   WHERE so.docstatus = 1 AND so.custom_allocated_to = %(u)s
-                     AND so.creation >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)
-                   GROUP BY DATE(so.creation), so.custom_sales_status""",
-                {"u": user, "days": days - 1}, as_dict=True):
-            action = st_act.get(r.st)
-            if not action:
+                  "On Hold": "onhold", "Duplicated": "duplicate",
+                  "Confirmé": "confirm", "Annulé(e)": "cancel"}
+        counted = []
+        for vr in vrows:
+            try:
+                changed = _j.loads(vr.data or "{}").get("changed") or []
+            except Exception:
                 continue
-            n = int(r.n or 0)
-            d = str(r.d)
+            for f in changed:
+                if f and f[0] == "custom_sales_status" and st_act.get(f[2]):
+                    counted.append((str(vr.d), st_act[f[2]]))
+        for d, action in counted:
+            n = 1
             is_win = action == "confirm"
             t = trend_map.setdefault(d, {"date": d, "total": 0, "wins": 0})
             t["total"] += n

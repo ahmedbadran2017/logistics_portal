@@ -89,6 +89,7 @@
                 <th class="text-end px-3 py-2.5">{{ t('cfr.thRate') }}</th>
                 <th class="text-end px-2 py-2.5">{{ t('cfr.thResp') }}</th>
                 <th class="text-end px-2 py-2.5">{{ t('cfr.thAttempts') }}</th>
+                <th class="text-end px-2 py-2.5 text-sky-600">{{ t('cfr.thAuto') }}</th>
                 <th class="text-end px-3 py-2.5">{{ t('cfr.thConfirmedValue') }}</th>
                 <th class="text-end px-3 py-2.5">{{ t('cfr.kCollected') }}</th>
                 <th class="text-end px-4 py-2.5">{{ t('cfr.thStick') }}</th>
@@ -122,6 +123,7 @@
                 </td>
                 <td class="px-2 py-2.5 text-end tabular-nums text-stone-600">{{ a.respH !== null ? a.respH + t('cf.hrs') : '—' }}</td>
                 <td class="px-2 py-2.5 text-end tabular-nums text-stone-600">{{ a.avgAttempts || '—' }}</td>
+                <td class="px-2 py-2.5 text-end tabular-nums text-sky-600" :title="t('cfr.thAutoHint')">{{ a.autoClosed || '—' }}</td>
                 <td class="px-3 py-2.5 text-end tabular-nums text-stone-500">{{ fmtMAD(a.confirmedValue) }}</td>
                 <td class="px-3 py-2.5 text-end tabular-nums font-bold text-stone-900">{{ fmtMAD(a.collected) }}</td>
                 <td class="px-4 py-2.5 text-end">

@@ -978,6 +978,68 @@ def save_cf_settings(settings=None):
     return {"ok": True, **out}
 
 
+# ── Who actually decided? ────────────────────────────────────────────────────
+# The WhatsApp automation confirms at scale (measured 2026-08-31: 1,174 orders
+# in 7 days, 983 of them ALLOCATED to an agent). Crediting an agent for the
+# orders merely sitting in their queue therefore inflates every personal
+# number. The Version trail records WHO changed the status, so attribution
+# comes from there — the automation posts as Administrator and is excluded,
+# and its contribution is reported separately instead of being hidden.
+_AUTOMATION_USERS = ("Administrator", "Guest")
+_ST_ACTION = {"Confirmed": "confirm", "Cancelled": "cancel",
+              "Did not Answer": "dna", "Follow Up": "followup",
+              "On Hold": "onhold", "Duplicated": "duplicate",
+              # The desk has written French values at least once — map them so
+              # that work is not silently lost from the metrics.
+              "Confirmé": "confirm", "Annulé(e)": "cancel"}
+
+
+def _decisions_by(user, rng, rng_vals, limit=6000):
+    """Status decisions this PERSON made in the window, from the Version trail.
+    Returns (acts, daily) — the same shape the comment trail produced."""
+    import json as _j
+    acts = {"confirm": 0, "cancel": 0, "dna": 0, "followup": 0,
+            "onhold": 0, "duplicate": 0}
+    daily = {}
+    rows = frappe.db.sql(
+        f"""SELECT DATE(v.creation) d, v.data FROM `tabVersion` v
+            WHERE v.ref_doctype = 'Sales Order' AND v.owner = %(u)s
+              AND v.data LIKE '%%custom_sales_status%%'
+              AND {rng.format(col="v.creation")}
+            ORDER BY v.creation DESC LIMIT {int(limit)}""",
+        {**rng_vals, "u": user}, as_dict=True)
+    for r in rows:
+        try:
+            changed = _j.loads(r.data or "{}").get("changed") or []
+        except Exception:
+            continue
+        for f in changed:
+            if not f or f[0] != "custom_sales_status":
+                continue
+            action = _ST_ACTION.get(f[2])
+            if not action:
+                continue
+            acts[action] += 1
+            day = daily.setdefault(str(r.d), {"confirm": 0, "cancel": 0, "dna": 0})
+            if action in day:
+                day[action] += 1
+    return acts, daily
+
+
+def _auto_closed_for(user, rng, rng_vals):
+    """How many of THIS agent's orders the automation closed in the window —
+    context for the agent, never credit."""
+    return int(frappe.db.sql(
+        f"""SELECT COUNT(DISTINCT v.docname) FROM `tabVersion` v
+            JOIN `tabSales Order` so ON so.name = v.docname
+            WHERE v.ref_doctype = 'Sales Order'
+              AND v.owner IN {str(_AUTOMATION_USERS)}
+              AND v.data LIKE '%%custom_sales_status%%'
+              AND so.custom_allocated_to = %(u)s
+              AND {rng.format(col="v.creation")}""",
+        {**rng_vals, "u": user})[0][0] or 0)
+
+
 @frappe.whitelist()
 def my_report(days=7, frm=None, to=None):
     """The agent's OWN numbers over a window — same DNA as the admin
@@ -1010,31 +1072,14 @@ def my_report(days=7, frm=None, to=None):
         if action in day:
             day[action] += int(r.n or 0)
 
-    # Desk-era fallback: an agent who still decides on the DESK leaves no
-    # portal comment trail, so acts/daily read zero while their allocated
-    # cohort carries hundreds of orders. When the trail is empty, derive the
-    # story from the cohort's CURRENT statuses instead (dated by arrival) —
-    # honest enough for a personal dashboard, and flagged so the UI can say so.
+    # Desk work leaves no portal comment, so when the trail is empty fall back
+    # to the Version log — decisions THIS PERSON made, wherever they made them.
+    # (The earlier fallback read the allocated cohort's statuses, which handed
+    # the agent every order the automation had confirmed for them.)
     source = "portal"
     if not any(acts.values()):
-        source = "cohort"
-        st_act = {"Confirmed": "confirm", "Cancelled": "cancel",
-                  "Did not Answer": "dna", "Follow Up": "followup",
-                  "On Hold": "onhold", "Duplicated": "duplicate"}
-        for r in frappe.db.sql(
-                f"""SELECT DATE(so.creation) d, so.custom_sales_status st, COUNT(*) n
-                    FROM `tabSales Order` so
-                    WHERE so.docstatus = 1 AND so.company = %(co)s
-                      AND so.custom_allocated_to = %(me)s AND {so_rng}
-                    GROUP BY DATE(so.creation), so.custom_sales_status""",
-                rng_vals, as_dict=True):
-            action = st_act.get(r.st)
-            if not action:
-                continue
-            acts[action] += int(r.n or 0)
-            day = daily.setdefault(str(r.d), {"confirm": 0, "cancel": 0, "dna": 0})
-            if action in day:
-                day[action] += int(r.n or 0)
+        source = "desk"
+        acts, daily = _decisions_by(me, rng, rng_vals)
 
     sane = 100000
     money = frappe.db.sql(
@@ -1066,6 +1111,8 @@ def my_report(days=7, frm=None, to=None):
         "cohort": {"n": int(money[0] or 0),
                    "value": round(float(money[1] or 0))},
         "source": source,
+        # The bot's share of this agent's queue — shown, never credited.
+        "autoClosed": _auto_closed_for(me, rng, rng_vals),
         "stick": {"shipped": int(stick[0] or 0), "delivered": int(stick[1] or 0)},
         "target": int(_cf_settings().get("dayTarget", 40)),
     }
@@ -1187,6 +1234,18 @@ def report(days=7, frm=None, to=None):
         money.setdefault(r.u, {}).update(
             {"delivered": r.delivered, "failed": r.failed, "collected": r.collected})
 
+    # Automation-closed orders per agent (Version owner = Administrator) for
+    # the SAME cohort window the money uses.
+    auto_by_agent = {r[0]: int(r[1] or 0) for r in frappe.db.sql(
+        f"""SELECT so.custom_allocated_to, COUNT(DISTINCT v.docname)
+            FROM `tabVersion` v JOIN `tabSales Order` so ON so.name = v.docname
+            WHERE v.ref_doctype = 'Sales Order' AND v.owner = 'Administrator'
+              AND v.data LIKE '%%custom_sales_status%%'
+              AND so.company = %(co)s
+              AND COALESCE(so.custom_allocated_to, '') != ''
+              AND {so_rng}
+            GROUP BY so.custom_allocated_to""", rng_vals)}
+
     agents = []
     for user in set(list(per_agent) + list(money)):
         a = per_agent.get(user, {"confirm": 0, "cancel": 0, "dna": 0,
@@ -1199,7 +1258,11 @@ def report(days=7, frm=None, to=None):
         decided = a["confirm"] + a["cancel"]
         shipped = int(g("delivered")) + int(g("failed"))
         agents.append({
-            "agent": user.split("@")[0], "user": user, **a,
+            "agent": user.split("@")[0], "user": user,
+            # Of this agent's cohort, how many the automation closed — the
+            # manager must be able to tell chased-by-bot from called-by-agent.
+            "autoClosed": int(auto_by_agent.get(user, 0)),
+            **a,
             "total": a["confirm"] + a["cancel"] + a["dna"] + a["followup"]
                      + a["onhold"] + a["duplicate"],
             "confirmRate": round(a["confirm"] * 100.0 / decided, 1) if decided else None,

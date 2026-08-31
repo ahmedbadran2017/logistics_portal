@@ -1186,6 +1186,8 @@ export default {
     badLogin: "Invalid email or password.",
   },
   md: {
+    deskSrc: "Counted from the decisions you made — on the desk or here.",
+    autoClosed: "the automation closed {n} of your orders",
     cohortSrc: "Built from your allocated orders (desk decisions leave no portal trail yet).",
     title: "My dashboard",
     intro: "Your own numbers — decisions, confirm rate, money and delivery outcome.",
@@ -1383,6 +1385,8 @@ export default {
     thStatus: "Status", thAge: "Age", thValue: "Value",
   },
   cfr: {
+    thAuto: "Bot",
+    thAutoHint: "Orders in this agent's queue that the WhatsApp automation closed — not their decisions",
     title: "Confirmation — section reports",
     kConfirmed: "Confirmed value",
     kCollected: "Collected",

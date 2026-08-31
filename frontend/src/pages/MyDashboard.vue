@@ -23,8 +23,13 @@
     </div>
 
     <template v-else-if="d">
-      <div v-if="d.source === 'cohort'" class="flex items-center gap-1.5 text-[11px] text-stone-400 -mb-2">
-        <Icon name="info" :size="11" />{{ t('md.cohortSrc') }}
+      <div v-if="d.source === 'desk' || d.autoClosed" class="flex items-center gap-2 flex-wrap text-[11px] -mb-2">
+        <span v-if="d.source === 'desk'" class="inline-flex items-center gap-1.5 text-stone-400">
+          <Icon name="info" :size="11" />{{ t('md.deskSrc') }}
+        </span>
+        <span v-if="d.autoClosed" class="inline-flex items-center gap-1.5 text-sky-700 bg-sky-50 ring-1 ring-sky-200/70 rounded-full px-2.5 py-0.5 font-semibold">
+          <Icon name="send" :size="11" />{{ t('md.autoClosed').replace('{n}', String(d.autoClosed)) }}
+        </span>
       </div>
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div class="md-kpi md-in" style="animation-delay: 0ms">

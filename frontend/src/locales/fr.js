@@ -1187,6 +1187,8 @@ export default {
     badLogin: "E-mail ou mot de passe incorrect.",
   },
   md: {
+    deskSrc: "Compté à partir des décisions que vous avez prises — sur le desk ou ici.",
+    autoClosed: "l'automatisation a clôturé {n} de vos commandes",
     cohortSrc: "Construit à partir de vos commandes allouées (les décisions desk ne laissent pas encore de trace portail).",
     title: "Mon tableau de bord",
     intro: "Vos propres chiffres — décisions, taux de confirmation, argent et sort des livraisons.",
@@ -1384,6 +1386,8 @@ export default {
     thStatus: "Statut", thAge: "Âge", thValue: "Valeur",
   },
   cfr: {
+    thAuto: "Bot",
+    thAutoHint: "Commandes de cet agent clôturées par l'automatisation WhatsApp — pas ses décisions",
     title: "Confirmation — rapports du service",
     kConfirmed: "Valeur confirmée",
     kCollected: "Encaissé",
