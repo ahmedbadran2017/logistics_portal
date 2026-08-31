@@ -1222,6 +1222,9 @@ export default {
     lgBack: "Sent back",
   },
   ccd: {
+    autoTitle: "Automation (WhatsApp)",
+    autoOfAll: "of all decisions ({p}%)",
+    autoHint: "confirmed by the bot, no human call",
     ofDecided: "of {n} decided",
     stickTitle: "Delivery outcome",
     stickHint: "delivered / shipped, per day",

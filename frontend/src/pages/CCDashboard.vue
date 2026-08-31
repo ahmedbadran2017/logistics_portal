@@ -35,27 +35,37 @@
             <svg viewBox="0 0 64 64" class="w-full h-full -rotate-90">
               <circle cx="32" cy="32" r="26" fill="none" stroke="rgb(231 229 228)" stroke-width="7" />
               <circle cx="32" cy="32" r="26" fill="none" stroke-width="7" stroke-linecap="round"
-                      :stroke="tot.rate === null ? 'rgb(214 211 209)' : tot.rate >= 50 ? 'rgb(16 185 129)' : 'rgb(244 63 94)'"
-                      :stroke-dasharray="163.4" :stroke-dashoffset="163.4 - (163.4 * (tot.rate || 0)) / 100"
+                      :stroke="all.rate === null ? 'rgb(214 211 209)' : all.rate >= 50 ? 'rgb(16 185 129)' : 'rgb(244 63 94)'"
+                      :stroke-dasharray="163.4" :stroke-dashoffset="163.4 - (163.4 * (all.rate || 0)) / 100"
                       style="transition: stroke-dashoffset .7s ease" />
             </svg>
             <span class="absolute inset-0 flex items-center justify-center text-[15px] font-extrabold tabular-nums"
-                  :class="tot.rate === null ? 'text-stone-300' : tot.rate >= 50 ? 'text-emerald-600' : 'text-rose-600'">
-              {{ tot.rate === null ? '—' : tot.rate + '%' }}</span>
+                  :class="all.rate === null ? 'text-stone-300' : all.rate >= 50 ? 'text-emerald-600' : 'text-rose-600'">
+              {{ all.rate === null ? '—' : all.rate + '%' }}</span>
           </div>
           <div class="min-w-0">
             <div class="ccd-kpi-l">{{ t('ccd.kRate') }}</div>
             <div class="text-[11.5px] tabular-nums mt-1 flex items-center gap-2">
-              <span class="text-emerald-600 font-bold">{{ fmtN(tot.confirm) }} <Icon name="check" :size="10" class="inline -mt-px" /></span>
-              <span class="text-rose-500 font-bold">{{ fmtN(tot.cancel) }} <Icon name="x" :size="10" class="inline -mt-px" /></span>
-              <span class="text-stone-400">{{ t('ccd.ofDecided').replace('{n}', fmtN(tot.confirm + tot.cancel)) }}</span>
+              <span class="text-emerald-600 font-bold">{{ fmtN(all.confirm) }} <Icon name="check" :size="10" class="inline -mt-px" /></span>
+              <span class="text-rose-500 font-bold">{{ fmtN(all.cancel) }} <Icon name="x" :size="10" class="inline -mt-px" /></span>
+              <span class="text-stone-400">{{ t('ccd.ofDecided').replace('{n}', fmtN(all.confirm + all.cancel)) }}</span>
+            </div>
+            <div v-if="auto" class="text-[10px] text-stone-500 mt-0.5 tabular-nums">
+              <Icon name="user" :size="9" class="inline -mt-px" /> {{ tot.rate === null ? '—' : tot.rate + '%' }}
+              <span class="text-stone-300 mx-1">|</span>
+              <Icon name="bot" :size="9" class="inline -mt-px" /> {{ auto.confirmRate === null ? '—' : auto.confirmRate + '%' }}
             </div>
             <div class="text-[10px] text-stone-400 mt-0.5">{{ t('ccd.kRateHint') }} <span v-if="deltas.rate" class="ccd-delta" :class="deltas.rate.up ? 'ccd-up' : 'ccd-down'">{{ deltas.rate.txt }}</span></div>
           </div>
         </div>
         <div class="ccd-kpi">
           <div class="ccd-kpi-l"><Icon name="activity" :size="12" class="inline -mt-px me-1" />{{ t('ccd.kDecisions') }}</div>
-          <div class="flex items-baseline gap-2 mt-1"><span class="text-[26px] font-extrabold tabular-nums text-stone-900">{{ fmtN(tot.total) }}</span><span v-if="deltas.total" class="ccd-delta" :class="deltas.total.up ? 'ccd-up' : 'ccd-down'">{{ deltas.total.txt }}</span></div>
+          <div class="flex items-baseline gap-2 mt-1"><span class="text-[26px] font-extrabold tabular-nums text-stone-900">{{ fmtN(all.total) }}</span><span v-if="deltas.total" class="ccd-delta" :class="deltas.total.up ? 'ccd-up' : 'ccd-down'">{{ deltas.total.txt }}</span></div>
+          <div v-if="auto" class="text-[11px] tabular-nums flex items-center gap-2">
+            <span class="text-stone-600 font-semibold"><Icon name="user" :size="10" class="inline -mt-px" /> {{ fmtN(tot.total) }}</span>
+            <span class="text-sky-600 font-semibold"><Icon name="bot" :size="10" class="inline -mt-px" /> {{ fmtN(auto.total) }}</span>
+            <span class="text-stone-400">{{ autoShare }}% {{ t('ccd.byAutomation') }}</span>
+          </div>
           <div class="text-[11px] text-stone-400 tabular-nums">{{ fmtN(tot.dna) }} {{ t('cf.actDna') }} · {{ fmtN(tot.followup) }} {{ t('cf.actFollowup') }}</div>
         </div>
         <div class="ccd-kpi">
@@ -94,6 +104,32 @@
         </div>
 
         <div class="space-y-4">
+          <!-- what the bot decided, on its own -->
+          <div v-if="auto && auto.total" class="bg-white rounded-xl ring-1 ring-sky-200/70 p-4">
+            <div class="text-[12px] font-semibold text-stone-900 flex items-center gap-2 mb-2.5">
+              <Icon name="bot" :size="13" class="text-sky-600" />{{ t('ccd.autoTitle') }}
+            </div>
+            <div class="flex items-baseline gap-2">
+              <span class="text-[24px] font-extrabold tabular-nums text-stone-900">{{ fmtN(auto.total) }}</span>
+              <span class="text-[11px] text-stone-500">{{ t('ccd.autoOfAll').replace('{p}', String(autoShare)) }}</span>
+            </div>
+            <div class="h-2 rounded-full bg-stone-100 overflow-hidden mt-2 flex">
+              <div class="h-full bg-emerald-400 transition-all duration-700"
+                   :style="{ width: Math.round((auto.confirm * 100) / Math.max(1, auto.total)) + '%' }" />
+              <div class="h-full bg-rose-400 transition-all duration-700"
+                   :style="{ width: Math.round((auto.cancel * 100) / Math.max(1, auto.total)) + '%' }" />
+              <div class="h-full bg-amber-300 transition-all duration-700"
+                   :style="{ width: Math.round((auto.followup * 100) / Math.max(1, auto.total)) + '%' }" />
+            </div>
+            <div class="text-[11px] text-stone-500 tabular-nums mt-1.5 flex flex-wrap gap-x-2.5">
+              <span class="text-emerald-600 font-semibold">{{ fmtN(auto.confirm) }} {{ t('cf.actConfirm') }}</span>
+              <span class="text-rose-500 font-semibold">{{ fmtN(auto.cancel) }} {{ t('cf.actCancel') }}</span>
+              <span class="text-amber-600 font-semibold">{{ fmtN(auto.followup) }} {{ t('cf.actFollowup') }}</span>
+            </div>
+            <div class="text-[11px] text-stone-400 tabular-nums mt-1.5 pt-1.5 border-t border-stone-100">
+              {{ fmtN(auto.confirmedValue) }} MAD · {{ t('ccd.autoHint') }}
+            </div>
+          </div>
           <!-- automation share -->
           <div v-if="r.ladder" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
             <div class="text-[12px] font-semibold text-stone-900 flex items-center gap-2 mb-2">
@@ -411,6 +447,19 @@ const tot = computed(() => {
   return { ...totalsOf(r.value), dna: sum("dna"), followup: sum("followup"),
            collected: sum("collected") };
 });
+// The WhatsApp flow decides a large share of every window, so the headline
+// counts it — but as a named half, never blended into the human numbers.
+const auto = computed(() => r.value?.automation || null);
+const all = computed(() => {
+  const h = tot.value, a2 = auto.value;
+  const confirm = h.confirm + (a2?.confirm || 0);
+  const cancel = h.cancel + (a2?.cancel || 0);
+  return { confirm, cancel, total: h.total + (a2?.total || 0),
+           value: h.value + (a2?.confirmedValue || 0),
+           rate: confirm + cancel ? Math.round((confirm * 100) / (confirm + cancel)) : null };
+});
+const autoShare = computed(() =>
+  all.value.total ? Math.round(((auto.value?.total || 0) * 100) / all.value.total) : null);
 const collectedPct = computed(() =>
   tot.value.value ? Math.round((tot.value.collected * 100) / tot.value.value) : null);
 const fMax = computed(() =>

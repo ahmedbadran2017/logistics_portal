@@ -1223,6 +1223,9 @@ export default {
     lgBack: "Renvoyés",
   },
   ccd: {
+    autoTitle: "Automatisation (WhatsApp)",
+    autoOfAll: "de toutes les décisions ({p}%)",
+    autoHint: "confirmé par le bot, sans appel humain",
     ofDecided: "sur {n} décidées",
     stickTitle: "Sort des livraisons",
     stickHint: "livré / expédié, par jour",

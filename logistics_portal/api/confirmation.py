@@ -1377,6 +1377,55 @@ def report(days=7, frm=None, to=None):
             GROUP BY so.custom_allocated_to""",
         {**rng_vals, "auto": _AUTOMATION_USERS})}
 
+    # ── the AUTOMATION as its own worker ─────────────────────────────────
+    # The WhatsApp flow runs as Administrator and it is not a rounding error:
+    # measured 2026-08-31, it took 4,686 of the ~10,600 status decisions in
+    # August — 44% of everything the section decided. Leaving it out of the
+    # headline made the dashboard describe a minority of the work; folding it
+    # into the agents made every human average wrong. So it gets its own
+    # block, exactly the way the desk's own dashboard treats it (that screen
+    # renders `Administrator` as a pinned "Automation" row and excludes it
+    # from the team average — same contract, same numbers).
+    auto_acts = {"confirm": 0, "cancel": 0, "dna": 0, "followup": 0,
+                 "onhold": 0, "duplicate": 0, "reopen": 0, "bulk": 0}
+    auto_orders = set()
+    for r in frappe.db.sql(
+            f"""SELECT v.docname, v.data FROM `tabVersion` v
+                JOIN `tabSales Order` so ON so.name = v.docname
+                WHERE v.ref_doctype = 'Sales Order' AND so.company = %(co)s
+                  AND v.owner IN %(auto)s
+                  AND v.data LIKE '%%custom_sales_status%%'
+                  AND {rng.format(col="v.creation")}
+                ORDER BY v.creation DESC LIMIT 40000""",
+            {**rng_vals, "auto": _AUTOMATION_USERS}, as_dict=True):
+        try:
+            changed = _j_desk.loads(r.data or "{}").get("changed") or []
+        except Exception:
+            continue
+        for f in changed:
+            if not f or f[0] != "custom_sales_status":
+                continue
+            action = _st_map.get(f[2])
+            if action in auto_acts:
+                auto_acts[action] += 1
+                auto_orders.add(r.docname)
+    _ad = auto_acts["confirm"] + auto_acts["cancel"]
+    auto_value = 0.0
+    if auto_orders:
+        auto_value = float(frappe.db.sql(
+            """SELECT COALESCE(SUM(so.grand_total), 0) FROM `tabSales Order` so
+               WHERE so.name IN %(n)s AND so.custom_sales_status = 'Confirmed'
+                 AND so.grand_total < %(sane)s""",
+            {"n": tuple(auto_orders), "sane": _SANE_MAX})[0][0] or 0)
+    automation = {
+        **auto_acts,
+        "total": sum(auto_acts[k] for k in
+                     ("confirm", "cancel", "dna", "followup", "onhold", "duplicate")),
+        "confirmRate": round(auto_acts["confirm"] * 100.0 / _ad, 1) if _ad else None,
+        "confirmedValue": round(auto_value),
+        "orders": len(auto_orders),
+    }
+
     agents = []
     for user in set(list(per_agent) + list(money)):
         a = per_agent.get(user, {"confirm": 0, "cancel": 0, "dna": 0,
@@ -1504,6 +1553,9 @@ def report(days=7, frm=None, to=None):
         "cities": [{"city": (r_.city or "?").title(), "parcels": int(r_.parcels or 0),
                     "failed": int(r_.failed or 0)} for r_ in cities],
         "agents": agents,
+        # Kept OUT of `agents` on purpose: everything that iterates that list
+        # (leaderboard, bonus, team averages) must stay human-only.
+        "automation": automation,
         "reasons": reason_rows,
         "funnel": [{"date": str(f.d), "confirm": int(f.conf or 0),
                     "cancel": int(f.canc or 0), "dna": int(f.dna or 0)} for f in funnel],

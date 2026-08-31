@@ -1222,6 +1222,9 @@ export default {
     lgBack: "رجع",
   },
   ccd: {
+    autoTitle: "الأتمتة (واتساب)",
+    autoOfAll: "من كل القرارات ({p}%)",
+    autoHint: "أكّدها البوت بدون مكالمة",
     ofDecided: "من {n} قرار",
     stickTitle: "مصير التسليم",
     stickHint: "اتسلّم ÷ اتشحن، يوم بيوم",
