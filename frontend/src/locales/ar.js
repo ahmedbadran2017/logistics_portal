@@ -1272,6 +1272,14 @@ export default {
     image: "صورة", audio: "تسجيل صوتي", video: "فيديو", document: "ملف",
     location: "موقع", reaction: "تفاعل", flow: "نموذج",
   },
+  lstage: {
+    "Picked": "اتلقط",
+    "Label Generated": "اتطبع",
+    "Label Printed": "اتطبع",
+    "Shipped": "اتشحن",
+    "Delivered": "اتسلّم",
+    "Returned": "رجعت",
+  },
   ws: {
     jReturned: "رجعت",
     oosOne: "مفيش مخزون — صنف مش هيتلقط",

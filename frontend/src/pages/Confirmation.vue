@@ -160,6 +160,19 @@
               <span>{{ r.items }} {{ t('consol.items') }}</span>
               <span class="inline-flex items-center gap-1" :class="ageColor(r.ageH)"><Icon name="clock" :size="11" />{{ ageLabel(r.ageH) }}</span>
               <span v-if="r.attempts" class="inline-flex items-center gap-1 text-amber-600 font-medium"><Icon name="phone-off" :size="11" />×{{ r.attempts }}</span>
+              <!-- Where the warehouse and the carrier took it. A confirmed
+                   order's next question is always "and where is it now?" -->
+              <span v-if="r.stage && r.stage !== 'Pending'"
+                    class="inline-flex items-center gap-1 text-[10.5px] font-bold rounded-full px-2 py-0.5 ring-1"
+                    :class="stageCls(r)">
+                <Icon :name="r.stage === 'Returned' ? 'rotate-ccw' : 'truck'" :size="10" />
+                {{ t('lstage.' + r.stage, r.stage) }}
+              </span>
+              <span v-if="r.track && r.track !== r.stage"
+                    class="inline-flex items-center gap-1 text-[10.5px] font-semibold rounded-full px-2 py-0.5 ring-1"
+                    :class="trackBadRow(r) ? 'text-rose-700 bg-rose-50 ring-rose-200' : 'text-sky-700 bg-sky-50 ring-sky-200'">
+                {{ r.track }}
+              </span>
               <span v-if="r.chased" class="inline-flex items-center gap-1 text-sky-600 font-medium"
                     :title="t('cf.chasedHint')">
                 <Icon name="send" :size="11" />{{ t('cf.chased') }} ×{{ r.chased }}
@@ -464,7 +477,11 @@ function debouncedLoad() {
   qTimer = setTimeout(() => { page.value = 1; load(); }, 350);
 }
 
+let loadSeq = 0;
 async function load() {
+  // Typing fires several searches; without a token the SLOWEST reply wins and
+  // the list shows results for a query the agent already moved past.
+  const seq = ++loadSeq;
   loading.value = true;
   selected.value = new Set();
   try {
@@ -473,15 +490,17 @@ async function load() {
       offset: (page.value - 1) * pageSize.value,
       days: days.value, frm: frm.value || undefined, to: to.value || undefined,
     });
+    if (seq !== loadSeq) return;
     data.value = res;
     rows.value = res.rows || [];
     total.value = res.total || 0;
     loadError.value = "";
   } catch (e) {
+    if (seq !== loadSeq) return;
     loadError.value = String(e.message || e);
     rows.value = [];
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) loading.value = false;
   }
 }
 onMounted(load);
@@ -757,6 +776,16 @@ function initial(name) {
 function ageLabel(h) {
   return h < 48 ? `${h}${t('cf.hrs')}` : `${Math.round(h / 24)}${t('cf.days')}`;
 }
+// Warehouse stage colours: done is green, in-flight is accent, back is rose.
+function stageCls(r) {
+  if (r.stage === "Returned") return "text-rose-700 bg-rose-50 ring-rose-200";
+  if (r.stage === "Delivered") return "text-emerald-700 bg-emerald-50 ring-emerald-200";
+  return "text-[var(--accent-700)] bg-[var(--accent-50)] ring-[var(--accent-200)]";
+}
+function trackBadRow(r) {
+  return ["Delivery Exception", "Failed Attempt"].includes(r.track);
+}
+
 function ageColor(h) {
   // Keyed to the section's real first-call SLA (board payload), not fixed
   // steps — when everything is "late" a uniform badge says nothing, a color

@@ -1272,6 +1272,14 @@ export default {
     image: "Photo", audio: "Voice note", video: "Video", document: "Document",
     location: "Location", reaction: "Reaction", flow: "Form",
   },
+  lstage: {
+    "Picked": "Picked",
+    "Label Generated": "Labelled",
+    "Label Printed": "Labelled",
+    "Shipped": "Shipped",
+    "Delivered": "Delivered",
+    "Returned": "Came back",
+  },
   ws: {
     jReturned: "Came back",
     oosOne: "Out of stock — one item can't be picked",

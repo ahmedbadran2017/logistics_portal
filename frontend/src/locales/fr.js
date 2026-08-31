@@ -1273,6 +1273,14 @@ export default {
     image: "Photo", audio: "Vocal", video: "Vid\u00e9o", document: "Document",
     location: "Position", reaction: "R\u00e9action", flow: "Formulaire",
   },
+  lstage: {
+    "Picked": "Préparée",
+    "Label Generated": "Étiquetée",
+    "Label Printed": "Étiquetée",
+    "Shipped": "Expédiée",
+    "Delivered": "Livrée",
+    "Returned": "Retournée",
+  },
   ws: {
     jReturned: "Retournée",
     oosOne: "Rupture de stock — un article ne peut pas être préparé",

@@ -365,11 +365,33 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
             conds.append("so.custom_allocated_to = %(me)s")
         else:
             conds.append("so._assign LIKE %(me_like)s")
-    if q and str(q).strip():
-        vals["q"] = f"%{str(q).strip()}%"
-        conds.append("""(so.name LIKE %(q)s OR so.customer_name LIKE %(q)s
-                        OR so.custom_customer_phone LIKE %(q)s
-                        OR so.custom_shipping_phone LIKE %(q)s)""")
+    q = str(q or "").strip()
+    if q:
+        # A search is a LOOKUP, not a report: the date window is dropped, or
+        # an order older than the picked range answers "not found" while it
+        # sits right there in the system.
+        conds = [c for c in conds if "%(days)s" not in c and "%(frm)s" not in c
+                 and "%(to)s" not in c]
+        digits_only = q.lstrip("#").strip()
+        if digits_only.isdigit():
+            # Order numbers are '#257135'. Anchored patterns keep the index
+            # usable; the old '%…%' over four columns scanned the whole table.
+            # Measured on prod: the order-number lookup is 0.00s while ONE
+            # phone LIKE '%digits' costs 1.13s — so the phone columns are only
+            # searched when the query is long enough to actually be a phone.
+            vals["qexact"] = "#" + digits_only
+            vals["qpre"] = digits_only + "%"
+            parts = ["so.name = %(qexact)s", "so.name LIKE %(qpre)s"]
+            if len(digits_only) >= 8:
+                vals["qphone"] = "%" + digits_only
+                parts += ["so.custom_customer_phone LIKE %(qphone)s",
+                          "so.custom_shipping_phone LIKE %(qphone)s"]
+            conds.append("(" + " OR ".join(parts) + ")")
+        else:
+            vals["qlike"] = f"%{q}%"
+            vals["qpre"] = q + "%"
+            conds.append("""(so.customer_name LIKE %(qlike)s
+                            OR so.name LIKE %(qpre)s)""")
     where = " AND ".join(conds)
     total = frappe.db.sql(f"SELECT COUNT(*) FROM `tabSales Order` so WHERE {where}",
                           vals)[0][0]
@@ -407,6 +429,9 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
                    so.custom_next_call_at AS next_call,
                    so.custom_allocated_to AS agent,
                    so.custom_sales_status AS status,
+                   so.custom_logistics_status AS stage,
+                   so.custom_track_shipment_status AS track,
+                   so.custom_awb AS awb,
                    COALESCE({s_r1}, 0) AS r1,
                    COALESCE({s_r2}, 0) AS r2,
                    {reason_col} AS reason
@@ -479,6 +504,11 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
             "agent": (r.agent or "").split("@")[0],
             "due": bool(r.next_call and str(r.next_call) <= str(now_datetime())),
             "status": r.status or "",
+            # Where the warehouse and the carrier have taken it — a confirmed
+            # order's next question is always "and where is it now?".
+            "stage": (r.stage or "").strip(),
+            "track": (r.track or "").strip(),
+            "awb": (r.awb or "").strip(),
             "reason": (r.reason or "").strip(),
             "cust": hist.get(digits(r.phone)) if r.phone else None,
             # How hard the automation already chased this one.
