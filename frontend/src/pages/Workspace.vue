@@ -372,13 +372,22 @@
                  agent should not have to leave the call to find out. -->
             <div v-if="(cust.recent || []).length" class="mt-2.5 pt-2.5 border-t border-stone-100 space-y-1">
               <div class="text-[10px] font-semibold uppercase tracking-wide text-stone-400 mb-1">{{ t('ws.histTitle') }}</div>
-              <div v-for="o in cust.recent.slice(0, histOpen ? 12 : 4)" :key="o.order"
-                   class="flex items-center gap-2 text-[11px] tabular-nums">
+              <!-- Each past order opens in the card: the customer asks about an
+                   older parcel and the agent lands on it without leaving the call. -->
+              <button v-for="o in cust.recent.slice(0, histOpen ? 12 : 4)" :key="o.order"
+                      type="button"
+                      class="w-full text-start flex items-center gap-2 text-[11px] tabular-nums rounded-md px-1 py-0.5 -mx-1 transition-colors group/hist"
+                      :class="o.order === active?.name ? 'bg-[var(--accent-50)] ring-1 ring-[var(--accent-200)]' : 'hover:bg-stone-50'"
+                      :title="o.order"
+                      @click="openHistory(o)">
                 <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :class="histDot(o)" />
                 <span class="text-stone-400 flex-shrink-0">{{ o.at.slice(5) }}</span>
                 <span class="text-stone-600 truncate flex-1" :title="o.track || o.status">{{ o.track || o.status }}</span>
                 <span class="font-semibold text-stone-800 flex-shrink-0">{{ Math.round(o.total) }}</span>
-              </div>
+                <Icon name="chevron-right" :size="11"
+                      class="flex-shrink-0 text-stone-300 opacity-0 group-hover/hist:opacity-100 transition-opacity rtl:-scale-x-100"
+                      :class="o.order === active?.name ? 'opacity-100 text-[var(--accent-600)]' : ''" />
+              </button>
               <button v-if="cust.recent.length > 4" class="text-[10.5px] font-semibold text-[var(--accent-600)] hover:underline"
                       @click="histOpen = !histOpen">
                 {{ histOpen ? t('common.less') : t('ws.histMore').replace('{n}', String(cust.recent.length - 4)) }}
@@ -462,6 +471,12 @@ const cancelReason = ref("");
 const cust = ref(null);
 const custLoading = ref(false);
 const histOpen = ref(false);
+function openHistory(o) {
+  // Same door as the queue: drive it through the URL so back/refresh land
+  // on the order the agent was looking at.
+  if (!o?.order || o.order === active.value?.name) return;
+  gotoOrder(o.order);
+}
 function histDot(o) {
   const t2 = o.track || "";
   if (t2 === "Delivered") return "bg-emerald-500";
