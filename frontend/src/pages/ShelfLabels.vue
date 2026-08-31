@@ -178,10 +178,16 @@
               <Icon name="alert-triangle" :size="12" /> {{ t('shelfLabels.noSkuRow') }}
             </div>
             <div v-else class="font-mono text-[12px] text-stone-500 truncate">{{ it.sku }}</div>
+            <div v-if="it.barcodeWide" class="text-[11px] text-rose-700 font-medium flex items-center gap-1 mt-0.5">
+              <Icon name="alert-triangle" :size="11" /> {{ t('shelfLabels.tooLong') }}
+            </div>
+            <div v-else-if="it.barcodeIsCode" class="text-[11px] text-stone-400 flex items-center gap-1 mt-0.5">
+              <Icon name="package" :size="11" /> {{ t('shelfLabels.codeFallback') }}
+            </div>
           </div>
 
           <!-- live barcode preview -->
-          <div v-if="!it.noSku" class="hidden sm:block flex-shrink-0" v-html="previewSvg(it.sku)" />
+          <div v-if="!it.noSku" class="hidden sm:block flex-shrink-0" v-html="previewSvg(it.barcode || it.sku)" />
 
           <!-- editable label count + the live in-stock piece count -->
           <div v-if="!it.noSku" class="flex flex-col items-end gap-0.5 flex-shrink-0">

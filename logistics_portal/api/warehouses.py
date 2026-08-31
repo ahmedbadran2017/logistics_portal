@@ -228,6 +228,100 @@ def label_shelves():
     return {"zones": [{"zone": z, "shelves": zones[z]} for z in sorted(zones)]}
 
 
+# A handheld stops decoding reliably below a ~0.25mm narrow bar, and on a
+# 203dpi thermal head that is 2 dots — anything finer prints as an unstable
+# 1-or-2-dot bar. This is the floor every label payload is checked against.
+_MIN_MODULE_MM = 0.25
+_NARROWEST_STOCK_MM = 40.0   # the smallest stock in routine use
+_QUIET_MODULES = 20          # 10 each side, per the Code 128 spec
+
+
+def _code128_modules(text):
+    """Module count of `text` in Code 128 with B/C auto-switching — the Python
+    twin of frontend/src/lib/code128.js. Both must agree or the server would
+    promise a width the printer does not produce."""
+    t = "".join(c for c in str(text or "") if 32 <= ord(c) <= 126)
+    if not t:
+        return 0
+    syms, i, in_c = 1, 0, False        # start symbol
+    lead = len(t) - len(t.lstrip("0123456789"))
+    if lead >= 4 or (lead == len(t) and lead >= 2 and lead % 2 == 0):
+        in_c = True
+    while i < len(t):
+        run = 0
+        while i + run < len(t) and t[i + run].isdigit():
+            run += 1
+        want = 2 if in_c else 4
+        if run >= want:
+            use = run if run % 2 == 0 else run - 1
+            if not in_c:
+                syms += 1
+                in_c = True
+            syms += use // 2
+            i += use
+            continue
+        if in_c:
+            syms += 1
+            in_c = False
+        syms += 1
+        i += 1
+    syms += 1                          # checksum
+    return 11 * syms + 13              # + stop pattern
+
+
+def _encodable(text):
+    """Code 128 carries printable ASCII only. A SKU with a Turkish letter in it
+    (İ, ı, Ş, ş — 143 of the 3,195 stocked SKUs) loses that character silently,
+    so the printed barcode reads back as a string that matches NO item: the
+    scan simply finds nothing. Such a SKU can never be the payload."""
+    t = str(text or "")
+    return bool(t) and all(32 <= ord(c) <= 126 for c in t)
+
+
+def _fits(text, stock_mm=_NARROWEST_STOCK_MM):
+    if not _encodable(text):
+        return False
+    n = _code128_modules(text)
+    return bool(n) and stock_mm / (n + _QUIET_MODULES) >= _MIN_MODULE_MM
+
+
+def _label_payloads(pairs):
+    """item_code -> what to encode, and why.
+
+    Measured 2026-08-31: of 3,195 SKUs stocked on shelves, only 918 are short
+    enough to print a readable Code 128 on a 50x30mm label — the median SKU is
+    16 characters and the longest is 47. Squeezing those into the label is what
+    produced the bars the floor cannot scan.
+
+    The item code is a 14-digit number, which subset C encodes in half the
+    space, and resolve_scan() already accepts it (custom_sku -> Item Barcode ->
+    item_code). So when the SKU will not fit, the barcode carries the item code
+    while the human line still shows the SKU.
+
+    The one trap: 9 items have a custom_sku equal to some OTHER item's item
+    code. Scanning would resolve to the wrong product, because custom_sku wins.
+    Those never get the fallback — they are flagged for a bigger label instead.
+    """
+    out = {}
+    ics = [ic for ic, _sku in pairs]
+    if not ics:
+        return out
+    clash = {r[0] for r in frappe.db.sql(
+        """SELECT DISTINCT custom_sku FROM `tabItem`
+           WHERE custom_sku IN %s""", (tuple(ics),))} if ics else set()
+    for ic, sku in pairs:
+        if sku and _fits(sku):
+            out[ic] = {"barcode": sku, "barcodeIsCode": False, "barcodeWide": False}
+        elif ic not in clash and _fits(ic):
+            out[ic] = {"barcode": ic, "barcodeIsCode": True, "barcodeWide": False}
+        else:
+            # Nothing safe fits the narrow stock: print the SKU, and say plainly
+            # that this one needs the wide label.
+            out[ic] = {"barcode": sku or ic, "barcodeIsCode": not sku,
+                       "barcodeWide": True}
+    return out
+
+
 @frappe.whitelist()
 def shelf_items(warehouse):
     """The items sitting on one shelf, with piece counts and the SKU to print.
@@ -250,10 +344,14 @@ def shelf_items(warehouse):
            LEFT JOIN `tabItem` i ON i.name = b.item_code
            WHERE b.warehouse = %s AND b.actual_qty > 0
            ORDER BY i.custom_sku""", (warehouse,), as_dict=True)
+    codes = _label_payloads([(r.item_code, (r.sku or "").strip()) for r in rows])
     items = [{
         "itemCode": r.item_code, "sku": (r.sku or "").strip(),
         "name": r.name, "qty": int(r.qty or 0), "image": r.image or "",
         "noSku": not (r.sku or "").strip(),
+        # What the barcode must carry, decided here because only the server can
+        # see whether a numeric fallback would collide with someone else's SKU.
+        **codes.get(r.item_code, {}),
     } for r in rows]
     return {
         "shelf": warehouse.replace(" - JM", ""),

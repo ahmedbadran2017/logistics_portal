@@ -1,5 +1,11 @@
-// Code 128 (subset B) → inline SVG. No external library — the artifact CSP
-// blocks CDN scripts, and the label sheet must render self-contained.
+// Code 128 (subsets B and C) → inline SVG. No external library — the artifact
+// CSP blocks CDN scripts, and the label sheet must render self-contained.
+//
+// Subset C is not an optimisation here, it is the thing that makes the label
+// readable. Every character in subset B costs 11 modules; subset C encodes a
+// PAIR of digits in the same 11. A 14-digit code is 189 modules in B and 112
+// in C — on a 50mm label that is the difference between a 0.24mm bar (which a
+// handheld will not decode) and a 0.38mm bar (which it will).
 //
 // The Zebra SE4710 on the floor reads Code 128, and resolve_scan() matches the
 // scanned string against custom_sku first, so the payload IS the raw SKU: a
@@ -25,20 +31,61 @@ const PATTERNS = [
 ];
 
 const START_B = 104;
+const START_C = 105;
+const CODE_B = 100;   // switch to B from C
+const CODE_C = 99;    // switch to C from B
 const STOP = 106;
+
+/** Length of the digit run starting at i. */
+function digitRun(s, i) {
+  let n = 0;
+  while (i + n < s.length && s[i + n] >= "0" && s[i + n] <= "9") n++;
+  return n;
+}
 
 /** Encode an ASCII string (32–126) as an ordered list of Code-128 symbol
  *  values, with the mod-103 checksum. Characters outside the printable range
  *  are dropped rather than corrupting the symbol. */
 function encode(text) {
-  const chars = [];
+  // Keep only printable ASCII: anything else would corrupt the symbol.
+  let t = "";
   for (const ch of String(text)) {
     const c = ch.charCodeAt(0);
-    if (c >= 32 && c <= 126) chars.push(c - 32);
+    if (c >= 32 && c <= 126) t += ch;
   }
-  const codes = [START_B, ...chars];
-  let sum = START_B;
-  chars.forEach((v, i) => { sum += v * (i + 1); });
+
+  const codes = [];
+  let inC = false;
+  let i = 0;
+  // Start in C when the whole payload opens with an even digit run of 4+ —
+  // the usual case for a numeric item code, and it saves the switch symbol.
+  const lead = digitRun(t, 0);
+  if (lead >= 4 || (lead === t.length && lead >= 2 && lead % 2 === 0)) {
+    codes.push(START_C);
+    inC = true;
+  } else {
+    codes.push(START_B);
+  }
+
+  while (i < t.length) {
+    const run = digitRun(t, i);
+    // Entering C is worth one symbol, so it pays from 4 digits (2 while
+    // already in C). Only an even count can be encoded as pairs.
+    const want = inC ? 2 : 4;
+    if (run >= want) {
+      const use = run % 2 === 0 ? run : run - 1;
+      if (!inC) { codes.push(CODE_C); inC = true; }
+      for (let k = 0; k < use; k += 2) codes.push(parseInt(t.substr(i + k, 2), 10));
+      i += use;
+      continue;
+    }
+    if (inC) { codes.push(CODE_B); inC = false; }
+    codes.push(t.charCodeAt(i) - 32);
+    i += 1;
+  }
+
+  let sum = codes[0];
+  for (let k = 1; k < codes.length; k++) sum += codes[k] * k;
   codes.push(sum % 103);
   codes.push(STOP);
   return codes;
@@ -54,8 +101,16 @@ function encode(text) {
  */
 export function code128SVG(text, opts = {}) {
   const height = opts.height || 48;
-  const module = opts.module || 1.6;
   const codes = encode(text);
+
+  // Total module count, so a caller printing to a fixed stock can size the
+  // module from the paper instead of letting CSS shrink the finished SVG —
+  // which is what produced sub-0.2mm bars no scanner could read.
+  let totalModules = 0;
+  for (const code of codes) {
+    for (const w of PATTERNS[code]) totalModules += parseInt(w, 10);
+  }
+  const module = opts.module || 1.6;
 
   // Flatten every symbol's widths into alternating bar/space runs, starting
   // with a bar. x advances by width*module; we draw only the bars.
@@ -77,5 +132,5 @@ export function code128SVG(text, opts = {}) {
     `viewBox="0 0 ${width.toFixed(2)} ${height}" shape-rendering="crispEdges">` +
     `<rect width="100%" height="100%" fill="#fff"/>` +
     `<g fill="#000">${rects.join("")}</g></svg>`;
-  return { svg, width };
+  return { svg, width, modules: totalModules };
 }

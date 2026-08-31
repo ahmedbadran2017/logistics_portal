@@ -475,6 +475,8 @@ export default {
     unknown: "Code-barres ou SKU inconnu",
   },
   shelfLabels: {
+    tooLong: "SKU trop long pour être scanné — utiliser l'étiquette 57mm",
+    codeFallback: "le code-barres porte le code article (même résultat au scan)",
     title: "Étiquettes rayon",
     intro: "Réimprimez les codes-barres SKU d'un rayon dont les étiquettes sont effacées ou absentes. Un rayon à la fois.",
     shelves: "rayons avec stock",
