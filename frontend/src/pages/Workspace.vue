@@ -152,7 +152,11 @@
                       :class="i < journey.at ? 'text-emerald-700 bg-emerald-50 ring-emerald-200'
                         : i === journey.at ? 'text-white bg-[var(--accent-600)] ring-[var(--accent-600)]'
                         : 'text-stone-400 bg-stone-50 ring-stone-200'">{{ t(st.label) }}</span>
-                <span v-if="active.tracking_status" class="text-[10.5px] font-semibold text-sky-700 bg-sky-50 ring-1 ring-sky-200 rounded-full px-2 py-0.5">
+                <span v-if="journey.returned" class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 text-rose-700 bg-rose-50 ring-rose-200 whitespace-nowrap">
+                  {{ t('ws.jReturned') }}
+                </span>
+                <span v-if="active.tracking_status" class="text-[10.5px] font-semibold rounded-full px-2 py-0.5 ring-1"
+                      :class="trackBad ? 'text-rose-700 bg-rose-50 ring-rose-200' : 'text-sky-700 bg-sky-50 ring-sky-200'">
                   {{ active.tracking_status }}
                 </span>
                 <a v-if="active.awb" :href="active.tracking_url || '#'" target="_blank"
@@ -496,10 +500,17 @@ const JOURNEY = [
 const journey = computed(() => {
   const stage = active.value?.stage || "";
   const alias = { "Label Generated": "Label Printed", "Out For Delivery": "Shipped" };
-  const at = JOURNEY.findIndex((s2) => s2.key === (alias[stage] || stage));
-  return { steps: JOURNEY, at: at < 0 ? 0 : at,
-           show: !!(active.value && (at > 0 || active.value.awb)) };
+  // Returned is a real terminal stage on 1,303 orders — it is NOT step zero,
+  // and showing "in the queue" for a parcel that came back would be a lie.
+  const returned = stage === "Returned";
+  const at = returned ? JOURNEY.length - 1
+    : JOURNEY.findIndex((s2) => s2.key === (alias[stage] || stage));
+  return { steps: JOURNEY, at: at < 0 ? 0 : at, returned,
+           show: !!(active.value && (at > 0 || returned || active.value.awb)) };
 });
+// The carrier's own word. A failure must not wear the calm blue chip.
+const trackBad = computed(() =>
+  ["Delivery Exception", "Failed Attempt"].includes(active.value?.tracking_status));
 const thread = ref([]);
 const threadLoading = ref(false);
 const threadBox = ref(null);

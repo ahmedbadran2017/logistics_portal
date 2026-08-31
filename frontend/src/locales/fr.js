@@ -1274,6 +1274,7 @@ export default {
     location: "Position", reaction: "R\u00e9action", flow: "Formulaire",
   },
   ws: {
+    jReturned: "Retournée",
     oosOne: "Rupture de stock — un article ne peut pas être préparé",
     oosN: "Rupture de stock — {n} articles ne peuvent pas être préparés",
     oosHint: "Proposez un échange ou une commande partielle maintenant, ou annulez — ne confirmez pas ce que l'entrepôt ne peut pas expédier.",

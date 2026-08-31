@@ -1273,6 +1273,7 @@ export default {
     location: "Location", reaction: "Reaction", flow: "Form",
   },
   ws: {
+    jReturned: "Came back",
     oosOne: "Out of stock — one item can't be picked",
     oosN: "Out of stock — {n} items can't be picked",
     oosHint: "Offer a swap or a partial order now, or cancel — don't confirm what the warehouse can't ship.",
