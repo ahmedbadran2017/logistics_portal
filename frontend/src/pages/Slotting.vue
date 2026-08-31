@@ -15,6 +15,13 @@
 
     <div v-if="loading" class="text-center text-[13px] text-stone-400 py-16">{{ t('common.loading') }}…</div>
 
+    <div v-else-if="loadError" class="rounded-xl p-8 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
+      <div class="text-[14px] font-semibold text-rose-700">{{ t('cf.loadFail') }}</div>
+      <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
+      <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700"
+              @click="load">{{ t('common.retry') }}</button>
+    </div>
+
     <template v-else-if="ov">
       <!-- scorecard -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -322,6 +329,7 @@ const loading = ref(true);
 const plan = ref(null);
 const over = ref(null);
 const moveCls = ref("A");
+const loadError = ref("");
 const noFace = ref(null);
 const nfCls = ref("A");
 const evac = ref(null);
@@ -354,8 +362,12 @@ async function load() {
   loading.value = true;
   try {
     ov.value = await api("slotting.overview", { days: days.value });
+    loadError.value = "";
   } catch (e) {
     ov.value = null;
+    // A silent catch here rendered a completely blank page: the header, and
+    // nothing else, with no hint that anything had failed. Say what broke.
+    loadError.value = String(e.message || e);
   } finally {
     loading.value = false;
   }

@@ -15,6 +15,7 @@ import json
 
 import frappe
 
+_CO = "Justyol Morocco"
 _ROLES = ("manager", "dispatcher")
 
 # The bulk-overflow store the fast wall is fed from (NOT cold storage).
