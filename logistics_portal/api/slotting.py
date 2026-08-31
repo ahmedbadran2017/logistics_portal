@@ -12,6 +12,7 @@ layout (which zone is nearest packing) that only a human can supply.
 """
 
 import json
+import re
 
 import frappe
 
@@ -24,6 +25,8 @@ from logistics_portal.api.stock_moves import SLOW_WH
 # A real, stocked shelf bin (zone-letter + number, JM). Same universe as the
 # shelf-label / pick tools.
 _SH = "b.warehouse REGEXP '^[A-Z][0-9]{1,2}[A-Z]?[.]? - JM'"
+# The Python twin of _SH, for checks that run outside SQL.
+_SHELF_RE = re.compile(r"^[A-Z][0-9]{1,2}[A-Z]?\.? - JM$")
 _SH_PLI = "pli.warehouse REGEXP '^[A-Z][0-9]{1,2}[A-Z]?[.]? - JM'"
 
 
@@ -248,11 +251,15 @@ def _excluded_letters():
         ex = excluded_zones() or []
     except Exception:
         ex = []
+    # Match the SAME shape the rest of this module calls a shelf bin. A loose
+    # "letter followed by a digit" test flagged 'B2B 1st - JM' and
+    # 'A6-F5-A - JM' — neither is an aisle bin — and reported a phantom
+    # conflict on two of the three classes. A guard that cries wolf is worse
+    # than no guard.
     out = set()
     for w in ex:
-        w = (w or "").strip()
-        if len(w) > 1 and w[0].isalpha() and w[0].isupper() and w[1].isdigit():
-            out.add(w[0])
+        if _SHELF_RE.match((w or "").strip()):
+            out.add(w.strip()[0])
     return out
 
 
