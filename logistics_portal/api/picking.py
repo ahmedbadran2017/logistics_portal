@@ -2119,6 +2119,53 @@ def recheck_label(pick_list, order):
     return {"ok": True, "labelUrl": lbl or "", "awb": awb or ""}
 
 
+def claim_late_labels():
+    """Flip the parcels whose carrier label landed AFTER they were sorted.
+
+    sort_scan is right to refuse a parcel with no AWB — handing a label-less
+    box to the driver as if it were ready is worse than leaving it behind. But
+    the label usually DOES arrive, a minute or three later, and until now
+    nothing claimed it: recheck_label existed as a manual recovery and the
+    sorter has no reason to walk back to a box they already finished.
+
+    Measured 2026-08-31: of 107 orders sitting on 'Label Generated', 11 were
+    fully sorted with a label in hand, and 10 of those had the label arrive
+    after the last scan — by 1.5 minutes in the best case and 3 days in the
+    worst. Every one of them was a parcel the floor had finished and the board
+    still showed as unfinished.
+
+    Runs on the scheduler, so the claim happens wherever the label came from —
+    the portal, the desk, or an AWB retry. Same guarded UPDATE as sort_scan, so
+    it can never overwrite a status that has already moved on.
+    """
+    rows = frappe.db.sql(
+        """SELECT so.name
+           FROM `tabSales Order` so
+           JOIN `tabPick List Item` pli ON pli.sales_order = so.name
+           JOIN `tabPick List` p ON p.name = pli.parent AND p.docstatus < 2
+           WHERE so.docstatus = 1 AND so.company = %s
+             AND so.custom_logistics_status = 'Label Generated'
+             AND (COALESCE(so.custom_awb, '') != ''
+                  OR COALESCE(so.custom_label_url, '') != '')
+           GROUP BY so.name
+           HAVING SUM(pli.qty) - SUM(COALESCE(pli.custom_sorted_qty, 0)) <= 0
+           LIMIT 400""", ("Justyol Morocco",))
+    if not rows:
+        return {"claimed": 0}
+    names = [r[0] for r in rows]
+    frappe.db.sql(
+        """UPDATE `tabSales Order`
+           SET custom_logistics_status = 'Label Printed'
+           WHERE name IN %s AND custom_logistics_status = 'Label Generated'""",
+        (tuple(names),))
+    n = int(frappe.db.sql("SELECT ROW_COUNT()")[0][0] or 0)
+    frappe.db.commit()
+    if n:
+        frappe.cache().delete_value("lp_board_summary")
+        frappe.cache().delete_value("lp_pick_avail")
+    return {"claimed": n}
+
+
 @frappe.whitelist()
 def sort_scan(pick_list, code):
     """Allocate one scanned unit to an order ON THIS PICK LIST. Routing:
