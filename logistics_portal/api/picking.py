@@ -148,6 +148,7 @@ def resolve_scan(code, warehouse=None):
            WHERE custom_sku = %s AND COALESCE(disabled, 0) = 0
            ORDER BY modified DESC LIMIT 10""", (code,), as_dict=True)
     it = None
+    ambiguous = None
     if len(twins) > 1:
         codes = tuple(t.name for t in twins)
         if warehouse:
@@ -162,6 +163,28 @@ def resolve_scan(code, warehouse=None):
                    ORDER BY actual_qty DESC LIMIT 1""", (codes,))
         if best:
             it = next((t for t in twins if t.name == best[0][0]), None)
+        # "Most stock wins" only decides when there IS a winner. Eighteen
+        # products share SKU PH10002 — bordo, siyah, indigo, füme, grey, in
+        # two sizes — and when two of them each hold ONE piece in the Return
+        # Zone the ORDER BY has nothing to sort on: the scan silently picked
+        # a colour. The operator scanned the black poncho and the bordeaux one
+        # was put away (measured on prod, 2026-09-01). Ambiguity must reach the
+        # human, not be guessed at.
+        holders = frappe.db.sql(
+            """SELECT item_code, SUM(actual_qty) q FROM `tabBin`
+               WHERE item_code IN %s AND actual_qty > 0 {wh}
+               GROUP BY item_code""".format(
+                   wh="AND warehouse = %s" if warehouse else ""),
+            ((codes, warehouse) if warehouse else (codes,)), as_dict=True)
+        if len(holders) > 1:
+            qmap = {h.item_code: float(h.q or 0) for h in holders}
+            cands = [{"itemCode": t.name, "sku": t.custom_sku or "",
+                      "name": t.item_name or t.name,
+                      "qty": int(qmap.get(t.name, 0)),
+                      "image": frappe.db.get_value("Item", t.name, "image") or ""}
+                     for t in twins if t.name in qmap]
+            cands.sort(key=lambda c: -c["qty"])
+            ambiguous = cands
     if it is None and twins:
         it = twins[0]
     if it is None:
@@ -177,7 +200,12 @@ def resolve_scan(code, warehouse=None):
             "Item", code, ["name", "custom_sku", "item_name"], as_dict=True)
     if not it:
         return {}
-    return {"itemCode": it.name, "sku": it.custom_sku or "", "name": it.item_name or ""}
+    out = {"itemCode": it.name, "sku": it.custom_sku or "", "name": it.item_name or ""}
+    if ambiguous:
+        # The best guess still travels, so callers that cannot ask a human keep
+        # working exactly as before — but now they can SEE that they guessed.
+        out["ambiguous"] = ambiguous
+    return out
 
 
 @frappe.whitelist()

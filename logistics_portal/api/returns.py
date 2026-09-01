@@ -567,6 +567,14 @@ def restock_scan(code):
     item_code = r.get("itemCode")
     if not item_code:
         return {"ok": False, "reason": "unknown_item", "code": (code or "").strip()}
+    # Two different products with the same SKU are both sitting in the zone —
+    # nothing in the data says which one is in the operator's hand. Guessing
+    # here puts the wrong colour on the shelf and leaves the right one lost, so
+    # the screen asks. The pieces are physically in front of them; a picture
+    # and a name is all the question needs.
+    if r.get("ambiguous"):
+        return {"ok": False, "reason": "ambiguous",
+                "code": (code or "").strip(), "choices": r["ambiguous"]}
     in_zone = int(frappe.db.get_value(
         "Bin", {"warehouse": RETURN_ZONE, "item_code": item_code}, "actual_qty") or 0)
     if in_zone <= 0:

@@ -362,6 +362,9 @@ export default {
     loadFail: "Couldn't load",
   },
   restock: {
+    ambiguous: "Same SKU, different products — pick the one in your hand",
+    ambiguousTitle: "This SKU belongs to more than one product",
+    ambiguousHint: "Both are in the Return Zone. Tap the one you are holding — the picture and the name should match it.",
     title: "Restock returns",
     intro: "Inspect each returned piece — back to a shelf, or park it as defective.",
     stuck: "stuck here",

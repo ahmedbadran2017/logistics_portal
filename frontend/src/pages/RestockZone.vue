@@ -36,6 +36,29 @@
     <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4">
       <ScanInput ref="scanner" :placeholder="t('restock.scanPh')" @scan="onScan" />
       <!-- what happened to this item's returns — the "no stock" story -->
+      <!-- Same SKU, different products: ask, never guess -->
+      <div v-if="choices.length" class="mt-3 rounded-xl bg-amber-50/70 ring-1 ring-amber-300/70 p-3">
+        <div class="flex items-center gap-2 text-[12.5px] font-semibold text-amber-800">
+          <Icon name="alert-triangle" :size="14" />{{ t('restock.ambiguousTitle') }}
+        </div>
+        <p class="text-[11.5px] text-amber-700/90 mt-0.5 mb-2">{{ t('restock.ambiguousHint') }}</p>
+        <ul class="space-y-1.5">
+          <li v-for="c in choices" :key="c.itemCode">
+            <button class="w-full flex items-center gap-3 p-2 rounded-lg bg-white ring-1 ring-stone-200 hover:ring-amber-400 text-start"
+                    @click="pickChoice(c)">
+              <img v-if="c.image" :src="c.image" alt="" @error="$event.target.style.display='none'"
+                   class="w-10 h-10 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
+              <span v-else class="w-10 h-10 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center flex-shrink-0 text-stone-400"><Icon name="package" :size="16" /></span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-[12.5px] font-semibold text-stone-900 truncate">{{ c.name }}</span>
+                <span class="block font-mono text-[10.5px] text-stone-400 truncate">{{ c.itemCode }}</span>
+              </span>
+              <span class="text-[12px] font-bold tabular-nums text-stone-700 flex-shrink-0">{{ c.qty }}</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
       <div v-if="zoneTrail.length" class="mt-3 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-3">
         <div class="text-[11.5px] font-semibold text-stone-700 mb-1.5">{{ t('restock.trailTitle') }}</div>
         <div class="space-y-1">
@@ -201,6 +224,7 @@ const { success, warn } = useToast();
 
 const scanner = ref(null);
 const zoneTrail = ref([]);
+const choices = ref([]);
 const trailFor = ref("");
 const summary = ref(null);
 const loadingSummary = ref(true);
@@ -249,6 +273,14 @@ async function onScan(raw) {
     return;
   }
   if (!res.ok) {
+    if (res.reason === "ambiguous") {
+      // Same SKU, different products, both in the zone. Only the person
+      // holding the piece can say which one it is.
+      choices.value = res.choices || [];
+      zoneTrail.value = [];
+      scanner.value?.showError(t("restock.ambiguous"));
+      return;
+    }
     scanner.value?.showError(
       res.reason === "not_in_zone" ? t("restock.notInZone") : t("pickm.unknown"));
     // The zone story: returns that WERE here and where they went (who, when).
@@ -257,10 +289,18 @@ async function onScan(raw) {
     return;
   }
   zoneTrail.value = [];
+  choices.value = [];
   current.value = res;
   qty.value = res.inZone;
   target.value = res.suggestions?.[0]?.warehouse || summary.value?.targets?.[0] || "";
   scanner.value?.showSuccess(`${res.name} · ${res.inZone}`);
+}
+
+// The operator names the product they are holding; from here it is an
+// ordinary scan of that exact item code.
+async function pickChoice(c) {
+  choices.value = [];
+  await onScan(c.itemCode);
 }
 
 async function move(disposition) {

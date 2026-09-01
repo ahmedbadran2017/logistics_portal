@@ -362,6 +362,9 @@ export default {
     loadFail: "Échec du chargement",
   },
   restock: {
+    ambiguous: "Même SKU, produits différents — choisissez celui que vous tenez",
+    ambiguousTitle: "Ce SKU correspond à plusieurs produits",
+    ambiguousHint: "Les deux sont en zone retour. Touchez celui que vous tenez — la photo et le nom doivent correspondre.",
     title: "Restockage des retours",
     intro: "Inspectez chaque pièce retournée — retour en rayon, ou défectueuse.",
     stuck: "bloqués ici",
