@@ -32,48 +32,60 @@ def run_sla_engine():
     # old documents (one-time cleanup, cheap when nothing matches).
     from frappe.utils import add_days as _add_days
     window_start = _add_days(nowdate(), -14)
-    frappe.db.sql(
-        """UPDATE `tabDelivery Note`
-           SET custom_sla_status = '', custom_sla_days_remaining = NULL
-           WHERE posting_date < %s AND custom_sla_status IN ('Breached', 'At Risk', 'On Track')""",
-        (window_start,),
-    )
-    # Set-based passes instead of a 2000-row Python loop. The old version
-    # re-selected the same first 2000 rows every tick (its filter included the
-    # statuses it had just written, ordered by modified) so the tail of the
-    # window NEVER got an SLA status and breach counts were understated.
-    #
+    # custom_sla_days_remaining is an Int custom field, and Frappe creates Int
+    # columns NOT NULL DEFAULT 0. Writing NULL into it raised IntegrityError
+    # 1048 on the FIRST statement of the engine, so nothing after this line
+    # ever ran: 687 failed runs, zero successes, and 4,493 of the 4,494
+    # delivery notes in the window with no SLA status at all. The board read
+    # "0 on time, 0 late" and looked like a quiet fortnight.
+    # Each pass is run on its own. One statement failing used to take the
+    # whole engine with it — and did, 687 times — so a single bad row or a
+    # column that will not take a value can now cost that pass and nothing
+    # else. The failure is logged with the pass that caused it, instead of a
+    # traceback that says only "run_sla_engine".
+    def _pass(label, sql, args):
+        try:
+            frappe.db.sql(sql, args)
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+            frappe.log_error(frappe.get_traceback()[:3000],
+                             f"logistics_portal.sla.{label}")
+
+    _pass("clear_stale", """UPDATE `tabDelivery Note`
+           SET custom_sla_status = '', custom_sla_days_remaining = 0
+           WHERE posting_date < %s
+             AND custom_sla_status IN ('Breached', 'At Risk', 'On Track')""",
+          (window_start,))
+
     # 1) Every windowed DN gets an expected date.
-    frappe.db.sql(
-        """UPDATE `tabDelivery Note`
+    _pass("expected_date", """UPDATE `tabDelivery Note`
            SET custom_expected_delivery_date = DATE_ADD(posting_date, INTERVAL %s DAY)
            WHERE docstatus = 1 AND posting_date >= %s
              AND custom_expected_delivery_date IS NULL""",
-        (days, window_start))
+          (days, window_start))
 
     # 2) Terminal transitions — evaluated ONCE, then never reprocessed. This
     # also fixes the old bug where an on-time delivery flipped to 'Delivered
     # Late' whenever the engine looked at it again after the expected date.
-    frappe.db.sql(
-        """UPDATE `tabDelivery Note`
+    _pass("delivered", """UPDATE `tabDelivery Note`
            SET custom_sla_days_remaining = DATEDIFF(custom_expected_delivery_date, CURDATE()),
                custom_sla_status = IF(custom_expected_delivery_date >= CURDATE(),
                                       'Delivered', 'Delivered Late')
            WHERE docstatus = 1 AND posting_date >= %s
              AND custom_track_shipment_status = 'Delivered'
              AND COALESCE(custom_sla_status,'') NOT IN ('Delivered','Delivered Late')""",
-        (window_start,))
-    frappe.db.sql(
-        """UPDATE `tabDelivery Note`
+          (window_start,))
+
+    _pass("returned", """UPDATE `tabDelivery Note`
            SET custom_sla_status = 'Returned'
            WHERE docstatus = 1 AND posting_date >= %s
              AND custom_track_shipment_status IN ('Return','Returned')
              AND COALESCE(custom_sla_status,'') != 'Returned'""",
-        (window_start,))
+          (window_start,))
 
     # 3) Everything still in flight: recompute remaining + bucket.
-    frappe.db.sql(
-        """UPDATE `tabDelivery Note`
+    _pass("in_flight", """UPDATE `tabDelivery Note`
            SET custom_sla_days_remaining = DATEDIFF(custom_expected_delivery_date, CURDATE()),
                custom_sla_status = CASE
                    WHEN DATEDIFF(custom_expected_delivery_date, CURDATE()) < 0 THEN 'Breached'
@@ -84,8 +96,7 @@ def run_sla_engine():
                  NOT IN ('Delivered','Return','Returned')
              AND COALESCE(custom_sla_status,'')
                  NOT IN ('Delivered','Delivered Late','Returned')""",
-        (window_start,))
-    frappe.db.commit()
+          (window_start,))
 
 
 @frappe.whitelist()
