@@ -9,6 +9,15 @@
             Carrier delivery promise · last {{ data?.days || 14 }} days · live
           </p>
         </div>
+        <div class="flex items-center gap-2 flex-wrap">
+        <div class="flex items-center gap-0.5 bg-white ring-1 ring-stone-200/80 rounded-xl p-1">
+          <button v-for="d in DAYS" :key="d.k"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors"
+                  :class="dayKey === d.k ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'"
+                  @click="setDay(d.k)">{{ t('sla.' + d.k) }}</button>
+          <input type="date" :value="dayFrom" :max="today" @change="setCustom($event.target.value)"
+                 class="h-8 px-2 rounded-lg text-[12px] text-stone-600 bg-transparent focus:outline-none" />
+        </div>
         <button
           class="inline-flex items-center justify-center h-9 w-9 rounded-lg text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 transition-colors"
           :class="loading ? 'opacity-60 pointer-events-none' : ''"
@@ -17,6 +26,50 @@
         >
           <Icon name="refresh-cw" :size="14" :class="loading ? 'animate-spin' : ''" />
         </button>
+        </div>
+      </div>
+
+      <!-- What the WAREHOUSE controls, hour by hour -->
+      <div v-if="inside" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+          <Icon name="activity" :size="14" class="text-[var(--accent-600)]" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('sla.insideTitle') }}</span>
+          <span class="text-[11px] text-stone-400">{{ inside.frm }}{{ inside.to !== inside.frm ? ' → ' + inside.to : '' }}</span>
+          <span class="ms-auto text-[11px] text-stone-400">{{ t('sla.cutoffAt').replace('{c}', inside.cutoff) }} · {{ inside.beforeCutoff }} / {{ inside.beforeCutoff + inside.afterCutoff }}</span>
+        </div>
+
+        <!-- the two clocks: waiting vs working -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 border-b border-stone-100">
+          <div v-for="c in clocks" :key="c.k" class="rounded-lg ring-1 p-3"
+               :class="c.k === 'wait' ? 'ring-amber-200 bg-amber-50/50' : c.k === 'work' ? 'ring-emerald-200 bg-emerald-50/50' : 'ring-stone-200 bg-stone-50/60'">
+            <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-500">{{ t('sla.' + c.k) }}</div>
+            <div class="text-[22px] font-bold tabular-nums text-stone-900 mt-0.5">{{ c.v ? fmtDur(c.v.median) : '—' }}</div>
+            <div class="text-[11px] text-stone-500 tabular-nums" v-if="c.v">
+              p75 {{ fmtDur(c.v.p75) }} · p90 {{ fmtDur(c.v.p90) }} · n={{ c.v.n }}
+            </div>
+            <div class="text-[10.5px] text-stone-400 mt-0.5">{{ t('sla.' + c.k + 'Hint') }}</div>
+          </div>
+        </div>
+
+        <!-- hour by hour -->
+        <div class="p-4 overflow-x-auto">
+          <div class="flex items-end gap-1 min-w-[620px] h-[130px]">
+            <div v-for="hr in inside.hours" :key="hr.h" class="flex-1 flex flex-col items-center gap-0.5 min-w-0"
+                 :title="`${hr.h}:00 · in ${hr.in} · picked ${hr.picked} · labelled ${hr.labelled} · shipped ${hr.shipped}`">
+              <div class="w-full flex items-end justify-center gap-[2px]" style="height:108px">
+                <div class="w-1/3 rounded-t bg-stone-300" :style="{ height: barH(hr.in) }" />
+                <div class="w-1/3 rounded-t bg-sky-400" :style="{ height: barH(hr.picked) }" />
+                <div class="w-1/3 rounded-t bg-emerald-500" :style="{ height: barH(hr.shipped) }" />
+              </div>
+              <span class="text-[8.5px] text-stone-400 tabular-nums">{{ hr.h }}</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 mt-2 text-[10.5px] text-stone-500">
+            <span><span class="inline-block w-2 h-2 rounded-sm bg-stone-300 me-1" />{{ t('sla.lgIn') }}</span>
+            <span><span class="inline-block w-2 h-2 rounded-sm bg-sky-400 me-1" />{{ t('sla.lgPicked') }}</span>
+            <span><span class="inline-block w-2 h-2 rounded-sm bg-emerald-500 me-1" />{{ t('sla.lgShipped') }}</span>
+          </div>
+        </div>
       </div>
 
       <!-- Loading -->
@@ -143,6 +196,44 @@ const router = useRouter();
 const data = ref(null);
 const loading = ref(true);
 
+// The carrier board is a 14-day window by nature; the INTERNAL view is a day.
+// They load together so the page answers both questions at once.
+const DAYS = [{ k: "today" }, { k: "yesterday" }, { k: "d7" }];
+const dayKey = ref("today");
+const inside = ref(null);
+function iso(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+const today = iso(new Date());
+const dayFrom = ref(today);
+const dayTo = ref(today);
+
+function setDay(k) {
+  dayKey.value = k;
+  const now = new Date();
+  if (k === "today") { dayFrom.value = today; dayTo.value = today; }
+  else if (k === "yesterday") {
+    const y = iso(new Date(now.getTime() - 86400000));
+    dayFrom.value = y; dayTo.value = y;
+  } else {
+    dayFrom.value = iso(new Date(now.getTime() - 6 * 86400000));
+    dayTo.value = today;
+  }
+  loadInside();
+}
+function setCustom(v) {
+  if (!v) return;
+  dayKey.value = "";
+  dayFrom.value = v; dayTo.value = v;
+  loadInside();
+}
+
+async function loadInside() {
+  try {
+    inside.value = await api("sla.inside_day", { frm: dayFrom.value, to: dayTo.value });
+  } catch (_) {
+    inside.value = null;
+  }
+}
+
 async function load() {
   loading.value = true;
   try {
@@ -153,8 +244,22 @@ async function load() {
   } finally {
     loading.value = false;
   }
+  loadInside();
 }
 onMounted(load);
+
+const clocks = computed(() => [
+  { k: "wait", v: inside.value?.wait },
+  { k: "work", v: inside.value?.work },
+  { k: "total", v: inside.value?.total },
+]);
+const hourMax = computed(() => Math.max(
+  1, ...(inside.value?.hours || []).flatMap((h) => [h.in, h.picked, h.shipped])));
+function barH(n) { return Math.round(((n || 0) * 104) / hourMax.value) + "px"; }
+function fmtDur(m) {
+  if (m == null) return "—";
+  return m < 90 ? `${m}m` : `${(m / 60).toFixed(1)}h`;
+}
 
 const openTotal = computed(() =>
   (data.value?.buckets || []).reduce((a, b) => a + b.count, 0));

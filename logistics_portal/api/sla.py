@@ -8,6 +8,7 @@ Runs every 15 min (hooks.py). Computes expected delivery date + custom_sla_statu
 import frappe
 from frappe.utils import add_days, nowdate
 
+_CO = "Justyol Morocco"
 DEFAULT_DELIVERY_DAYS = 3  # Casablanca metro default; region overrides later.
 
 
@@ -99,6 +100,140 @@ def run_sla_engine():
           (window_start,))
 
 
+def same_day_counts(since, until=None):
+    """Parcels shipped, and how many left the same day the order arrived.
+
+    THE definition of same-day for the whole portal. The cockpit had its own —
+    _sla_hit_rate, which counted delivery notes whose custom_sla_status reads
+    'On Track' or 'Delivered' — so the two screens answered the same question
+    differently: 38.8% on the SLA board and 0% on the cockpit, the latter only
+    because the SLA engine had never written a status. Two numbers under one
+    name is worse than no number.
+
+    Parcel grain (COUNT DISTINCT dn): the DN Item join fans out one row per
+    line, and without the DISTINCT the rate is weighted by basket size.
+    """
+    cond, args = "sh.pickup_date >= %s", [since]
+    if until:
+        cond += " AND sh.pickup_date <= %s"
+        args.append(until)
+    return frappe.db.sql(
+        f"""SELECT COUNT(DISTINCT sdn.delivery_note) total,
+                   COUNT(DISTINCT CASE WHEN so.creation >= sh.pickup_date
+                             AND so.creation < sh.pickup_date + INTERVAL 1 DAY
+                       THEN sdn.delivery_note END) same_day
+            FROM `tabShipment Delivery Note` sdn
+            JOIN `tabShipment` sh ON sh.name = sdn.parent AND sh.docstatus = 1
+            JOIN `tabDelivery Note Item` dni ON dni.parent = sdn.delivery_note
+            JOIN `tabSales Order` so ON so.name = dni.against_sales_order
+            WHERE {cond}""", tuple(args), as_dict=True)[0]
+
+
+@frappe.whitelist()
+def inside_day(frm=None, to=None):
+    """How the floor actually performed, hour by hour, for a chosen day.
+
+    The SLA board measures the CARRIER's promise. This measures OURS: what
+    happened between the order being confirmed and the parcel leaving, which
+    is the only part the warehouse controls.
+
+    Measured over 6,391 orders in 30 days, the split matters more than the
+    total:
+        confirmed -> on a pick list   median 14.0h   p75 25.6h   p90 46.3h
+        pick list -> carrier label    median   41m   p75  1.8h   p90  4.5h
+        end to end                    median 15.6h   p75 29.7h   p90 49.6h
+    The floor does its work in 41 minutes. Nearly the whole cycle is the
+    order WAITING to be put on a list. A single "internal SLA" number would
+    have buried that, so the two clocks are reported apart.
+    """
+    from logistics_portal.api.auth import resolve_role
+    if not resolve_role(frappe.session.user):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    frm = (frm or nowdate())[:10]
+    to = (to or frm)[:10]
+
+    # Per-hour flow: what arrived, what was picked, what was labelled, and what
+    # left. Hour of the EVENT, so a bar says "in this hour the floor did this".
+    def _hourly(sql, args):
+        out = {}
+        for r in frappe.db.sql(sql, args, as_dict=True):
+            out[int(r.h)] = int(r.n or 0)
+        return out
+
+    orders_in = _hourly(
+        """SELECT HOUR(creation) h, COUNT(*) n FROM `tabSales Order`
+           WHERE company = %s AND docstatus = 1
+             AND custom_sales_status = 'Confirmed'
+             AND DATE(creation) BETWEEN %s AND %s GROUP BY HOUR(creation)""",
+        (_CO, frm, to))
+    picked = _hourly(
+        """SELECT HOUR(p.creation) h, COUNT(DISTINCT pli.sales_order) n
+           FROM `tabPick List` p JOIN `tabPick List Item` pli ON pli.parent = p.name
+           WHERE p.docstatus < 2 AND DATE(p.creation) BETWEEN %s AND %s
+           GROUP BY HOUR(p.creation)""", (frm, to))
+    labelled = _hourly(
+        """SELECT HOUR(creation) h, COUNT(DISTINCT attached_to_name) n
+           FROM `tabFile` WHERE attached_to_doctype = 'Sales Order'
+             AND file_name LIKE '%%Cathedis_Label%%'
+             AND DATE(creation) BETWEEN %s AND %s GROUP BY HOUR(creation)""",
+        (frm, to))
+    shipped = _hourly(
+        """SELECT HOUR(d.creation) h, COUNT(*) n FROM `tabDelivery Note` d
+           WHERE d.docstatus = 1 AND d.company = %s
+             AND DATE(d.creation) BETWEEN %s AND %s GROUP BY HOUR(d.creation)""",
+        (_CO, frm, to))
+
+    hours = [{"h": h, "in": orders_in.get(h, 0), "picked": picked.get(h, 0),
+              "labelled": labelled.get(h, 0), "shipped": shipped.get(h, 0)}
+             for h in range(24)]
+
+    # The two clocks, for orders CONFIRMED in the chosen window. Percentiles,
+    # not averages: one order stuck for ten days moves a mean and tells the
+    # floor nothing about its day.
+    rows = frappe.db.sql(
+        """SELECT TIMESTAMPDIFF(MINUTE, so.creation, pl.started) wait,
+                  TIMESTAMPDIFF(MINUTE, pl.started, f.lbl) work,
+                  TIMESTAMPDIFF(MINUTE, so.creation, f.lbl) total
+           FROM `tabSales Order` so
+           JOIN (SELECT pli.sales_order so, MIN(p.creation) started
+                 FROM `tabPick List Item` pli
+                 JOIN `tabPick List` p ON p.name = pli.parent
+                 WHERE p.docstatus < 2 GROUP BY pli.sales_order) pl ON pl.so = so.name
+           JOIN (SELECT attached_to_name so, MIN(creation) lbl FROM `tabFile`
+                 WHERE attached_to_doctype = 'Sales Order'
+                   AND file_name LIKE '%%Cathedis_Label%%'
+                 GROUP BY attached_to_name) f ON f.so = so.name
+           WHERE so.company = %s AND so.docstatus = 1
+             AND DATE(so.creation) BETWEEN %s AND %s""",
+        (_CO, frm, to), as_dict=True)
+
+    def _pct(key):
+        v = sorted(int(r[key]) for r in rows
+                   if r[key] is not None and 0 <= int(r[key]) <= 60 * 24 * 14)
+        if not v:
+            return None
+        pick = lambda q: v[min(len(v) - 1, int(len(v) * q))]
+        return {"n": len(v), "median": pick(.5), "p75": pick(.75), "p90": pick(.9)}
+
+    from logistics_portal.api.settings import get_ops
+    cutoff = str(get_ops("cutoff") or "14:00")
+    before, after = 0, 0
+    for r in frappe.db.sql(
+            """SELECT TIME(creation) t FROM `tabSales Order`
+               WHERE company = %s AND docstatus = 1
+                 AND custom_sales_status = 'Confirmed'
+                 AND DATE(creation) BETWEEN %s AND %s""", (_CO, frm, to)):
+        if str(r[0])[:5] <= cutoff:
+            before += 1
+        else:
+            after += 1
+
+    return {"frm": frm, "to": to, "hours": hours, "cutoff": cutoff,
+            "beforeCutoff": before, "afterCutoff": after,
+            "wait": _pct("wait"), "work": _pct("work"), "total": _pct("total"),
+            "sameDay": same_day_counts(frm, to)}
+
+
 @frappe.whitelist()
 def board(days=14):
     """Everything the SLA screen shows, all real, one call:
@@ -125,16 +260,7 @@ def board(days=14):
     # PARCEL grain (COUNT DISTINCT dn): the DN Item join fans out one row per
     # line, so this rate was weighted by basket size — the same bug already
     # fixed in confirmation/contact_center/customers, still live here.
-    sd = frappe.db.sql(
-        """SELECT COUNT(DISTINCT sdn.delivery_note) total,
-                  COUNT(DISTINCT CASE WHEN so.creation >= sh.pickup_date
-                            AND so.creation < sh.pickup_date + INTERVAL 1 DAY
-                      THEN sdn.delivery_note END) same_day
-           FROM `tabShipment Delivery Note` sdn
-           JOIN `tabShipment` sh ON sh.name = sdn.parent AND sh.docstatus = 1
-           JOIN `tabDelivery Note Item` dni ON dni.parent = sdn.delivery_note
-           JOIN `tabSales Order` so ON so.name = dni.against_sales_order
-           WHERE sh.pickup_date >= %s""", (since,), as_dict=True)[0]
+    sd = same_day_counts(since)
     same_day_pct = round(int(sd.same_day or 0) * 100.0 / max(1, int(sd.total or 0)), 1)
 
     # Open parcels by days remaining (negative = overdue).

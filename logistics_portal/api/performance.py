@@ -556,15 +556,17 @@ def me(user=None):
 
 # ---------------------------------------------------------------------------
 def _sla_hit_rate(since=None):
-    filters = {"custom_sla_status": ["not in", ["", None]]}
-    if since:
-        filters["posting_date"] = [">=", since]
-    total = frappe.db.count("Delivery Note", dict(filters))
-    if not total:
-        return 0
-    filters["custom_sla_status"] = ["in", ["On Track", "Delivered"]]
-    good = frappe.db.count("Delivery Note", dict(filters))
-    return round(good * 100 / total)
+    """Same-day ship rate — the SAME number the SLA board shows.
+
+    This used to count delivery notes whose custom_sla_status read 'On Track'
+    or 'Delivered', which is not a same-day rate at all, and which read 0%
+    for as long as the SLA engine was failing to write a status. The cockpit
+    said 0% while the SLA board said 38.8% off real manifest data, under the
+    same words. One definition now, in sla.same_day_counts.
+    """
+    from logistics_portal.api.sla import same_day_counts
+    sd = same_day_counts(since or add_days(nowdate(), -14))
+    return round(int(sd.same_day or 0) * 100.0 / max(1, int(sd.total or 0)))
 
 
 def _at_risk(limit=8):
