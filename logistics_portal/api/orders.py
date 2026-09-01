@@ -94,8 +94,9 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
         pick_avail = pick_buckets = pick_names = None
         if stage == "to_pick":
             pick_avail = _pick_availability()
-            pick_buckets = {k: len(pick_avail[k]) for k in ("ready", "partial", "oos")}
-            if pick in ("ready", "partial", "oos"):
+            pick_buckets = {k: len(pick_avail[k])
+                            for k in ("ready", "partial", "oos", "local")}
+            if pick in ("ready", "partial", "oos", "local"):
                 pick_names = pick_avail[pick]
 
         rows = _board_rows(stage, track, limit, q, offset, city, sort, dates, pick_names=pick_names)
@@ -124,7 +125,7 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
             resp["pickStuck"] = pick_avail.get("stuck", {})
             resp["blocking"] = pick_avail.get("blocking", [])
             resp["rescuable"] = pick_avail.get("rescuable", {})
-            if pick in ("partial", "oos"):
+            if pick in ("partial", "oos", "local"):
                 resp["pickMissing"] = {r["no"]: pick_avail["missing"].get(r["no"], []) for r in rows}
         return resp
     except Exception:
@@ -489,8 +490,8 @@ def _row(r, **extra):
 # configurable pickable-warehouse policy (structural families always excluded;
 # Return/Receiving/etc. zones toggled by a manager in Settings). Values are %s
 # params so this splices safely into queries that also carry %s args.
-_EMPTY_AVAIL = {"ready": [], "partial": [], "oos": [], "missing": {},
-                "blocking": [], "stuck": {"oos": 0, "partial": 0}}
+_EMPTY_AVAIL = {"ready": [], "partial": [], "oos": [], "local": [], "missing": {}, "missByOrder": {},
+                "blocking": [], "localSupply": {}, "stuck": {"oos": 0, "partial": 0}}
 
 
 def _pick_availability():
@@ -557,7 +558,7 @@ def _pick_availability():
                 d["missing"].append(r.item_name)
             d["miss_codes"].append((r.code, r.item_name))
 
-    ready, partial, oos, missing = [], [], [], {}
+    ready, partial, oos, local, missing = [], [], [], [], {}
     block = {}  # code -> {name, orders:set, mad, oldest}
     miss_by_order = {}  # order -> [(missing item_code, item_name)] for SKU-rescue
     stuck_oos = stuck_partial = 0.0
@@ -620,8 +621,34 @@ def _pick_availability():
 
     rescuable = _sku_rescue(miss_by_order)
 
-    out = {"ready": ready, "partial": partial, "oos": oos, "missing": missing,
-           "blocking": blocking, "rescuable": rescuable,
+    # ── "Out of stock" was one word over four different jobs ─────────────
+    # Measured 2026-09-01 on the live OOS pile: only 4 of 35 orders had
+    # nothing coming at all. 14 were waiting on a local supplier with an open
+    # purchase order, 6 were waiting on a local supplier NOBODY HAD ORDERED
+    # FROM YET, and 11 were imports. Chasing a local supplier is a phone call
+    # today; an import is a different horizon — so imports stay in Out of
+    # stock (Ahmed, 2026-09-01) and only the local ones move.
+    #
+    # An order moves ONLY if EVERY blocking item is local: chasing one
+    # supplier cannot unblock an order that is also short an imported item,
+    # and putting it here would promise a fix the call can't deliver.
+    local_supply = _local_supply({c for lst in miss_by_order.values() for (c, _n) in lst})
+    if local_supply:
+        keep = []
+        for name in oos:
+            codes = [c for (c, _n) in miss_by_order.get(name, [])]
+            if codes and all(c in local_supply for c in codes):
+                local.append(name)
+            else:
+                keep.append(name)
+        oos = keep
+
+    out = {"ready": ready, "partial": partial, "oos": oos, "local": local,
+           "missing": missing, "blocking": blocking, "rescuable": rescuable,
+           "localSupply": local_supply,
+           # Per-order blocking (code, name) pairs — the local board groups by
+           # supplier and needs to know WHICH item each order is waiting on.
+           "missByOrder": {n: miss_by_order.get(n, []) for n in local},
            "stuck": {"oos": round(stuck_oos), "partial": round(stuck_partial)}}
     cache.set_value("lp_pick_avail", _json.dumps(out), expires_in_sec=120)
     return out
@@ -670,6 +697,208 @@ def blocking_orders(sku, limit=60):
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.blocking_orders")
         return []
+
+
+# The supplier group that means "a van, not a container". Ahmed 2026-09-01.
+# NOT Supplier.country: three of the local suppliers behind today's blockers
+# (GHADA FASHION, First mondial ingenierie, Maison good and well) carry
+# country = Turkey while sitting in this group. The group is the truth.
+LOCAL_SUPPLIER_GROUP = "Morocco Local Suppliers"
+
+# The promise, in days, for a local supplier to deliver. Grounded in 2,467
+# receipts over 120 days: the real median is 2 days, p75 is 7, p90 is 24.
+# Ahmed set the promise at 3 — one day of slack over the median, well inside
+# the p75 the floor actually lives with.
+LOCAL_PROMISE_DAYS = 3
+
+
+def _local_supply(codes):
+    """item_code → what a LOCAL supplier owes us on it.
+
+    {supplier, po, ordered (qty still pending), due (promised date), poDate}
+    for every blocking SKU whose default supplier is in the local group. An
+    item with no open purchase order is still returned — with po = "" — because
+    that is the sharpest finding of all: nobody has ordered it, so it is not
+    "on the way", it is not coming. That case reads as a failure, not a wait.
+    """
+    codes = [c for c in (codes or []) if c]
+    if not codes:
+        return {}
+    out = {}
+    for r in frappe.db.sql(
+            """SELECT i.name, i.default_supplier
+               FROM `tabItem` i
+               JOIN `tabSupplier` s ON s.name = i.default_supplier
+               WHERE i.name IN %s AND s.supplier_group = %s""",
+            (tuple(codes), LOCAL_SUPPLIER_GROUP), as_dict=True):
+        out[r.name] = {"supplier": r.default_supplier, "po": "", "ordered": 0,
+                       "due": "", "poDate": ""}
+    if not out:
+        return {}
+    for r in frappe.db.sql(
+            """SELECT poi.item_code, MIN(po.name) po,
+                      SUM(poi.qty - poi.received_qty) pending,
+                      MIN(poi.schedule_date) due, MIN(po.transaction_date) placed
+               FROM `tabPurchase Order Item` poi
+               JOIN `tabPurchase Order` po ON po.name = poi.parent
+               WHERE po.docstatus = 1 AND po.status NOT IN ('Closed', 'Completed')
+                 AND poi.item_code IN %s AND poi.qty > poi.received_qty
+               GROUP BY poi.item_code""", (tuple(out),), as_dict=True):
+        e = out.get(r.item_code)
+        if e:
+            e.update({"po": r.po or "", "ordered": round(float(r.pending or 0)),
+                      "due": str(r.due or "")[:10], "poDate": str(r.placed or "")[:10]})
+    return out
+
+
+def _local_state(entry, order_age_days):
+    """Where one blocked order stands against the promise.
+
+    'noPO'  nobody ordered it — the order cannot arrive, ever, until someone
+            raises a purchase order. Worst state, and invisible until now.
+    'late'  past the supplier's own promised date (or past our 3-day promise
+            when the PO carries no date).
+    'due'   the promise lands today.
+    'otw'   inside the promise.
+    """
+    if not entry or not entry.get("po"):
+        return "noPO", None
+    from frappe.utils import date_diff, nowdate, add_days
+    # The PO's schedule_date is NOT a supplier promise here. Measured over 120
+    # days of local purchase orders: 2,462 of 2,553 lines carry a schedule_date
+    # EQUAL to the day the PO was raised — it is a copy of the order date, not
+    # a delivery commitment. Trusting it would mark every order late the moment
+    # it was created. So the promise is PO date + 3, and schedule_date is used
+    # only on the rare line where somebody actually set a later date.
+    placed = entry.get("poDate") or nowdate()
+    promised = add_days(placed, LOCAL_PROMISE_DAYS)
+    due = entry.get("due") or ""
+    if not due or str(due)[:10] <= str(placed)[:10]:
+        due = promised
+    try:
+        over = date_diff(nowdate(), str(due)[:10])
+    except Exception:
+        return "otw", None
+    if over > 0:
+        return "late", over
+    return ("due" if over == 0 else "otw"), over
+
+
+@frappe.whitelist()
+def local_supply_board():
+    """Whitelisted wrapper — the gate lives here, the data below."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager", "purchasing"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    return _local_board_data()
+
+
+def _local_board_data():
+    """The local-supplier queue, grouped BY SUPPLIER.
+
+    Grouped that way on purpose: the action is one phone call covering five
+    orders, not five calls. A per-order list makes the floor dial the same
+    supplier five times and reads as five problems when it is one.
+
+    Sorted so the thing that cannot fix itself comes first — orders with no
+    purchase order at all, then late, then on the way.
+    """
+    avail = _pick_availability()
+    names = avail.get("local") or []
+    supply = avail.get("localSupply") or {}
+    if not names:
+        return {"suppliers": [], "orders": 0, "value": 0,
+                "promiseDays": LOCAL_PROMISE_DAYS}
+
+    meta = {r.name: r for r in frappe.db.sql(
+        """SELECT name, customer_name, grand_total,
+                  DATEDIFF(CURDATE(), DATE(creation)) age
+           FROM `tabSales Order` WHERE name IN %s""", (tuple(names),), as_dict=True)}
+
+    groups, total_val = {}, 0.0
+    for name in names:
+        m = meta.get(name)
+        if not m:
+            continue
+        total_val += float(m.grand_total or 0)
+        for code, iname in (avail.get("missByOrder") or {}).get(name, []):
+            e = supply.get(code)
+            if not e:
+                continue
+            state, over = _local_state(e, int(m.age or 0))
+            g = groups.setdefault(e["supplier"], {
+                "supplier": e["supplier"], "orders": [], "value": 0.0,
+                "noPO": 0, "late": 0, "otw": 0, "oldest": 0, "items": {},
+                "seen": set()})
+            if name not in g["seen"]:
+                g["seen"].add(name)
+                g["orders"].append({
+                    "order": name, "customer": m.customer_name or "",
+                    "value": round(float(m.grand_total or 0)),
+                    "age": int(m.age or 0), "state": state,
+                    "overdueBy": over if state == "late" else None,
+                    "item": iname or code, "itemCode": code,
+                    "po": e.get("po") or "", "due": e.get("due") or "",
+                    "ordered": e.get("ordered") or 0,
+                })
+                g["value"] += float(m.grand_total or 0)
+                g["oldest"] = max(g["oldest"], int(m.age or 0))
+                g[{"noPO": "noPO", "late": "late"}.get(state, "otw")] += 1
+            g["items"][code] = iname or code
+
+    out = []
+    for g in groups.values():
+        g["value"] = round(g["value"])
+        g["skus"] = len(g.pop("items"))
+        g.pop("seen", None)
+        g["orders"].sort(key=lambda o: ({"noPO": 0, "late": 1, "due": 2, "otw": 3}
+                                        .get(o["state"], 9), -o["age"]))
+        out.append(g)
+    # Worst first: a supplier nobody has ordered from outranks a late one.
+    out.sort(key=lambda g: (-g["noPO"], -g["late"], -g["oldest"]))
+    return {"suppliers": out, "orders": len(names), "value": round(total_val),
+            "promiseDays": LOCAL_PROMISE_DAYS,
+            "noPO": sum(g["noPO"] for g in out),
+            "late": sum(g["late"] for g in out)}
+
+
+def local_supply_alerts():
+    """Scheduled: one alert per SUPPLIER, once a day.
+
+    Per-order alerts were never on the table — a supplier holding six orders
+    would fire six notifications for one phone call, and a feed like that is
+    read once and muted forever. One line per supplier, naming what is wrong,
+    is something a dispatcher can act on.
+
+    Two things are worth waking someone for: an order nobody has raised a
+    purchase order for (it is not late, it is not coming), and one past the
+    supplier's promise. Everything inside the promise stays silent.
+    """
+    try:
+        board = _local_board_data()
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         "logistics_portal.orders.local_supply_alerts")
+        return
+    from logistics_portal.api.audit import _emit
+    today = frappe.utils.nowdate()
+    for g in board.get("suppliers") or []:
+        if not (g["noPO"] or g["late"]):
+            continue
+        bits = []
+        if g["noPO"]:
+            bits.append(f"{g['noPO']} with no purchase order raised")
+        if g["late"]:
+            bits.append(f"{g['late']} past the {LOCAL_PROMISE_DAYS}-day promise")
+        _emit({
+            "severity": "critical" if g["noPO"] else "warning",
+            # The date is in the title so the dedup key rolls over daily: the
+            # same supplier can raise the same alert tomorrow, not every tick.
+            "title": f"{g['supplier']} — {' · '.join(bits)} ({today})",
+            "detail": (f"{len(g['orders'])} order(s), {g['value']} MAD, oldest "
+                       f"{g['oldest']} days. Local supplier queue."),
+            "audience": "manager",
+        })
 
 
 def _sku_rescue(miss_by_order):

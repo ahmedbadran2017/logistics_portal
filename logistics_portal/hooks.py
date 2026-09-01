@@ -86,6 +86,11 @@ scheduler_events = {
             "logistics_portal.api.contact_center.warm_cc_caches",
         ],
     },
+    # One alert per local supplier per day: an order nobody ordered, or one
+    # past the 3-day promise. Daily on purpose — a per-tick feed gets muted.
+    "daily": [
+        "logistics_portal.api.orders.local_supply_alerts",
+    ],
     "daily_long": [
         # End-of-day narrative digest written by the LLM reviewer.
         "logistics_portal.api.audit.generate_daily_digest",

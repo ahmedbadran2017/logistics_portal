@@ -176,6 +176,7 @@
         v-for="tb in [
           { k: 'ready',   label: t('ordersPg.pickReady'),   hex: '#059669' },
           { k: 'partial', label: t('ordersPg.pickPartial'), hex: '#d97706' },
+          { k: 'local',   label: t('ordersPg.pickLocal'),   hex: '#7c3aed' },
           { k: 'oos',     label: t('ordersPg.pickOos'),     hex: '#e11d48' },
         ]" :key="tb.k"
         class="inline-flex items-center gap-2 h-9 ps-2.5 pe-3 rounded-lg ring-1 transition-all"
@@ -188,15 +189,72 @@
         <span class="text-[12.5px] font-bold tabular-nums" :style="{ color: (pickBuckets[tb.k] ?? 0) > 0 ? tb.hex : 'rgb(var(--border))' }">{{ pickBuckets[tb.k] ?? "—" }}</span>
       </button>
       <span class="text-[11px] text-stone-400 ms-1 hidden sm:inline">
-        {{ pickTab === 'ready' ? t('ordersPg.pickReadyHint') : pickTab === 'partial' ? t('ordersPg.pickPartialHint') : t('ordersPg.pickOosHint') }}
+        {{ pickTab === 'ready' ? t('ordersPg.pickReadyHint')
+           : pickTab === 'partial' ? t('ordersPg.pickPartialHint')
+           : pickTab === 'local' ? t('ordersPg.pickLocalHint') : t('ordersPg.pickOosHint') }}
       </span>
       <button class="ms-auto inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-[11.5px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200 hover:ring-stone-300 hover:text-stone-900" @click="openSkuLookup('')">
         <Icon name="search" :size="12" />{{ t('ordersPg.skuLookupBtn') }}
       </button>
+      <span v-if="pickTab === 'local' && localBoard && (localBoard.noPO || 0) > 0"
+            class="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-rose-700 bg-rose-50 ring-1 ring-rose-200/60 rounded-md px-2 py-1">
+        <Icon name="alert-triangle" :size="12" />
+        {{ t('ordersPg.localNoPoWarn').replace('{n}', String(localBoard.noPO)) }}
+      </span>
       <span v-if="(pickStuck.oos || 0) > 0" class="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-rose-700 bg-rose-50 ring-1 ring-rose-200/60 rounded-md px-2 py-1">
         <Icon name="alert-triangle" :size="12" />
         {{ (pickBuckets.oos || 0) }} · {{ fmtMAD(pickStuck.oos) }} MAD {{ t('ordersPg.stuckOos') }}
       </span>
+    </div>
+
+    <!-- Local suppliers: one row per SUPPLIER, because the action is one call -->
+    <div v-if="pickTab === 'local' && localBoard" class="mb-3 rounded-xl ring-1 ring-violet-200/70 bg-white overflow-hidden">
+      <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+        <Icon name="truck" :size="14" class="text-violet-600" />
+        <span class="text-[12px] font-semibold text-stone-900">{{ t('ordersPg.localTitle') }}</span>
+        <span class="text-[11.5px] text-stone-400 tabular-nums">
+          {{ localBoard.orders }} {{ t('ordersPg.localOrders') }} · {{ fmtMAD(localBoard.value) }} MAD
+        </span>
+        <span class="ms-auto text-[11px] text-stone-400">{{ t('ordersPg.localPromise').replace('{d}', String(localBoard.promiseDays)) }}</span>
+      </div>
+      <div v-if="!localBoard.suppliers.length" class="text-center text-[12.5px] text-emerald-600 py-8">{{ t('ordersPg.localNone') }}</div>
+      <div v-else class="divide-y divide-stone-100">
+        <div v-for="g in localBoard.suppliers" :key="g.supplier">
+          <button class="w-full px-4 py-2.5 flex items-center gap-3 text-start hover:bg-stone-50/70"
+                  @click="openSup = openSup === g.supplier ? '' : g.supplier">
+            <span class="w-2 h-2 rounded-full flex-shrink-0"
+                  :class="g.noPO ? 'bg-rose-500' : g.late ? 'bg-amber-500' : 'bg-emerald-500'" />
+            <div class="min-w-0 flex-1">
+              <div class="text-[13px] font-semibold text-stone-900 truncate">{{ g.supplier }}</div>
+              <div class="text-[11.5px] text-stone-500 tabular-nums">
+                {{ g.orders.length }} {{ t('ordersPg.localOrders') }} · {{ g.skus }} SKU · {{ fmtMAD(g.value) }} MAD
+                · {{ t('ordersPg.localOldest').replace('{d}', String(g.oldest)) }}
+              </div>
+            </div>
+            <span v-if="g.noPO" class="text-[11px] font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200/70 rounded-full px-2 py-0.5 flex-shrink-0">
+              {{ g.noPO }} {{ t('ordersPg.localNoPo') }}
+            </span>
+            <span v-if="g.late" class="text-[11px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200/70 rounded-full px-2 py-0.5 flex-shrink-0">
+              {{ g.late }} {{ t('ordersPg.localLate') }}
+            </span>
+            <Icon :name="openSup === g.supplier ? 'chevron-up' : 'chevron-down'" :size="14" class="text-stone-400 flex-shrink-0" />
+          </button>
+          <ul v-if="openSup === g.supplier" class="bg-stone-50/60 divide-y divide-stone-100">
+            <li v-for="o in g.orders" :key="o.order" class="px-4 py-2 flex items-center gap-3 text-[12px]">
+              <button class="font-mono font-semibold text-[var(--accent-700)] hover:underline flex-shrink-0"
+                      @click="gotoOrder(o.order)">{{ o.order }}</button>
+              <span class="text-stone-600 truncate flex-1">{{ o.item }}</span>
+              <span class="text-stone-400 tabular-nums flex-shrink-0">{{ fmtMAD(o.value) }}</span>
+              <span class="tabular-nums font-semibold flex-shrink-0"
+                    :class="o.state === 'noPO' ? 'text-rose-600' : o.state === 'late' ? 'text-amber-600' : 'text-stone-500'">
+                {{ o.state === 'noPO' ? t('ordersPg.localNoPo')
+                   : o.state === 'late' ? t('ordersPg.localLateBy').replace('{d}', String(o.overdueBy))
+                   : o.due || t('ordersPg.localOtw') }}
+              </span>
+            </li>
+          </ul>
+        </div>
+      </div>
     </div>
 
     <!-- Blocking SKUs — restock worklist (OOS / Partial tabs) -->
@@ -848,6 +906,8 @@ const page = ref(1);
 const pageSize = ref(20);
 const pickTab = ref("ready");
 const pickBuckets = ref({});
+const localBoard = ref(null);
+const openSup = ref("");
 const pickMissing = ref({});
 const rescuable = ref({});     // order → in-stock SKU sibling (false-OOS)
 const total = ref(0);
@@ -881,6 +941,8 @@ async function load(stage, track = "", keepPage = false) {
     cities.value = live.cities || [];
     total.value = live.total ?? (live.rows || []).length;
     pickBuckets.value = live.pickBuckets || {};
+    if (pickTab.value === "local") loadLocalBoard();
+    else localBoard.value = null;
     pickMissing.value = live.pickMissing || {};
     rescuable.value = live.rescuable || {};
     intakeToday.value = live.intakeToday || 0;
@@ -909,6 +971,14 @@ async function load(stage, track = "", keepPage = false) {
     total.value = 0;
   }
   loading.value = false;
+}
+
+async function loadLocalBoard() {
+  try {
+    localBoard.value = await api("orders.local_supply_board");
+  } catch (e) {
+    localBoard.value = null;
+  }
 }
 
 function setPickTab(tab) {
