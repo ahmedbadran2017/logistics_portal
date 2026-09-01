@@ -516,6 +516,8 @@ export default {
     emptyBody: "Chaque commande en attente appartient à un client unique.",
   },
   ordersPg: {
+    blWarehouse: "Entrepôt",
+    blSupplier: "Fournisseur",
     supplier: "fournisseur",
     allSuppliers: "Tous les fournisseurs",
     filterBySupplier: "N'afficher que les commandes en attente de {s}",

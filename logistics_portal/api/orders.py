@@ -629,10 +629,20 @@ def _pick_availability():
                   AND poi.item_code IN ({ph})
                   AND poi.qty > poi.received_qty
                 GROUP BY poi.item_code""", codes)}
+        # Which of these are a purchase problem rather than a warehouse one.
+        # The list is capped at 12 rows: when supplier-owed SKUs take those
+        # slots, the restock work the floor can actually do today is pushed
+        # off the screen. The flag lets the panel separate the two.
+        local_grp = {r[0] for r in frappe.db.sql(
+            f"""SELECT i.name FROM `tabItem` i
+                JOIN `tabSupplier` s ON s.name = i.default_supplier
+                WHERE i.name IN ({ph}) AND s.supplier_group = %s""",
+            codes + (LOCAL_SUPPLIER_GROUP,))}
         for b in blocking:
             b["supplier"] = sup.get(b["sku"], "")
             b["incoming"] = round(incoming.get(b["sku"], 0))
             b["reserve"] = round(reserve.get(b["sku"], 0))
+            b["local"] = b["sku"] in local_grp
 
     rescuable = _sku_rescue(miss_by_order)
 
@@ -650,19 +660,34 @@ def _pick_availability():
     local_supply = _local_supply({c for lst in miss_by_order.values() for (c, _n) in lst})
     stuck_local = 0.0
     if local_supply:
-        keep = []
-        for name in oos:
-            codes = [c for (c, _n) in miss_by_order.get(name, [])]
-            if codes and all(c in local_supply for c in codes):
-                local.append(name)
-                # The money moves with the order: leaving it in stuck.oos made
-                # the "stuck out of stock" chip count parcels that are not out
-                # of stock, they are waiting on a van.
-                stuck_local += per[name]["val"]
-                stuck_oos -= per[name]["val"]
-            else:
-                keep.append(name)
-        oos = keep
+        # BOTH buckets, not just Out of stock. An order with three lines in
+        # stock and one on a supplier's van lands in PARTIAL, and the first
+        # cut of this split left it there — 10 of the 16 partial orders were
+        # purely a local-supplier wait, invisible to the very tab built for
+        # them (found 2026-09-01 from a Maison good and well item). Nothing
+        # on this board can be picked until it is complete, so a partial
+        # order waiting on a supplier is waiting exactly as hard as an
+        # empty one.
+        def _carve(names, drop_from):
+            keep = []
+            for name in names:
+                codes = [c for (c, _n) in miss_by_order.get(name, [])]
+                if codes and all(c in local_supply for c in codes):
+                    local.append(name)
+                    drop_from.append(per[name]["val"])
+                else:
+                    keep.append(name)
+            return keep
+
+        moved_oos, moved_partial = [], []
+        oos = _carve(oos, moved_oos)
+        partial = _carve(partial, moved_partial)
+        # The money moves with the order: leaving it behind made the "stuck"
+        # chips count parcels that are not short at all, they are waiting on
+        # a van.
+        stuck_local = sum(moved_oos) + sum(moved_partial)
+        stuck_oos -= sum(moved_oos)
+        stuck_partial -= sum(moved_partial)
 
     out = {"ready": ready, "partial": partial, "oos": oos, "local": local,
            "missing": missing, "blocking": blocking, "rescuable": rescuable,
@@ -674,7 +699,7 @@ def _pick_availability():
            "missByOrder": {n: miss_by_order.get(n, [])
                            for n in (local + oos + partial)},
            "stuck": {"oos": round(max(0.0, stuck_oos)),
-                     "partial": round(stuck_partial),
+                     "partial": round(max(0.0, stuck_partial)),
                      "local": round(stuck_local)}}
     cache.set_value("lp_pick_avail", _json.dumps(out), expires_in_sec=120)
     return out

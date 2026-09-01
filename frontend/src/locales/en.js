@@ -516,6 +516,8 @@ export default {
     emptyBody: "Every waiting order belongs to a unique customer right now.",
   },
   ordersPg: {
+    blWarehouse: "Warehouse",
+    blSupplier: "Supplier",
     supplier: "supplier",
     allSuppliers: "All suppliers",
     filterBySupplier: "Show only orders waiting on {s}",

@@ -516,6 +516,8 @@ export default {
     emptyBody: "كل الأوردرات المستنية لعملاء مختلفين دلوقتي.",
   },
   ordersPg: {
+    blWarehouse: "مخزن",
+    blSupplier: "مورد",
     supplier: "المورد",
     allSuppliers: "كل الموردين",
     filterBySupplier: "اعرض الأوردرات المستنية {s} بس",

@@ -263,12 +263,20 @@
       <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
         <Icon name="package" :size="14" class="text-rose-500" />
         <span class="text-[12px] font-semibold text-stone-900">{{ t('ordersPg.blockingTitle') }}</span>
-        <button class="ms-auto inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-[11.5px] font-semibold text-[var(--accent-700)] bg-[var(--accent-50)] ring-1 ring-[var(--accent-200)]/60 hover:bg-[var(--accent-100)]" @click="openSkuLookup('')">
+        <div class="ms-auto flex items-center gap-0.5 bg-stone-100/80 rounded-lg p-0.5">
+          <button v-for="seg in [{ k: 'wh', n: blWarehouse.length }, { k: 'sup', n: blSupplier.length }]" :key="seg.k"
+                  class="h-6 px-2.5 rounded-md text-[11px] font-semibold transition-colors"
+                  :class="blSeg === seg.k ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-700'"
+                  @click="blSeg = seg.k">
+            {{ seg.k === 'wh' ? t('ordersPg.blWarehouse') : t('ordersPg.blSupplier') }} {{ seg.n }}
+          </button>
+        </div>
+        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-[11.5px] font-semibold text-[var(--accent-700)] bg-[var(--accent-50)] ring-1 ring-[var(--accent-200)]/60 hover:bg-[var(--accent-100)]" @click="openSkuLookup('')">
           <Icon name="search" :size="12" />{{ t('ordersPg.skuLookupBtn') }}
         </button>
       </div>
-      <div v-if="blocking.length" class="divide-y divide-stone-100">
-        <div v-for="(b, i) in blocking" :key="b.sku" class="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-stone-50" :title="t('ordersPg.skuLookupRow')" @click="openSkuLookup(b.sku)">
+      <div v-if="blShown.length" class="divide-y divide-stone-100">
+        <div v-for="(b, i) in blShown" :key="b.sku" class="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-stone-50" :title="t('ordersPg.skuLookupRow')" @click="openSkuLookup(b.sku)">
           <span class="w-5 text-[11px] font-bold text-stone-300 tabular-nums flex-shrink-0">{{ i + 1 }}</span>
           <div class="min-w-0 flex-1">
             <div class="text-[12.5px] font-medium text-stone-900 truncate" :title="b.name">{{ b.name }}</div>
@@ -939,6 +947,12 @@ const localBoard = ref(null);
 const openSup = ref("");
 const pickMissing = ref({});
 const pickSuppliers = ref({});
+// The panel mixes two jobs: stock we can move today, and stock a supplier
+// owes us. With only 12 rows, one crowds the other off the screen.
+const blSeg = ref("wh");
+const blWarehouse = computed(() => (blocking.value || []).filter((b) => !b.local));
+const blSupplier = computed(() => (blocking.value || []).filter((b) => b.local));
+const blShown = computed(() => (blSeg.value === "sup" ? blSupplier.value : blWarehouse.value));
 const suppliers = ref([]);
 const supplierFilter = ref("");
 const rescuable = ref({});     // order → in-stock SKU sibling (false-OOS)
