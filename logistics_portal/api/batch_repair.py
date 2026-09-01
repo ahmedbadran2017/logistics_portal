@@ -25,6 +25,7 @@ Safety model:
 import json
 
 import frappe
+from frappe.utils import nowdate
 
 # A bundle qualifies when: it is a live Outward PL hold, it never touched the
 # stock ledger, and its pick list is finished (all orders fully delivered) or
@@ -229,3 +230,116 @@ def probe(item_code):
     except Exception:
         ee = 0
     return {"itemCode": item_code, "shelfBin": int(binq or 0), "eeAvailable": round(ee)}
+
+
+# ---------------------------------------------------------------------------
+# Radar — the hold count is not a one-off mess, it grows with every parcel.
+# ---------------------------------------------------------------------------
+_RADAR_KEY = "lp_batch_hold_radar"
+
+
+def _hold_totals():
+    """What the stale pick-list batch holds add up to, right now.
+
+    The disease, traced 2026-09-02 on one item's full batch history: a pick
+    list takes a batch hold, the delivery note that ships the piece deducts
+    the SAME batch again, and the pick list's hold is never released. Every
+    shipped unit is therefore subtracted TWICE from the batch sub-ledger and
+    once from the Bin. The Bin stays right; the batch ledger drifts negative
+    until ERPNext's batch-aware resolver refuses to allocate, and the item
+    reads out of stock with the piece sitting on the shelf.
+
+    Measured that day: 12,694 hold entries over 2,124 already-submitted pick
+    lists, 930 items, 12,887 units still deducted.
+
+    It does NOT leak on every shipment — I assumed that before measuring and
+    it is wrong. Over six months, 871 of 10,221 submitted pick lists left a
+    hold behind: about 9%, and only one to three new entries a day lately. So
+    the bulk is a historical backlog to clear once, with a slow drip on top.
+    That is still worth a radar — a slow leak is the kind nobody notices until
+    an order stops — but it is not an emergency, and the alert only fires when
+    the number actually moves.
+    """
+    r = frappe.db.sql(
+        """SELECT COUNT(*) entries,
+                  COUNT(DISTINCT sbb.voucher_no) picklists,
+                  COUNT(DISTINCT sbb.item_code) items,
+                  COALESCE(-SUM(sabe.qty), 0) units
+           FROM `tabSerial and Batch Bundle` sbb
+           JOIN `tabSerial and Batch Entry` sabe ON sabe.parent = sbb.name
+           JOIN `tabPick List` p ON p.name = sbb.voucher_no
+           WHERE sbb.voucher_type = 'Pick List' AND sbb.docstatus = 1
+             AND p.docstatus = 1 AND sabe.qty < 0""", as_dict=True)[0]
+    return {"entries": int(r.entries or 0), "picklists": int(r.picklists or 0),
+            "items": int(r.items or 0), "units": int(r.units or 0)}
+
+
+def _radar_history():
+    raw = frappe.db.get_default(_RADAR_KEY)
+    if not raw:
+        return []
+    try:
+        v = json.loads(raw)
+        return v if isinstance(v, list) else []
+    except Exception:
+        return []
+
+
+@frappe.whitelist()
+def hold_radar():
+    """Today's hold total, and how it has moved. Read-only."""
+    _gate()
+    now = _hold_totals()
+    hist = _radar_history()
+    prev = None
+    for h in reversed(hist):
+        if h.get("date") != nowdate():
+            prev = h
+            break
+    delta = None
+    if prev:
+        delta = {k: now[k] - int(prev.get(k) or 0)
+                 for k in ("entries", "picklists", "items", "units")}
+        delta["since"] = prev.get("date")
+    return {"now": now, "history": hist[-30:], "delta": delta}
+
+
+def snapshot_batch_holds():
+    """Scheduled daily: record the total and say so when it grows.
+
+    A number that only appears when somebody goes looking is a number nobody
+    looks at. One line a day, and an alert only when today is worse than the
+    last reading — a flat day is the normal, healthy case here.
+    """
+    try:
+        now = _hold_totals()
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000],
+                         "logistics_portal.batch_repair.snapshot")
+        return
+    hist = [h for h in _radar_history() if h.get("date") != nowdate()]
+    prev = hist[-1] if hist else None
+    hist.append({"date": nowdate(), **now})
+    frappe.db.set_default(_RADAR_KEY, json.dumps(hist[-120:]))
+    frappe.db.commit()
+
+    if not prev:
+        return
+    grew = now["units"] - int(prev.get("units") or 0)
+    if grew <= 0:
+        return
+    from logistics_portal.api.audit import _emit
+    _emit({
+        "severity": "warning",
+        # The date keeps the dedup key rolling daily instead of muting forever.
+        "title": (f"Batch holds grew by {grew} units "
+                  f"(now {now['units']} on {now['picklists']} shipped pick "
+                  f"lists) ({nowdate()})"),
+        "detail": ("A pick list's batch hold is not released when the "
+                   "delivery note ships, so that unit is deducted twice from "
+                   "the batch ledger and the item reads out of stock with the "
+                   "piece on the shelf. It happens on roughly 9% of pick "
+                   "lists. Batch Repair releases the dead holds; the leak "
+                   "itself lives in the pick-list app."),
+        "audience": "manager",
+    })

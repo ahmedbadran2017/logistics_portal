@@ -639,6 +639,13 @@ export default {
     dupesNone: "Aucun doublon réparti trouvé", dupCodes: "{n} codes",
   },
   brepair: {
+    radarTitle: "Réservations de lot encore déduites",
+    radarSince: "depuis {d}",
+    radarHint: "réservation d'une liste que l'expédition n'a jamais libérée",
+    radar_units: "unités",
+    radar_items: "articles",
+    radar_picklists: "listes",
+    radar_entries: "écritures",
     rrTitle: "Retours reçus mais jamais crédités en stock",
     rrHint: "Le bon de retour a marqué ces pièces comme physiquement reçues, mais sa boucle de crédit s'est interrompue en cours de route — l'entrepôt détient donc des unités qu'ERPNext ne voit pas. Le crédit crée un bon de retour normal par ligne, daté d'aujourd'hui, et ne peut jamais créditer deux fois une ligne déjà couverte.",
     rrClean: "Tous les retours reçus sont crédités.",

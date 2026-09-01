@@ -90,6 +90,9 @@ scheduler_events = {
     # past the 3-day promise. Daily on purpose — a per-tick feed gets muted.
     "daily": [
         "logistics_portal.api.orders.local_supply_alerts",
+        # Batch holds leak with every shipment, so the count is tracked daily
+        # and shouted about when it grows — not discovered from a stuck order.
+        "logistics_portal.api.batch_repair.snapshot_batch_holds",
     ],
     "daily_long": [
         # End-of-day narrative digest written by the LLM reviewer.

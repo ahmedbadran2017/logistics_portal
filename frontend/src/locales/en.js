@@ -639,6 +639,13 @@ export default {
     dupesNone: "No split duplicates found", dupCodes: "{n} codes",
   },
   brepair: {
+    radarTitle: "Batch holds still deducted",
+    radarSince: "since {d}",
+    radarHint: "a pick list's hold that the shipment never released",
+    radar_units: "units",
+    radar_items: "items",
+    radar_picklists: "pick lists",
+    radar_entries: "entries",
     rrTitle: "Returns received but never credited to stock",
     rrHint: "The return shipment marked these pieces physically received, but its row-by-row credit loop died part-way and the rest never became stock — so the warehouse holds units ERPNext cannot see. Crediting posts a normal return delivery note per row, dated today, and can never double-credit a row that is already covered.",
     rrClean: "Every received return is credited to stock.",

@@ -11,6 +11,34 @@
       </button>
     </header>
 
+    <!-- Radar: the leak is slow, which is exactly why it needs watching -->
+    <div v-if="radar" class="rounded-xl ring-1 ring-stone-200/70 bg-white overflow-hidden">
+      <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+        <Icon name="activity" :size="14" class="text-[var(--accent-600)]" />
+        <span class="text-[12px] font-semibold text-stone-900">{{ t('brepair.radarTitle') }}</span>
+        <span v-if="radar.delta" class="text-[11px] font-bold rounded-full px-2 py-0.5"
+              :class="radar.delta.units > 0 ? 'text-rose-700 bg-rose-50 ring-1 ring-rose-200'
+                      : radar.delta.units < 0 ? 'text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200'
+                      : 'text-stone-500 bg-stone-100'">
+          {{ radar.delta.units > 0 ? '+' : '' }}{{ radar.delta.units }} {{ t('brepair.radarSince').replace('{d}', radar.delta.since) }}
+        </span>
+        <span class="ms-auto text-[11px] text-stone-400">{{ t('brepair.radarHint') }}</span>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4">
+        <div v-for="k in ['units', 'items', 'picklists', 'entries']" :key="k">
+          <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('brepair.radar_' + k) }}</div>
+          <div class="text-[22px] font-bold tabular-nums text-stone-900">{{ radar.now[k].toLocaleString() }}</div>
+        </div>
+      </div>
+      <div v-if="radar.history.length > 1" class="px-4 pb-4">
+        <div class="flex items-end gap-1 h-[56px]">
+          <div v-for="h in radar.history" :key="h.date" class="flex-1 min-w-0 rounded-t bg-stone-300"
+               :style="{ height: Math.max(3, Math.round((h.units * 52) / radarMax)) + 'px' }"
+               :title="`${h.date} · ${h.units}`" />
+        </div>
+      </div>
+    </div>
+
     <div v-if="loading" class="text-center text-[13px] text-stone-400 py-16">{{ t('brepair.scanning') }}…</div>
 
     <template v-else-if="sc">
@@ -229,7 +257,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { computed, ref, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost, liveOr } from "@/lib/resource";
 // eslint-disable-next-line no-unused-vars — SRE repair state
@@ -241,6 +269,7 @@ const { t } = useI18n();
 const { success, warn } = useToast();
 
 const sc = ref(null);
+const radar = ref(null);
 const res = ref(null);
 const sre = ref(null);
 const rr = ref(null);
@@ -307,6 +336,7 @@ const fmt = (v) => (Number(v) || 0).toLocaleString("en-US");
 
 async function load() {
   loading.value = true;
+  try { radar.value = await api("batch_repair.hold_radar"); } catch (e) { radar.value = null; }
   sc.value = await liveOr(null, () => api("batch_repair.scan"));
   sre.value = await liveOr(null, () => api("batch_repair.sre_scan"));
   rr.value = await liveOr(null, () => api("returns_repair.scan"));
@@ -348,4 +378,6 @@ async function doProbe(itemCode) {
 }
 
 onMounted(load);
+const radarMax = computed(() =>
+  Math.max(1, ...(radar.value?.history || []).map((h) => h.units || 0)));
 </script>
