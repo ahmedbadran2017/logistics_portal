@@ -516,6 +516,9 @@ export default {
     emptyBody: "Every waiting order belongs to a unique customer right now.",
   },
   ordersPg: {
+    supplier: "supplier",
+    allSuppliers: "All suppliers",
+    filterBySupplier: "Show only orders waiting on {s}",
     pickLocal: "Local supplier",
     pickLocalHint: "waiting on a local supplier, not out of stock",
     localTitle: "Waiting on local suppliers",

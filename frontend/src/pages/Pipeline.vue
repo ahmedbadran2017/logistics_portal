@@ -338,6 +338,26 @@
         </select>
         <Icon name="chevron-down" :size="13" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-end:.6rem" />
       </div>
+
+      <!-- Supplier: same contract as the city filter. Only the blocked
+           buckets have a supplier behind them, so it appears with them. -->
+      <template v-if="suppliers.length">
+        <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400 ms-2">{{ t("ordersPg.supplier") }}</span>
+        <div class="relative">
+          <select
+            v-model="supplierFilter"
+            class="h-9 ps-3 pe-8 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] text-stone-700 appearance-none cursor-pointer focus:ring-2 focus:outline-none"
+            style="--tw-ring-color: var(--accent-400)"
+            @change="load(activeStage, activeTrack)"
+          >
+            <option value="">{{ t("ordersPg.allSuppliers") }}</option>
+            <option v-for="sp in suppliers" :key="sp.supplier" :value="sp.supplier">
+              {{ sp.supplier }} ({{ sp.orders }}){{ sp.local ? " ·" : "" }}
+            </option>
+          </select>
+          <Icon name="chevron-down" :size="13" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-end:.6rem" />
+        </div>
+      </template>
       <button v-if="cityFilter" class="text-[11.5px] font-medium text-stone-400 hover:text-stone-600"
               @click="cityFilter=''; load(activeStage, activeTrack)">
         {{ t("ordersPg.clear") }}
@@ -443,6 +463,15 @@
                     {{ mi }}
                   </span>
                   <span v-if="pickMissing[r.no].length > 3" class="text-[10.5px] text-rose-400">+{{ pickMissing[r.no].length - 3 }}</span>
+                </div>
+                <!-- Who owes us the missing item: one click filters the whole
+                     table to that supplier, so eleven rows become one call. -->
+                <div v-if="(pickSuppliers[r.no] || []).length" class="flex items-center gap-1 mt-1 flex-wrap">
+                  <span class="text-[10px] font-semibold text-stone-400 uppercase tracking-wide me-0.5">{{ t('ordersPg.supplier') }}</span>
+                  <button v-for="sp in pickSuppliers[r.no]" :key="sp"
+                          class="inline-flex items-center text-[10.5px] font-medium text-stone-700 bg-stone-100 ring-1 ring-stone-200 rounded px-1.5 py-0.5 truncate max-w-[160px] hover:bg-stone-200"
+                          :title="t('ordersPg.filterBySupplier').replace('{s}', sp)"
+                          @click.stop="filterSupplier(sp)">{{ sp }}</button>
                 </div>
                 <button v-if="rescuable[r.no]" class="inline-flex items-center gap-1 mt-1.5 text-[10.5px] font-semibold text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200/70 rounded-md px-1.5 py-0.5 hover:bg-emerald-100"
                         :title="t('ordersPg.rescueHint')" @click.stop="openSkuLookup(r.no)">
@@ -909,6 +938,9 @@ const pickBuckets = ref({});
 const localBoard = ref(null);
 const openSup = ref("");
 const pickMissing = ref({});
+const pickSuppliers = ref({});
+const suppliers = ref([]);
+const supplierFilter = ref("");
 const rescuable = ref({});     // order → in-stock SKU sibling (false-OOS)
 const total = ref(0);
 
@@ -927,6 +959,7 @@ async function load(stage, track = "", keepPage = false) {
       pick: stage === "to_pick" ? pickTab.value : undefined,
       limit: pageSize.value, offset: (page.value - 1) * pageSize.value,
       q: q.value.trim() || undefined, city: cityFilter.value || undefined,
+      supplier: supplierFilter.value || undefined,
       sort: sortKey.value ? `${sortKey.value}_${sortDir.value}` : undefined,
       dates: dateRange.value || undefined,
     })
@@ -944,6 +977,8 @@ async function load(stage, track = "", keepPage = false) {
     if (pickTab.value === "local") loadLocalBoard();
     else localBoard.value = null;
     pickMissing.value = live.pickMissing || {};
+    pickSuppliers.value = live.pickSuppliers || {};
+    suppliers.value = live.suppliers || [];
     rescuable.value = live.rescuable || {};
     intakeToday.value = live.intakeToday || 0;
     pickStuck.value = live.pickStuck || {};
@@ -981,9 +1016,15 @@ async function loadLocalBoard() {
   }
 }
 
+function filterSupplier(sp) {
+  supplierFilter.value = supplierFilter.value === sp ? "" : sp;
+  load(activeStage.value, activeTrack.value);
+}
+
 function setPickTab(tab) {
   if (pickTab.value === tab) return;
   pickTab.value = tab;
+  supplierFilter.value = "";
   load("to_pick");
 }
 // Only the Ready sub-tab is actionable — you can't pick OOS/partial orders.

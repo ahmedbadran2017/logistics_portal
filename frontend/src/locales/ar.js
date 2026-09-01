@@ -516,6 +516,9 @@ export default {
     emptyBody: "كل الأوردرات المستنية لعملاء مختلفين دلوقتي.",
   },
   ordersPg: {
+    supplier: "المورد",
+    allSuppliers: "كل الموردين",
+    filterBySupplier: "اعرض الأوردرات المستنية {s} بس",
     pickLocal: "مورد محلي",
     pickLocalHint: "مستني مورد محلي، مش نافد من المخزن",
     localTitle: "في انتظار الموردين المحليين",

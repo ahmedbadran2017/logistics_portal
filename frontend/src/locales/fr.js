@@ -516,6 +516,9 @@ export default {
     emptyBody: "Chaque commande en attente appartient à un client unique.",
   },
   ordersPg: {
+    supplier: "fournisseur",
+    allSuppliers: "Tous les fournisseurs",
+    filterBySupplier: "N'afficher que les commandes en attente de {s}",
     pickLocal: "Fournisseur local",
     pickLocalHint: "en attente d'un fournisseur local, pas en rupture",
     localTitle: "En attente des fournisseurs locaux",

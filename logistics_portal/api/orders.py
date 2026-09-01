@@ -57,7 +57,7 @@ def _win(days):
 
 
 @frappe.whitelist()
-def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, sort=None, dates=None, pick=None):
+def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, sort=None, dates=None, pick=None, supplier=None):
     """Counts + MAD value per stage, rows for the requested stage, and a city
     facet for filtering. `q` searches order no / customer / AWB."""
     import json as _json
@@ -92,12 +92,23 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
 
         # To-Pick splits by locally-pickable stock: Ready / Partial / OOS.
         pick_avail = pick_buckets = pick_names = None
+        sup_by_order, sup_facet = {}, None
         if stage == "to_pick":
             pick_avail = _pick_availability()
             pick_buckets = {k: len(pick_avail.get(k) or [])
                             for k in ("ready", "partial", "oos", "local")}
             if pick in ("ready", "partial", "oos", "local"):
                 pick_names = pick_avail.get(pick) or []
+                # Who owes us the blocked item. The row already names WHAT is
+                # missing; without the supplier the dispatcher has to open each
+                # order to find out who to call, and cannot see that eleven of
+                # them are one phone call. Same facet contract as the city
+                # filter, so the two behave identically.
+                sup_by_order, sup_facet = _supplier_facet(pick_avail, pick_names)
+                supplier = (supplier or "").strip()
+                if supplier:
+                    pick_names = [n for n in pick_names
+                                  if supplier in (sup_by_order.get(n) or [])]
 
         rows = _board_rows(stage, track, limit, q, offset, city, sort, dates, pick_names=pick_names)
         # Unfiltered views reuse the cached stage count — the mirrored COUNT(*)
@@ -122,6 +133,10 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
                 "serverNow": str(now_datetime())[:16]}
         if pick_buckets is not None:
             resp["pickBuckets"] = pick_buckets
+            if pick_names is not None and sup_facet is not None:
+                resp["suppliers"] = sup_facet
+                resp["pickSuppliers"] = {r["no"]: sup_by_order.get(r["no"], [])
+                                         for r in rows}
             resp["pickStuck"] = pick_avail.get("stuck", {})
             resp["blocking"] = pick_avail.get("blocking", [])
             resp["rescuable"] = pick_avail.get("rescuable", {})
@@ -652,9 +667,12 @@ def _pick_availability():
     out = {"ready": ready, "partial": partial, "oos": oos, "local": local,
            "missing": missing, "blocking": blocking, "rescuable": rescuable,
            "localSupply": local_supply,
-           # Per-order blocking (code, name) pairs — the local board groups by
-           # supplier and needs to know WHICH item each order is waiting on.
-           "missByOrder": {n: miss_by_order.get(n, []) for n in local},
+           # Per-order blocking (code, name) pairs. Every blocked order, not
+           # just the local ones: the supplier column and filter on the main
+           # table are built from this, and they cover Partial and Out of
+           # stock too — those rows have a supplier behind them as well.
+           "missByOrder": {n: miss_by_order.get(n, [])
+                           for n in (local + oos + partial)},
            "stuck": {"oos": round(max(0.0, stuck_oos)),
                      "partial": round(stuck_partial),
                      "local": round(stuck_local)}}
@@ -718,6 +736,52 @@ LOCAL_SUPPLIER_GROUP = "Morocco Local Suppliers"
 # Ahmed set the promise at 3 — one day of slack over the median, well inside
 # the p75 the floor actually lives with.
 LOCAL_PROMISE_DAYS = 3
+
+
+def _supplier_facet(avail, names):
+    """(order -> [suppliers], facet rows) for the blocked orders on screen.
+
+    Every supplier, not only the local ones: the dispatcher filtering this
+    table wants "show me everything waiting on GHADA FASHION" whether that
+    supplier is down the road or overseas. The LOCAL flag rides along so the
+    dropdown can say which is which without a second query.
+
+    An order can be blocked by items from more than one supplier, so the map
+    is a list and the facet counts an order once per supplier it is waiting
+    on — the numbers in the dropdown add up to more than the row count when
+    orders straddle two suppliers, which is the truth, not a bug.
+    """
+    miss = avail.get("missByOrder") or {}
+    codes = {c for n in names for (c, _n) in (miss.get(n) or [])}
+    if not codes:
+        return {}, []
+    sup, local = {}, set()
+    for r in frappe.db.sql(
+            """SELECT i.name, i.default_supplier, COALESCE(s.supplier_group,'') grp
+               FROM `tabItem` i
+               LEFT JOIN `tabSupplier` s ON s.name = i.default_supplier
+               WHERE i.name IN %s AND COALESCE(i.default_supplier,'') != ''""",
+            (tuple(codes),), as_dict=True):
+        sup[r.name] = r.default_supplier
+        if r.grp == LOCAL_SUPPLIER_GROUP:
+            local.add(r.default_supplier)
+
+    by_order, counts = {}, {}
+    for n in names:
+        seen = []
+        for (c, _iname) in (miss.get(n) or []):
+            nm = sup.get(c)
+            if nm and nm not in seen:
+                seen.append(nm)
+        if seen:
+            by_order[n] = seen
+            for nm in seen:
+                counts[nm] = counts.get(nm, 0) + 1
+    facet = sorted(
+        ({"supplier": nm, "orders": k, "local": nm in local}
+         for nm, k in counts.items()),
+        key=lambda x: (-x["orders"], x["supplier"].lower()))
+    return by_order, facet
 
 
 def _local_supply(codes):
