@@ -94,10 +94,10 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
         pick_avail = pick_buckets = pick_names = None
         if stage == "to_pick":
             pick_avail = _pick_availability()
-            pick_buckets = {k: len(pick_avail[k])
+            pick_buckets = {k: len(pick_avail.get(k) or [])
                             for k in ("ready", "partial", "oos", "local")}
             if pick in ("ready", "partial", "oos", "local"):
-                pick_names = pick_avail[pick]
+                pick_names = pick_avail.get(pick) or []
 
         rows = _board_rows(stage, track, limit, q, offset, city, sort, dates, pick_names=pick_names)
         # Unfiltered views reuse the cached stage count — the mirrored COUNT(*)
@@ -491,7 +491,7 @@ def _row(r, **extra):
 # Return/Receiving/etc. zones toggled by a manager in Settings). Values are %s
 # params so this splices safely into queries that also carry %s args.
 _EMPTY_AVAIL = {"ready": [], "partial": [], "oos": [], "local": [], "missing": {}, "missByOrder": {},
-                "blocking": [], "localSupply": {}, "stuck": {"oos": 0, "partial": 0}}
+                "blocking": [], "localSupply": {}, "stuck": {"oos": 0, "partial": 0, "local": 0}}
 
 
 def _pick_availability():
@@ -633,12 +633,18 @@ def _pick_availability():
     # supplier cannot unblock an order that is also short an imported item,
     # and putting it here would promise a fix the call can't deliver.
     local_supply = _local_supply({c for lst in miss_by_order.values() for (c, _n) in lst})
+    stuck_local = 0.0
     if local_supply:
         keep = []
         for name in oos:
             codes = [c for (c, _n) in miss_by_order.get(name, [])]
             if codes and all(c in local_supply for c in codes):
                 local.append(name)
+                # The money moves with the order: leaving it in stuck.oos made
+                # the "stuck out of stock" chip count parcels that are not out
+                # of stock, they are waiting on a van.
+                stuck_local += per[name]["val"]
+                stuck_oos -= per[name]["val"]
             else:
                 keep.append(name)
         oos = keep
@@ -649,7 +655,9 @@ def _pick_availability():
            # Per-order blocking (code, name) pairs — the local board groups by
            # supplier and needs to know WHICH item each order is waiting on.
            "missByOrder": {n: miss_by_order.get(n, []) for n in local},
-           "stuck": {"oos": round(stuck_oos), "partial": round(stuck_partial)}}
+           "stuck": {"oos": round(max(0.0, stuck_oos)),
+                     "partial": round(stuck_partial),
+                     "local": round(stuck_local)}}
     cache.set_value("lp_pick_avail", _json.dumps(out), expires_in_sec=120)
     return out
 
@@ -751,7 +759,7 @@ def _local_supply(codes):
     return out
 
 
-def _local_state(entry, order_age_days):
+def _local_state(entry):
     """Where one blocked order stands against the promise.
 
     'noPO'  nobody ordered it — the order cannot arrive, ever, until someone
@@ -762,7 +770,7 @@ def _local_state(entry, order_age_days):
     'otw'   inside the promise.
     """
     if not entry or not entry.get("po"):
-        return "noPO", None
+        return "noPO", None, ""
     from frappe.utils import date_diff, nowdate, add_days
     # The PO's schedule_date is NOT a supplier promise here. Measured over 120
     # days of local purchase orders: 2,462 of 2,553 lines carry a schedule_date
@@ -770,25 +778,29 @@ def _local_state(entry, order_age_days):
     # a delivery commitment. Trusting it would mark every order late the moment
     # it was created. So the promise is PO date + 3, and schedule_date is used
     # only on the rare line where somebody actually set a later date.
-    placed = entry.get("poDate") or nowdate()
-    promised = add_days(placed, LOCAL_PROMISE_DAYS)
-    due = entry.get("due") or ""
-    if not due or str(due)[:10] <= str(placed)[:10]:
-        due = promised
+    # One try around the whole date arithmetic: add_days raises on a malformed
+    # value too, and it sits on the board's critical path — a single bad date
+    # must not take the screen down.
     try:
-        over = date_diff(nowdate(), str(due)[:10])
+        placed = entry.get("poDate") or nowdate()
+        promised = add_days(placed, LOCAL_PROMISE_DAYS)
+        due = entry.get("due") or ""
+        if not due or str(due)[:10] <= str(placed)[:10]:
+            due = promised
+        due = str(due)[:10]
+        over = date_diff(nowdate(), due)
     except Exception:
-        return "otw", None
+        return "otw", None, ""
     if over > 0:
-        return "late", over
-    return ("due" if over == 0 else "otw"), over
+        return "late", over, due
+    return ("due" if over == 0 else "otw"), over, due
 
 
 @frappe.whitelist()
 def local_supply_board():
     """Whitelisted wrapper — the gate lives here, the data below."""
     from logistics_portal.api.auth import resolve_role
-    if resolve_role(frappe.session.user) not in ("dispatcher", "manager", "purchasing"):
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
         frappe.throw("Not authorized.", frappe.PermissionError)
     return _local_board_data()
 
@@ -825,7 +837,7 @@ def _local_board_data():
             e = supply.get(code)
             if not e:
                 continue
-            state, over = _local_state(e, int(m.age or 0))
+            state, over, promised = _local_state(e)
             g = groups.setdefault(e["supplier"], {
                 "supplier": e["supplier"], "orders": [], "value": 0.0,
                 "noPO": 0, "late": 0, "otw": 0, "oldest": 0, "items": {},
@@ -838,7 +850,9 @@ def _local_board_data():
                     "age": int(m.age or 0), "state": state,
                     "overdueBy": over if state == "late" else None,
                     "item": iname or code, "itemCode": code,
-                    "po": e.get("po") or "", "due": e.get("due") or "",
+                    "po": e.get("po") or "",
+                    # The date we judge against, not the PO's own field.
+                    "due": promised,
                     "ordered": e.get("ordered") or 0,
                 })
                 g["value"] += float(m.grand_total or 0)
