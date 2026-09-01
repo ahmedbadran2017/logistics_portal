@@ -786,6 +786,12 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
         # this the preview said "17 will go" and the create refused all 17.
         for (_so, code), q in sre.items():
             totals[code] = totals.get(code, 0) - q
+        # Floor at zero — the same rule the board shows. Without it the preview
+        # and the board would disagree with each other, which is worse than
+        # either being wrong alone.
+        for code in totals:
+            if totals[code] < 0:
+                totals[code] = 0
         used_own = {}
         for name in page_names:
             short = None
@@ -1073,6 +1079,11 @@ def _allocate_and_insert(sos, skipped, picker):
     sre = _sre_by_order(item_codes)
     for (_so, code), q in sre.items():
         totals[code] = totals.get(code, 0) - q
+    # The builder floors it too, or an order the board calls Ready would be
+    # refused here — a promise the screen made and the create broke.
+    for code in totals:
+        if totals[code] < 0:
+            totals[code] = 0
     used_own = {}
     covered = []
     for so in sos:

@@ -547,9 +547,21 @@ def _pick_availability():
         codes = {r.code for r in rows}
         totals = _available_totals(codes)
         sre = _sre_by_order(codes)
+        # Shedding every reservation can push the shared pool BELOW zero when
+        # `totals` was capped for another reason — the batch resolver answering
+        # 0, or the stock sitting in a warehouse the engine refuses. The order's
+        # own reservation is then handed back into that hole instead of to the
+        # order, so it reads out of stock while its piece sits reserved for it on
+        # the shelf. Measured 2026-09-02: 47 of the 135 blocked orders, every one
+        # of them with the stock physically on a pickable Moroccan shelf.
+        # The pool floors at zero; it never invents stock, because a genuinely
+        # empty item has no reservation to hand back either.
         shared = dict(totals)
         for (_so, code), q in sre.items():
             shared[code] = shared.get(code, 0) - q
+        for code in shared:
+            if shared[code] < 0:
+                shared[code] = 0
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal._pick_availability")
         return dict(_EMPTY_AVAIL)
@@ -1593,6 +1605,11 @@ def detail(name):
             _shared = dict(_totals)
             for (_o, _c), _q in _sre.items():
                 _shared[_c] = _shared.get(_c, 0) - _q
+            # Same floor as _pick_availability, or the order card and the board
+            # would disagree about the very same line.
+            for _c in _shared:
+                if _shared[_c] < 0:
+                    _shared[_c] = 0
             for r in items:
                 _need = float(r.qty or 0)
                 _free = _shared.get(r.sku, 0) + _sre.get((name, r.sku), 0)
