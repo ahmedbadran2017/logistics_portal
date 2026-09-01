@@ -181,6 +181,9 @@
             <div v-if="it.barcodeWide" class="text-[11px] text-rose-700 font-medium flex items-center gap-1 mt-0.5">
               <Icon name="alert-triangle" :size="11" /> {{ t('shelfLabels.tooLong') }}
             </div>
+            <div v-else-if="it.barcodeShared" class="text-[11px] text-amber-700 font-medium flex items-center gap-1 mt-0.5">
+              <Icon name="alert-triangle" :size="11" /> {{ t('shelfLabels.sharedSku') }}
+            </div>
             <div v-else-if="it.barcodeIsCode" class="text-[11px] text-stone-400 flex items-center gap-1 mt-0.5">
               <Icon name="package" :size="11" /> {{ t('shelfLabels.codeFallback') }}
             </div>

@@ -309,11 +309,30 @@ def _label_payloads(pairs):
     clash = {r[0] for r in frappe.db.sql(
         """SELECT DISTINCT custom_sku FROM `tabItem`
            WHERE custom_sku IN %s""", (tuple(ics),))} if ics else set()
+
+    # A SKU that names MORE THAN ONE product cannot be a barcode, however
+    # short and however pretty it prints. 5,907 SKUs in this catalogue are
+    # shared, and 37 of the items currently on shelves sit under one: PH10002
+    # alone belongs to eighteen products - bordo, siyah, indigo, füme, grey -
+    # so its label identifies a colour family, not a thing you can put away.
+    # The item code always identifies exactly one product, which is what a
+    # barcode is FOR. Readability is what the printed line under it is for.
+    skus = [sku for _ic, sku in pairs if sku]
+    unique = set()
+    if skus:
+        unique = {r[0] for r in frappe.db.sql(
+            """SELECT custom_sku FROM `tabItem`
+               WHERE custom_sku IN %s AND COALESCE(disabled, 0) = 0
+               GROUP BY custom_sku HAVING COUNT(*) = 1""", (tuple(set(skus)),))}
+
     for ic, sku in pairs:
-        if sku and _fits(sku):
+        if sku and sku in unique and _fits(sku):
             out[ic] = {"barcode": sku, "barcodeIsCode": False, "barcodeWide": False}
         elif ic not in clash and _fits(ic):
-            out[ic] = {"barcode": ic, "barcodeIsCode": True, "barcodeWide": False}
+            out[ic] = {"barcode": ic, "barcodeIsCode": True, "barcodeWide": False,
+                       # Why the code, not the SKU: too long, or shared with
+                       # another product. The screen says which.
+                       "barcodeShared": bool(sku and sku not in unique)}
         else:
             # Nothing safe fits the narrow stock: print the SKU, and say plainly
             # that this one needs the wide label.

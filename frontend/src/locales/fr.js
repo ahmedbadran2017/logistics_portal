@@ -478,6 +478,7 @@ export default {
     unknown: "Code-barres ou SKU inconnu",
   },
   shelfLabels: {
+    sharedSku: "ce SKU couvre plusieurs produits — le code-barres porte le code article",
     tooLong: "SKU trop long pour être scanné — utiliser l'étiquette 57mm",
     codeFallback: "le code-barres porte le code article (même résultat au scan)",
     title: "Étiquettes rayon",

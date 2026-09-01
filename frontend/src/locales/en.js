@@ -478,6 +478,7 @@ export default {
     unknown: "Not a known product barcode or SKU",
   },
   shelfLabels: {
+    sharedSku: "this SKU names several products — barcode carries the item code",
     tooLong: "SKU too long to scan — use the 57mm label",
     codeFallback: "barcode carries the item code (scans to the same item)",
     title: "Shelf labels",
