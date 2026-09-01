@@ -207,6 +207,59 @@
       </span>
     </div>
 
+    <!-- Shown out of stock while the piece is on a Moroccan shelf -->
+    <div v-if="pickTab === 'oos' && falseOos && falseOos.rows.length"
+         class="mb-3 rounded-xl ring-1 ring-sky-200/70 bg-white overflow-hidden">
+      <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+        <Icon name="search" :size="14" class="text-sky-600" />
+        <span class="text-[12px] font-semibold text-stone-900">{{ t('ordersPg.fooTitle') }}</span>
+        <span class="text-[11.5px] text-stone-400 tabular-nums">
+          {{ falseOos.units }} {{ t('ordersPg.fooUnits') }} · {{ falseOos.orders }} {{ t('ordersPg.localOrders') }}
+        </span>
+        <div class="ms-auto flex items-center gap-1.5 flex-wrap">
+          <span v-for="b in falseOos.byReason" :key="b.why"
+                class="text-[10.5px] font-semibold rounded-full px-2 py-0.5 ring-1"
+                :class="b.why === 'batch' ? 'text-amber-700 bg-amber-50 ring-amber-200'
+                        : b.why === 'draft' ? 'text-sky-700 bg-sky-50 ring-sky-200'
+                        : 'text-stone-600 bg-stone-50 ring-stone-200'">
+            {{ b.units }} {{ t('ordersPg.foo_' + b.why) }}
+          </span>
+        </div>
+      </div>
+      <p class="px-4 py-2 text-[11.5px] text-stone-500 border-b border-stone-100">{{ t('ordersPg.fooHint') }}</p>
+      <ul class="divide-y divide-stone-100 max-h-[420px] overflow-y-auto">
+        <li v-for="r in falseOos.rows" :key="r.itemCode + r.shelf" class="p-3 flex items-center gap-3">
+          <img v-if="r.image" :src="r.image" alt="" @error="hideImg"
+               class="w-10 h-10 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
+          <span v-else class="w-10 h-10 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center flex-shrink-0 text-stone-400"><Icon name="package" :size="16" /></span>
+          <div class="min-w-0 flex-1">
+            <div class="text-[12.5px] font-semibold text-stone-900 truncate">{{ r.name }}</div>
+            <div class="font-mono text-[11px] text-stone-500 truncate">
+              {{ r.sku || r.itemCode }} · <b class="text-stone-700">{{ r.shelf }}</b> · {{ r.units }}u
+            </div>
+            <div v-if="r.drafts.length" class="text-[10.5px] text-sky-700 mt-0.5 truncate">
+              {{ r.drafts.map((d) => d.pl).join(' · ') }}
+            </div>
+          </div>
+          <span class="text-[10.5px] font-semibold rounded-full px-2 py-0.5 ring-1 flex-shrink-0"
+                :class="r.why === 'batch' ? 'text-amber-700 bg-amber-50 ring-amber-200'
+                        : r.why === 'draft' ? 'text-sky-700 bg-sky-50 ring-sky-200'
+                        : 'text-stone-600 bg-stone-50 ring-stone-200'">
+            {{ t('ordersPg.foo_' + r.why) }}
+          </span>
+          <span class="text-[11px] font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200/60 rounded-md px-2 py-0.5 tabular-nums flex-shrink-0">
+            {{ r.blockedOrders }}
+          </span>
+          <button v-if="r.action === 'batchRepair'"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold text-amber-800 bg-amber-50 ring-1 ring-amber-200 hover:bg-amber-100 flex-shrink-0"
+                  @click="$router.push({ name: 'BatchRepair' })">{{ t('ordersPg.fooFixBatch') }}</button>
+          <button v-else-if="r.action === 'openDraft' && r.drafts.length"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold text-sky-800 bg-sky-50 ring-1 ring-sky-200 hover:bg-sky-100 flex-shrink-0"
+                  @click="$router.push({ name: 'PickLists', query: { q: r.drafts[0].pl } })">{{ t('ordersPg.fooOpenPl') }}</button>
+        </li>
+      </ul>
+    </div>
+
     <!-- Local suppliers: one row per SUPPLIER, because the action is one call -->
     <div v-if="pickTab === 'local' && localBoard" class="mb-3 rounded-xl ring-1 ring-violet-200/70 bg-white overflow-hidden">
       <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
@@ -944,6 +997,7 @@ const pageSize = ref(20);
 const pickTab = ref("ready");
 const pickBuckets = ref({});
 const localBoard = ref(null);
+const falseOos = ref(null);
 const openSup = ref("");
 const pickMissing = ref({});
 const pickSuppliers = ref({});
@@ -990,6 +1044,8 @@ async function load(stage, track = "", keepPage = false) {
     pickBuckets.value = live.pickBuckets || {};
     if (pickTab.value === "local") loadLocalBoard();
     else localBoard.value = null;
+    if (pickTab.value === "oos") loadFalseOos();
+    else falseOos.value = null;
     pickMissing.value = live.pickMissing || {};
     pickSuppliers.value = live.pickSuppliers || {};
     suppliers.value = live.suppliers || [];
@@ -1020,6 +1076,14 @@ async function load(stage, track = "", keepPage = false) {
     total.value = 0;
   }
   loading.value = false;
+}
+
+async function loadFalseOos() {
+  try {
+    falseOos.value = await api("picking.false_oos_worklist");
+  } catch (e) {
+    falseOos.value = null;
+  }
 }
 
 async function loadLocalBoard() {

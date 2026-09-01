@@ -2383,3 +2383,125 @@ def report_short_pick(pick_list, order, item_code=None):
     frappe.db.commit()
     return {"ok": True, "order": so_name, "removedLines": len(rows),
             "plDeleted": deleted}
+
+
+@frappe.whitelist()
+def false_oos_worklist():
+    """Orders shown out of stock while the pieces are on a Moroccan shelf.
+
+    Measured 2026-09-02 on the live pile: 132 blocked orders, 135 blocking
+    items. Of the stock those items DO have, 622 units sit in Justyol China
+    and 11 in Maslak — another company, not a warehouse job. Only 137 units
+    are in Morocco, and 82 of those are in zones that are perfectly pickable.
+
+    The 82 are not boxes nobody noticed. Every one of them is one of exactly
+    two problems, and they need opposite actions:
+
+      batch   ERPNext's batch-aware resolver answers 0 for that item — the
+              piece is on the shelf but the batch ledger puts it elsewhere.
+              Moving it changes nothing; the LEDGER is what is wrong, and
+              Batch Repair is what fixes it.
+      draft   the stock is already committed to an OPEN DRAFT pick list.
+              Nothing is lost — submit the draft, or cancel it and free the
+              piece.
+
+    Telling the floor to "go and move them" would have sent them to shelves
+    for boxes ERPNext refuses either way, so the reason travels with the row.
+    """
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    from logistics_portal.api.warehouses import excluded_zones
+
+    rows = frappe.db.sql(
+        """SELECT so.name so, so.customer_name customer, so.grand_total val,
+                  soi.item_code c, soi.item_name nm,
+                  (soi.qty - COALESCE(soi.delivered_qty, 0)) need,
+                  DATEDIFF(CURDATE(), DATE(so.creation)) age
+           FROM `tabSales Order` so
+           JOIN `tabSales Order Item` soi ON soi.parent = so.name
+           WHERE so.docstatus = 1 AND so.company = 'Justyol Morocco'
+             AND so.custom_sales_status = 'Confirmed'
+             AND COALESCE(so.custom_logistics_status, '') IN ('', 'Pending')
+             AND (soi.qty - COALESCE(soi.delivered_qty, 0)) > 0""", as_dict=True)
+    if not rows:
+        return {"rows": [], "units": 0, "orders": 0}
+
+    codes = sorted({r.c for r in rows})
+    avail = _available_totals(set(codes))
+    blocked, orders_of = set(), {}
+    for r in rows:
+        if avail.get(r.c, 0) < float(r.need or 0):
+            blocked.add(r.c)
+            orders_of.setdefault(r.c, []).append(
+                {"order": r.so, "customer": r.customer or "",
+                 "value": round(float(r.val or 0)), "age": int(r.age or 0),
+                 "need": int(r.need or 0), "item": r.nm or r.c})
+    if not blocked:
+        return {"rows": [], "units": 0, "orders": 0}
+
+    rej, ex = _ee_rejected(), set(excluded_zones())
+    bins = frappe.db.sql(
+        """SELECT item_code ic, warehouse wh, actual_qty a, reserved_qty rq
+           FROM `tabBin` WHERE item_code IN %s AND actual_qty > 0""",
+        (tuple(blocked),), as_dict=True)
+    live = [b for b in bins
+            if b.wh.endswith(" - JM") and b.wh not in ex and b.wh not in rej]
+    if not live:
+        return {"rows": [], "units": 0, "orders": 0}
+
+    truth = _batch_truth({b.ic for b in live})
+    # Stock already committed to a draft, per (item, bin) — the same claim
+    # _resolve_bins subtracts, so the two agree on what "held" means.
+    held = {}
+    for r in frappe.db.sql(
+            """SELECT pli.item_code, pli.warehouse, pli.parent,
+                      SUM(GREATEST(pli.qty - pli.picked_qty, 0)) q
+               FROM `tabPick List Item` pli
+               JOIN `tabPick List` p ON p.name = pli.parent
+               WHERE p.docstatus = 0 AND pli.item_code IN %s
+               GROUP BY pli.item_code, pli.warehouse, pli.parent""",
+            (tuple(b.ic for b in live),), as_dict=True):
+        held.setdefault((r.item_code, r.warehouse), []).append(
+            {"pl": r.parent, "qty": int(r.q or 0)})
+
+    out, units = [], 0
+    for b in live:
+        free = float(b.a or 0) - float(b.rq or 0)
+        holds = held.get((b.ic, b.wh)) or []
+        if free <= 0:
+            why, action = "reserved", "release"
+        elif b.ic in truth and truth[b.ic] <= 0:
+            why, action = "batch", "batchRepair"
+        elif holds:
+            why, action = "draft", "openDraft"
+        else:
+            why, action = "unknown", ""
+        units += int(b.a or 0)
+        out.append({
+            "itemCode": b.ic, "shelf": b.wh.replace(" - JM", ""),
+            "units": int(b.a or 0), "why": why, "action": action,
+            "drafts": holds[:3],
+            "orders": orders_of.get(b.ic, [])[:6],
+            "blockedOrders": len(orders_of.get(b.ic, [])),
+        })
+
+    meta = {r.name: r for r in frappe.db.sql(
+        """SELECT name, custom_sku, item_name, image FROM `tabItem`
+           WHERE name IN %s""", (tuple({o["itemCode"] for o in out}),), as_dict=True)}
+    for o in out:
+        m = meta.get(o["itemCode"]) or {}
+        o["sku"] = (m.get("custom_sku") or "").strip()
+        o["name"] = m.get("item_name") or o["itemCode"]
+        o["image"] = m.get("image") or ""
+    # Worst first: the row holding up the most orders, then the most stock.
+    out.sort(key=lambda r: (-r["blockedOrders"], -r["units"]))
+    by_why = {}
+    for o in out:
+        e = by_why.setdefault(o["why"], [0, 0])
+        e[0] += 1
+        e[1] += o["units"]
+    return {"rows": out, "units": units,
+            "orders": len({x["order"] for o in out for x in o["orders"]}),
+            "byReason": [{"why": k, "rows": v[0], "units": v[1]}
+                         for k, v in sorted(by_why.items(), key=lambda x: -x[1][1])]}
