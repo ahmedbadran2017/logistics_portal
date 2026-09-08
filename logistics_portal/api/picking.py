@@ -2255,9 +2255,12 @@ def relabel_order(pick_list, order, city=None):
     city write goes through city.set_shipping_city so the linked Address is
     updated too — that Address is the field the carrier payload reads.
     """
+    # The sort-wall roles, not just dispatch: the person holding the parcel when
+    # the label fails to print is the sorter, and making them fetch someone else
+    # is how these boxes ended up standing for days. Same set as _SORT_ROLES.
     from logistics_portal.api.auth import resolve_role
-    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
-        frappe.throw("Only a dispatcher or manager can regenerate a label.",
+    if resolve_role(frappe.session.user) not in _SORT_ROLES:
+        frappe.throw("Not authorized to regenerate a label.",
                      frappe.PermissionError)
     order = (order or "").strip()
     if not frappe.db.exists("Pick List Item", {"parent": pick_list, "sales_order": order}):
@@ -2269,8 +2272,11 @@ def relabel_order(pick_list, order, city=None):
 
     changed = ""
     if city:
-        from logistics_portal.api.city import set_shipping_city
-        set_shipping_city(order, city)
+        # apply_city, not set_shipping_city: the gated wrapper re-checks against
+        # the stricter city-module roles and would refuse the sorter we just
+        # authorised above.
+        from logistics_portal.api.city import apply_city
+        apply_city(order, city)
         changed = (city or "").strip()
 
     dn = frappe.db.sql(

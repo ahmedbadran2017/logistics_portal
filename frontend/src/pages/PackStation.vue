@@ -248,10 +248,11 @@ const { t } = useI18n();
 const { success, warn } = useToast();
 const { role } = useAuth();
 
-// Fixing a city and calling the carrier is a dispatcher act — a packer still
-// SEES the diagnosis (that is how it reaches a dispatcher), they just can't
-// hand the parcel over themselves. Matches the server gate on relabel_order.
-const canFix = computed(() => role.value === "dispatcher" || role.value === "manager");
+// The sorter holding the unlabelled parcel is the one who should be able to fix
+// it. Restricting this to dispatch meant the person at the wall could see the
+// carrier's refusal and do nothing about it. Matches relabel_order's gate.
+const FIX_ROLES = ["packer", "dispatcher", "manager"];
+const canFix = computed(() => FIX_ROLES.includes(role.value));
 
 const scanner = ref(null);
 const lists = ref([]);

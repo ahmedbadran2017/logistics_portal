@@ -37,6 +37,7 @@ def _gate():
 # Cities a dispatcher/manager entered by hand that the 180-day AWB history
 # hasn't seen (small towns, new routes). Persisted so a typed city STICKS — it
 # joins the picker list AND stops its orders being flagged as unmatched forever.
+JUNK = "\"'\\ \t"   # quotes/backslashes that survive the order feed and break the payload
 _MANUAL_KEY = "lp_manual_cities"
 
 
@@ -199,12 +200,15 @@ def city_check_queue(limit=200):
     }
 
 
-@frappe.whitelist()
-def set_shipping_city(order, city):
-    """Set an order's shipping city to a carrier-valid value — written to the SO
-    and to the linked Address (the field the carrier reads) — so it can get an
-    AWB and re-enter the pick pool."""
-    _gate()
+def apply_city(order, city):
+    """The city write itself, with NO gate of its own.
+
+    Split out of set_shipping_city because the sort wall's repair now runs for
+    packers too, and it has already checked its own roles by the time it gets
+    here — calling the whitelisted function would re-check against the stricter
+    city-module gate and refuse the very people it just authorised. Callers are
+    responsible for their own permission check.
+    """
     order = (order or "").strip()
     city = (city or "").strip()
     if not frappe.db.exists("Sales Order", order):
@@ -226,6 +230,15 @@ def set_shipping_city(order, city):
     return {"ok": True, "order": order, "city": city}
 
 
+@frappe.whitelist()
+def set_shipping_city(order, city):
+    """Set an order's shipping city to a carrier-valid value — written to the SO
+    and to the linked Address (the field the carrier reads) — so it can get an
+    AWB and re-enter the pick pool."""
+    _gate()
+    return apply_city(order, city)
+
+
 def _tokens(s):
     """Words of 3+ chars, lowercased, punctuation stripped — no regex so the
     Latin-1 accents in the carrier's own list survive the split."""
@@ -242,6 +255,14 @@ def _tokens(s):
     return out
 
 
+def _suggest_gate():
+    """Reading candidate cities is part of sorting, so the sort-wall roles get
+    it — unlike the city QUEUE, which stays a dispatcher board."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("packer", "dispatcher", "manager"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+
+
 @frappe.whitelist()
 def suggest_city(order, limit=8):
     """Rank carrier-valid cities against what the customer actually typed.
@@ -254,11 +275,22 @@ def suggest_city(order, limit=8):
     the plausible ones first. Returns {city, exact, suggestions} — `exact` true
     means nothing needs fixing and the AWB failed for another reason.
     """
-    _gate()
+    _suggest_gate()
     order = (order or "").strip()
     if not frappe.db.exists("Sales Order", order):
         frappe.throw("Unknown order.")
-    raw = (frappe.db.get_value("Sales Order", order, "custom_shipping_city") or "").strip()
+    # Score the ADDRESS city, not the sales-order field: the carrier reads the
+    # Address, and the SO field is empty on most orders (measured 2026-09-08:
+    # 5,499 of 9,726 in thirty days), so scoring it answered about the wrong
+    # string. A stray quote reaches the API mangled -- J-005948 was stored as
+    # '"Al Aaroui' and Cathedis received a lone backslash -- so match the clean
+    # form and the real town comes back.
+    an = (frappe.db.get_value("Sales Order", order, "shipping_address_name")
+          or frappe.db.get_value("Sales Order", order, "customer_address"))
+    raw = ((frappe.db.get_value("Address", an, "city") if an else "") or "").strip()
+    if not raw:
+        raw = (frappe.db.get_value("Sales Order", order, "custom_shipping_city") or "").strip()
+    raw = raw.strip(JUNK).strip()
     cities = _accepted_cities()
     low = {}
     for c in cities:
