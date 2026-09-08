@@ -236,6 +236,7 @@ export default {
     emptyBody: "No pick lists in your queue.",
   },
   pickm: {
+    pbLaterConfirm: "Press again to confirm",
     pbTitle: "Put these back before the order leaves",
     pbHint: "{n} piece(s) picked for {o} are in your tote. Scan each one back onto its shelf.",
     pbScanHint: "Scan a piece to return it",

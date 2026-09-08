@@ -27,8 +27,17 @@
         </ul>
         <div class="p-3 border-t border-stone-100 flex items-center gap-2">
           <span class="text-[11.5px] text-stone-500 flex-1">{{ t('pickm.pbScanHint') }}</span>
-          <button class="h-10 px-3 rounded-lg text-[12.5px] font-semibold text-stone-600 bg-stone-100 hover:bg-stone-200"
-                  @click="deferPutBack">{{ t('pickm.pbLater') }}</button>
+          <!-- A misfire on the short-pick button must not cost an order: the
+               only way out used to be "later", which pulls it off the list. -->
+          <button class="h-10 px-3 rounded-lg text-[12.5px] font-semibold text-stone-600 hover:bg-stone-100"
+                  @click="cancelPutBack">{{ t('common.cancel') }}</button>
+          <!-- Two presses, like the short-pick button itself: this one leaves
+               pieces off the shelf, so it should not be the easier tap. -->
+          <button class="h-10 px-3 rounded-lg text-[12.5px] font-semibold transition-colors"
+                  :class="deferArmed ? 'text-white bg-rose-600' : 'text-stone-600 bg-stone-100 hover:bg-stone-200'"
+                  @click="deferPutBack">
+            {{ deferArmed ? t('pickm.pbLaterConfirm') : t('pickm.pbLater') }}
+          </button>
         </div>
       </div>
     </div>
@@ -232,6 +241,8 @@ async function finish() {
 // list and back to the problem pool; the picker keeps the rest.
 const shortConfirm = ref("");
 const putBack = ref(null);
+const deferArmed = ref(false);
+let deferTimer = null;
 let shortTimer = null;
 
 function lineKey(l) { return l.sku + "|" + l.so; }
@@ -282,10 +293,30 @@ async function returnScan(code) {
   }
 }
 
-// "I'll put them back later" — allowed, but it is recorded by name and shelf
-// on the order and sent to the dispatchers, never swallowed.
+// Closing the panel changes nothing: nothing has been removed yet, and any
+// piece already scanned back is genuinely on its shelf, so the counts stay
+// true either way.
+function cancelPutBack() {
+  putBack.value = null;
+  deferArmed.value = false;
+  clearTimeout(deferTimer);
+  scanner.value?.refocus();
+}
+
+// "I'll put them back later" — allowed, because a picker across the floor with
+// a full trolley is real. Recorded by item and shelf on the order and sent to
+// the dispatchers, never swallowed. Two presses, because it leaves pieces off
+// the shelf.
 async function deferPutBack() {
   if (!putBack.value) return;
+  if (!deferArmed.value) {
+    deferArmed.value = true;
+    clearTimeout(deferTimer);
+    deferTimer = setTimeout(() => { deferArmed.value = false; }, 4000);
+    return;
+  }
+  deferArmed.value = false;
+  clearTimeout(deferTimer);
   await finishShort(putBack.value.order, putBack.value.item, 1);
 }
 
@@ -295,6 +326,7 @@ async function finishShort(so, sku, defer) {
       pick_list: props.id, order: so, item_code: sku, defer,
     });
     putBack.value = null;
+    deferArmed.value = false;
     // Drop every line of that order locally.
     lines.value = lines.value.filter((x) => x.so !== so);
     success(t("pickm.shortDone"), `${res.order} · ${res.removedLines} ${t("queue.lines")}`);

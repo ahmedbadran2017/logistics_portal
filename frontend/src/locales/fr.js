@@ -236,6 +236,7 @@ export default {
     emptyBody: "Aucune liste de prélèvement dans votre file.",
   },
   pickm: {
+    pbLaterConfirm: "Appuyez encore pour confirmer",
     pbTitle: "Remettre ceci avant que la commande sorte",
     pbHint: "{n} pièce(s) prélevée(s) pour {o} sont dans votre bac. Scannez chacune sur son emplacement.",
     pbScanHint: "Scannez une pièce pour la remettre",
