@@ -78,6 +78,13 @@ export const ROLE_CONFIG = {
           { to: "PickLists", label: "nav.picklists", icon: "package" },
           { to: "Stranded", label: "nav.stranded", icon: "package-x" },
           { to: "CityCheck", label: "nav.cityCheck", icon: "map-pin" },
+          // The sort wall is where a parcel that finished picking with no
+          // carrier label surfaces, and fixing its city + calling the carrier
+          // is a DISPATCHER act (relabel_order gates on dispatcher/manager).
+          // The server always allowed it; only this menu did not, which made
+          // the repair look manager-only. CityCheck catches a bad city before
+          // picking, this catches the ones that got through.
+          { to: "PackStation", label: "nav.pack", icon: "tag" },
         ],
       },
       {
