@@ -627,9 +627,22 @@ def _pick_list_activity(name, pl):
 # The effective shipping city: the SO field first, else the linked Address —
 # 76% of the pool carries the city only on the Address, so the SO field alone
 # isn't enough to judge it.
-_EFF_CITY = ("COALESCE(NULLIF(TRIM(so.custom_shipping_city), ''), "
-             "(SELECT NULLIF(TRIM(a.city), '') FROM `tabAddress` a "
-             "WHERE a.name = COALESCE(so.shipping_address_name, so.customer_address)))")
+# MariaDB's TRIM() strips SPACES ONLY, so a city arriving from the order feed
+# as 'Sale\n' stayed 'Sale\n' through every comparison: it never matched the
+# carrier's accepted list, sat in the city queue as an unmatched town forever,
+# and went to Cathedis with the newline still attached. Measured 2026-09-08:
+# 134 addresses in thirty days carry a newline or tab inside the city — Sale,
+# Eljadida, MARRAKECH, Beni Mellal, all perfectly valid names. Strip the
+# invisible characters before anything looks at the value.
+def _clean_city(expr):
+    return ("TRIM(REPLACE(REPLACE(REPLACE(REPLACE({0}, '\r', ''), "
+            "'\n', ''), '\t', ''), '\"', ''))").format(expr)
+
+
+_EFF_CITY = ("COALESCE(NULLIF(%s, ''), "
+             "(SELECT NULLIF(%s, '') FROM `tabAddress` a "
+             "WHERE a.name = COALESCE(so.shipping_address_name, so.customer_address)))"
+             % (_clean_city("so.custom_shipping_city"), _clean_city("a.city")))
 
 # Explicit Arabic letters (a codepoint range isn't reliable across MariaDB
 # collations; this class is verified on prod).

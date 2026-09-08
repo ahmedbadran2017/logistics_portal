@@ -163,11 +163,15 @@ def city_check_queue(limit=200):
             ORDER BY blocked DESC, so.creation
             LIMIT %(limit)s""",
         {"now": _site_now(), "co": _CO, "acc": accepted_lc, "limit": limit}, as_dict=True)
-    # IN-FLOW casualties: already picked (Picked / Label Generated) but the AWB
-    # never came back — usually the same bad-city cause, discovered only at the
-    # sort wall ("no carrier label" cards). They used to be invisible here
-    # because this queue was pre-pick only; the dispatcher fixes the city then
-    # retries the AWB from this same screen.
+    # IN-FLOW casualties: on a SUBMITTED pick list with no AWB back yet.
+    #
+    # The status list used to be ('Picked', 'Label Generated') and that missed
+    # the ones that matter most: an order whose AWB never came back never
+    # leaves 'Pending'. Between the pre-pick query, which excludes anything
+    # already on a pick list, and this one, which only looked past Pending,
+    # such an order was invisible on both halves of this screen — measured
+    # 2026-09-08, 57 of 57 orders in that state appeared on neither. Drafts
+    # stay out on purpose: a draft is live work, not a casualty.
     inflow = frappe.db.sql(
         f"""SELECT so.name, so.customer_name customer, so.grand_total total,
                    COALESCE(NULLIF(so.custom_customer_phone,''),
@@ -178,9 +182,13 @@ def city_check_queue(limit=200):
             FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
               AND so.company = %(co)s
-              AND so.custom_logistics_status IN ('Picked', 'Label Generated')
+              AND so.custom_logistics_status IN ('Pending', 'Picked', 'Label Generated')
               AND COALESCE(so.custom_awb, '') = ''
+              AND COALESCE(so.custom_label_url, '') = ''
               AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+              AND EXISTS (SELECT 1 FROM `tabPick List Item` pli
+                          JOIN `tabPick List` p ON p.name = pli.parent
+                          WHERE pli.sales_order = so.name AND p.docstatus = 1)
             ORDER BY so.creation LIMIT 100""",
         {"now": _site_now(), "co": _CO}, as_dict=True)
 
