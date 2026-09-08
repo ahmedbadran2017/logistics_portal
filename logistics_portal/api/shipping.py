@@ -191,6 +191,18 @@ def retry_awb(order):
         frappe.throw("No submitted pick list for this order yet — it hasn't "
                      "reached AWB creation.")
     pl = pl[0]
+    # If a Delivery Note already exists, the pick-list job is a NO-OP: its first
+    # act is to skip every sales order that already has one ('Nothing to
+    # Create'). Queueing it would report success and change nothing — the exact
+    # trap this button used to fall into. The AWB for an existing parcel is
+    # created from its delivery note instead.
+    if frappe.db.sql(
+            """SELECT 1 FROM `tabDelivery Note` d
+               JOIN `tabDelivery Note Item` di ON di.parent = d.name
+               WHERE di.against_sales_order = %s AND d.docstatus = 1 LIMIT 1""",
+            (name,)):
+        from logistics_portal.api.picking import relabel_order
+        return relabel_order(pl.name, name)
     frappe.enqueue(
         "ecommerce_integrations.overrides.pick_list.create_delivery_notes_background",
         pick_list_name=pl.name, company=pl.company,

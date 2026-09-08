@@ -224,3 +224,66 @@ def set_shipping_city(order, city):
     _add_manual_city(city)
     frappe.db.commit()
     return {"ok": True, "order": order, "city": city}
+
+
+def _tokens(s):
+    """Words of 3+ chars, lowercased, punctuation stripped — no regex so the
+    Latin-1 accents in the carrier's own list survive the split."""
+    out, cur = [], []
+    for ch in (s or "").lower():
+        if ch.isalnum():
+            cur.append(ch)
+        else:
+            if len(cur) > 2:
+                out.append("".join(cur))
+            cur = []
+    if len(cur) > 2:
+        out.append("".join(cur))
+    return out
+
+
+@frappe.whitelist()
+def suggest_city(order, limit=8):
+    """Rank carrier-valid cities against what the customer actually typed.
+
+    Fixing a label-less parcel is a matching exercise, not a search: the address
+    reads 'Marrakech tamansourt' and Cathedis knows BOTH 'Marrakech' and
+    'TAMANSOURT' — it just doesn't know the two glued together. Making a human
+    scroll 505 entries to discover that is how these parcels end up abandoned,
+    so score the accepted list against the words in the order's own city and put
+    the plausible ones first. Returns {city, exact, suggestions} — `exact` true
+    means nothing needs fixing and the AWB failed for another reason.
+    """
+    _gate()
+    order = (order or "").strip()
+    if not frappe.db.exists("Sales Order", order):
+        frappe.throw("Unknown order.")
+    raw = (frappe.db.get_value("Sales Order", order, "custom_shipping_city") or "").strip()
+    cities = _accepted_cities()
+    low = {}
+    for c in cities:
+        low.setdefault(c.strip().lower(), c)
+    k = raw.lower().strip()
+    if k and k in low:
+        return {"city": raw, "exact": low[k], "suggestions": []}
+
+    toks = _tokens(raw)
+    scored = []
+    for c in cities:
+        ct = _tokens(c)
+        cl = c.lower()
+        s = 0
+        for t in toks:
+            if t in ct:
+                s += 100                     # a whole word of the address IS this city
+            elif t and (cl.startswith(t) or t.startswith(cl)):
+                s += 40                      # one is a prefix of the other
+            elif t and t in cl:
+                s += 15                      # appears somewhere inside
+        if s:
+            # Prefer the shorter, cleaner entry when two score alike: the
+            # carrier's list carries free-text junk ('Marrakech Massira 1').
+            scored.append((-s, len(c), c))
+    scored.sort()
+    lim = min(max(int(limit or 8), 1), 25)
+    return {"city": raw, "exact": "", "suggestions": [x[2] for x in scored[:lim]]}

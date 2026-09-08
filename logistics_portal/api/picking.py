@@ -2051,11 +2051,27 @@ def _sort_gate():
         frappe.throw("Not authorized to sort.", frappe.PermissionError)
 
 
+# A parcel is finished with the sort wall once it is labelled or gone. Anything
+# else on a submitted list is still work standing in dispatch — including the
+# 'Pending' orders whose AWB never came back, which is exactly the state that
+# used to make a whole list vanish (PL-55740, 2026-09-08).
+_SORT_DONE = ("Label Printed", "Shipped", "Delivered", "Not Delivered", "Returned")
+
+
 @frappe.whitelist()
 def sorting_lists(days=2, limit=30):
-    """Pick lists awaiting sorting: submitted recently, with at least one
-    order still at Label Generated (= picked, AWB ready, label not printed).
-    Progress = orders already Label Printed / total orders on the list."""
+    """Pick lists awaiting sorting: submitted recently, with at least one order
+    not yet labelled and shipped.
+
+    The window used to be 'at least one order at Label Generated'. That reads as
+    the same thing and is not: an order whose AWB never came back sits at
+    **Pending**, so it was never counted, and once its list-mates printed the
+    whole list dropped off this wall carrying an unshipped parcel with it.
+    Measured 2026-09-08: 6 pick lists in 30 days disappeared that way, each
+    holding one order whose stock had already been deducted by a submitted
+    Delivery Note — the system believed it had shipped. `blocked` counts the
+    ones sorted-complete with no carrier label, so they are visible as work
+    rather than as an absence."""
     _sort_gate()
     days = min(max(int(days or 2), 1), 14)
     limit = min(max(int(limit or 30), 1), 100)
@@ -2066,8 +2082,14 @@ def sorting_lists(days=2, limit=30):
                   SUM(pli.qty) AS qty,
                   COUNT(DISTINCT CASE WHEN so.custom_logistics_status = 'Label Printed'
                                       THEN pli.sales_order END) AS printed,
-                  COUNT(DISTINCT CASE WHEN so.custom_logistics_status = 'Label Generated'
-                                      THEN pli.sales_order END) AS pending
+                  COUNT(DISTINCT CASE WHEN COALESCE(so.custom_logistics_status,'') NOT IN %s
+                                       AND COALESCE(so.custom_sales_status,'') <> 'Cancelled'
+                                      THEN pli.sales_order END) AS pending,
+                  COUNT(DISTINCT CASE WHEN COALESCE(so.custom_awb,'') = ''
+                                       AND COALESCE(so.custom_label_url,'') = ''
+                                       AND COALESCE(so.custom_logistics_status,'') NOT IN %s
+                                       AND COALESCE(so.custom_sales_status,'') <> 'Cancelled'
+                                      THEN pli.sales_order END) AS blocked
            FROM `tabPick List` pl
            JOIN `tabPick List Item` pli ON pli.parent = pl.name
            LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
@@ -2075,10 +2097,11 @@ def sorting_lists(days=2, limit=30):
            GROUP BY pl.name
            HAVING pending > 0
            ORDER BY pl.creation DESC LIMIT %s""",
-        (days, limit), as_dict=True)
+        (_SORT_DONE, _SORT_DONE, days, limit), as_dict=True)
     return [{"name": r.name, "picker": (r.picker or "").split("@")[0],
              "orders": int(r.orders or 0), "qty": int(r.qty or 0),
-             "printed": int(r.printed or 0), "pending": int(r.pending or 0)}
+             "printed": int(r.printed or 0), "pending": int(r.pending or 0),
+             "blocked": int(r.blocked or 0)}
             for r in rows]
 
 
@@ -2096,6 +2119,7 @@ def sorting_detail(pick_list):
                   it.custom_sku AS real_sku, it.image,
                   s.customer_name AS customer, s.custom_logistics_status AS status,
                   s.custom_label_url AS label_url, s.custom_shipping_city AS city,
+                  s.custom_awb AS awb, s.custom_sales_status AS sales_status,
                   s.grand_total AS total
            FROM `tabPick List Item` pli
            LEFT JOIN `tabItem` it ON it.name = pli.item_code
@@ -2108,6 +2132,7 @@ def sorting_detail(pick_list):
         o = orders.setdefault(r.so, {
             "order": r.so, "customer": r.customer or "", "city": r.city or "",
             "status": r.status or "", "labelUrl": r.label_url or "",
+            "awb": r.awb or "", "salesStatus": r.sales_status or "",
             "total": float(r.total or 0), "items": []})
         o["items"].append({
             "itemCode": r.item_code, "sku": r.real_sku or "", "name": r.item_name,
@@ -2123,8 +2148,21 @@ def sorting_detail(pick_list):
         # late; see recheck_label for the recovery path).
         o["noLabel"] = bool(o["done"] and not o["labelUrl"]
                             and o["status"] != "Label Printed")
+        # A parcel with no AWB is stuck whether or not anyone sorted it — and
+        # the ones that strand are precisely the ones nobody sorted, because the
+        # sorter had no box to scan. Flag it independently so the dispatcher's
+        # repair is reachable; the UI holds the panel back for a few minutes so
+        # a normal in-flight AWB isn't dressed up as a failure.
+        o["awbMissing"] = bool(not o["awb"] and not o["labelUrl"]
+                               and o["status"] not in _SORT_DONE
+                               and o["salesStatus"] != "Cancelled")
     out.sort(key=lambda o: (o["done"], o["order"]))
-    return {"pickList": pick_list, "orders": out}
+    submitted = frappe.db.get_value("Pick List", pick_list, "modified")
+    age_min = 0
+    if submitted:
+        from frappe.utils import time_diff_in_seconds, now_datetime
+        age_min = int(max(0, time_diff_in_seconds(now_datetime(), submitted)) // 60)
+    return {"pickList": pick_list, "orders": out, "ageMin": age_min}
 
 
 @frappe.whitelist()
@@ -2156,6 +2194,87 @@ def recheck_label(pick_list, order):
     frappe.db.commit()
     frappe.cache().delete_value("lp_board_summary")
     return {"ok": True, "labelUrl": lbl or "", "awb": awb or ""}
+
+
+@frappe.whitelist(methods=["POST"])
+def relabel_order(pick_list, order, city=None):
+    """Dispatcher repair for a parcel that finished picking with no carrier
+    label: optionally correct the shipping city, then actually create the AWB.
+
+    Why this exists rather than reusing shipping.retry_awb: that function
+    re-enqueues ecommerce_integrations' pick-list job, and that job's FIRST act
+    is to skip every sales order that already has a Delivery Note — 'All Sales
+    Orders already have Delivery Notes for this Pick List / Nothing to Create'.
+    Every order in this bucket has one (the DN is submitted, the stock is
+    already deducted; that is why the system believes it shipped). So the retry
+    button was a no-op on exactly the population it was written for. The AWB for
+    an existing parcel is created FROM the delivery note —
+    CathedisShipping.create_delivery_note_shipment — which writes custom_awb,
+    custom_label_url and 'Label Generated' back to the SO and its notes.
+
+    Two failure families, both handled: an unmatched city (Cathedis knows
+    'TAMANSOURT' and 'Marrakech', not 'Marrakech tamansourt') needs `city`
+    passed; a valid city whose call simply failed needs only the retry. The
+    city write goes through city.set_shipping_city so the linked Address is
+    updated too — that Address is the field the carrier payload reads.
+    """
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Only a dispatcher or manager can regenerate a label.",
+                     frappe.PermissionError)
+    order = (order or "").strip()
+    if not frappe.db.exists("Pick List Item", {"parent": pick_list, "sales_order": order}):
+        return {"ok": False, "reason": "not_on_list"}
+    awb, lbl = frappe.db.get_value(
+        "Sales Order", order, ["custom_awb", "custom_label_url"]) or (None, None)
+    if awb or lbl:
+        return {"ok": True, "already": True, "awb": awb or "", "labelUrl": lbl or ""}
+
+    changed = ""
+    if city:
+        from logistics_portal.api.city import set_shipping_city
+        set_shipping_city(order, city)
+        changed = (city or "").strip()
+
+    dn = frappe.db.sql(
+        """SELECT d.name FROM `tabDelivery Note` d
+           JOIN `tabDelivery Note Item` di ON di.parent = d.name
+           WHERE di.against_sales_order = %s AND d.docstatus = 1
+           ORDER BY d.creation DESC LIMIT 1""", (order,))
+    if not dn:
+        # No delivery note yet — the pick-list job never got that far, so
+        # re-running it is the right move and is NOT a no-op here.
+        from logistics_portal.api.shipping import retry_awb
+        res = retry_awb(order)
+        res["cityChanged"] = changed
+        res["path"] = "pick_list_job"
+        return res
+
+    try:
+        from ecommerce_integrations.shipping.cathedis import CathedisShipping
+        doc = frappe.get_doc("Delivery Note", dn[0][0])
+        CathedisShipping().create_delivery_note_shipment(doc)
+    except Exception as e:
+        frappe.db.rollback()
+        return {"ok": False, "reason": "carrier_error", "error": _short_err(e),
+                "cityChanged": changed}
+
+    awb, lbl = frappe.db.get_value(
+        "Sales Order", order, ["custom_awb", "custom_label_url"]) or (None, None)
+    if not (awb or lbl):
+        # The call came back without complaining but nothing landed. Say so
+        # plainly instead of turning the slot green on an empty result.
+        return {"ok": False, "reason": "no_label_yet", "cityChanged": changed}
+
+    frappe.get_doc("Sales Order", order).add_comment(
+        "Comment", "Carrier label regenerated from delivery note "
+                   f"{dn[0][0]}{(' after setting city to ' + changed) if changed else ''} "
+                   f"· by {frappe.session.user}")
+    frappe.db.commit()
+    frappe.cache().delete_value("lp_board_summary")
+    return {"ok": True, "awb": awb or "", "labelUrl": lbl or "",
+            "cityChanged": changed, "path": "delivery_note",
+            "deliveryNote": dn[0][0]}
 
 
 def claim_late_labels():

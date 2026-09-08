@@ -38,6 +38,9 @@
             <span class="block text-[12px] text-stone-500 mt-0.5">
               {{ l.picker }} · {{ l.orders }} {{ t('ordersPg.blOrders') }} · {{ l.qty }} {{ t('consol.items') }}
             </span>
+            <span v-if="l.blocked" class="inline-flex items-center gap-1 mt-1 text-[11px] font-semibold text-amber-700 bg-amber-50 ring-1 ring-amber-200/70 rounded-md px-1.5 py-0.5">
+              <Icon name="alert-triangle" :size="11" />{{ l.blocked }} {{ t('sort.blockedChip') }}
+            </span>
           </span>
           <span class="flex flex-col items-end gap-1 flex-shrink-0">
             <span class="text-[12.5px] font-bold tabular-nums" :class="l.printed ? 'text-emerald-600' : 'text-stone-400'">
@@ -124,7 +127,7 @@
           >
             <Icon name="printer" :size="14" /> {{ o.printed ? t('sort.printAgain') : t('sort.printNow') }}
           </button>
-          <div v-else-if="o.noLabel" class="mt-2.5 space-y-1.5">
+          <div v-else-if="o.noLabel || showFix(o)" class="mt-2.5 space-y-1.5">
             <div class="flex items-start gap-2 rounded-lg bg-amber-50 ring-1 ring-amber-200/70 px-3 py-2 text-[11.5px] text-amber-800">
               <Icon name="alert-triangle" :size="14" class="text-amber-500 shrink-0 mt-0.5" />
               <span>{{ t('sort.noLabelHint') }}</span>
@@ -138,9 +141,89 @@
             >
               <Icon name="refresh-cw" :size="14" /> {{ o.rechecking ? t('sort.rechecking') : t('sort.recheck') }}
             </button>
+
+            <!-- The hint above has always told the dispatcher to fix the city
+                 and retry the AWB. Until now there was no way to do either from
+                 here, so the parcel just stood in dispatch. -->
+            <div v-if="canFix" class="rounded-lg ring-1 ring-stone-200 bg-stone-50/70 p-2 space-y-1.5">
+              <div class="text-[11px] text-stone-500">
+                {{ t('sort.cityNow') }}
+                <span class="font-semibold text-stone-700">{{ o.city || t('sort.cityEmpty') }}</span>
+              </div>
+              <div v-if="o.citySuggests?.length" class="flex flex-wrap gap-1">
+                <button
+                  v-for="c in o.citySuggests" :key="c"
+                  class="text-[11.5px] rounded-md px-2 h-7 ring-1 transition-colors"
+                  :class="o.cityPick === c ? 'bg-sky-600 text-white ring-sky-600' : 'bg-white text-stone-700 ring-stone-200 hover:bg-stone-50'"
+                  @click="o.cityPick = (o.cityPick === c ? '' : c)"
+                >{{ c }}</button>
+              </div>
+              <div v-else-if="o.cityExact" class="text-[11px] text-emerald-700">{{ t('sort.cityOk') }}</div>
+              <input
+                v-model="o.cityTyped" type="text" :placeholder="t('sort.cityOther')"
+                class="w-full h-8 rounded-md ring-1 ring-stone-200 px-2 text-[12px] focus:outline-none focus:ring-[var(--accent-400)]"
+              />
+              <button
+                class="w-full h-9 rounded-lg text-[12.5px] font-semibold bg-stone-900 text-white hover:bg-stone-800 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                :disabled="o.fixing"
+                @click="fixAndLabel(o)"
+              >
+                <Icon name="send" :size="14" />
+                {{ o.fixing ? t('sort.fixing') : ((o.cityPick || o.cityTyped) ? t('sort.fixCityAndLabel') : t('sort.makeLabel')) }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      <!-- ── Multi-piece guard ──────────────────────────────────────────────
+           A one-line toast under the scanner is the wrong weight for an order
+           that is not finished: the sorter reads "2/3", takes it for a count of
+           what they just did, tapes the box and moves on. A parcel that leaves
+           short is worse than one that waits, so a multi-piece order stops the
+           wall and says exactly which pieces are still owed. It clears itself
+           on the next scan — no button to hunt for mid-flow. -->
+      <div
+        v-if="pending"
+        class="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-stone-900/40 px-4 pb-4 sm:pb-0"
+        @click.self="pending = null"
+      >
+        <div class="w-full max-w-sm bg-white rounded-2xl ring-1 ring-stone-200 shadow-xl p-4 space-y-3">
+          <div class="flex items-center gap-2.5">
+            <span class="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center flex-shrink-0">
+              <Icon name="layers" :size="17" />
+            </span>
+            <div class="min-w-0">
+              <div class="font-mono text-[13.5px] font-bold text-stone-900 truncate">{{ pending.order }}</div>
+              <div class="text-[11.5px] text-stone-500">{{ t('sort.stillMissing') }}</div>
+            </div>
+            <span class="ms-auto text-[15px] font-bold tabular-nums text-amber-600">
+              {{ pending.sorted }}/{{ pending.qty }}
+            </span>
+          </div>
+          <div class="space-y-1.5">
+            <div v-for="it in pending.items" :key="it.itemCode"
+                 class="flex items-center gap-2.5 rounded-lg px-2 py-1.5"
+                 :class="it.sorted >= it.qty ? 'bg-emerald-50/60' : 'bg-amber-50/60 ring-1 ring-amber-200/60'">
+              <img v-if="it.image" :src="it.image" alt="" loading="lazy" @error="onImgError"
+                   class="w-9 h-9 rounded-lg object-cover ring-1 ring-stone-200 bg-white flex-shrink-0" />
+              <span v-else class="w-9 h-9 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center flex-shrink-0 text-stone-400"><Icon name="package" :size="14" /></span>
+              <div class="min-w-0 flex-1">
+                <div class="text-[11.5px] font-medium text-stone-800 truncate">{{ it.name }}</div>
+                <div class="font-mono text-[10.5px] text-stone-400">{{ it.sku || it.itemCode }}</div>
+              </div>
+              <span class="text-[12.5px] font-bold tabular-nums flex-shrink-0"
+                    :class="it.sorted >= it.qty ? 'text-emerald-600' : 'text-amber-700'">
+                {{ it.sorted }}/{{ it.qty }}
+              </span>
+            </div>
+          </div>
+          <div class="text-[11.5px] text-stone-500">{{ t('sort.scanToContinue') }}</div>
+          <button class="w-full h-9 rounded-lg text-[12.5px] font-semibold bg-stone-100 text-stone-700 hover:bg-stone-200"
+                  @click="pending = null">{{ t('common.close') }}</button>
+        </div>
+      </div>
+
     </template>
   </div>
 </template>
@@ -152,9 +235,16 @@ import ScanInput from "@/components/ui/ScanInput.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
+import { useAuth } from "@/composables/useAuth";
 
 const { t } = useI18n();
 const { success, warn } = useToast();
+const { role } = useAuth();
+
+// Fixing a city and calling the carrier is a dispatcher act — a packer still
+// SEES the diagnosis (that is how it reaches a dispatcher), they just can't
+// hand the parcel over themselves. Matches the server gate on relabel_order.
+const canFix = computed(() => role.value === "dispatcher" || role.value === "manager");
 
 const scanner = ref(null);
 const lists = ref([]);
@@ -162,6 +252,16 @@ const loadingLists = ref(true);
 const wall = ref(null);          // {pickList, orders:[...]} — the open tote
 const printedToday = ref(0);
 const flash = ref("");           // order slot to pulse after a scan
+const pending = ref(null);       // multi-piece order the sorter must finish
+
+// Hold the repair panel back for a few minutes on a parcel that is merely
+// waiting: the AWB normally lands within a minute or two of the pick list, and
+// dressing a normal in-flight parcel up as a failure teaches the floor to
+// ignore the flag. The ones that actually strand sit for hours.
+const AWB_GRACE_MIN = 20;
+function showFix(o) {
+  return !!(o.awbMissing && !o.printed && (wall.value?.ageMin || 0) >= AWB_GRACE_MIN);
+}
 
 const doneCount = computed(() => (wall.value?.orders || []).filter((o) => o.done).length);
 
@@ -189,13 +289,39 @@ function normalizeWall(w) {
     // open, and they were rendering as merely-SORTED (PL-54797).
     o.shipped = ["Shipped", "Delivered"].includes(o.status);
     o.printed = o.status === "Label Printed" || o.shipped;
+    o.cityPick = "";
+    o.cityTyped = "";
+    o.citySuggests = null;
+    o.cityExact = "";
+    o.fixing = false;
   });
   return w;
+}
+
+// Which carrier city could this address have meant? Asked only for the slots
+// that actually need repairing, so a clean wall makes no extra calls.
+async function loadSuggests(o) {
+  if (o.citySuggests || !canFix.value) return;
+  try {
+    const res = await api("city.suggest_city", { order: o.order });
+    o.citySuggests = res?.suggestions || [];
+    o.cityExact = res?.exact || "";
+    if (o.citySuggests.length === 1) o.cityPick = o.citySuggests[0];
+  } catch (e) {
+    o.citySuggests = [];
+  }
+}
+
+function primeFixes() {
+  (wall.value?.orders || []).forEach((o) => {
+    if (o.noLabel || showFix(o)) loadSuggests(o);
+  });
 }
 
 async function openWall(name) {
   try {
     wall.value = normalizeWall(await api("picking.sorting_detail", { pick_list: name }));
+    primeFixes();
     scanner.value?.refocus();
   } catch (e) {
     warn(t("sort.loadFail"), String(e.message || e));
@@ -215,6 +341,7 @@ async function onScanList(raw) {
   // Maybe an older list not in the window — try it anyway.
   try {
     wall.value = normalizeWall(await api("picking.sorting_detail", { pick_list: code }));
+    primeFixes();
   } catch (e) {
     scanner.value?.showError(t("sort.unknownList"));
   }
@@ -224,6 +351,9 @@ async function onScanList(raw) {
 async function onScanItem(raw) {
   const code = String(raw || "").trim();
   if (!code || !wall.value) return;
+  // Any scan dismisses the guard — the sorter's hands are on the scanner, not
+  // the screen, and a modal that swallows scans is worse than no modal.
+  if (pending.value) pending.value = null;
   let res;
   try {
     res = await apiPost("picking.sort_scan", { pick_list: wall.value.pickList, code });
@@ -252,6 +382,8 @@ async function onScanItem(raw) {
       // flag it so a dispatcher fixes the city / retries the AWB.
       o.done = true;
       o.noLabel = true;
+      pending.value = null;
+      loadSuggests(o);
       warn(t("sort.noLabel"), o.order);
     } else if (res.orderComplete) {
       // Stage 1: sorted (slot goes blue). Stage 2: printed — set only when the
@@ -259,8 +391,15 @@ async function onScanItem(raw) {
       o.done = true;
       o.labelUrl = res.labelUrl || o.labelUrl;
       if (o.labelUrl) printLabel(o.order, () => { o.printed = true; printedToday.value += 1; });
+      pending.value = null;
       success(t("sort.orderDone"), o.order);
+    } else if (o.qty > 1) {
+      // More pieces owed on this order. Show them — the toast alone is what
+      // lets a short parcel get taped shut.
+      pending.value = o;
+      scanner.value?.refocus();
     } else {
+      pending.value = null;
       scanner.value?.showSuccess(`${o.order} · ${o.sorted}/${o.qty}`);
     }
   }
@@ -282,6 +421,41 @@ async function printAndMark(o) {
     if (res.labelUrl) o.labelUrl = res.labelUrl;
   } catch (e) {
     warn(t("sort.statusStuck"), String(e.message || e));
+  }
+}
+
+// Correct the city if the dispatcher chose one, then actually create the AWB
+// from the parcel's existing delivery note. Everything before this shipped a
+// diagnosis and no cure: the hint told a dispatcher to fix the city and retry,
+// while the only button re-read a label that was never going to arrive.
+async function fixAndLabel(o) {
+  const city = (o.cityTyped || "").trim() || o.cityPick || "";
+  o.fixing = true;
+  try {
+    const res = await apiPost("picking.relabel_order", {
+      pick_list: wall.value.pickList, order: o.order, city: city || undefined,
+    });
+    if (res.ok) {
+      o.noLabel = false;
+      o.awbMissing = false;
+      o.awb = res.awb || o.awb;
+      o.labelUrl = res.labelUrl || o.labelUrl;
+      o.status = "Label Generated";
+      if (res.cityChanged) o.city = res.cityChanged;
+      if (o.labelUrl) printLabel(o.order, () => { o.printed = true; printedToday.value += 1; });
+      success(t("sort.labelArrived"), o.order);
+    } else if (res.reason === "carrier_error") {
+      // Say what the carrier said. A generic failure here sends the parcel
+      // back to the shelf it just came from.
+      warn(t("sort.carrierRefused"), res.error || o.order);
+    } else {
+      warn(t("sort.stillNoLabel"), o.order);
+    }
+  } catch (e) {
+    warn(t("sort.stillNoLabel"), String(e.message || e));
+  } finally {
+    o.fixing = false;
+    scanner.value?.refocus();
   }
 }
 
