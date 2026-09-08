@@ -130,7 +130,19 @@
                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-900 text-white text-[12px] font-bold font-mono"><Icon name="map-pin" :size="11" />{{ s.bin }}</span>
                     <span v-if="isNewAisleStop(i)" class="text-[10px] font-medium text-[var(--accent-700)] bg-[var(--accent-50)] rounded px-1.5 py-0.5">{{ binZone(s.bin).replace(" - JM", "") }}</span>
                   </div>
-                  <span class="text-[15px] font-bold tabular-nums" :class="stopDone(s) ? 'text-emerald-600' : s.partial ? 'text-amber-600' : 'text-stone-900'">{{ scannedFor(s) }}/{{ s.qty }} <span class="text-[12px] font-semibold text-stone-400">{{ t('pl.grab') }}</span></span>
+                  <div class="flex items-center gap-2">
+                    <span class="text-[15px] font-bold tabular-nums" :class="stopDone(s) ? 'text-emerald-600' : s.partial ? 'text-amber-600' : 'text-stone-900'">{{ scannedFor(s) }}/{{ s.qty }} <span class="text-[12px] font-semibold text-stone-400">{{ t('pl.grab') }}</span></span>
+                    <!-- Nothing on the shelf. This is the view the floor actually
+                         works from — it groups a grab by bin, so the button has to
+                         be here too, not only on the per-line screen. -->
+                    <button v-if="!stopDone(s)"
+                            class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+                            :class="shortArm === s.key ? 'bg-rose-600 text-white' : 'bg-stone-100 text-stone-400 hover:bg-stone-200'"
+                            :title="t('pickm.shortPick')"
+                            @click.stop="onShortStop(s)">
+                      <Icon name="alert-triangle" :size="14" />
+                    </button>
+                  </div>
                 </div>
                 <div class="flex gap-3 mt-2">
                   <img v-if="s.image" :src="s.image" alt="" loading="lazy" @error="onImgError"
@@ -150,6 +162,28 @@
                   <span v-if="s.uom && s.uom !== 'Nos'" class="text-[10px] font-medium text-stone-500 bg-stone-100 rounded px-1.5 py-0.5">{{ s.uom }}</span>
                   <span v-if="s.serial || s.batch" class="inline-flex items-center gap-1 text-[10px] font-medium text-violet-700 bg-violet-50 ring-1 ring-violet-200/60 rounded px-1.5 py-0.5"><span v-html="tagIcon(9)" />{{ s.serial ? "Serial" : "Batch" }}</span>
                 </div>
+                <!-- Pieces already picked for these orders: they have to be
+                     scanned back, and that lives on the picking screen. -->
+                <div v-if="stopPutBack && stopPutBack.stop.key === s.key"
+                     class="mt-2 pt-2 border-t border-rose-200 bg-rose-50/60 -mx-3 -mb-3 px-3 py-2 rounded-b-xl">
+                  <div class="text-[12px] font-semibold text-rose-800 flex items-center gap-1.5">
+                    <Icon name="alert-triangle" :size="13" />{{ t('pl.stopHeld') }}
+                  </div>
+                  <ul class="mt-1 space-y-0.5">
+                    <li v-for="h in stopPutBack.held" :key="h.order" class="text-[11.5px] text-rose-700 font-mono">
+                      {{ h.order }} — {{ h.pieces }}{{ ' ' }}{{ t('pl.stopPieces') }}
+                    </li>
+                  </ul>
+                  <div class="flex items-center gap-2 mt-2">
+                    <button class="h-8 px-3 rounded-lg text-[12px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]"
+                            @click.stop="$router.push({ name: 'PickMode', params: { id: stopPutBack.pl } })">
+                      {{ t('pl.stopGoScan') }}
+                    </button>
+                    <button class="h-8 px-3 rounded-lg text-[12px] font-semibold text-stone-600 hover:bg-stone-100"
+                            @click.stop="stopPutBack = null">{{ t('common.cancel') }}</button>
+                  </div>
+                </div>
+
                 <!-- packing map: which orders this grab splits into -->
                 <div v-if="s.orders.length > 1" class="mt-2 pt-2 border-t border-stone-100 flex flex-wrap gap-1 max-h-24 overflow-y-auto">
                   <span v-for="o in s.orders" :key="o.so" class="inline-flex items-center gap-1 text-[10.5px] font-mono text-stone-600 bg-stone-50 ring-1 ring-stone-200/70 rounded px-1.5 py-0.5" :title="o.customer">
@@ -891,6 +925,59 @@ const pickScanner = ref(null);
 const scanned = ref({}); // stop.key -> units scanned this session
 const scanMode = computed(() =>
   liveDetail.value && ["draft", "open"].includes(liveDetail.value.status));
+// ── Nothing on the shelf, reported from the grab view ────────────────────
+// A stop is one bin serving several ORDERS, so an empty shelf here is a short
+// pick for every order at that stop — the picker sees one gap and should press
+// once, not once per order. Each order still goes through its own put-back, so
+// nothing that was already picked leaves the building unaccounted for.
+const shortArm = ref("");
+let shortArmTimer = null;
+const stopPutBack = ref(null);
+
+async function onShortStop(s) {
+  if (shortArm.value !== s.key) {
+    shortArm.value = s.key;
+    clearTimeout(shortArmTimer);
+    shortArmTimer = setTimeout(() => { shortArm.value = ""; }, 4000);
+    return;
+  }
+  shortArm.value = "";
+  const pl = liveDetail.value?.no;
+  if (!pl) return;
+  const orders = (s.orders || []).map((o) => o.so);
+  let held = [];
+  for (const so of orders) {
+    try {
+      const pre = await api("picking.short_pick_start", { pick_list: pl, order: so });
+      if ((pre.putBack || []).length) held.push({ order: so, rows: pre.putBack, pieces: pre.pieces });
+    } catch (e) { /* treat as nothing held */ }
+  }
+  if (held.length) {
+    // Somebody is carrying pieces for these orders. Say so, and send them to
+    // the picking screen where the scan-back lives, rather than removing the
+    // orders and leaving the pieces in the tote.
+    stopPutBack.value = { stop: s, held, pl };
+    return;
+  }
+  await removeStop(s, orders, pl, 0);
+}
+
+async function removeStop(s, orders, pl, defer) {
+  let n = 0;
+  for (const so of orders) {
+    try {
+      await apiPost("picking.report_short_pick", {
+        pick_list: pl, order: so, item_code: s.realSku || s.sku, defer,
+      });
+      n += 1;
+    } catch (e) { /* keep going; the rest of the stop still needs clearing */ }
+  }
+  stopPutBack.value = null;
+  // Reload the list so the removed orders drop out of the walk plan.
+  if (detail.value) await openDetail(detail.value);
+  return n;
+}
+
 const scannedFor = (s) => {
   const v = scanned.value[s.key];
   return Math.max(v != null ? v : (s.scannedQty || 0), s.pickedQty || 0);

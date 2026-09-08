@@ -867,6 +867,9 @@ export default {
     failed: "Impossible de créer la liste",
   },
   pl: {
+    stopHeld: "Certaines de ces commandes ont déjà des pièces prélevées",
+    stopPieces: "pièce(s) dans le bac",
+    stopGoScan: "Les rescanner",
     sbSkipped: "{n} commandes écartées — le stock ne les couvre pas entièrement",
     sbFellBack: "Lot scindé en {n} listes séparées — l'enregistrement combiné a été rejeté",
     emptyDrafts: "{n} brouillons de listes sans AUCUN article — résidus d'insertions vidées. Ils ne bloquent rien mais noient les vraies listes.",

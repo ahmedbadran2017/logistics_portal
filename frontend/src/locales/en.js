@@ -867,6 +867,9 @@ export default {
     failed: "Couldn't create the list",
   },
   pl: {
+    stopHeld: "Some of these orders already have pieces picked",
+    stopPieces: "piece(s) in the tote",
+    stopGoScan: "Scan them back",
     sbSkipped: "{n} orders left out — stock can't fully cover them",
     sbFellBack: "Batch split into {n} separate lists — combined save was rejected",
     emptyDrafts: "{n} draft pick lists hold ZERO items — leftovers of stripped inserts. They block nothing but bury the real lists.",
