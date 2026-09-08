@@ -187,6 +187,7 @@ export default {
     makeLabel: "Créer l'étiquette",
     fixing: "Appel du transporteur...",
     carrierRefused: "Le transporteur a refusé",
+    carrierSaid: "Le transporteur a refusé :",
     stillMissing: "Cette commande n'est pas complète",
     scanToContinue: "Scannez la pièce suivante pour continuer.",
     recheck: "Revérifier l'étiquette",

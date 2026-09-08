@@ -187,6 +187,7 @@ export default {
     makeLabel: "اعمل البوليصة",
     fixing: "بننادي شركة الشحن...",
     carrierRefused: "شركة الشحن رفضت",
+    carrierSaid: "شركة الشحن رفضت وقالت:",
     stillMissing: "الأوردر ده لسه ناقص",
     scanToContinue: "اسكن القطعة اللي بعدها علشان تكمل.",
     recheck: "جرّب تحقق من البوليصة تاني",

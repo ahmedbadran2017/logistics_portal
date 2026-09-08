@@ -2196,6 +2196,43 @@ def recheck_label(pick_list, order):
     return {"ok": True, "labelUrl": lbl or "", "awb": awb or ""}
 
 
+def _carrier_complaint(delivery_note, since):
+    """Read back what the carrier actually refused.
+
+    ecommerce_integrations catches the Cathedis rejection and writes it to the
+    Error Log rather than raising, so relabel_order's own `except` never fires
+    and all it could honestly say was "no label yet". That is useless to the
+    dispatcher standing at the wall: measured 2026-09-08 on the seven stuck
+    parcels, the reasons were four DIFFERENT things -- a city the carrier does
+    not know, a stray double-quote in the city that reached the API as a
+    backslash, an Italian phone number, and a delivery note with no shipping
+    address at all. Only the first is fixable with a city picker, so the screen
+    has to say which one it is.
+    """
+    import re
+    rows = frappe.db.sql(
+        """SELECT error FROM `tabError Log`
+           WHERE creation >= %s AND (method LIKE %s OR error LIKE %s)
+           ORDER BY creation DESC LIMIT 4""",
+        (since, "%" + delivery_note + "%", "%" + delivery_note + "%"))
+    out, seen = [], set()
+    for (err,) in rows or []:
+        err = err or ""
+        cols = re.findall(r'"col"\s*:\s*"([^"]{0,40})"', err)
+        why = re.findall(r'"reason"\s*:\s*"([^"]{0,160})"', err)
+        for i, w in enumerate(why):
+            line = ("%s: %s" % (cols[i], w)) if i < len(cols) else w
+            if line not in seen:
+                seen.add(line)
+                out.append(line)
+        if not why:
+            m = re.search(r"Exception in Cathedis shipping: (.{0,160})", err)
+            if m and m.group(1).strip() not in seen:
+                seen.add(m.group(1).strip())
+                out.append(m.group(1).strip())
+    return out[:4]
+
+
 @frappe.whitelist(methods=["POST"])
 def relabel_order(pick_list, order, city=None):
     """Dispatcher repair for a parcel that finished picking with no carrier
@@ -2250,6 +2287,8 @@ def relabel_order(pick_list, order, city=None):
         res["path"] = "pick_list_job"
         return res
 
+    from frappe.utils import now_datetime
+    started = str(now_datetime())[:19]
     try:
         from ecommerce_integrations.shipping.cathedis import CathedisShipping
         doc = frappe.get_doc("Delivery Note", dn[0][0])
@@ -2257,14 +2296,17 @@ def relabel_order(pick_list, order, city=None):
     except Exception as e:
         frappe.db.rollback()
         return {"ok": False, "reason": "carrier_error", "error": _short_err(e),
+                "why": _carrier_complaint(dn[0][0], started),
                 "cityChanged": changed}
 
     awb, lbl = frappe.db.get_value(
         "Sales Order", order, ["custom_awb", "custom_label_url"]) or (None, None)
     if not (awb or lbl):
-        # The call came back without complaining but nothing landed. Say so
-        # plainly instead of turning the slot green on an empty result.
-        return {"ok": False, "reason": "no_label_yet", "cityChanged": changed}
+        # The call swallowed its own failure. Fetch the carrier's actual words
+        # so the dispatcher learns whether to pick another city, phone the
+        # customer, or fix an address -- not just that it "didn't work".
+        return {"ok": False, "reason": "carrier_refused", "cityChanged": changed,
+                "why": _carrier_complaint(dn[0][0], started)}
 
     frappe.get_doc("Sales Order", order).add_comment(
         "Comment", "Carrier label regenerated from delivery note "

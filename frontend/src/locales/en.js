@@ -187,6 +187,7 @@ export default {
     makeLabel: "Create the label",
     fixing: "Calling the carrier...",
     carrierRefused: "The carrier refused",
+    carrierSaid: "The carrier refused with:",
     stillMissing: "This order is not complete yet",
     scanToContinue: "Scan the next piece to continue.",
     recheck: "Check for the label again",

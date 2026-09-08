@@ -159,6 +159,13 @@
                 >{{ c }}</button>
               </div>
               <div v-else-if="o.cityExact" class="text-[11px] text-emerald-700">{{ t('sort.cityOk') }}</div>
+              <!-- The carrier's own words. Without these the panel offers a
+                   city picker for a parcel whose real problem is a foreign
+                   phone number or a missing address. -->
+              <div v-if="o.why?.length" class="rounded-md bg-rose-50 ring-1 ring-rose-200/70 px-2 py-1.5 space-y-0.5">
+                <div class="text-[10.5px] font-semibold text-rose-700">{{ t('sort.carrierSaid') }}</div>
+                <div v-for="(w, i) in o.why" :key="i" class="text-[11px] text-rose-800 break-words">{{ w }}</div>
+              </div>
               <input
                 v-model="o.cityTyped" type="text" :placeholder="t('sort.cityOther')"
                 class="w-full h-8 rounded-md ring-1 ring-stone-200 px-2 text-[12px] focus:outline-none focus:ring-[var(--accent-400)]"
@@ -293,6 +300,7 @@ function normalizeWall(w) {
     o.cityTyped = "";
     o.citySuggests = null;
     o.cityExact = "";
+    o.why = null;
     o.fixing = false;
   });
   return w;
@@ -444,12 +452,11 @@ async function fixAndLabel(o) {
       if (res.cityChanged) o.city = res.cityChanged;
       if (o.labelUrl) printLabel(o.order, () => { o.printed = true; printedToday.value += 1; });
       success(t("sort.labelArrived"), o.order);
-    } else if (res.reason === "carrier_error") {
+    } else {
       // Say what the carrier said. A generic failure here sends the parcel
       // back to the shelf it just came from.
-      warn(t("sort.carrierRefused"), res.error || o.order);
-    } else {
-      warn(t("sort.stillNoLabel"), o.order);
+      o.why = res.why || [];
+      warn(t("sort.carrierRefused"), (res.why && res.why[0]) || res.error || o.order);
     }
   } catch (e) {
     warn(t("sort.stillNoLabel"), String(e.message || e));
