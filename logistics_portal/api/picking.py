@@ -2327,8 +2327,106 @@ def label_pdf(order):
     frappe.local.response.type = "pdf"
 
 
+def _tote_for(pick_list, order):
+    """What the picker is already carrying for this order, and where it came
+    from. Measured 2026-09-08: 20 of the 102 orders on open drafts are
+    part-picked, holding 41 pieces between them — and short-picking an order
+    used to drop it off the list without ever telling anyone those pieces were
+    in the tote. They then travel to packing with somebody else's order or are
+    left in a corner, while the system still counts them as reserved for an
+    order that is no longer being picked."""
+    rows = frappe.db.sql(
+        """SELECT pli.name, pli.item_code, pli.warehouse,
+                  COALESCE(pli.custom_scanned_qty, 0) got
+           FROM `tabPick List Item` pli
+           WHERE pli.parent = %s AND pli.sales_order = %s
+             AND COALESCE(pli.custom_scanned_qty, 0) > 0
+           ORDER BY pli.idx""", (pick_list, order), as_dict=True)
+    if not rows:
+        return []
+    meta = {r.name: r for r in frappe.db.sql(
+        """SELECT name, custom_sku, item_name, image FROM `tabItem`
+           WHERE name IN %s""", (tuple({r.item_code for r in rows}),), as_dict=True)}
+    out = []
+    for r in rows:
+        m = meta.get(r.item_code) or {}
+        out.append({"row": r.name, "itemCode": r.item_code,
+                    "sku": (m.get("custom_sku") or "").strip(),
+                    "name": m.get("item_name") or r.item_code,
+                    "image": m.get("image") or "",
+                    "shelf": (r.warehouse or "").replace(" - JM", ""),
+                    "qty": int(float(r.got or 0))})
+    return out
+
+
 @frappe.whitelist()
-def report_short_pick(pick_list, order, item_code=None):
+def short_pick_start(pick_list, order):
+    """What has to go back before this order can leave the list.
+
+    An order must never ship incomplete (Ahmed, 2026-09-08), so when one line
+    cannot be found the whole order comes off — and every piece already picked
+    for it has to return to the shelf it came from. This answers 'what am I
+    holding', before anything is removed.
+    """
+    _short_gate(pick_list)
+    tote = _tote_for(pick_list, (order or "").strip())
+    return {"order": order, "putBack": tote,
+            "pieces": sum(t["qty"] for t in tote)}
+
+
+@frappe.whitelist(methods=["POST"])
+def short_pick_return(pick_list, order, code):
+    """Scan one piece back onto its shelf. One scan, one piece.
+
+    The scan is the proof. Without it the data says the piece went back and
+    the shelf says otherwise — which is exactly the class of silent drift
+    behind most of what this portal spends its time repairing.
+    """
+    _short_gate(pick_list)
+    order = (order or "").strip()
+    r = resolve_scan(code)
+    item = r.get("itemCode")
+    if not item:
+        return {"ok": False, "reason": "unknown_item", "code": (code or "").strip()}
+    row = frappe.db.sql(
+        """SELECT name, COALESCE(custom_scanned_qty, 0) got, warehouse
+           FROM `tabPick List Item`
+           WHERE parent = %s AND sales_order = %s AND item_code = %s
+             AND COALESCE(custom_scanned_qty, 0) > 0
+           ORDER BY idx LIMIT 1""", (pick_list, order, item), as_dict=True)
+    if not row:
+        return {"ok": False, "reason": "not_in_tote", "itemCode": item,
+                "name": r.get("name") or ""}
+    # Guarded decrement: two devices on the same tote cannot double-count.
+    frappe.db.sql(
+        """UPDATE `tabPick List Item`
+           SET custom_scanned_qty = COALESCE(custom_scanned_qty, 0) - 1
+           WHERE name = %s AND COALESCE(custom_scanned_qty, 0) > 0""",
+        (row[0].name,))
+    if not frappe.db.sql("SELECT ROW_COUNT()")[0][0]:
+        return {"ok": False, "reason": "not_in_tote", "itemCode": item}
+    frappe.db.commit()
+    left = _tote_for(pick_list, order)
+    return {"ok": True, "itemCode": item, "name": r.get("name") or "",
+            "shelf": (row[0].warehouse or "").replace(" - JM", ""),
+            "putBack": left, "pieces": sum(t["qty"] for t in left)}
+
+
+def _short_gate(pick_list):
+    from logistics_portal.api.auth import resolve_role
+    if not frappe.db.exists("Pick List", pick_list):
+        frappe.throw("Unknown pick list.")
+    pl = frappe.db.get_value("Pick List", pick_list,
+                             ["custom_assigned_picker", "owner", "docstatus"], as_dict=True)
+    user, role = frappe.session.user, resolve_role(frappe.session.user)
+    if role != "manager" and user not in (pl.custom_assigned_picker, pl.owner):
+        frappe.throw("You are not the picker for this list.", frappe.PermissionError)
+    if pl.docstatus != 0:
+        frappe.throw("This pick list is already submitted.")
+
+
+@frappe.whitelist()
+def report_short_pick(pick_list, order, item_code=None, defer=0):
     """The picker can't find an item on the shelf. Chosen ops flow: pull that
     ORDER off the draft pick list (back to the problem pool, cool-down 24h so
     batching doesn't bounce it right back), notify the dispatchers, and let
@@ -2350,6 +2448,19 @@ def report_short_pick(pick_list, order, item_code=None):
     if not rows:
         frappe.throw("That order isn't on this pick list.")
 
+    # An order never ships incomplete, so it leaves the list whole — and so do
+    # the pieces already picked for it. Letting it go while they sit in the
+    # tote is how stock goes missing in a way nothing can trace: the system
+    # frees the order, the shelf never gets its pieces back, and the count is
+    # wrong from that moment on. The caller must either scan them back
+    # (short_pick_return) or say plainly that it is doing it later.
+    tote = _tote_for(pick_list, so_name)
+    if tote and not int(defer or 0):
+        frappe.throw(
+            "Put these back first: " +
+            ", ".join(f"{t['qty']}x {t['name'][:40]} to {t['shelf']}" for t in tote),
+            frappe.ValidationError)
+
     keep = [r for r in pl.get("locations") if r.sales_order != so_name]
     deleted = False
     if keep:
@@ -2367,9 +2478,16 @@ def report_short_pick(pick_list, order, item_code=None):
         so.db_set("custom_short_picked_at", frappe.utils.now_datetime(),
                   update_modified=False)
     what = f" ({item_code})" if item_code else ""
+    owed = ""
+    if tote:
+        # Deferred: the pieces are still on the trolley. Name them, with their
+        # shelves, so somebody can close the loop instead of discovering it as
+        # a stock difference weeks later.
+        owed = (" STILL IN THE TOTE, to return: " +
+                "; ".join(f"{t['qty']}x {t['itemCode']} -> {t['shelf']}" for t in tote))
     so.add_comment("Comment",
                    f"Short pick: item{what} not found on the shelf by {user} — "
-                   f"pulled off {pick_list}, back to the pool for 24h.")
+                   f"pulled off {pick_list}, back to the pool for 24h.{owed}")
 
     # Tell the dispatchers something physical is wrong.
     dispatchers = [u for u, r in SEED_ROLES.items() if r in ("dispatcher", "manager")]
@@ -2379,7 +2497,7 @@ def report_short_pick(pick_list, order, item_code=None):
                 "doctype": "Notification Log",
                 "subject": f"Short pick: {so_name}",
                 "email_content": f"{user} couldn't find item{what} on the shelf. "
-                                 f"Order pulled off {pick_list}.",
+                                 f"Order pulled off {pick_list}.{owed}",
                 "type": "Alert", "document_type": "Sales Order",
                 "document_name": so_name, "for_user": d,
             }).insert(ignore_permissions=True)
@@ -2393,7 +2511,7 @@ def report_short_pick(pick_list, order, item_code=None):
         frappe.cache().delete_value(k)
     frappe.db.commit()
     return {"ok": True, "order": so_name, "removedLines": len(rows),
-            "plDeleted": deleted}
+            "plDeleted": deleted, "owed": tote if tote else []}
 
 
 @frappe.whitelist()

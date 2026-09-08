@@ -1,4 +1,38 @@
 <template>
+    <!-- The order leaves whole, so everything picked for it goes back first -->
+    <div v-if="putBack" class="fixed inset-0 z-40 bg-black/50 flex items-end sm:items-center justify-center p-3">
+      <div class="w-full max-w-lg rounded-2xl bg-white ring-1 ring-stone-200 overflow-hidden">
+        <div class="px-4 py-3 bg-rose-50 border-b border-rose-200/70">
+          <div class="text-[15px] font-bold text-rose-800 flex items-center gap-2">
+            <Icon name="alert-triangle" :size="16" />{{ t('pickm.pbTitle') }}
+          </div>
+          <div class="text-[12.5px] text-rose-700/90 mt-0.5">
+            {{ t('pickm.pbHint').replace('{n}', String(putBack.pieces)).replace('{o}', putBack.order) }}
+          </div>
+        </div>
+        <ul class="divide-y divide-stone-100 max-h-[46vh] overflow-y-auto">
+          <li v-for="r in putBack.rows" :key="r.row" class="p-3 flex items-center gap-3">
+            <img v-if="r.image" :src="r.image" alt="" @error="hideImg"
+                 class="w-12 h-12 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
+            <span v-else class="w-12 h-12 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center flex-shrink-0 text-stone-400"><Icon name="package" :size="18" /></span>
+            <div class="min-w-0 flex-1">
+              <div class="text-[13.5px] font-semibold text-stone-900 truncate">{{ r.name }}</div>
+              <div class="font-mono text-[11.5px] text-stone-500 truncate">{{ r.sku || r.itemCode }}</div>
+            </div>
+            <div class="text-end flex-shrink-0">
+              <div class="text-[18px] font-extrabold tabular-nums text-stone-900">{{ r.qty }}</div>
+              <div class="text-[13px] font-bold text-[var(--accent-700)]">{{ r.shelf }}</div>
+            </div>
+          </li>
+        </ul>
+        <div class="p-3 border-t border-stone-100 flex items-center gap-2">
+          <span class="text-[11.5px] text-stone-500 flex-1">{{ t('pickm.pbScanHint') }}</span>
+          <button class="h-10 px-3 rounded-lg text-[12.5px] font-semibold text-stone-600 bg-stone-100 hover:bg-stone-200"
+                  @click="deferPutBack">{{ t('pickm.pbLater') }}</button>
+        </div>
+      </div>
+    </div>
+
   <div class="min-h-full bg-stone-50 flex flex-col">
     <!-- Header -->
     <div class="px-4 pt-3 pb-2.5 bg-white border-b border-stone-200/70 sticky top-0 z-10">
@@ -151,6 +185,8 @@ const pct = computed(() => (total.value ? Math.round(done.value / total.value * 
 const allDone = computed(() => total.value > 0 && done.value >= total.value);
 
 async function onScan(code) {
+  // While pieces are being returned, every scan is a return, not a pick.
+  if (putBack.value && await returnScan(code)) return;
   const c = String(code || "").trim();
   if (!c) return;
   let res;
@@ -195,6 +231,7 @@ async function finish() {
 // ── Short pick: two taps (arm → confirm) pulls the line's ORDER off the
 // list and back to the problem pool; the picker keeps the rest.
 const shortConfirm = ref("");
+const putBack = ref(null);
 let shortTimer = null;
 
 function lineKey(l) { return l.sku + "|" + l.so; }
@@ -209,12 +246,57 @@ async function onShortPick(l) {
     return;
   }
   shortConfirm.value = "";
+  // An order never ships incomplete, so it leaves whole — and whatever was
+  // already picked for it has to go back on the shelf first. Ask before
+  // removing anything, or those pieces ride to packing with someone else.
+  try {
+    const pre = await api("picking.short_pick_start", { pick_list: props.id, order: l.so });
+    if ((pre.putBack || []).length) {
+      putBack.value = { order: l.so, item: l.sku, rows: pre.putBack, pieces: pre.pieces };
+      scanner.value?.refocus();
+      return;
+    }
+  } catch (e) { /* fall through to the plain removal */ }
+  await finishShort(l.so, l.sku, 0);
+}
+
+// Scanning a piece back onto its shelf. The scan is the proof it went back.
+async function returnScan(code) {
+  if (!putBack.value) return false;
+  try {
+    const res = await apiPost("picking.short_pick_return", {
+      pick_list: props.id, order: putBack.value.order, code,
+    });
+    if (!res.ok) {
+      scanner.value?.showError(res.reason === "not_in_tote"
+        ? t("pickm.pbNotInTote") : t("pickm.unknown"));
+      return true;
+    }
+    putBack.value = { ...putBack.value, rows: res.putBack, pieces: res.pieces };
+    scanner.value?.showSuccess(`${res.name} → ${res.shelf}`);
+    if (!res.pieces) await finishShort(putBack.value.order, putBack.value.item, 0);
+    return true;
+  } catch (e) {
+    scanner.value?.showError(String(e.message || e));
+    return true;
+  }
+}
+
+// "I'll put them back later" — allowed, but it is recorded by name and shelf
+// on the order and sent to the dispatchers, never swallowed.
+async function deferPutBack() {
+  if (!putBack.value) return;
+  await finishShort(putBack.value.order, putBack.value.item, 1);
+}
+
+async function finishShort(so, sku, defer) {
   try {
     const res = await apiPost("picking.report_short_pick", {
-      pick_list: props.id, order: l.so, item_code: l.sku,
+      pick_list: props.id, order: so, item_code: sku, defer,
     });
+    putBack.value = null;
     // Drop every line of that order locally.
-    lines.value = lines.value.filter((x) => x.so !== l.so);
+    lines.value = lines.value.filter((x) => x.so !== so);
     success(t("pickm.shortDone"), `${res.order} · ${res.removedLines} ${t("queue.lines")}`);
     if (res.plDeleted || !lines.value.length) router.push({ name: "Queue" });
   } catch (e) {

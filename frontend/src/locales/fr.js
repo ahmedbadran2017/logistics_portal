@@ -236,6 +236,11 @@ export default {
     emptyBody: "Aucune liste de prélèvement dans votre file.",
   },
   pickm: {
+    pbTitle: "Remettre ceci avant que la commande sorte",
+    pbHint: "{n} pièce(s) prélevée(s) pour {o} sont dans votre bac. Scannez chacune sur son emplacement.",
+    pbScanHint: "Scannez une pièce pour la remettre",
+    pbLater: "Je les remets plus tard",
+    pbNotInTote: "Cette pièce n'est pas dans le bac de cette commande",
     scanned: "scanné",
     scanPh: "Scannez le code de l'article",
     lineDone: "Ligne déjà complète",

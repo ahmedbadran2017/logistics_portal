@@ -236,6 +236,11 @@ export default {
     emptyBody: "No pick lists in your queue.",
   },
   pickm: {
+    pbTitle: "Put these back before the order leaves",
+    pbHint: "{n} piece(s) picked for {o} are in your tote. Scan each one back onto its shelf.",
+    pbScanHint: "Scan a piece to return it",
+    pbLater: "I'll return them later",
+    pbNotInTote: "That piece isn't in this order's tote",
     scanned: "scanned",
     scanPh: "Scan item SKU / barcode",
     lineDone: "This line is already complete",
