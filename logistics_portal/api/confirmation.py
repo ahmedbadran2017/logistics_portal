@@ -122,6 +122,12 @@ _PARKED = ("so.custom_sales_status = 'On Hold' AND "
 # _PARKED stays out — On Hold with no attempt AND no timer is the legacy pile
 # that never entered the call flow. That pile is 0 today, so this guard holds
 # a door rather than closing one.
+# Status a decision landed on -> the tally key. Shared by the "my day" tally
+# and anything else reading the Desk trail in this module.
+_ST_ACTION_MAP = {"Confirmed": "confirm", "Cancelled": "cancel",
+                  "Did not Answer": "dna", "Follow Up": "followup",
+                  "On Hold": "onhold", "Duplicated": "duplicate"}
+
 _DUE_AT = "COALESCE(so.custom_next_call_at, so.creation)"
 _DUE = f"{_DUE_AT} <= %(now)s AND NOT ({_PARKED})"
 
@@ -725,6 +731,29 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
         for k in mine:
             if r.content.startswith(f"Confirmation: {k}"):
                 mine[k] += int(r.n or 0)
+    # ...and the SAME day's Desk decisions. The scoreboard the agent stares at
+    # all day read the comment trail alone, so an hour worked in the Desk left
+    # the ring at zero while day_target() counted that hour into the goal —
+    # the bar grows, the fill doesn't, and the agent concludes the game is
+    # rigged. The trails are disjoint (verified: 0 of 39 portal decisions also
+    # write a Version row), so adding them cannot double-count. Cheap since
+    # lp_version_owner_idx: one agent-day is a few hundred rows.
+    import json as _mj
+    for (data,) in frappe.db.sql(
+            """SELECT v.data FROM `tabVersion` v
+               WHERE v.ref_doctype = 'Sales Order' AND v.owner = %s
+                 AND v.creation >= %s AND v.creation < %s
+                 AND v.data LIKE '%%custom_sales_status%%'""",
+            (me, _d0, _d1)):
+        try:
+            changed = _mj.loads(data or "{}").get("changed") or []
+        except Exception:
+            continue
+        for f in changed:
+            if f and f[0] == "custom_sales_status":
+                a = _ST_ACTION_MAP.get(f[2])
+                if a in mine:
+                    mine[a] += 1
 
     cf_s = _cf_settings()
     my_total = sum(mine.values())

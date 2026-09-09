@@ -467,7 +467,21 @@ async function togglePin(r) {
 const route = useRoute();
 const TAB_KEYS = ["pending", "dna", "followup", "onhold", "monitor",
   "notdelivered", "confirmed", "cancelled", "duplicated", "citycheck"];
-const initialTab = String(route.query.tab || "");
+// Where was I? The router remounts this page on every visit (no keep-alive,
+// by design), so all working state died on navigation: open the Workspace,
+// come back, and the search you typed, the tab you were on and the page you
+// had scrolled to were gone — the "starts from scratch" complaint. The URL
+// is the primary memory (shareable, survives reload, back/forward honest);
+// sessionStorage is the fallback for arriving with a bare URL, e.g. from the
+// sidebar. Session, not local: a fresh login should start fresh.
+const SNAP_KEY = "lp_cf_state";
+function snapshot() {
+  try {
+    return JSON.parse(sessionStorage.getItem(SNAP_KEY) || "{}") || {};
+  } catch { return {}; }
+}
+const snap = route.query.tab ? {} : snapshot();
+const initialTab = String(route.query.tab || snap.tab || "");
 const tab = ref(TAB_KEYS.includes(initialTab) ? initialTab : "pending");
 const router = useRouter();
 // The three done tabs are an archive — folded behind one History toggle so
@@ -495,12 +509,28 @@ function openWs(r) {
 function workList() {
   router.push({ name: "Workspace", query: { tab: tab.value } });
 }
-const q = ref("");
-const page = ref(1);
+const q = ref(String(route.query.q ?? snap.q ?? ""));
+const page = ref(Math.max(1, parseInt(route.query.p ?? snap.page, 10) || 1));
 const pageSize = ref(20);
-const days = ref(30);
-const frm = ref("");
-const to = ref("");
+const days = ref(parseInt(route.query.d ?? snap.days, 10) || 30);
+const frm = ref(String(route.query.frm ?? snap.frm ?? ""));
+const to = ref(String(route.query.to ?? snap.to ?? ""));
+
+// Every state change lands in BOTH memories. router.replace, never push:
+// flipping tabs must not bury the real "back" under twenty history entries.
+watch([tab, q, page, days, frm, to], () => {
+  const st = { tab: tab.value, q: q.value, page: page.value,
+               days: days.value, frm: frm.value, to: to.value };
+  try { sessionStorage.setItem(SNAP_KEY, JSON.stringify(st)); } catch {}
+  router.replace({ query: {
+    tab: tab.value !== "pending" ? tab.value : undefined,
+    q: q.value || undefined,
+    p: page.value > 1 ? String(page.value) : undefined,
+    d: days.value !== 30 ? String(days.value) : undefined,
+    frm: frm.value || undefined,
+    to: to.value || undefined,
+  } }).catch(() => {});
+});
 // The pager owns page/pageSize; a change to either has to refetch. Guarded:
 // tab clicks / search / date changes reset page to 1 AND call load()
 // explicitly, which used to fire two concurrent requests that could paint

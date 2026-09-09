@@ -195,7 +195,12 @@ const dp = ref(null);   // previous window, for the Δ chips
 const loading = ref(true);
 const loadError = ref("");
 const RANGES = ["today", "yest", "7d", "month", "lastMonth"];
-const range = ref("7d");
+// Remember the chip across visits — an agent who lives on "today" should not
+// re-click it every time they glance at their numbers.
+let _r0 = "7d";
+try { _r0 = sessionStorage.getItem("lp_md_range") || "7d"; } catch {}
+const range = ref(RANGES.includes(_r0) ? _r0 : "7d");
+watch(range, (v) => { try { sessionStorage.setItem("lp_md_range", v); } catch {} });
 const RING = 2 * Math.PI * 44;
 
 const day = 86400000;

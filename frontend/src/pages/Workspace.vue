@@ -5,7 +5,14 @@
       <h1 class="text-[18px] font-bold text-stone-900 tracking-tight me-1">{{ t('ws.title') }}</h1>
 
       <!-- target ring: the day, as one glance -->
-      <div v-if="board?.myTarget" class="flex items-center gap-2.5 bg-white rounded-2xl ring-1 ring-stone-200/70 ps-2 pe-4 py-1.5 shadow-sm">
+      <div v-if="board?.myTarget" class="relative flex items-center gap-2.5 bg-white rounded-2xl ring-1 ring-stone-200/70 ps-2 pe-4 py-1.5 shadow-sm"
+           :class="celebrating ? 'ws-ring-hit' : ''">
+        <!-- every decision drops a coin on the scoreboard -->
+        <span v-for="pop in pops" :key="pop.id" class="ws-pop" :class="pop.cls">+1</span>
+        <!-- the one-time burst when the day's target falls -->
+        <span v-if="celebrating" class="ws-burst" aria-hidden="true">
+          <i v-for="n in 14" :key="n" :style="burstStyle(n)" />
+        </span>
         <svg width="44" height="44" viewBox="0 0 44 44" class="-rotate-90">
           <circle cx="22" cy="22" r="18" fill="none" stroke="rgb(231 229 228)" stroke-width="5" />
           <circle cx="22" cy="22" r="18" fill="none" stroke-linecap="round" stroke-width="5"
@@ -573,6 +580,41 @@ const cardTimer = computed(() => {
   const sec = cardSeconds.value % 60;
   return `${m}:${String(sec).padStart(2, "0")}`;
 });
+// ── the game layer ──────────────────────────────────────────────────────
+// Feedback, not information: every number here is already true elsewhere on
+// the page, so reduced-motion can drop all of it without losing anything.
+const pops = ref([]);
+let _popId = 0;
+function popCoin(action) {
+  const cls = action === "confirm" ? "ws-pop-good"
+    : action === "cancel" ? "ws-pop-bad" : "ws-pop-mid";
+  const id = ++_popId;
+  pops.value.push({ id, cls });
+  setTimeout(() => { pops.value = pops.value.filter((x) => x.id !== id); }, 950);
+}
+// Once per day, the moment the ring closes — not on every load after it.
+const celebrating = ref(false);
+function maybeCelebrate() {
+  if (dayPct.value < 100) return;
+  const k = "lp_ws_hit_" + new Date().toISOString().slice(0, 10);
+  try {
+    if (sessionStorage.getItem(k)) return;
+    sessionStorage.setItem(k, "1");
+  } catch { return; }
+  celebrating.value = true;
+  setTimeout(() => { celebrating.value = false; }, 1800);
+}
+const _BURST = ["#34d399", "#fbbf24", "#f97316", "#a78bfa", "#38bdf8"];
+function burstStyle(n) {
+  const a = (n / 14) * 2 * Math.PI;
+  return {
+    "--dx": Math.cos(a) * (34 + (n % 3) * 14) + "px",
+    "--dy": Math.sin(a) * (34 + (n % 3) * 14) + "px",
+    background: _BURST[n % _BURST.length],
+    animationDelay: (n % 4) * 40 + "ms",
+  };
+}
+
 const dayPct = computed(() => {
   const tgt = board.value?.myTarget || 0;
   return tgt ? Math.round((myTotal.value * 100) / tgt) : 0;
@@ -916,6 +958,8 @@ async function decide(action, note) {
     const res = await apiPost("confirmation.act", { order: active.value.name, action, note });
     success(t(`cf.done_${action}`), active.value.name + (res.attempts ? ` · ×${res.attempts}` : ""));
     if (board.value?.mine && action in board.value.mine) board.value.mine[action]++;
+    popCoin(action);
+    maybeCelebrate();
     if (plan.value?.rows) plan.value.rows = plan.value.rows.filter((r) => r.order !== active.value.name);
     panel.value = ""; cancelReason.value = "";
     if (tabMode.value) await advanceTab(active.value?.name);
@@ -1086,5 +1130,38 @@ onUnmounted(() => {
 .ws-slide-enter-from, .ws-slide-leave-to { opacity: 0; transform: translateY(-4px); }
 @media (pointer: coarse) {
   .ws-contact { min-width: 44px; min-height: 44px; }
+}
+
+/* ── the game layer ── */
+.ws-pop {
+  position: absolute; top: -4px; inset-inline-start: 26px; z-index: 20;
+  font-size: 12px; font-weight: 800; pointer-events: none;
+  animation: ws-pop-fly .95s cubic-bezier(.2, .7, .3, 1) forwards;
+}
+.ws-pop-good { color: rgb(5 150 105); }
+.ws-pop-bad  { color: rgb(190 18 60); }
+.ws-pop-mid  { color: rgb(217 119 6); }
+@keyframes ws-pop-fly {
+  0%   { opacity: 0; transform: translateY(4px) scale(.7); }
+  20%  { opacity: 1; transform: translateY(-4px) scale(1.15); }
+  100% { opacity: 0; transform: translateY(-26px) scale(1); }
+}
+.ws-ring-hit { animation: ws-hit-glow 1.8s ease; }
+@keyframes ws-hit-glow {
+  0%, 100% { box-shadow: 0 1px 2px rgb(0 0 0 / .05); }
+  25% { box-shadow: 0 0 0 4px rgb(16 185 129 / .25), 0 8px 24px -8px rgb(16 185 129 / .5); }
+}
+.ws-burst { position: absolute; top: 22px; inset-inline-start: 24px; z-index: 20; pointer-events: none; }
+.ws-burst i {
+  position: absolute; width: 7px; height: 7px; border-radius: 2px;
+  animation: ws-burst-fly 1.4s cubic-bezier(.15, .6, .3, 1) forwards;
+}
+@keyframes ws-burst-fly {
+  0%   { opacity: 1; transform: translate(0, 0) rotate(0deg) scale(1); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(300deg) scale(.4); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ws-pop, .ws-burst i { animation: none; display: none; }
+  .ws-ring-hit { animation: none; }
 }
 </style>
