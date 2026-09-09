@@ -35,6 +35,26 @@
         </div>
       </div>
 
+      <!-- the day's target -->
+      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 space-y-3">
+        <div class="text-[12px] font-semibold text-stone-900">{{ t('cfs.targetTitle') }}</div>
+        <p class="text-[11.5px] text-stone-500">{{ t('cfs.targetHint') }}</p>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button v-for="m in ['auto', 'fixed']" :key="m" type="button" :disabled="!s.canEdit"
+                  class="h-9 px-3.5 rounded-lg text-[12.5px] font-semibold ring-1 transition-colors disabled:opacity-60"
+                  :class="(s.dayTargetMode || 'auto') === m
+                    ? 'bg-stone-900 text-white ring-stone-900'
+                    : 'bg-white text-stone-600 ring-stone-200 hover:bg-stone-50'"
+                  @click="s.dayTargetMode = m; dirty = true">{{ t('cfs.target_' + m) }}</button>
+          <label v-if="(s.dayTargetMode || 'auto') === 'fixed'" class="flex items-center gap-2 ms-1">
+            <input v-model.number="s.dayTarget" type="number" min="1" max="500" :disabled="!s.canEdit"
+                   class="w-24 h-9 ps-3 pe-2 rounded-lg bg-white ring-1 ring-stone-200 text-[13px] tabular-nums focus:outline-none focus:ring-2 disabled:bg-stone-50"
+                   style="--tw-ring-color: var(--accent-400)" @input="dirty = true" />
+            <span class="text-[11.5px] text-stone-400">{{ t('cfs.targetUnit') }}</span>
+          </label>
+        </div>
+      </div>
+
       <!-- cancel reasons -->
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 space-y-3">
         <div class="text-[12px] font-semibold text-stone-900">{{ t('cfs.reasonsTitle') }}</div>

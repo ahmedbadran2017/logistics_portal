@@ -1567,6 +1567,11 @@ export default {
     noData: "No decisions in this period yet.",
   },
   cfs: {
+    targetTitle: "The day's target",
+    targetHint: "Auto gives each agent the work actually in front of them today, held inside the band this team's own last 30 days define. Fixed pins everyone to one number.",
+    target_auto: "Auto — per agent",
+    target_fixed: "Fixed",
+    targetUnit: "decisions / day",
     unsaved: "You have unsaved changes \u2014 leave anyway?",
     title: "Confirmation — section settings",
     intro: "Retry timers, cancel reasons and who administers this section.",

@@ -268,6 +268,52 @@ def _board(group, month, pts):
     return rows
 
 
+# The status a decision LANDED on -> the action that was taken. The Desk
+# writes no comment, so this is the only way to read desk work.
+_ST_TO_ACTION = {"Confirmed": "confirm", "Cancelled": "cancel",
+                 "Did not Answer": "dna", "Follow Up": "followup",
+                 "On Hold": "onhold", "Duplicated": "duplicate"}
+
+
+def _desk_confirmation_work(month):
+    """{(user, order, action)} taken in the DESK this month.
+
+    The board used to read the `Confirmation: …` comment trail alone. That
+    trail is written by the portal's act() and by nothing else, while the Desk
+    writes a Version row and no comment — the two are disjoint (verified: 0 of
+    39 portal decisions in a day also left a Version row). Measured for
+    2026-09: 49 actions in the comment trail against 2,132 in the Version
+    trail, so the board was scoring **2%** of the lane's work. Five of the
+    eight agents scored exactly zero, including the two who had made 763 and
+    735 decisions. Turning money on against that would have paid the person
+    who did least the most.
+
+    Same de-duplication as the comment side — one point per (agent, order,
+    action), so a status flipped back and forth cannot farm points.
+    """
+    import json as _j
+    from logistics_portal.api.confirmation import _AUTOMATION_USERS, _CO
+    out = set()
+    for r in frappe.db.sql(
+            """SELECT v.owner u, v.docname, v.data FROM `tabVersion` v
+               JOIN `tabSales Order` so ON so.name = v.docname
+               WHERE v.ref_doctype = 'Sales Order' AND so.company = %(co)s
+                 AND v.creation >= %(start)s
+                 AND v.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
+                 AND v.data LIKE '%%custom_sales_status%%'""",
+            {"co": _CO, "start": f"{month}-01 00:00:00"}, as_dict=True):
+        if r.u in _AUTOMATION_USERS:
+            continue
+        try:
+            changed = _j.loads(r.data or "{}").get("changed") or []
+        except Exception:
+            continue
+        for f in changed:
+            if f and f[0] == "custom_sales_status" and _ST_TO_ACTION.get(f[2]):
+                out.add((r.u, r.docname, _ST_TO_ACTION[f[2]]))
+    return out
+
+
 def _cc_board(month, pts):
     per_agent = {}
     # One point per (agent, document, action) — NOT per comment. The trail
@@ -300,12 +346,46 @@ def _cc_board(month, pts):
                                                "actions": 0})
             a[lane] += pts[key]
             a["actions"] += 1
+    # ...and the same work taken in the Desk, scored identically. `seen`
+    # is shared, so an order decided in both places counts once.
+    confirmed_by = {}
+    for u, order, action in _desk_confirmation_work(month):
+        if action == "confirm":
+            confirmed_by.setdefault(u, set()).add(order)
+        key = "cf." + action
+        if key not in pts:
+            continue
+        dedupe = (u, order, key)
+        if dedupe in seen:
+            continue
+        seen.add(dedupe)
+        a = per_agent.setdefault(u, {"cf": 0.0, "rs": 0.0, "cs": 0.0,
+                                     "actions": 0})
+        a["cf"] += pts[key]
+        a["actions"] += 1
+    # Confirms taken through the portal belong to the same set.
+    for u, order, key in seen:
+        if key == "cf.confirm":
+            confirmed_by.setdefault(u, set()).add(order)
+
     # The outcome points: parcels that LANDED this month, per agent. Credited
     # to the month of delivery — that is when the money arrived, whenever the
     # call happened.
+    # Credited to whoever CONFIRMED the order, not to whoever it is allocated
+    # to. Allocation is a queue assignment: the WhatsApp automation closes most
+    # of an agent's cohort without them, so the allocated basis paid for the
+    # bot's work. Measured for 2026-09: 1,042 delivered parcels across the
+    # allocated cohorts against 108 the agents had actually confirmed — 9.6x,
+    # and four agents whose entire delivered count was the bot's (45x, 35x,
+    # 27x, 25x). At 0.4 points a parcel that is most of the money in the
+    # scheme going to nobody's work.
     d_rate = pts.get("cf.delivered", 0)
     outcome = {}
-    if d_rate:
+    if d_rate and confirmed_by:
+        owner_of = {}
+        for u, orders in confirmed_by.items():
+            for name in orders:
+                owner_of[name] = u          # last confirm wins, as the SLE does
         for r in frappe.db.sql(
                 # COUNT(DISTINCT dn.name), never SUM/COUNT(*): the DN Item join
                 # fans out one row PER LINE, so a 3-item parcel counted 3× —
@@ -314,7 +394,7 @@ def _cc_board(month, pts):
                 # parcel, which is the one thing the points table is designed
                 # not to do. A fifth of delivery notes carry 2+ lines, so this
                 # was never a rounding error.
-                """SELECT so.custom_allocated_to u,
+                """SELECT so.name AS so,
                           COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status
                                 = 'Delivered' THEN dn.name END) d,
                           COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status IN
@@ -323,16 +403,22 @@ def _cc_board(month, pts):
                    JOIN `tabDelivery Note Item` dni
                      ON dni.against_sales_order = so.name AND dni.docstatus = 1
                    JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
-                   WHERE so.docstatus = 1 AND COALESCE(so.custom_allocated_to,'') != ''
+                   WHERE so.docstatus = 1 AND so.name IN %(names)s
                      AND dn.posting_date >= %(start)s
                      AND dn.posting_date < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
                      AND dn.custom_track_shipment_status IN
                          ('Delivered', 'Delivery Exception', 'Failed Attempt')
-                   GROUP BY u""",
-                {"start": f"{month}-01"}, as_dict=True):
-            outcome[r.u] = {"delivered": int(r.d or 0), "returned": int(r.f or 0)}
-            per_agent.setdefault(r.u, {"cf": 0.0, "rs": 0.0, "cs": 0.0,
-                                       "actions": 0})
+                   GROUP BY so.name""",
+                {"start": f"{month}-01", "names": tuple(owner_of)}, as_dict=True):
+            u = owner_of.get(r.so)
+            if not u:
+                continue
+            o2 = outcome.setdefault(u, {"delivered": 0, "returned": 0})
+            o2["delivered"] += int(r.d or 0)
+            o2["returned"] += int(r.f or 0)
+        for u in outcome:
+            per_agent.setdefault(u, {"cf": 0.0, "rs": 0.0, "cs": 0.0,
+                                     "actions": 0})
 
     rows = []
     for u, a in per_agent.items():

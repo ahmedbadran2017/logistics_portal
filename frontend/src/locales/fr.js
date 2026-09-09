@@ -1568,6 +1568,11 @@ export default {
     noData: "Aucune décision sur cette période.",
   },
   cfs: {
+    targetTitle: "L'objectif du jour",
+    targetHint: "Auto donne à chaque agent le travail réellement devant lui aujourd'hui, dans la fourchette définie par les 30 derniers jours de cette équipe. Fixe impose un seul chiffre à tous.",
+    target_auto: "Auto — par agent",
+    target_fixed: "Fixe",
+    targetUnit: "décisions / jour",
     unsaved: "Modifications non enregistr\u00e9es \u2014 quitter quand m\u00eame ?",
     title: "Confirmation — réglages du service",
     intro: "Minuteries de rappel, motifs d'annulation et administrateurs du service.",

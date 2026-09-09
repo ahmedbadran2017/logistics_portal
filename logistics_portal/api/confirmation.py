@@ -124,6 +124,116 @@ _DUE_AT = "COALESCE(so.custom_next_call_at, so.creation)"
 _DUE = f"{_DUE_AT} <= %(now)s AND NOT ({_PARKED})"
 
 
+# ── The day's target ─────────────────────────────────────────────────────
+# A single number for everyone was fiction. Measured over 30 days of live
+# work: the median working day in this lane is 70 decisions, p75 is 91 and
+# p90 is 115, while the setting said 40 — under the median, so most people
+# "hit target" before lunch and the ring stopped meaning anything. And on the
+# same day one agent had 68 workable orders in front of her and another had
+# one; the same 40 was absurd at both ends.
+#
+# So the target is the work actually in front of THIS person today —
+# what they have already decided plus what they can still decide right now —
+# held inside a band the team itself defines. The floor keeps an empty queue
+# from producing a target of zero; the ceiling keeps a dumped backlog from
+# setting a bar nobody in this lane has ever cleared.
+#
+# It stays stable through the day by construction: as an order moves from
+# "workable" to "decided" the sum does not change. It only rises when new
+# work is genuinely allocated.
+_CEIL_CACHE = "lp_cf_day_ceiling"
+
+
+def _team_day_ceiling():
+    """p90 of per-agent working-day decision counts over 30 days.
+
+    p90 and not the maximum: one agent once put 1,659 orders through the Desk
+    in a single day with a bulk operation, and a ceiling set by that would be
+    a bar nobody could reach by making phone calls.
+
+    Counts Version ROWS rather than parsing each one's payload — a save that
+    touches the status is a decision, and this only has to be accurate enough
+    to place a percentile. Cached 6h; the shape of a working day does not
+    move faster than that.
+    """
+    hit = frappe.cache().get_value(_CEIL_CACHE)
+    if hit:
+        try:
+            return int(hit)
+        except Exception:
+            pass
+    rows = frappe.db.sql(
+        """SELECT n FROM (
+             SELECT COUNT(*) n FROM `tabVersion` v
+             JOIN `tabSales Order` so ON so.name = v.docname
+             WHERE v.ref_doctype = 'Sales Order' AND so.company = %(co)s
+               AND v.owner NOT IN %(auto)s
+               AND v.creation >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+               AND v.data LIKE '%%custom_sales_status%%'
+             GROUP BY v.owner, DATE(v.creation)
+           ) x ORDER BY n""", {"co": _CO, "auto": _AUTOMATION_USERS})
+    vals = [int(r[0] or 0) for r in rows]
+    if not vals:
+        return 0
+    ceiling = vals[int(round((len(vals) - 1) * 0.9))]
+    frappe.cache().set_value(_CEIL_CACHE, ceiling, expires_in_sec=21600)
+    return ceiling
+
+
+def day_target(user=None):
+    """How many decisions this person should get through today.
+
+    A manager who sets `dayTargetMode` to "fixed" gets the old flat number
+    back — this is a default, not a policy the code is entitled to impose.
+    """
+    s = _cf_settings()
+    fixed = int(s.get("dayTarget", 40) or 40)
+    if str(s.get("dayTargetMode", "auto")).lower() != "auto":
+        return fixed
+    user = user or frappe.session.user
+    today = str(now_datetime())[:10]
+    # Cached per person per day. The two halves are cheap to want and dear to
+    # fetch — reading "what have I decided today" out of `tabVersion` costs
+    # 1.7s on its own and 7.0s with the company join, on a 2.95M-row table
+    # whose owner+creation index only lands with the pending migrate. This is
+    # called on every board load, so without a cache it would undo the work
+    # that made the board fast. A target that is up to three minutes old is
+    # still the same target.
+    _tk = "lp_cf_target_%s_%s" % (user, today)
+    _hit = frappe.cache().get_value(_tk)
+    if _hit:
+        try:
+            return int(_hit)
+        except Exception:
+            pass
+    done = int(frappe.db.sql(
+        """SELECT COUNT(*) FROM `tabComment`
+           WHERE reference_doctype = 'Sales Order' AND owner = %s
+             AND content LIKE 'Confirmation: %%' AND creation >= %s""",
+        (user, today + " 00:00:00"))[0][0] or 0)
+    done += int(frappe.db.sql(
+        """SELECT COUNT(*) FROM `tabVersion` v
+           JOIN `tabSales Order` so ON so.name = v.docname
+           WHERE v.ref_doctype = 'Sales Order' AND so.company = %s
+             AND v.owner = %s AND v.creation >= %s
+             AND v.data LIKE '%%custom_sales_status%%'""",
+        (_CO, user, today + " 00:00:00"))[0][0] or 0)
+    ahead = int(frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
+              AND (so.custom_sales_status = 'Pending' OR ({_DUE}))
+              AND so._assign LIKE %(me_like)s""",
+        {"co": _CO, "sts": tuple(QUEUES.values()),
+         "now": str(now_datetime())[:19],
+         "me_like": f'%"{user}"%'})[0][0] or 0)
+    ceiling = _team_day_ceiling() or fixed
+    floor = max(10, int(round(ceiling * 0.15)))
+    out = int(min(max(done + ahead, floor), ceiling))
+    frappe.cache().set_value(_tk, out, expires_in_sec=180)
+    return out
+
+
 def _gate():
     from logistics_portal.api.auth import resolve_role
     role = resolve_role(frappe.session.user)
@@ -618,7 +728,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
 
     return {
         "tab": tab, "counts": counts, "total": int(total or 0),
-        "myTotal": my_total, "myTarget": int(cf_s.get("dayTarget", 40)),
+        "myTotal": my_total, "myTarget": day_target(),
         "slaHours": int(cf_s.get("slaFirstCallH", 6)),
         "discountCapPct": int(cf_s.get("discountCapPct", 15)),
         "discountCapAmt": int(cf_s.get("discountCapAmt", 50)),
@@ -1014,9 +1124,16 @@ _CF_DEFAULTS = {
     "retryFollowup": 24,
     "retryOnhold": 48,
     "slaFirstCallH": 6,   # a Pending order untouched longer than this is late
-    "dayTarget": 40,      # decisions per agent per day — NOT the floor's
-                          # dayTarget (200 on production: that counts orders
-                          # picked in a warehouse, not calls made at a desk)
+    # "auto" (default): each agent's target is the work in front of them
+    # today, inside the band the team's own 30 days define — see day_target().
+    # "fixed" pins everyone to dayTarget below, which is what the lane had
+    # before and is kept so a manager can take the wheel back.
+    "dayTargetMode": "auto",
+    "dayTarget": 40,      # the FIXED-mode number, and the fallback when the
+                          # team has no history to measure a band from. NOT
+                          # the floor's dayTarget (200 on production: that
+                          # counts orders picked in a warehouse, not calls
+                          # made at a desk)
     # `reasons` is the manager's QUICK-PICK subset of the real vocabulary —
     # never a list of our own words. The vocabulary itself lives on the Select
     # field custom_cancellation_reason (15 options the desk, the existing
@@ -1112,6 +1229,11 @@ def save_cf_settings(settings=None):
             if not (1 <= v <= 168):
                 frappe.throw(f"{k} must be between 1 and 168 hours.")
             out[k] = v
+    if "dayTargetMode" in settings:
+        v = str(settings["dayTargetMode"]).strip().lower()
+        if v not in ("auto", "fixed"):
+            frappe.throw("dayTargetMode must be 'auto' or 'fixed'.")
+        out["dayTargetMode"] = v
     if "dayTarget" in settings:
         v = int(settings["dayTarget"])
         if not (1 <= v <= 500):
@@ -1373,7 +1495,7 @@ def my_report(days=7, frm=None, to=None, as_user=None):
         # The bot's share of this agent's queue — shown, never credited.
         "autoClosed": _auto_closed_for(me, rng, rng_vals),
         "stick": {"shipped": int(stick[0] or 0), "delivered": int(stick[1] or 0)},
-        "target": int(_cf_settings().get("dayTarget", 40)),
+        "target": day_target(me),
     }
     frappe.cache().set_value(_ck, _cj.dumps(out, default=str),
                              expires_in_sec=900 if _closed else 60)
@@ -1733,7 +1855,7 @@ def report(days=7, frm=None, to=None):
                   for h in range(min(hours) if hours else 8,
                                  (max(hours) if hours else 20) + 1)],
         "ladder": ladder,
-        "target": int(_cf_settings().get("dayTarget", 40)),
+        "target": day_target(),
     }
     frappe.cache().set_value(_ck, _json_r.dumps(_out, default=str), expires_in_sec=300)
     return _out
