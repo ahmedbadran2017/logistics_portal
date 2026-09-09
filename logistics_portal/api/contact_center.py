@@ -276,7 +276,10 @@ def _board(group, month, pts):
             pass
     rows = (_cc_board if group == "cc" else _floor_board)(month, pts)
     try:
-        cache.set_value(key, _json.dumps(rows), expires_in_sec=120)
+        # 900s, not 120: the warmer below recomputes every 10 minutes, so a
+        # TTL longer than the warm interval means no human ever pays the cold
+        # price — 120s guaranteed the opposite, a cold hit every two minutes.
+        cache.set_value(key, _json.dumps(rows), expires_in_sec=900)
     except Exception:
         pass
     return rows
@@ -307,6 +310,21 @@ def _desk_confirmation_work(month):
     """
     import json as _j
     from logistics_portal.api.confirmation import _AUTOMATION_USERS, _CO
+    # Cached, because THREE things read it and the raw read is the single
+    # heaviest piece of this lane: a full month of Version rows parsed in
+    # Python — measured 7.0s. Uncached, every receipt expansion on the Bonus
+    # page cost 6.8s, the bonus board's 120s cache expiry handed some agent a
+    # 7s confirmation-board load every two minutes, and the recipe explainer
+    # paid it again. The set only grows at the speed of the team's decisions,
+    # so ten minutes of staleness costs a point or two of display, not money
+    # — month-end payout math always lands long after the cache has turned.
+    _ck = "lp_desk_cf_work:" + month
+    _hit = frappe.cache().get_value(_ck)
+    if _hit:
+        try:
+            return {(a, b, c) for a, b, c in _j.loads(_hit)}
+        except Exception:
+            pass
     out = set()
     for r in frappe.db.sql(
             """SELECT v.owner u, v.docname, v.data FROM `tabVersion` v
@@ -325,6 +343,11 @@ def _desk_confirmation_work(month):
         for f in changed:
             if f and f[0] == "custom_sales_status" and _ST_TO_ACTION.get(f[2]):
                 out.add((r.u, r.docname, _ST_TO_ACTION[f[2]]))
+    try:
+        frappe.cache().set_value(_ck, _j.dumps([list(x) for x in out]),
+                                 expires_in_sec=600)
+    except Exception:
+        pass
     return out
 
 
@@ -1221,6 +1244,16 @@ def warm_cc_caches():
             frappe.get_attr(fn)()
         except Exception:
             frappe.log_error(frappe.get_traceback(), "warm_cc_caches")
+    # The bonus board rides under EVERY confirmation-board load (the points
+    # chip) and under the Bonus page; its cold path is the 7s desk-trail
+    # read. Warm both groups for the running month.
+    try:
+        month = str(now_datetime())[:7]
+        pts = _bonus_settings()["points"]
+        for g in GROUPS:
+            _board(g, month, pts)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "warm_cc_caches")
     try:
         # dashboard(mine=0) computes + caches the first-touch block too.
         frappe.get_attr("logistics_portal.api.confirmation.dashboard")(days=30)

@@ -514,7 +514,10 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
             {"sts": tuple(QUEUES.values()), "co": _CO, "risky": risky_set(), **_q_vals,
              **({"me_like": f'%"{me}"%'} if mine_only else {})})[0][0])
         if not q_txt:
-            frappe.cache().set_value(_mck, counts["monitor"], expires_in_sec=300)
+            # 900s: these two counts are the last cold pieces left in a board
+            # load (~1.7s together per scope). Opening the tab itself always
+            # recomputes, so the chip being minutes stale costs nothing.
+            frappe.cache().set_value(_mck, counts["monitor"], expires_in_sec=900)
 
     # City check: the agent's own confirmed orders whose city Cathedis can't
     # turn into an AWB (Arabic / junk / never-seen town). SAME predicate as
@@ -544,7 +547,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
             {"co": _CO, "acc": accepted_set(), **_q_vals,
              **({"me_like": f'%"{me}"%'} if mine_only else {})})[0][0])
         if not q_txt:
-            frappe.cache().set_value(_cck, counts["citycheck"], expires_in_sec=300)
+            frappe.cache().set_value(_cck, counts["citycheck"], expires_in_sec=900)
 
     # Not Delivered: shipped-then-failed parcels the confirmation team calls
     # back to arrange a redelivery/reship or to cancel. Post-shipment work
