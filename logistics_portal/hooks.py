@@ -93,6 +93,10 @@ scheduler_events = {
         # Batch holds leak with every shipment, so the count is tracked daily
         # and shouted about when it grows — not discovered from a stuck order.
         "logistics_portal.api.batch_repair.snapshot_batch_holds",
+        # Same reason, one layer up: an abandoned DRAFT pick list holds its
+        # rows out of the pool, so the Orders board quietly has less to offer.
+        # Today's picture always looks fine; only the trend tells you.
+        "logistics_portal.api.picking.snapshot_draft_holds",
     ],
     "daily_long": [
         # End-of-day narrative digest written by the LLM reviewer.

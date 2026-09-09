@@ -39,6 +39,50 @@
       </div>
     </div>
 
+    <!-- Draft radar. A draft holds its rows out of the pool, so an abandoned
+         one quietly shrinks what the Orders board can call ready. Thresholds
+         are measured: 12h is one draft in eight, 24h one in twenty-seven. -->
+    <div v-if="draft" class="rounded-xl ring-1 ring-stone-200/70 bg-white overflow-hidden">
+      <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+        <Icon name="layers" :size="14" class="text-[var(--accent-600)]" />
+        <span class="text-[12px] font-semibold text-stone-900">{{ t('brepair.draftTitle') }}</span>
+        <span v-if="draft.delta" class="text-[11px] font-bold rounded-full px-2 py-0.5"
+              :class="draft.delta.held > 0 ? 'text-rose-700 bg-rose-50 ring-1 ring-rose-200'
+                      : draft.delta.held < 0 ? 'text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200'
+                      : 'text-stone-500 bg-stone-100'">
+          {{ draft.delta.held > 0 ? '+' : '' }}{{ draft.delta.held }} {{ t('brepair.radarSince').replace('{d}', draft.delta.since) }}
+        </span>
+        <span class="ms-auto text-[11px] text-stone-400">
+          {{ t('brepair.draftHint').replace('{w}', draft.watchH).replace('{s}', draft.staleH) }}
+        </span>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4">
+        <div v-for="k in ['lists', 'held', 'orders', 'stale']" :key="k">
+          <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('brepair.draft_' + k) }}</div>
+          <div class="text-[22px] font-bold tabular-nums"
+               :class="k === 'stale' && draft.now.stale ? 'text-rose-600' : 'text-stone-900'">
+            {{ fmt(draft.now[k]) }}
+          </div>
+        </div>
+      </div>
+      <!-- Only the ones past the watch line get a row. A clean board should
+           look clean, not like a list of things to worry about. -->
+      <div v-if="draftFlagged.length" class="border-t border-stone-100 divide-y divide-stone-100">
+        <div v-for="r in draftFlagged" :key="r.pl" class="px-4 py-2 flex items-center gap-3 text-[12px]">
+          <span class="font-mono font-semibold text-stone-900">{{ r.pl }}</span>
+          <span class="text-[11px] font-semibold rounded-full px-1.5 py-px"
+                :class="r.tier === 'stale' ? 'text-rose-700 bg-rose-50 ring-1 ring-rose-200'
+                                           : 'text-amber-700 bg-amber-50 ring-1 ring-amber-200'">
+            {{ r.ageH }}h
+          </span>
+          <span class="text-stone-500 truncate">{{ r.picker }}</span>
+          <span v-if="!r.started" class="text-[11px] text-stone-400">{{ t('brepair.draftNotStarted') }}</span>
+          <span class="ms-auto tabular-nums text-stone-700">{{ fmt(r.held) }} · {{ fmt(r.orders) }}</span>
+        </div>
+      </div>
+      <div v-else class="px-4 pb-4 text-[11.5px] text-stone-400">{{ t('brepair.draftAllFresh') }}</div>
+    </div>
+
     <div v-if="loading" class="text-center text-[13px] text-stone-400 py-16">{{ t('brepair.scanning') }}…</div>
 
     <template v-else-if="sc">
@@ -327,6 +371,10 @@ async function doSreRelease() {
 }
 const probes = ref({});
 const probing = ref("");
+const draft = ref(null);
+const draftFlagged = computed(() =>
+  (draft.value?.rows || []).filter((r) => r.tier !== "live")
+);
 const limit = ref(1);
 const armed = ref(false);
 const busy = ref(false);
@@ -337,6 +385,7 @@ const fmt = (v) => (Number(v) || 0).toLocaleString("en-US");
 async function load() {
   loading.value = true;
   try { radar.value = await api("batch_repair.hold_radar"); } catch (e) { radar.value = null; }
+  try { draft.value = await api("picking.draft_radar"); } catch (e) { draft.value = null; }
   sc.value = await liveOr(null, () => api("batch_repair.scan"));
   sre.value = await liveOr(null, () => api("batch_repair.sre_scan"));
   rr.value = await liveOr(null, () => api("returns_repair.scan"));

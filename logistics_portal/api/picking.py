@@ -1421,6 +1421,155 @@ def bulk_pick_lists(action, names=None, picker=None):
     return {"ok": True, "action": action, "done": done, "failed": failed}
 
 
+# ---------------------------------------------------------------------------
+# Draft radar — stock a draft pick list is sitting on
+# ---------------------------------------------------------------------------
+# A draft holds its rows out of the pool: _available_totals subtracts exactly
+# `qty - picked_qty` for every open draft, so an abandoned one quietly shrinks
+# what the Orders board can call ready. Nobody was watching that number.
+#
+# Thresholds are measured, not guessed. Real draft lifetimes over 14 days (751
+# lists, taken from the Version row that flips docstatus 0→1, because a pick
+# list's `modified` keeps moving long after it is submitted): p50 67 min, p75
+# 3.3h, p90 17.6h, p99 48h. Longer than 12h is one draft in eight — normal
+# overnight work. Longer than 24h is one in twenty-seven, and that is the line
+# where "still being picked" stops being the likely explanation.
+_DRAFT_WATCH_H = 12
+_DRAFT_STALE_H = 24
+_DRAFT_RADAR_KEY = "lp_draft_radar"
+
+
+def _draft_rows():
+    """Every open draft with what it is holding. Read-only.
+
+    Age, not idleness. `scan_pick` writes picked_qty with a raw UPDATE and
+    never touches the parent's `modified`, so a list being picked this minute
+    looks untouched since it was created — an "idle for 6h" column built on
+    that field would be fiction. What CAN be observed is progress: a draft with
+    nothing picked was never started, which is a different problem from one a
+    picker began and walked away from, and only the first is safe to release.
+    """
+    from frappe.utils import now_datetime
+    # The SITE clock as a bound parameter: the DB server runs on its own
+    # time zone, and NOW() there has made fresh rows read as negative-aged.
+    now = str(now_datetime())[:19]
+    rows = frappe.db.sql(
+        """SELECT pl.name,
+                  COALESCE(NULLIF(pl.custom_assigned_picker,''), pl.owner) AS picker,
+                  TIMESTAMPDIFF(HOUR, pl.creation, %s) AS age_h,
+                  COUNT(DISTINCT pli.sales_order) AS orders,
+                  COUNT(*) AS rows_n,
+                  SUM(GREATEST(pli.qty - COALESCE(pli.picked_qty,0), 0)) AS held,
+                  SUM(COALESCE(pli.picked_qty,0)) AS picked
+           FROM `tabPick List` pl
+           JOIN `tabPick List Item` pli ON pli.parent = pl.name
+           WHERE pl.docstatus = 0 AND pl.company = %s
+           GROUP BY pl.name
+           ORDER BY age_h DESC""", (now, _CO), as_dict=True)
+
+    # Value at risk, per DISTINCT order. Summing grand_total over the item rows
+    # would multiply every order by its basket size — the fan-out that has
+    # inflated numbers on this codebase before.
+    names = [r.name for r in rows]
+    val = {}
+    if names:
+        for r in frappe.db.sql(
+                """SELECT pli.parent AS pl, SUM(so.grand_total) AS v
+                   FROM (SELECT DISTINCT parent, sales_order FROM `tabPick List Item`
+                         WHERE parent IN %s AND sales_order IS NOT NULL) pli
+                   JOIN `tabSales Order` so ON so.name = pli.sales_order
+                   GROUP BY pli.parent""", (tuple(names),), as_dict=True):
+            val[r.pl] = float(r.v or 0)
+
+    out = []
+    for r in rows:
+        age = int(r.age_h or 0)
+        out.append({
+            "pl": r.name, "picker": (r.picker or "").split("@")[0],
+            "ageH": age, "orders": int(r.orders or 0), "rows": int(r.rows_n or 0),
+            "held": int(r.held or 0), "picked": int(r.picked or 0),
+            "started": bool((r.picked or 0) > 0),
+            "value": round(val.get(r.name, 0.0)),
+            "tier": "stale" if age >= _DRAFT_STALE_H
+                    else "watch" if age >= _DRAFT_WATCH_H else "live",
+        })
+    return out
+
+
+def _draft_totals(rows=None):
+    rows = _draft_rows() if rows is None else rows
+    t = {"lists": len(rows), "held": 0, "orders": 0, "value": 0,
+         "stale": 0, "staleHeld": 0, "watch": 0, "watchHeld": 0,
+         "neverStarted": 0}
+    for r in rows:
+        t["held"] += r["held"]
+        t["orders"] += r["orders"]
+        t["value"] += r["value"]
+        if r["tier"] == "stale":
+            t["stale"] += 1
+            t["staleHeld"] += r["held"]
+        elif r["tier"] == "watch":
+            t["watch"] += 1
+            t["watchHeld"] += r["held"]
+        if r["tier"] != "live" and not r["started"]:
+            t["neverStarted"] += 1
+    return t
+
+
+def _draft_history():
+    import json as _json
+    raw = frappe.db.get_default(_DRAFT_RADAR_KEY)
+    if not raw:
+        return []
+    try:
+        v = _json.loads(raw)
+        return v if isinstance(v, list) else []
+    except Exception:
+        return []
+
+
+@frappe.whitelist()
+def draft_radar():
+    """What the drafts are holding today, and how that has moved. Read-only."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    rows = _draft_rows()
+    now = _draft_totals(rows)
+    hist = _draft_history()
+    from frappe.utils import nowdate
+    prev = None
+    for h in reversed(hist):
+        if h.get("date") != nowdate():
+            prev = h
+            break
+    delta = None
+    if prev:
+        delta = {k: now[k] - int(prev.get(k) or 0)
+                 for k in ("lists", "held", "orders", "stale", "staleHeld")}
+        delta["since"] = prev.get("date")
+    return {"now": now, "rows": rows, "history": hist[-30:], "delta": delta,
+            "watchH": _DRAFT_WATCH_H, "staleH": _DRAFT_STALE_H}
+
+
+def snapshot_draft_holds():
+    """Daily: one row of history, so the trend is visible rather than inferred.
+
+    Today's picture always reads as normal — measured 2026-09-09, all twenty
+    open drafts were under eight hours old. The number worth knowing is whether
+    that stays true, and no screenshot answers that.
+    """
+    import json as _json
+    from frappe.utils import nowdate
+    t = _draft_totals()
+    t["date"] = nowdate()
+    hist = [h for h in _draft_history() if h.get("date") != t["date"]]
+    hist.append(t)
+    frappe.db.set_default(_DRAFT_RADAR_KEY, _json.dumps(hist[-120:]))
+    frappe.db.commit()
+    return t
+
+
 def _empty_draft_names(limit=2000):
     """Draft pick lists with zero item rows — pure noise, safe to delete."""
     return [r[0] for r in frappe.db.sql(
