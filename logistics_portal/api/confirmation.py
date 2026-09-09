@@ -10,6 +10,8 @@ Lane 2 (post-ship rescue) and Lane 3 (CS tickets) plug into the same
 customer-card model later.
 """
 
+import json
+
 import frappe
 from frappe.utils import add_to_date, flt, now_datetime
 
@@ -1947,6 +1949,91 @@ def amend_order(order, discount_amount=None, discount_percent=None,
             "total": flt(new.grand_total), "changes": detail}
 
 
+# ── Pinned work: "I want this one next" ─────────────────────────────────────
+#
+# next_order deliberately does not let an agent cherry-pick — that is what moved
+# the first-touch time, and it stays. But it only ever serves two things: a
+# call-back that is due, and the oldest untouched Pending. Six of the ten tabs
+# an agent can browse — monitor, not-delivered, city-check, cancelled,
+# duplicated, confirmed — have no route into the workspace at all. An agent who
+# spots an order that needs a call in one of those has nowhere to put it except
+# their memory.
+#
+# So pinning is the one deliberate exception: the agent says "this one next",
+# and it is served BEFORE the automatic order. It is not cherry-picking the
+# queue — the queue still decides everything the agent did not explicitly ask
+# for — and it is per agent, capped, and dropped the moment the order stops
+# being workable.
+_PIN_KEY = "lp_ws_pins"
+_PIN_CAP = 20
+
+
+def _pins_all():
+    raw = frappe.db.get_default(_PIN_KEY)
+    if not raw:
+        return {}
+    try:
+        v = json.loads(raw)
+        return v if isinstance(v, dict) else {}
+    except Exception:
+        return {}
+
+
+def _pins_for(user):
+    """This agent's pins, newest first, with anything no longer workable
+    dropped — an order someone else already decided must not sit at the front
+    of the queue forever."""
+    mine = [x for x in (_pins_all().get(user) or []) if x]
+    if not mine:
+        return []
+    rows = frappe.db.sql(
+        f"""SELECT so.name FROM `tabSales Order` so
+            WHERE so.name IN %s AND so.docstatus = 1 AND so.company = %s
+              AND {_IN_HAND}""", (tuple(mine), _CO))
+    alive = {r[0] for r in rows}
+    return [x for x in mine if x in alive]
+
+
+def _pins_write(user, names):
+    data = _pins_all()
+    if names:
+        data[user] = names[:_PIN_CAP]
+    else:
+        data.pop(user, None)
+    frappe.db.set_default(_PIN_KEY, json.dumps(data))
+
+
+@frappe.whitelist(methods=["POST"])
+def pin_order(order, on=1):
+    """Put an order at the front of MY workspace, or take it back off."""
+    _gate()
+    order = (order or "").strip()
+    if not frappe.db.exists("Sales Order", order):
+        frappe.throw("Unknown order.")
+    co = frappe.db.get_value("Sales Order", order, "company")
+    if co != _CO:
+        frappe.throw("That order is not on this market.")
+    me = frappe.session.user
+    mine = [x for x in (_pins_all().get(me) or []) if x != order]
+    if int(on or 0):
+        mine.insert(0, order)
+        if len(mine) > _PIN_CAP:
+            frappe.throw(
+                f"You already have {_PIN_CAP} orders waiting in your workspace. "
+                "Work some of them before adding more.")
+    _pins_write(me, mine)
+    frappe.db.commit()
+    return {"ok": True, "order": order, "pinned": bool(int(on or 0)),
+            "count": len(mine)}
+
+
+@frappe.whitelist()
+def my_pins():
+    """What this agent has queued up, for the workspace pane and the tab chips."""
+    _gate()
+    return {"orders": _pins_for(frappe.session.user)}
+
+
 # ── Serve-next: the workspace engine (Phase B) ──────────────────────────────
 
 
@@ -1984,6 +2071,19 @@ def next_order(skip=None, as_user=None):
     if mine:
         vals["me_like"] = f'%"{scope_user}"%'
         me_q = " AND so._assign LIKE %(me_like)s"
+
+    # What the agent explicitly asked for comes first — that is the whole point
+    # of pinning. Everything they did NOT ask for is still decided by the queue
+    # below, so the ordering discipline survives.
+    for name in _pins_for(scope_user):
+        if cache.get_value(f"lp_skip_{me}_{name}"):
+            continue
+        lock = f"lp_serve_{name}"
+        if cache.get_value(lock) and cache.get_value(lock) != me:
+            continue
+        if not view_as:
+            cache.set_value(lock, me, expires_in_sec=300)
+        return {"order": name, "pinned": True}
 
     retry_sts = tuple(v for k, v in QUEUES.items() if k != "pending")
     for sql, extra in (
@@ -2095,6 +2195,9 @@ def next_up(limit=20, as_user=None):
     if as_user and not mine:
         scope_user = as_user
         mine = True
+    # The plan has to match what next_order will actually do, or the pane lies:
+    # pinned work is served first, so it is listed first.
+    pinned = _pins_for(scope_user)
     me_q = ""
     vals = {"co": _CO, "limit": limit, "now": str(now_datetime())[:19]}
     if mine:
@@ -2149,7 +2252,28 @@ def next_up(limit=20, as_user=None):
         "kind": status_tab.get(r.status, "pending"),
         "nextCall": _when(r.next_call),
     } for r in list(due) + list(fresh)]
-    return {"rows": rows, "nextDueAt": _when(upcoming),
+    if pinned:
+        # Pinned rows lead, and anything also present below is de-duplicated so
+        # the same order is not promised twice in one plan.
+        seen = set(pinned)
+        head = []
+        for pr in frappe.db.sql(
+                """SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
+                          so.custom_sales_status AS status,
+                          TIMESTAMPDIFF(HOUR, so.creation, %s) AS age_h,
+                          COALESCE(so.custom_call_attempts, 0) AS attempts
+                   FROM `tabSales Order` so WHERE so.name IN %s""",
+                (str(now_datetime())[:19], tuple(pinned)), as_dict=True):
+            head.append({
+                "order": pr.name, "customer": pr.customer or "",
+                "total": float(pr.total or 0), "ageH": int(pr.age_h or 0),
+                "attempts": int(pr.attempts or 0), "due": False,
+                "kind": status_tab.get(pr.status, "pending"),
+                "nextCall": "", "pinned": True})
+        head.sort(key=lambda x: pinned.index(x["order"]))
+        rows = head + [r for r in rows if r["order"] not in seen]
+        rows = rows[:limit]
+    return {"rows": rows, "pinned": pinned, "nextDueAt": _when(upcoming),
             "dueCount": len(due),
             # Admin scope serves the whole pool — the pane must not call the
             # team's plan "my queue".

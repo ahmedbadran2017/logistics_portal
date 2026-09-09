@@ -207,6 +207,19 @@
               <Icon name="edit" :size="13" />
             </button>
           </div>
+          <!-- Queue it for my workspace. On EVERY tab, and outside the
+               decision chain below, because the workspace only ever serves a
+               due call-back or the oldest Pending — six of the ten tabs have
+               no other route into it, so an agent who spotted something worth
+               a call in one of them had nowhere to put it but their memory. -->
+          <button
+            class="cf-contact flex-shrink-0"
+            :class="pins.has(r.order) ? 'text-[var(--accent-700)] bg-[var(--accent-50)]' : 'text-stone-300 hover:text-stone-700'"
+            :disabled="pinBusy === r.order"
+            :title="pins.has(r.order) ? t('cf.unpin') : t('cf.pin')"
+            @click.stop="togglePin(r)"
+          ><Icon :name="pins.has(r.order) ? 'check-circle' : 'corner-down-left'" :size="14" /></button>
+
           <!-- Not-Delivered decisions (shipped-then-failed): Rescue's action set,
                run through rescue.act so the transitions live in one place. -->
           <div v-if="isNd" class="flex items-center gap-1.5 flex-wrap">
@@ -425,6 +438,32 @@ const DONE = ["confirmed", "cancelled", "duplicated"];
 
 // Deep-linkable: the dashboard's "orders at risk" card and the segment rows
 // pass ?tab= — landing on pending regardless made those links decorative.
+// Orders this agent has queued for their own workspace. Kept as a Set so the
+// row can answer "is this one mine?" without a scan on every render.
+const pins = ref(new Set());
+const pinBusy = ref("");
+async function loadPins() {
+  try {
+    const r = await api("confirmation.my_pins");
+    pins.value = new Set(r?.orders || []);
+  } catch (e) { /* a status chip must never break the board */ }
+}
+async function togglePin(r) {
+  const on = !pins.value.has(r.order);
+  pinBusy.value = r.order;
+  try {
+    await apiPost("confirmation.pin_order", { order: r.order, on: on ? 1 : 0 });
+    const next = new Set(pins.value);
+    on ? next.add(r.order) : next.delete(r.order);
+    pins.value = next;
+    success(on ? t("cf.pinned") : t("cf.unpinned"), r.order);
+  } catch (e) {
+    warn(t("cf.pinFail"), String(e.message || e));
+  } finally {
+    pinBusy.value = "";
+  }
+}
+
 const route = useRoute();
 const TAB_KEYS = ["pending", "dna", "followup", "onhold", "monitor",
   "notdelivered", "confirmed", "cancelled", "duplicated", "citycheck"];
@@ -515,6 +554,7 @@ async function load(opts) {
   }
 }
 onMounted(load);
+onMounted(loadPins);
 // Query changes no longer remount the page (the router keys by name+params
 // for cheap navigation) — honour ?tab= deep links reactively instead.
 watch(() => route.query.tab, (v) => {
