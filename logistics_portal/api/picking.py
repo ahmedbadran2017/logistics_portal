@@ -1292,10 +1292,59 @@ def submit_pick_list(name):
            WHERE parent = %s
              AND COALESCE(custom_scanned_qty,0) * COALESCE(conversion_factor,1)
                  > COALESCE(picked_qty,0)""", (name,))
+    # An order that already shipped on ANOTHER list cannot be picked again, and
+    # leaving its row here kills the whole submit: ERPNext sums picked_qty per
+    # sales-order line across every list and throws "Total Picked Quantity 2.0
+    # is more than ordered qty 1.0", taking the other eight orders down with it
+    # (PL-55780, 2026-09-09 — J-005142 sat on this draft and on PL-55790, which
+    # was submitted, labelled and delivered in the meantime).
+    #
+    # It happens because the portal is not the only door. _pick_gate refuses an
+    # order that is already on a list, but a pick list built in the Desk never
+    # meets that gate — and on the day this was found, 70 of the day's lists
+    # were made there by two accounts with no portal role. Guarding at submit
+    # covers every door instead of only ours.
+    dupes = frappe.db.sql(
+        """SELECT pli.name AS row_name, pli.sales_order AS so, pli.item_code AS code,
+                  soi.qty AS ordered,
+                  COALESCE((SELECT SUM(o.picked_qty) FROM `tabPick List Item` o
+                            JOIN `tabPick List` op ON op.name = o.parent
+                             AND op.docstatus = 1
+                            WHERE o.sales_order_item = pli.sales_order_item), 0) AS elsewhere
+           FROM `tabPick List Item` pli
+           JOIN `tabSales Order Item` soi ON soi.name = pli.sales_order_item
+           WHERE pli.parent = %s AND pli.sales_order_item IS NOT NULL
+           HAVING elsewhere >= ordered AND ordered > 0""", (name,), as_dict=True)
+    dropped = []
+    if dupes:
+        keep = [l for l in pl.get("locations")
+                if l.name not in {d.row_name for d in dupes}]
+        dropped = sorted({d.so for d in dupes})
+        if not keep:
+            frappe.throw(
+                "Every order on this list was already picked on another one: "
+                + ", ".join(dropped) + ". Nothing left to submit.")
+        pl.set("locations", keep)
+        pl.flags.ignore_permissions = True
+        pl.save(ignore_permissions=True)
+        pl.add_comment(
+            "Comment",
+            "Removed before submit — already picked on a submitted pick list: "
+            + ", ".join(dropped))
+        pl.reload()
+
     # submit() re-writes every child row from the in-memory doc, so the reload
     # is what makes the line above count for anything.
     pl.reload()
-    pl.submit()
+    try:
+        pl.submit()
+    except Exception as e:
+        # Say what actually went wrong. The controller msgprints "Cancelling
+        # stock reservation for associated Sales Orders..." on the way past, and
+        # the toast was showing THAT as the reason the submit failed — a
+        # progress note presented as a diagnosis, which sent the floor looking
+        # at reservations for a problem about quantities.
+        frappe.throw(_short_err(e) or "The pick list could not be submitted.")
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")
     frappe.cache().delete_keys("lp_suggest")
@@ -1305,7 +1354,8 @@ def submit_pick_list(name):
            JOIN `tabPick List Item` pli ON pli.parent=%s AND pli.sales_order=dni.against_sales_order""",
         (name,))[0][0]
     awb = frappe.db.get_value("Delivery Note", dn, "custom_awb") if dn else None
-    return {"ok": True, "pl": name, "dn": dn or "", "awb": awb or ""}
+    return {"ok": True, "pl": name, "dn": dn or "", "awb": awb or "",
+            "dropped": dropped}
 
 
 @frappe.whitelist()
