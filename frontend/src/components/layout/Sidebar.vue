@@ -108,8 +108,9 @@
               :class="attOn ? 'text-emerald-800' : attOut ? 'text-stone-700' : 'text-amber-800'">
           {{ attLabel }}
         </span>
-        <span v-if="attOn && att.workedMin" class="block text-[10px] text-emerald-700/80 tabular-nums">
-          {{ hhmm(att.workedMin) }}
+        <span v-if="attDetail" class="block text-[10px] tabular-nums truncate"
+              :class="attOn ? 'text-emerald-700/80' : attOut ? 'text-stone-500' : 'text-amber-700/90'">
+          {{ attDetail }}
         </span>
       </span>
       <Icon name="external-link" :size="12" class="flex-shrink-0"
@@ -276,19 +277,42 @@ onUnmounted(() => {
   document.removeEventListener("visibilitychange", onVis);
 });
 
-const attOn = computed(() => att.value?.state === "in");
+// A shift left open overnight is the ANOMALY this chip exists to surface, so
+// it must not wear the same green as a healthy morning punch — read at a
+// glance, "still clocked in from yesterday" in emerald says "all good".
+// `attOn` is therefore today's clock-in only; a stale one falls through to
+// the amber that every other needs-a-human state already uses.
+const attOn = computed(() => att.value?.state === "in" && !att.value?.stale);
 // A checkout from a previous day is not "you left at 14:48" — it is "you have
 // not punched today". Saying the former for a log from February would be
 // precise and useless.
 const attOut = computed(() => att.value?.state === "out" && !att.value?.stale);
+// Two lines, state then detail. One line could not hold either: the sidebar is
+// ~150px of text and "Still clocked in from an earlier day" arrived as
+// "Still clocked in from an earli…" — the half that got cut is the half that
+// says something. The state alone fits in every locale; the clock goes below.
 const attLabel = computed(() => {
   const a = att.value;
   if (!a) return "";
-  if (a.state === "in") {
-    return a.stale ? t("nav.attSinceYesterday") : `${t("nav.attIn")} ${a.since || ""}`;
-  }
-  if (a.state === "out" && !a.stale) return `${t("nav.attOut")} ${(a.lastAt || "").slice(11, 16)}`;
+  if (a.state === "in") return a.stale ? t("nav.attSinceYesterday") : t("nav.attIn");
+  if (a.state === "out" && !a.stale) return t("nav.attOut");
   return t("nav.attNone");
+});
+const attDetail = computed(() => {
+  const a = att.value;
+  if (!a) return "";
+  if (a.state === "in") {
+    if (a.stale) return t("nav.attEarlierDay");
+    const parts = [];
+    if (a.since) parts.push(`${t("nav.attSince")} ${a.since}`);
+    if (a.workedMin) parts.push(hhmm(a.workedMin));
+    return parts.join(" · ");
+  }
+  if (a.state === "out" && !a.stale) {
+    const at = (a.lastAt || "").slice(11, 16);
+    return at ? `${t("nav.attAt")} ${at}` : "";
+  }
+  return "";
 });
 function hhmm(mins) {
   const h = Math.floor((mins || 0) / 60), m = (mins || 0) % 60;
