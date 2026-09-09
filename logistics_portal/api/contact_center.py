@@ -67,7 +67,12 @@ _ROLE_GROUP = {"confirmation": "cc", "picker": "floor"}
 _MONEY_DEFAULTS = {
     "on": 0,                  # off until the manager sets the numbers
     "currency": "MAD",
-    "perPoint": {"cc": 1.0, "floor": 4.0},   # MAD per point earned
+    # cc re-priced 2026-09-09 against the CORRECTED board (both trails +
+    # confirmed-by-me outcome): the best complete month is ~335 points, the
+    # median regular ~200. At 4.0 the top lands ~1,340 MAD under the 1,500
+    # cap and the middle ~800. The old 1.0 was priced on a basis that scored
+    # 2% of the work.
+    "perPoint": {"cc": 4.0, "floor": 4.0},   # MAD per point earned
     "monthlyCap": {"cc": 1500, "floor": 1500},
     # Quality gate: no payout above the base until the agent clears it.
     # cc is gated on DELIVERY rate (see _quality_pct) — of what the agent
@@ -76,9 +81,11 @@ _MONEY_DEFAULTS = {
     # floor has NO honest per-person quality signal yet (same-day measures the
     # dispatcher's list timing, not the picker's work), so it stays off.
     "gateOn": {"cc": 1, "floor": 0},
-    # 65.3% is the measured company average — a gate above it would fail most
-    # of the team on day one. 60 asks the laggards to reach the middle.
-    "gatePct": {"cc": 60, "floor": 0},
+    # Re-measured 2026-09-09 on the corrected per-agent basis: real delivery
+    # rates run 46-85%, the working regulars 60-71%. A 60 gate would fail an
+    # agent sitting exactly on the busiest cohort's floor; 55 sits under every
+    # regular with margin while still refusing carelessness.
+    "gatePct": {"cc": 55, "floor": 0},
     # Streak: +N% per 5 consecutive working days, capped.
     "streakStepPct": 10,
     "streakCapPct": 30,
@@ -91,8 +98,13 @@ _MONEY_DEFAULTS = {
 }
 
 _BONUS_DEFAULTS = {
-    # Priced off June: the best agent earns ~1,374 points, the smallest ~100.
-    "targets": {"cc": 1200, "floor": 300},
+    # cc re-priced 2026-09-09: 1200 was calibrated against the broken basis
+    # (portal trail only + allocated outcome). On the corrected board the best
+    # COMPLETE month anyone has produced is ~335 points — so 1200 was a bar
+    # nobody could ever reach, and the hero card read "0% of target" forever.
+    # 250 is just under the best real month: reachable by the strongest,
+    # aspirational for the middle.
+    "targets": {"cc": 250, "floor": 300},
     "money": dict(_MONEY_DEFAULTS),
     # Weights, priced against a real completed month (June): the top agent
     # lands near the cap and the rest spread out beneath. The first cut of

@@ -65,8 +65,11 @@
     </div>
 
     <template v-else-if="d">
-      <!-- my card -->
-      <div class="bn-hero rounded-2xl p-5">
+      <!-- my card. Only for someone actually ON this board: a manager opens
+           the page to read the team, and a permanent "0 pts / 250 · 0% of
+           target" card about themselves is noise at best and, at 0%,
+           reads like something is broken. -->
+      <div v-if="d.me.actions || d.me.points || !isManager" class="bn-hero rounded-2xl p-5">
         <div class="flex items-center gap-4 flex-wrap">
           <span class="bn-ico"><Icon name="wallet" :size="20" /></span>
           <div class="flex-1 min-w-[220px]">
@@ -426,6 +429,7 @@ import { IS_CC } from "@/lib/portal";
 
 const { t } = useI18n();
 const { role, ccAdmin, viewAs } = useAuth();
+const isManager = computed(() => role.value === "manager");
 // CC agents — and a manager viewing as one — get the coming-soon panel; only
 // the manager/section admins see (and keep designing) the actual board.
 const comingSoon = computed(() => {
@@ -433,7 +437,12 @@ const comingSoon = computed(() => {
   // The moment the manager flips money.on, the promise page steps aside on
   // its own — no deploy between "activated" and "the team can see it".
   if (Number(scheme.value?.money?.on)) return false;
-  if (viewAs.value) return true;
+  // View-as used to render the promise poster too — faithful, and useless:
+  // the manager already knows the poster exists; what they are impersonating
+  // FOR is to check the agent's numbers before switching the money on. So
+  // view-as previews the real page (the banner already says whose eyes these
+  // are); the poster stays for the agents themselves until activation.
+  if (viewAs.value) return false;
   const admin = ccAdmin.value?.cf || ccAdmin.value?.rs || ccAdmin.value?.cs;
   return role.value !== "manager" && !admin;
 });
