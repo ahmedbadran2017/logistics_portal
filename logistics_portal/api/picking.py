@@ -1742,11 +1742,21 @@ def _resolve_bins(item_codes):
     if rej:
         rows = [r for r in rows if r.warehouse not in rej]
     # Same shelf, same answer. Routing the next picker to a bin somebody just
-    # reported empty is how one shelf produced twelve reports in a day.
+    # reported empty is how one shelf produced twelve reports in a day. What is
+    # withheld is the quantity that was not found, not the whole bin — a pallet
+    # holding hundreds does not become empty because one piece was misplaced.
     from logistics_portal.api.short_shelf import active as _short_active
     _empty = _short_active()
     if _empty:
-        rows = [r for r in rows if (r.item_code, r.warehouse) not in _empty]
+        kept = []
+        for r in rows:
+            miss = float(_empty.get((r.item_code, r.warehouse), 0))
+            if miss:
+                r.avail = float(r.avail or 0) - miss
+                if r.avail <= 0:
+                    continue
+            kept.append(r)
+        rows = kept
 
     # Qty already claimed by OPEN DRAFT pick lists is NOT free — ERPNext's
     # set_item_locations subtracts it on save, so ignoring it here made the
@@ -1851,11 +1861,13 @@ def _available_totals(item_codes):
     # stock ee's controller refuses to allocate (SLOW ZONE et al.) is NOT
     # coverage, whatever the portal's own pickable policy says.
     rej = _ee_rejected()
-    # A shelf a picker just found empty is not coverage, whatever the Bin says.
-    # Measured 2026-09-09: of 116 items reported empty in a day, 62 still showed
-    # pickable stock here — and both the board and the create believed it. The
-    # report is per BIN, so the same item in another bin is untouched and the
-    # order stays pickable from there.
+    # Stock a picker went looking for and could not find is not coverage,
+    # whatever the Bin says. Measured 2026-09-09: of 116 items reported empty in
+    # a day, 62 still showed pickable stock here — and both the board and the
+    # create believed it. The report is per BIN, so the same item in another bin
+    # is untouched, and it subtracts the QUANTITY not found rather than the
+    # bin's balance: emptying the bin hid all 223 units of one item in PLT
+    # because a picker could not find one piece of it.
     from logistics_portal.api.short_shelf import active as _short_active
     empty = _short_active()
     totals = {}
@@ -1863,9 +1875,12 @@ def _available_totals(item_codes):
             "SELECT item_code, warehouse, GREATEST(actual_qty - reserved_qty, 0) FROM `tabBin` "
             "WHERE item_code IN %s AND " + cond,
             tuple([tuple(item_codes)] + wargs)):
-        if r[1] in rej or (r[0], r[1]) in empty:
+        if r[1] in rej:
             continue
-        totals[r[0]] = totals.get(r[0], 0) + float(r[2] or 0)
+        free = float(r[2] or 0) - float(empty.get((r[0], r[1]), 0))
+        if free <= 0:
+            continue
+        totals[r[0]] = totals.get(r[0], 0) + free
     # Batch/serial items: cap by ee's own batch-aware availability — Bin stock
     # whose batch ledger lives elsewhere is not coverage.
     for it, q in _batch_truth(item_codes).items():
@@ -2908,7 +2923,8 @@ def report_short_pick(pick_list, order, item_code=None, defer=0):
     for _r in rows:
         if item_code and _r.item_code != item_code:
             continue
-        _mark_shelf(_r.item_code, _r.warehouse)
+        _still = max(0.0, float(_r.qty or 0) - float(_r.picked_qty or 0))
+        _mark_shelf(_r.item_code, _r.warehouse, _still or 1)
 
     # Kept for the audit trail and for reporting — no longer a gate.
     so = frappe.get_doc("Sales Order", so_name)

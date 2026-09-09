@@ -12,10 +12,21 @@ So the cool-down punished orders (38 of the 40 the board called ready) while
 failing at the one thing it existed for.
 
 The evidence is about a SHELF, so it is recorded against (item, warehouse) and
-subtracted from availability the same way an open draft's claim is. One report
-then suppresses that bin for everybody, the order is not punished at all — it
-simply is not ready while the piece is unfindable, and becomes ready the moment
-the item turns up in another bin or is restocked.
+subtracted from availability the same way an open draft's claim is. The order is
+not punished at all — it simply is not ready while the piece is unfindable, and
+becomes ready the moment the item turns up in another bin or is restocked.
+
+What a report subtracts is the QUANTITY the picker went looking for, not the
+bin's whole balance. Emptying the bin was the first version and it was wrong in
+a way that only bulk locations reveal: one picker failing to find one piece in
+PLT hid all 223 units of it, and J-005384 — a single order for a single unit —
+was told "out of stock" while the shelf held 223. Measured 2026-09-09: of 68
+live marks, 5 sat on bins holding 20+ units and between them hid 830, almost
+all of it in PLT and Receiving Zone, which are staging areas rather than pick
+faces. On a face holding one or two pieces the subtraction still empties it, so
+the repeat walk is still prevented where that reading is true; on a pallet
+holding hundreds it says what it actually means — one piece was misplaced —
+and the count worklist is where that gets resolved.
 
 The belief expires on its own (shortPickCooldownH), and a cycle count clears it
 immediately: a human counting the shelf is a stronger observation than a human
@@ -61,24 +72,42 @@ def _prune(data):
     from frappe.utils import now_datetime, time_diff_in_seconds
     now = now_datetime()
     out = {}
-    for k, ts in data.items():
+    for k, v in data.items():
         try:
-            if time_diff_in_seconds(now, ts) < h * 3600:
-                out[k] = ts
+            at, _q = _entry(v)
+            if time_diff_in_seconds(now, at) < h * 3600:
+                out[k] = v
         except Exception:
             continue
     return out
 
 
-def mark(item_code, warehouse):
-    """A picker stood at `warehouse` and did not find `item_code`."""
+def _entry(v):
+    """Rows are {at, qty}. Older rows are a bare timestamp — read as one unit,
+    which is what a single report meant before the quantity was recorded."""
+    if isinstance(v, dict):
+        return str(v.get("at") or "")[:19], float(v.get("qty") or 1)
+    return str(v or "")[:19], 1.0
+
+
+def mark(item_code, warehouse, qty=1):
+    """A picker stood at `warehouse` and could not find `qty` of `item_code`.
+
+    Repeats accumulate: two pickers failing to find one piece each is evidence
+    about two pieces, not the same one twice."""
     item_code = (item_code or "").strip()
     warehouse = (warehouse or "").strip()
+    try:
+        qty = max(1.0, float(qty or 1))
+    except Exception:
+        qty = 1.0
     if not (item_code and warehouse and _hours()):
         return
     from frappe.utils import now_datetime
     data = _prune(_load())
-    data["%s||%s" % (item_code, warehouse)] = str(now_datetime())[:19]
+    k = "%s||%s" % (item_code, warehouse)
+    prev = _entry(data[k])[1] if k in data else 0.0
+    data[k] = {"at": str(now_datetime())[:19], "qty": prev + qty}
     frappe.db.set_default(_KEY, json.dumps(data))
     frappe.cache().delete_value(_CACHE)
 
@@ -103,23 +132,24 @@ def clear(item_code, warehouse=None):
 
 
 def active():
-    """{(item_code, warehouse)} currently believed empty. Cached 60s — every
-    availability call asks, and the answer only changes when a picker reports
-    or a shelf is counted."""
+    """{(item_code, warehouse): qty_not_found}. Cached 60s — every availability
+    call asks, and the answer only changes when a picker reports or a shelf is
+    counted."""
     cached = frappe.cache().get_value(_CACHE)
     if cached is not None:
         try:
-            return {tuple(x) for x in json.loads(cached)}
+            return {(x[0], x[1]): float(x[2]) for x in json.loads(cached)}
         except Exception:
             pass
     data = _prune(_load())
-    out = set()
-    for k in data:
+    out = {}
+    for k, v in data.items():
         it, _, wh = k.partition("||")
         if it and wh:
-            out.add((it, wh))
-    frappe.cache().set_value(_CACHE, json.dumps([list(x) for x in out]),
-                             expires_in_sec=60)
+            out[(it, wh)] = _entry(v)[1]
+    frappe.cache().set_value(
+        _CACHE, json.dumps([[a, b, q] for (a, b), q in out.items()]),
+        expires_in_sec=60)
     return out
 
 
@@ -127,10 +157,11 @@ def _entries():
     """Rows with their timestamps, newest first."""
     data = _prune(_load())
     rows = []
-    for k, ts in data.items():
+    for k, v in data.items():
         it, _, wh = k.partition("||")
         if it and wh:
-            rows.append({"item": it, "warehouse": wh, "at": ts})
+            at, q = _entry(v)
+            rows.append({"item": it, "warehouse": wh, "at": at, "qty": int(q)})
     rows.sort(key=lambda r: r["at"], reverse=True)
     return rows
 
