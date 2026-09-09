@@ -791,29 +791,32 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
         for nr in need_rows:
             needs.setdefault(nr.parent, {})[nr.item_code] = float(nr.q or 0)
         codes = {c for m in needs.values() for c in m}
+        # Mirror _allocate_and_insert EXACTLY — same two ledgers, same order of
+        # spending. A preview that used different arithmetic than the create is
+        # how "17 will go" became "the create refused all 17".
         totals = _available_totals(codes)
         sre = _sre_by_order(codes)
-        # Mirror _allocate_and_insert EXACTLY: reservations lock stock to
-        # specific orders but leave Bin.reserved_qty at 0, so the shared pool
-        # must shed ALL of them before each order gets its own back. Without
-        # this the preview said "17 will go" and the create refused all 17.
+        ceiling, shared = {}, {}
+        for code in codes:
+            ceiling[code] = max(0.0, float(totals.get(code, 0)))
+            shared[code] = ceiling[code]
         for (_so, code), q in sre.items():
-            totals[code] = totals.get(code, 0) - q
-        # Floor at zero — the same rule the board shows. Without it the preview
-        # and the board would disagree with each other, which is worse than
-        # either being wrong alone.
-        for code in totals:
-            if totals[code] < 0:
-                totals[code] = 0
+            shared[code] = shared.get(code, 0) - float(q)
+        for code in shared:
+            if shared[code] < 0:
+                shared[code] = 0.0
         used_own = {}
         for name in page_names:
             short = None
             plan = {}
             for c, q in (needs.get(name) or {}).items():
+                if ceiling.get(c, 0) < q:
+                    short = c
+                    break
                 own = max(0.0, sre.get((name, c), 0) - used_own.get((name, c), 0))
                 use_own = min(q, own)
                 rem = q - use_own
-                if totals.get(c, 0) < rem:
+                if shared.get(c, 0) < rem:
                     short = c
                     break
                 plan[c] = (use_own, rem)
@@ -822,7 +825,8 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
             else:
                 for c, (use_own, rem) in plan.items():
                     used_own[(name, c)] = used_own.get((name, c), 0) + use_own
-                    totals[c] = totals.get(c, 0) - rem
+                    ceiling[c] = ceiling.get(c, 0) - (use_own + rem)
+                    shared[c] = shared.get(c, 0) - rem
 
     pickable = [r for r in page if r.name not in blocked_by]
     return {
@@ -1113,20 +1117,30 @@ def _allocate_and_insert(sos, skipped, picker):
     # Uncoverable orders are SKIPPED with a named reason; the rest stay merged.
     item_codes = {it.item_code for so in sos for it in so.items}
     totals = _available_totals(item_codes)
-    # Stock Reservation Entries lock stock to specific orders but leave the bin's
-    # reserved_qty at 0, so `totals` (physical free) still counts them. Remove
-    # ALL reservations from the shared free pool, then hand each order back only
-    # its OWN reservation — mirrors what ERPNext's set_item_locations allocates,
-    # so a reserved-away item makes its order skip HERE instead of 417-ing the
-    # whole batch at save.
+    # Two ledgers, spent together. `ceiling` is what physically exists and can
+    # be picked; `shared` is the part of it nobody has reserved. A Stock
+    # Reservation Entry does not touch Bin.reserved_qty on this instance
+    # (verified: all 62 live SRE bins carry reserved_qty 0), so reserved stock
+    # IS inside `totals` and its owner may have it back — but only up to what
+    # the ceiling says exists.
+    #
+    # The old code kept one number and added the order's own reservation on top
+    # of it after flooring at zero, which invents a unit whenever `totals` was
+    # zeroed for a reason unrelated to reservations — a draft holding the piece,
+    # the batch ledger answering nothing, a shelf a picker found empty.
+    # Measured 2026-09-09 on the live pool: 31 of 126 orders were told they
+    # could be picked on stock that is not there. Reservations decide WHO gets
+    # a unit, never how many exist.
     sre = _sre_by_order(item_codes)
+    ceiling, shared = {}, {}
+    for code in item_codes:
+        ceiling[code] = max(0.0, float(totals.get(code, 0)))
+        shared[code] = ceiling[code]
     for (_so, code), q in sre.items():
-        totals[code] = totals.get(code, 0) - q
-    # The builder floors it too, or an order the board calls Ready would be
-    # refused here — a promise the screen made and the create broke.
-    for code in totals:
-        if totals[code] < 0:
-            totals[code] = 0
+        shared[code] = shared.get(code, 0) - float(q)
+    for code in shared:
+        if shared[code] < 0:
+            shared[code] = 0.0
     used_own = {}
     covered = []
     for so in sos:
@@ -1140,11 +1154,14 @@ def _allocate_and_insert(sos, skipped, picker):
             continue
         plan, short = {}, None
         for c, q in need.items():
+            if ceiling.get(c, 0) < q:
+                short = c              # the pieces simply are not there
+                break
             own = max(0.0, sre.get((so.name, c), 0) - used_own.get((so.name, c), 0))
             use_own = min(q, own)
             rem = q - use_own          # the part that must come from shared free stock
-            if totals.get(c, 0) < rem:
-                short = c
+            if shared.get(c, 0) < rem:
+                short = c              # what is left is reserved to somebody else
                 break
             plan[c] = (use_own, rem)
         if short:
@@ -1152,7 +1169,11 @@ def _allocate_and_insert(sos, skipped, picker):
             continue
         for c, (use_own, rem) in plan.items():
             used_own[(so.name, c)] = used_own.get((so.name, c), 0) + use_own
-            totals[c] = totals.get(c, 0) - rem
+            # The piece leaves the building either way, so the ceiling always
+            # pays the full quantity; only the shared half is spared when the
+            # order draws on its own reservation.
+            ceiling[c] = ceiling.get(c, 0) - (use_own + rem)
+            shared[c] = shared.get(c, 0) - rem
         covered.append(so)
     sos = covered
     if not sos:
@@ -1797,9 +1818,34 @@ def _resolve_bins(item_codes):
     # qty written against the shelf bin, and ee's per-WAREHOUSE check threw
     # "picked quantity 2.0 is greater than available stock 1.0" — which fell the
     # whole batch back to one list per order (57 of 79 lists on 2026-08-31).
+    # The batch ledger has the last word, exactly as it does in
+    # _available_totals. Without this the two disagreed: the gate refused an
+    # order because the batch resolver answered 0 while this function happily
+    # handed out a bin for it — and a row placed on stock ee cannot allocate is
+    # what it refuses at save with "picked quantity 1.0 is greater than
+    # available stock 0.0". Measured 2026-09-09: 6 items in the live pool were
+    # being offered bins their batch ledger says are not there.
+    truth = _batch_truth(set(pool))
     for code, cands in pool.items():
         cands.sort(key=lambda c: (not c["shelf"], -c["qty"], c["walk"]))
+        cap = truth.get(code)
+        if cap is not None:
+            room = max(0.0, float(cap))
+            kept = []
+            for c in cands:
+                if room <= 0:
+                    break
+                take = min(float(c["qty"]), room)
+                room -= take
+                kept.append({**c, "qty": take})
+            cands = kept
+        if not cands:
+            best.pop(code, None)
+            continue
         if code in best:
+            # The headline bin has to be one that survived the cap.
+            best[code] = {**best[code], **{k: cands[0][k] for k in
+                                           ("bin", "shelf", "aisle", "walk", "qty")}}
             best[code]["pool"] = cands
     return best
 
@@ -1899,6 +1945,48 @@ def _available_totals(item_codes):
             continue
         totals[r[0]] = totals.get(r[0], 0) - float(r[2] or 0)
     return totals
+
+
+def availability(item_codes):
+    """The ONE answer to "how much of this item may THIS order take".
+
+    Audited 2026-09-09: five different callers were each doing their own
+    arithmetic on top of _available_totals, and they disagreed. The common
+    shape was `shared = totals - every reservation, floored at zero` and then
+    `free = shared + this order's own reservation` — which is right in
+    principle, because a Stock Reservation Entry does NOT touch Bin.reserved_qty
+    on this instance (verified: all 62 live SRE bins carry reserved_qty 0), so
+    reserved stock really is still inside `totals` and an order may have its
+    own back.
+
+    It breaks when `totals` was reduced to zero for a reason that has nothing
+    to do with reservations — an open draft holding the piece, the batch ledger
+    answering nothing, a shelf a picker found empty. The floor hides the
+    deficit, the reservation is added on top of it, and a unit that does not
+    exist is handed out. Measured on the live pool: 31 of 126 orders were told
+    they could be picked on stock `totals` says is not there.
+
+    So the sum is capped by what `totals` actually reports. Reservations decide
+    WHO gets a unit, never HOW MANY exist.
+
+    Returns (totals, sre, free) where free(order, code) -> qty.
+    """
+    totals = _available_totals(item_codes)
+    sre = _sre_by_order(item_codes)
+    shared = {}
+    for code in set(item_codes) | set(totals):
+        shared[code] = max(0.0, float(totals.get(code, 0)))
+    for (_so, code), q in sre.items():
+        shared[code] = shared.get(code, 0) - float(q)
+    for code in shared:
+        if shared[code] < 0:
+            shared[code] = 0.0
+
+    def free(order, code):
+        ceiling = max(0.0, float(totals.get(code, 0)))
+        return min(ceiling, shared.get(code, 0) + float(sre.get((order, code), 0)))
+
+    return totals, sre, free
 
 
 def _chunk(seq, cap_orders, cap_units, units_of):

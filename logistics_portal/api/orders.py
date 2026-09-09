@@ -538,31 +538,15 @@ def _pick_availability():
               AND so.creation >= %s
             GROUP BY so.name, soi.item_code, item_name, val, created""",
             (w,), as_dict=True)
-        # The SAME availability the create runs (audited 2026-08-27: the old
-        # raw-Bin math called 50 orders "ready" when only 12 could actually be
-        # picked — no ee-rejected-warehouse exclusion, no batch-ledger cap, no
-        # reservation accounting, no draft-claim subtraction). One source of
-        # truth: shared pool = _available_totals minus every active Stock
-        # Reservation Entry; each order then gets its OWN reservation back.
-        from logistics_portal.api.picking import _available_totals, _sre_by_order
+        # The SAME availability the create runs — audited 2026-08-27, when raw
+        # Bin math called 50 orders ready and only 12 could be picked, and again
+        # 2026-09-09, when five callers had each grown their own arithmetic on
+        # top of it and disagreed. There is now one definition and every screen
+        # asks it: picking.availability().
+        from logistics_portal.api.picking import availability
         codes = {r.code for r in rows}
-        totals = _available_totals(codes)
-        sre = _sre_by_order(codes)
-        # Shedding every reservation can push the shared pool BELOW zero when
-        # `totals` was capped for another reason — the batch resolver answering
-        # 0, or the stock sitting in a warehouse the engine refuses. The order's
-        # own reservation is then handed back into that hole instead of to the
-        # order, so it reads out of stock while its piece sits reserved for it on
-        # the shelf. Measured 2026-09-02: 47 of the 135 blocked orders, every one
-        # of them with the stock physically on a pickable Moroccan shelf.
-        # The pool floors at zero; it never invents stock, because a genuinely
-        # empty item has no reservation to hand back either.
-        shared = dict(totals)
-        for (_so, code), q in sre.items():
-            shared[code] = shared.get(code, 0) - q
-        for code in shared:
-            if shared[code] < 0:
-                shared[code] = 0
+        totals, sre, _free_for = availability(codes)
+
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal._pick_availability")
         return dict(_EMPTY_AVAIL)
@@ -578,7 +562,7 @@ def _pick_availability():
         # "Some" is about the ITEM, not about this order's turn: it decides
         # OOS ("nothing in stock") vs Partial, and that answer should not
         # change because another order was served first.
-        if (shared.get(r.code, 0) + sre.get((r.so, r.code), 0)) > 0:
+        if _free_for(r.so, r.code) > 0:
             d["some"] += 1
 
     # One unit, one order. The old test asked each order on its own whether the
@@ -1648,24 +1632,17 @@ def detail(name):
     # runs: free stock across pickable bins minus every live reservation, with
     # THIS order's own reservation credited back.
     try:
-        from logistics_portal.api.picking import _available_totals, _sre_by_order
+        from logistics_portal.api.picking import availability
         _codes = {r.sku for r in items if r.sku}
         if _codes:
-            _totals = _available_totals(_codes)
-            _sre = _sre_by_order(_codes)
-            _shared = dict(_totals)
-            for (_o, _c), _q in _sre.items():
-                _shared[_c] = _shared.get(_c, 0) - _q
-            # Same floor as _pick_availability, or the order card and the board
-            # would disagree about the very same line.
-            for _c in _shared:
-                if _shared[_c] < 0:
-                    _shared[_c] = 0
+            # One shared definition, so the card, the board and the create can
+            # never disagree about the same line again.
+            _totals, _sre, _free = availability(_codes)
             for r in items:
                 _need = float(r.qty or 0)
-                _free = _shared.get(r.sku, 0) + _sre.get((name, r.sku), 0)
-                r["avail"] = int(max(0, _free))
-                r["short"] = bool(_free < _need)
+                _f = _free(name, r.sku)
+                r["avail"] = int(max(0, _f))
+                r["short"] = bool(_f < _need)
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "orders.detail stock")
 
