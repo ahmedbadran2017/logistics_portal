@@ -206,3 +206,48 @@ def on_stock_reconciliation(doc, method=None):
     except Exception:
         # A hook on a stock document must never be the reason a count fails.
         pass
+
+
+def seed_from_comments():
+    """Carry today's reports across the cutover.
+
+    The mark used to live on the order, so on the day this ships the shelf-level
+    store is empty and every shelf a picker emptied this morning reads as
+    stocked again — the knowledge would be lost exactly once, and the floor
+    would re-walk it. The comment left by report_short_pick names the item, and
+    the order's own pick-list rows name the bin it was standing at, so the pair
+    can be rebuilt for the window that is still within the cool-down.
+
+    Idempotent: marks expire on their own, and re-running only refreshes them.
+    """
+    h = _hours()
+    if not h:
+        return {"marks": 0}
+    import re as _re
+    rows = frappe.db.sql(
+        """SELECT reference_name AS so, content FROM `tabComment`
+           WHERE content LIKE 'Short pick:%%'
+             AND creation >= DATE_SUB(NOW(), INTERVAL %s HOUR)""", (h,), as_dict=True)
+    want = []
+    for r in rows:
+        m = _re.search(r"item \(([^)]+)\)", r.content or "")
+        if m and r.so:
+            want.append((r.so, m.group(1)))
+    if not want:
+        return {"marks": 0}
+    sos = tuple({x[0] for x in want})
+    codes = tuple({x[1] for x in want})
+    where = {}
+    for x in frappe.db.sql(
+            """SELECT sales_order AS so, item_code AS c, warehouse AS wh
+               FROM `tabPick List Item`
+               WHERE sales_order IN %s AND item_code IN %s
+               GROUP BY sales_order, item_code, warehouse""",
+            (sos, codes), as_dict=True):
+        where.setdefault("%s||%s" % (x.so, x.c), set()).add(x.wh)
+    n = 0
+    for so, code in want:
+        for wh in where.get("%s||%s" % (so, code), ()):
+            mark(code, wh)
+            n += 1
+    return {"marks": n}

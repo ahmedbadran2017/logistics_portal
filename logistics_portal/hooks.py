@@ -70,6 +70,10 @@ after_migrate = [
     "logistics_portal.install.ensure_cs_fields",
     "logistics_portal.install.ensure_desk_override_role",
     "logistics_portal.install.ensure_role_field_options",
+    # Carry the day's short-pick reports across the move from an order-level
+    # cool-down to a shelf-level one, so the knowledge is not lost exactly once
+    # and the floor does not re-walk shelves it emptied this morning.
+    "logistics_portal.api.short_shelf.seed_from_comments",
 ]
 
 scheduler_events = {
