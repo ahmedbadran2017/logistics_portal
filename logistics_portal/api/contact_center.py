@@ -627,7 +627,17 @@ def _payout(agent, group, s, month, kicker_on):
     gate_pct = None
     gate_pass = True
     if m["gateOn"].get(group):
-        gate_pct = _quality_pct(agent["user"], group, month)
+        # The board row already carries this agent's delivery rate on the ONE
+        # correct basis (parcels from orders they confirmed, both trails).
+        # The first activation read delivery_rate() here instead — a looser
+        # fence that also swept in automation-confirmed orders the agent had
+        # merely touched and rescue reships (which drag failed parcels along
+        # by construction) — and the same screen said "Quality gate 45.3%"
+        # on the hero while the receipt underneath said 80.0%. Two answers to
+        # one question, and the wrong one was deciding money. One source now.
+        gate_pct = agent.get("deliveryRate", None)
+        if gate_pct is None and "deliveryRate" not in agent:
+            gate_pct = _quality_pct(agent["user"], group, month)
         # No measurement yet = no penalty. Silence is not failure.
         gate_pass = gate_pct is None or gate_pct >= float(m["gatePct"].get(group, 0))
 

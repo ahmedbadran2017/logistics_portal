@@ -544,9 +544,31 @@ def me(user=None):
     data["delivery"] = None
     if data["kind"] == "agent":
         try:
-            from logistics_portal.api.contact_center import delivery_rate
+            from logistics_portal.api.contact_center import (
+                _board, _bonus_settings, delivery_rate)
+            # The month figure must MATCH the bonus page — it is the same
+            # question, and the quality gate now answers it from the board's
+            # basis (parcels from orders this agent confirmed). delivery_rate
+            # is a looser approximation that read 45.3% while the board read
+            # 80.0% for the same person; two pages disagreeing about the
+            # number that gates pay is corrosive. Lifetime keeps the
+            # approximation: no confirmed-by-me set exists back through the
+            # desk era, and there allocated ≈ actor anyway.
+            month_rate = None
+            for a in _board("cc", nowdate()[:7], _bonus_settings()["points"]):
+                if a["user"] == target_user:
+                    _d = int(a.get("delivered") or 0)
+                    _f = int(a.get("returned") or 0)
+                    # Same shape delivery_rate() returns — the page reads
+                    # `shipped` to decide whether to render at all.
+                    month_rate = {"rate": a.get("deliveryRate"),
+                                  "delivered": _d, "returned": _f,
+                                  "shipped": _d + _f,
+                                  "returnRate": round(_f * 100.0 / (_d + _f), 1)
+                                                if (_d + _f) else None}
+                    break
             data["delivery"] = {
-                "month": delivery_rate(target_user, nowdate()[:7]),
+                "month": month_rate or delivery_rate(target_user, nowdate()[:7]),
                 "allTime": delivery_rate(target_user),
             }
         except Exception:
