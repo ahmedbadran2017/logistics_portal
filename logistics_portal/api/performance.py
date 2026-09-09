@@ -297,21 +297,32 @@ def _comment_action(content, prefix):
 
 
 def _agent_me(user, days=7):
-    """Contact-center agent: today's decisions, pace, rate, trend, rank."""
-    today = nowdate()
+    """Contact-center agent: today's decisions, pace, rate, trend, rank.
+
+    Every date and hour on this page is the FLOOR's (api/clock), not the
+    site's. The site clock is Istanbul, two-to-three hours ahead of the
+    Moroccan wall clock — so this page's "today" used to roll over at 22:00
+    Morocco time: at 22:02 the hero ring collapsed to 0/40 and the pace
+    chart went blank while the person was still mid-shift with 115
+    decisions behind them. A scoreboard that zeroes itself nightly two
+    hours early is the fastest way to teach a team its numbers are fake.
+    """
+    from logistics_portal.api import clock as _clock
+    today = _clock.floor_today()
+    _t0, _t1 = _clock.day_bounds(today)
+    _w0 = _clock.day_bounds(add_days(today, -(days - 1)))[0]
     by_action, today_total, today_wins = {}, 0, 0
     trend_map, hours, recent = {}, {}, []
 
     for lane, cfg in _LANES.items():
         rows = frappe.db.sql(
-            """SELECT c.content, c.creation, c.reference_name,
-                      DATE(c.creation) d, HOUR(c.creation) h
+            """SELECT c.content, c.creation, c.reference_name
                FROM `tabComment` c
                WHERE c.owner = %(u)s AND c.reference_doctype = %(dt)s
-                 AND c.creation >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)
+                 AND c.creation >= %(w0)s AND c.creation < %(t1)s
                  AND c.content LIKE %(pfx)s
                ORDER BY c.creation DESC""",
-            {"u": user, "dt": cfg["dt"], "days": days - 1,
+            {"u": user, "dt": cfg["dt"], "w0": _w0, "t1": _t1,
              "pfx": cfg["prefix"] + ": %"}, as_dict=True)
         for r in rows:
             if "(bulk)" in r.content or " bulk " in r.content:
@@ -319,7 +330,8 @@ def _agent_me(user, days=7):
             action = _comment_action(r.content, cfg["prefix"])
             key = f"{lane}.{action}"
             is_win = action in cfg["wins"]
-            d = str(r.d)
+            at = _clock.to_floor(r.creation)
+            d = str(at)[:10]
             t = trend_map.setdefault(d, {"date": d, "total": 0, "wins": 0})
             t["total"] += 1
             t["wins"] += 1 if is_win else 0
@@ -327,11 +339,11 @@ def _agent_me(user, days=7):
                 by_action[key] = by_action.get(key, 0) + 1
                 today_total += 1
                 today_wins += 1 if is_win else 0
-                hours[int(r.h)] = hours.get(int(r.h), 0) + 1
+                hours[at.hour] = hours.get(at.hour, 0) + 1
                 if len(recent) < 12:
                     recent.append({"ref": r.reference_name, "lane": lane,
                                    "action": action, "win": is_win,
-                                   "at": str(r.creation)[11:16]})
+                                   "at": str(at)[11:16]})
 
     # Desk fallback: an agent deciding on the DESK writes no portal comment.
     # Attribution comes from the Version trail — what THIS PERSON changed —
@@ -342,12 +354,12 @@ def _agent_me(user, days=7):
     if True:
         import json as _j
         vrows = frappe.db.sql(
-            """SELECT DATE(creation) d, data FROM `tabVersion`
+            """SELECT creation, data FROM `tabVersion`
                WHERE ref_doctype = 'Sales Order' AND owner = %(u)s
                  AND data LIKE '%%custom_sales_status%%'
-                 AND creation >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)
+                 AND creation >= %(w0)s AND creation < %(t1)s
                ORDER BY creation DESC LIMIT 4000""",
-            {"u": user, "days": days - 1}, as_dict=True)
+            {"u": user, "w0": _w0, "t1": _t1}, as_dict=True)
         # Includes the translated labels the French desk writes into the
         # Version log (built from Frappe's own translations, not guesses).
         from logistics_portal.api.confirmation import _status_action_map
@@ -358,10 +370,12 @@ def _agent_me(user, days=7):
                 changed = _j.loads(vr.data or "{}").get("changed") or []
             except Exception:
                 continue
+            _at = _clock.to_floor(vr.creation)
             for f in changed:
                 if f and f[0] == "custom_sales_status" and st_act.get(f[2]):
-                    counted.append((str(vr.d), st_act[f[2]]))
-        for d, action in counted:
+                    counted.append((_at, st_act[f[2]]))
+        for _at, action in counted:
+            d = str(_at)[:10]
             n = 1
             is_win = action == "confirm"
             t = trend_map.setdefault(d, {"date": d, "total": 0, "wins": 0})
@@ -371,6 +385,7 @@ def _agent_me(user, days=7):
                 by_action["cf." + action] = by_action.get("cf." + action, 0) + n
                 today_total += n
                 today_wins += n if is_win else 0
+                hours[_at.hour] = hours.get(_at.hour, 0) + n
 
     # Confirm rate: the decisions that actually closed an order today.
     closed = by_action.get("cf.confirm", 0) + by_action.get("cf.cancel", 0)
@@ -381,10 +396,11 @@ def _agent_me(user, days=7):
     for lane, cfg in _LANES.items():
         for r in frappe.db.sql(
                 """SELECT c.owner, c.content, COUNT(*) n FROM `tabComment` c
-                   WHERE c.reference_doctype = %(dt)s AND c.creation >= %(since)s
+                   WHERE c.reference_doctype = %(dt)s
+                     AND c.creation >= %(since)s AND c.creation < %(until)s
                      AND c.content LIKE %(pfx)s
                    GROUP BY c.owner, c.content""",
-                {"dt": cfg["dt"], "since": f"{today} 00:00:00",
+                {"dt": cfg["dt"], "since": _t0, "until": _t1,
                  "pfx": cfg["prefix"] + ": %"}, as_dict=True):
             if "(bulk)" in r.content or " bulk " in r.content:
                 continue
@@ -420,14 +436,17 @@ def _agent_me(user, days=7):
     lo, hi = int(get_ops("floorStart") or 8), int(get_ops("floorEnd") or 20)
     if hours:
         lo, hi = min(lo, min(hours)), max(hi, max(hours))
-    # A contact-centre agent is measured in DECISIONS/day, which is the
-    # confirmation lane's own target — never the warehouse floor's dayTarget.
-    from logistics_portal.api.confirmation import _cf_settings
+    # A contact-centre agent is measured in DECISIONS/day — the confirmation
+    # lane's own DYNAMIC target (the work in front of THIS person today,
+    # inside the team's band): the same number the Workspace ring shows, so
+    # the two pages cannot promise different days. The flat 40 this used to
+    # read sat under the team's median working day.
+    from logistics_portal.api.confirmation import day_target
     return {
         "kind": "agent",
         "today": today_total, "wins": today_wins,
         "byAction": by_action,
-        "target": int(_cf_settings().get("dayTarget", 40)),
+        "target": day_target(user),
         "rate": rate, "rateLabel": "confirmRate",
         "rank": rank, "of": len(ranked),
         "streak": streak,
