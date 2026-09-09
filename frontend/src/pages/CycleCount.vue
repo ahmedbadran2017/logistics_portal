@@ -164,6 +164,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import ScanInput from "@/components/ui/ScanInput.vue";
 import { api, apiPost } from "@/lib/resource";
@@ -207,8 +208,17 @@ async function loadEmpties() {
   catch (e) { empties.value = null; }
 }
 
+// Arriving from the out-of-stock worklist with a bin already named: the row
+// said which shelf a picker found empty, so open that count instead of making
+// someone retype it.
+const route = useRoute();
+
 onMounted(async () => {
   loadEmpties();
+  const q = (route.query.bin || "").toString().trim();
+  if (q) {
+    binInput.value = q.endsWith(" - JM") ? q : `${q} - JM`;
+  }
   try {
     boot.value = await api("cycle_count.count_boot");
     pending.value = boot.value.pending || [];

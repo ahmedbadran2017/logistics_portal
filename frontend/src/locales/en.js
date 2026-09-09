@@ -563,6 +563,8 @@ export default {
     fooTitle: "On a shelf here, still shown out of stock",
     fooUnits: "units",
     fooHint: "None of these is a box nobody noticed. Either the batch ledger puts the piece somewhere else, or an open draft pick list is already holding it.",
+    foo_shelf: "shelf found empty",
+    fooCount: "Count it",
     foo_batch: "batch ledger",
     foo_draft: "held by a draft",
     foo_reserved: "reserved",

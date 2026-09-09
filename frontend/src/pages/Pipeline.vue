@@ -219,7 +219,8 @@
         <div class="ms-auto flex items-center gap-1.5 flex-wrap">
           <span v-for="b in falseOos.byReason" :key="b.why"
                 class="text-[10.5px] font-semibold rounded-full px-2 py-0.5 ring-1"
-                :class="b.why === 'batch' ? 'text-amber-700 bg-amber-50 ring-amber-200'
+                :class="b.why === 'shelf' ? 'text-rose-700 bg-rose-50 ring-rose-200'
+                        : b.why === 'batch' ? 'text-amber-700 bg-amber-50 ring-amber-200'
                         : b.why === 'draft' ? 'text-sky-700 bg-sky-50 ring-sky-200'
                         : 'text-stone-600 bg-stone-50 ring-stone-200'">
             {{ b.units }} {{ t('ordersPg.foo_' + b.why) }}
@@ -242,7 +243,8 @@
             </div>
           </div>
           <span class="text-[10.5px] font-semibold rounded-full px-2 py-0.5 ring-1 flex-shrink-0"
-                :class="r.why === 'batch' ? 'text-amber-700 bg-amber-50 ring-amber-200'
+                :class="r.why === 'shelf' ? 'text-rose-700 bg-rose-50 ring-rose-200'
+                        : r.why === 'batch' ? 'text-amber-700 bg-amber-50 ring-amber-200'
                         : r.why === 'draft' ? 'text-sky-700 bg-sky-50 ring-sky-200'
                         : 'text-stone-600 bg-stone-50 ring-stone-200'">
             {{ t('ordersPg.foo_' + r.why) }}
@@ -250,7 +252,12 @@
           <span class="text-[11px] font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200/60 rounded-md px-2 py-0.5 tabular-nums flex-shrink-0">
             {{ r.blockedOrders }}
           </span>
-          <button v-if="r.action === 'batchRepair'"
+          <!-- A picker already told us this shelf is empty; the only useful
+               next move is to count it, so the row opens that bin's count. -->
+          <button v-if="r.action === 'count'"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold text-rose-800 bg-rose-50 ring-1 ring-rose-200 hover:bg-rose-100 flex-shrink-0"
+                  @click="$router.push({ name: 'CycleCount', query: { bin: r.shelf } })">{{ t('ordersPg.fooCount') }}</button>
+          <button v-else-if="r.action === 'batchRepair'"
                   class="h-8 px-3 rounded-lg text-[12px] font-semibold text-amber-800 bg-amber-50 ring-1 ring-amber-200 hover:bg-amber-100 flex-shrink-0"
                   @click="$router.push({ name: 'BatchRepair' })">{{ t('ordersPg.fooFixBatch') }}</button>
           <button v-else-if="r.action === 'openDraft' && r.drafts.length"

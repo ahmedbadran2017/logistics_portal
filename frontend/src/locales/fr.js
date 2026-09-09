@@ -563,6 +563,8 @@ export default {
     fooTitle: "Sur une étagère ici, affiché en rupture",
     fooUnits: "unités",
     fooHint: "Aucun n'est un carton oublié. Soit le registre de lot place la pièce ailleurs, soit une liste de prélèvement en brouillon la retient.",
+    foo_shelf: "rayon trouvé vide",
+    fooCount: "Compter",
     foo_batch: "registre de lot",
     foo_draft: "retenu par un brouillon",
     foo_reserved: "réservé",

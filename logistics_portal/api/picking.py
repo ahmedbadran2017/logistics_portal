@@ -3019,6 +3019,8 @@ def false_oos_worklist():
         return {"rows": [], "units": 0, "orders": 0}
 
     truth = _batch_truth({b.ic for b in live})
+    from logistics_portal.api.short_shelf import active as _short_active
+    empty_shelves = _short_active()
     # Stock already committed to a draft, per (item, bin) — the same claim
     # _resolve_bins subtracts, so the two agree on what "held" means.
     held = {}
@@ -3037,7 +3039,15 @@ def false_oos_worklist():
     for b in live:
         free = float(b.a or 0) - float(b.rq or 0)
         holds = held.get((b.ic, b.wh)) or []
-        if free <= 0:
+        # A picker who stood at this bin and found nothing is the strongest
+        # evidence there is, and it outranks every ledger explanation: whatever
+        # else is true of the row, the thing to do is count the shelf. Without
+        # this branch such a bin fell through to "unknown" with no action —
+        # measured 2026-09-09, that was the largest recoverable group in the
+        # Out-of-stock pile (8 of 24 orders).
+        if (b.ic, b.wh) in empty_shelves:
+            why, action = "shelf", "count"
+        elif free <= 0:
             why, action = "reserved", "release"
         elif b.ic in truth and truth[b.ic] <= 0:
             why, action = "batch", "batchRepair"
