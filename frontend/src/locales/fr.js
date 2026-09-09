@@ -299,6 +299,9 @@ export default {
   cc: {
     title: "Inventaire tournant",
     intro: "Comptez un casier, soumettez les écarts — un manager approuve avant tout mouvement. C'est aussi ainsi qu'on répare un casier corrompu.",
+    emptyTitle: "Signalés vides, toujours au stock",
+    emptySub: "{n} emplacements trouvés vides alors que le stock dit le contraire · {o} commandes en attente",
+    emptyLedger: "stock indique {n}",
     binPh: "Choisissez un casier à compter…",
     loadBin: "Charger",
     loading: "Chargement…",
@@ -627,8 +630,6 @@ export default {
     actions: { assign: "Assigner", openPl: "Ouvrir PL", print: "Imprimer", open: "Ouvrir", manifest: "Manifeste", track: "Suivre", openRet: "Ouvrir RET", fix: "Corriger" },
     pickReady: "Prêt à préparer", pickPartial: "Partiel", pickOos: "Rupture de stock",
     pickReadyHint: "tous les articles en stock", pickPartialHint: "articles manquants", pickOosHint: "rien en stock",
-    pickCooling: "Rayon vide",
-    pickCoolingHint: "un préparateur ne les a pas trouvés en rayon — écartés jusqu'à la fin du délai ou un comptage",
     missing: "Manquant",
     stuckOos: "bloqués en rupture", blockingTitle: "Réapprovisionner en priorité — bloque le plus de commandes",
     blIncoming: "{n} en route", blNoPo: "sans BC",

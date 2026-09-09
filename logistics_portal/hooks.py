@@ -40,6 +40,12 @@ before_request = [
 #   - Packer capture on Delivery Note.
 # ---------------------------------------------------------------------------
 doc_events = {
+    # A counted shelf answers the question a picker raised by hand. Clearing it
+    # here rather than waiting out the cool-down means the fix takes effect the
+    # moment somebody does the work, which is the whole point of doing it.
+    "Stock Reconciliation": {
+        "on_submit": "logistics_portal.api.short_shelf.on_stock_reconciliation",
+    },
     "Pick List": {
         "before_submit": "logistics_portal.api.picking.enforce_picker_on_submit",
         "on_update": "logistics_portal.api.picking.sync_pick_progress",

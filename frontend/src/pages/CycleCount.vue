@@ -5,6 +5,39 @@
       <p class="text-[12.5px] text-stone-500 mt-0.5">{{ t('cc.intro') }}</p>
     </header>
 
+    <!-- Shelves a picker found empty that the ledger still calls stocked. This
+         is the backlog the old order-level cool-down was hiding: the order was
+         punished for 24h and the lying Bin was never corrected. Ranked by the
+         orders each shelf is holding up, so the first row is the most
+         expensive count in the building. -->
+    <div v-if="empties && empties.rows.length" class="bg-white rounded-2xl ring-1 ring-amber-200/70 overflow-hidden">
+      <div class="px-4 py-2.5 border-b border-amber-100 flex items-center gap-2 flex-wrap bg-amber-50/50">
+        <Icon name="alert-triangle" :size="14" class="text-amber-600" />
+        <span class="text-[12px] font-semibold text-stone-900">{{ t('cc.emptyTitle') }}</span>
+        <span class="text-[11px] text-stone-500">
+          {{ t('cc.emptySub').replace('{n}', empties.items).replace('{o}', empties.orders) }}
+        </span>
+      </div>
+      <div class="divide-y divide-stone-100">
+        <button
+          v-for="r in empties.rows" :key="r.item + r.warehouse"
+          class="w-full px-4 py-2 flex items-center gap-3 text-start hover:bg-stone-50 transition-colors"
+          @click="binInput = r.warehouse; loadSheet()"
+        >
+          <span class="min-w-0 flex-1">
+            <span class="block text-[12.5px] font-medium text-stone-800 truncate">{{ r.name }}</span>
+            <span class="block font-mono text-[10.5px] text-stone-400">{{ r.sku || r.item }} · {{ r.warehouse }}</span>
+          </span>
+          <span class="text-[11px] text-amber-700 bg-amber-50 ring-1 ring-amber-200/70 rounded-md px-1.5 py-px flex-shrink-0">
+            {{ t('cc.emptyLedger').replace('{n}', r.ledger) }}
+          </span>
+          <span v-if="r.orders" class="text-[11.5px] font-bold tabular-nums text-stone-700 flex-shrink-0">
+            {{ r.orders }} {{ t('ordersPg.blOrders') }}
+          </span>
+        </button>
+      </div>
+    </div>
+
     <!-- Bin picker -->
     <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4 space-y-3">
       <div class="flex items-center gap-2 flex-wrap">
@@ -165,7 +198,17 @@ function isDiff(r) {
   return r.counted !== "" && r.counted != null && Number(r.counted) !== r.book;
 }
 
+// Shelves a picker reported empty while the ledger still claims stock. A
+// failed load hides the panel rather than breaking the page — counting a bin
+// by hand must keep working whether or not this list can be built.
+const empties = ref(null);
+async function loadEmpties() {
+  try { empties.value = await api("short_shelf.count_worklist"); }
+  catch (e) { empties.value = null; }
+}
+
 onMounted(async () => {
+  loadEmpties();
   try {
     boot.value = await api("cycle_count.count_boot");
     pending.value = boot.value.pending || [];

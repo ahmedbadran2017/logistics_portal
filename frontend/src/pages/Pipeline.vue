@@ -178,7 +178,6 @@
           { k: 'partial', label: t('ordersPg.pickPartial'), hex: '#d97706' },
           { k: 'local',   label: t('ordersPg.pickLocal'),   hex: '#7c3aed' },
           { k: 'oos',     label: t('ordersPg.pickOos'),     hex: '#e11d48' },
-          { k: 'cooling', label: t('ordersPg.pickCooling'),  hex: '#0891b2' },
         ]" :key="tb.k"
         class="inline-flex items-center gap-2 h-9 ps-2.5 pe-3 rounded-lg ring-1 transition-all"
         :class="pickTab === tb.k ? 'bg-white ring-2 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.12)]' : 'bg-white/60 ring-stone-200/70 hover:bg-white'"
@@ -192,8 +191,7 @@
       <span class="text-[11px] text-stone-400 ms-1 hidden sm:inline">
         {{ pickTab === 'ready' ? t('ordersPg.pickReadyHint')
            : pickTab === 'partial' ? t('ordersPg.pickPartialHint')
-           : pickTab === 'local' ? t('ordersPg.pickLocalHint')
-           : pickTab === 'cooling' ? t('ordersPg.pickCoolingHint') : t('ordersPg.pickOosHint') }}
+           : pickTab === 'local' ? t('ordersPg.pickLocalHint') : t('ordersPg.pickOosHint') }}
       </span>
       <button class="ms-auto inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-[11.5px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200 hover:ring-stone-300 hover:text-stone-900" @click="openSkuLookup('')">
         <Icon name="search" :size="12" />{{ t('ordersPg.skuLookupBtn') }}

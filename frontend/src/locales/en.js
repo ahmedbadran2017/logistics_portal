@@ -299,6 +299,9 @@ export default {
   cc: {
     title: "Cycle count",
     intro: "Count a bin, submit the differences — a manager approves before anything posts. This is also how a corrupted bin gets fixed.",
+    emptyTitle: "Reported empty, still on the books",
+    emptySub: "{n} shelves a picker found empty while stock records say otherwise · {o} orders waiting on them",
+    emptyLedger: "ledger says {n}",
     binPh: "Pick a bin to count…",
     loadBin: "Load bin",
     loading: "Loading…",
@@ -627,8 +630,6 @@ export default {
     actions: { assign: "Assign", openPl: "Open PL", print: "Print", open: "Open", manifest: "Manifest", track: "Track", openRet: "Open RET", fix: "Fix" },
     pickReady: "Ready to prepare", pickPartial: "Partial", pickOos: "Out of stock",
     pickReadyHint: "all items in stock", pickPartialHint: "some items missing", pickOosHint: "nothing in stock",
-    pickCooling: "Shelf was empty",
-    pickCoolingHint: "a picker found these missing on the shelf — held back until the cooldown clears or the shelf is counted",
     missing: "Missing",
     stuckOos: "stuck out of stock", blockingTitle: "Restock these first — blocking the most orders",
     blIncoming: "{n} incoming", blNoPo: "no PO",

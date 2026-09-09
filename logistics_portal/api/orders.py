@@ -96,8 +96,8 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
         if stage == "to_pick":
             pick_avail = _pick_availability()
             pick_buckets = {k: len(pick_avail.get(k) or [])
-                            for k in ("ready", "partial", "oos", "local", "cooling")}
-            if pick in ("ready", "partial", "oos", "local", "cooling"):
+                            for k in ("ready", "partial", "oos", "local")}
+            if pick in ("ready", "partial", "oos", "local"):
                 pick_names = pick_avail.get(pick) or []
                 # Who owes us the blocked item. The row already names WHAT is
                 # missing; without the supplier the dispatcher has to open each
@@ -505,7 +505,7 @@ def _row(r, **extra):
 # configurable pickable-warehouse policy (structural families always excluded;
 # Return/Receiving/etc. zones toggled by a manager in Settings). Values are %s
 # params so this splices safely into queries that also carry %s args.
-_EMPTY_AVAIL = {"ready": [], "partial": [], "oos": [], "local": [], "cooling": [],
+_EMPTY_AVAIL = {"ready": [], "partial": [], "oos": [], "local": [],
                 "missing": {}, "missByOrder": {},
                 "blocking": [], "localSupply": {}, "stuck": {"oos": 0, "partial": 0, "local": 0}}
 
@@ -525,7 +525,6 @@ def _pick_availability():
     try:
         rows = frappe.db.sql("""
             SELECT so.name AS so, so.grand_total AS val, so.creation AS created,
-                   so.custom_short_picked_at AS short_at,
                    soi.item_code AS code,
                    COALESCE(NULLIF(soi.item_name,''), soi.item_code) AS item_name,
                    SUM(GREATEST(soi.qty - soi.delivered_qty, 0)) AS need
@@ -537,7 +536,7 @@ def _pick_availability():
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Pending' AND pl.sales_order IS NULL
               AND so.creation >= %s
-            GROUP BY so.name, soi.item_code, item_name, val, created, short_at""",
+            GROUP BY so.name, soi.item_code, item_name, val, created""",
             (w,), as_dict=True)
         # The SAME availability the create runs (audited 2026-08-27: the old
         # raw-Bin math called 50 orders "ready" when only 12 could actually be
@@ -573,8 +572,7 @@ def _pick_availability():
     for r in rows:
         d = per.setdefault(r.so, {"n": 0, "enough": 0, "some": 0, "missing": [],
                                   "miss_codes": [], "lines": [],
-                                  "val": float(r.val or 0), "created": r.created,
-                                  "short_at": r.short_at})
+                                  "val": float(r.val or 0), "created": r.created})
         d["n"] += 1
         d["lines"].append((r.code, float(r.need or 0), r.item_name))
         # "Some" is about the ITEM, not about this order's turn: it decides
@@ -631,41 +629,20 @@ def _pick_availability():
                         d["missing"].append(nm)
                     d["miss_codes"].append((code, nm))
 
-    # The create refuses an order a picker just found missing from the shelf —
-    # _pick_gate's cooldown, which this split never asked about. So the board
-    # called forty orders Ready and the button skipped thirty-eight of them
-    # with "short-picked recently (shelf empty)" (measured 2026-09-09, and it
-    # is the exact complaint from the floor). Bin stock is not the only thing
-    # that decides whether an order can be picked, and a screen that answers
-    # "can I pick this?" has to apply the same rules the create does.
-    #
-    # It gets its OWN bucket rather than being folded into Out of stock: the
-    # remedy is different (wait out the cooldown, or count the shelf) and so is
-    # the clock — this one clears itself. An order that is ALSO short or empty
-    # keeps that classification, because that is the deeper truth.
-    from frappe.utils import time_diff_in_seconds, now_datetime
-    try:
-        from logistics_portal.api.settings import get_ops
-        cool_h = int(get_ops("shortPickCooldownH") or 0)
-    except Exception:
-        cool_h = 0
-
-    def _cooling(dd):
-        if not (cool_h and dd.get("short_at")):
-            return False
-        try:
-            return time_diff_in_seconds(now_datetime(), dd["short_at"]) < cool_h * 3600
-        except Exception:
-            return False
-
-    ready, partial, oos, local, cooling, missing = [], [], [], [], [], {}
+    # There was briefly a "cooling" bucket here, mirroring _pick_gate's 24-hour
+    # cool-down on short-picked ORDERS. Both are gone: the report is about a
+    # shelf, not an order, so it is now recorded against (item, warehouse) and
+    # subtracted inside _available_totals. An order whose only stock was on
+    # that shelf therefore lands in Partial or Out of stock by the ordinary
+    # arithmetic, with the right item named — and one whose item sits in
+    # another bin stays ready, which the order-level cool-down got wrong.
+    ready, partial, oos, local, missing = [], [], [], [], {}
     block = {}  # code -> {name, orders:set, mad, oldest}
     miss_by_order = {}  # order -> [(missing item_code, item_name)] for SKU-rescue
     stuck_oos = stuck_partial = 0.0
     for name, d in per.items():
         if d["enough"] >= d["n"]:
-            (cooling if _cooling(d) else ready).append(name)
-            continue
+            ready.append(name); continue
         blocked = d["some"] == 0   # nothing at all in stock (vs short = some)
         (oos if blocked else partial).append(name)
         missing[name] = d["missing"]
@@ -776,7 +753,6 @@ def _pick_availability():
         stuck_partial -= sum(moved_partial)
 
     out = {"ready": ready, "partial": partial, "oos": oos, "local": local,
-           "cooling": cooling,
            "missing": missing, "blocking": blocking, "rescuable": rescuable,
            "localSupply": local_supply,
            # Per-order blocking (code, name) pairs. Every blocked order, not

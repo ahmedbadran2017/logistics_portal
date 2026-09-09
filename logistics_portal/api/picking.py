@@ -887,17 +887,15 @@ def _pick_gate(name):
         return f"already in the flow ({so.custom_logistics_status})"
     if frappe.db.exists("Pick List Item", {"sales_order": name, "docstatus": ["<", 2]}):
         return "already on a pick list"
-    # Short-picked recently = the shelf is physically empty even if Bin says
-    # otherwise — don't bounce it straight onto the next list.
-    spa = frappe.db.get_value("Sales Order", name, "custom_short_picked_at")         if frappe.get_meta("Sales Order").has_field("custom_short_picked_at") else None
-    if spa:
-        from frappe.utils import time_diff_in_seconds, now_datetime
-        try:
-            from logistics_portal.api.settings import get_ops
-            if time_diff_in_seconds(now_datetime(), spa) < int(get_ops("shortPickCooldownH")) * 3600:
-                return "short-picked recently (shelf empty)"
-        except Exception:
-            pass
+    # The 24h cool-down that used to live here is gone. It marked the ORDER
+    # for something that was true of a SHELF: it blocked 38 of the 40 orders
+    # the board called ready, while the next order carrying the same item
+    # walked to the same empty shelf anyway — one item, twelve reports in a
+    # single day. The mark now sits on (item, warehouse) in short_shelf and
+    # is subtracted from availability, so such an order is simply not ready
+    # while the piece is unfindable, and becomes ready the moment it turns up
+    # in another bin or the shelf is counted — instead of serving out a fixed
+    # sentence for something that was never about the order.
     return None
 
 
@@ -1693,6 +1691,12 @@ def _resolve_bins(item_codes):
     rej = _ee_rejected()
     if rej:
         rows = [r for r in rows if r.warehouse not in rej]
+    # Same shelf, same answer. Routing the next picker to a bin somebody just
+    # reported empty is how one shelf produced twelve reports in a day.
+    from logistics_portal.api.short_shelf import active as _short_active
+    _empty = _short_active()
+    if _empty:
+        rows = [r for r in rows if (r.item_code, r.warehouse) not in _empty]
 
     # Qty already claimed by OPEN DRAFT pick lists is NOT free — ERPNext's
     # set_item_locations subtracts it on save, so ignoring it here made the
@@ -1797,12 +1801,19 @@ def _available_totals(item_codes):
     # stock ee's controller refuses to allocate (SLOW ZONE et al.) is NOT
     # coverage, whatever the portal's own pickable policy says.
     rej = _ee_rejected()
+    # A shelf a picker just found empty is not coverage, whatever the Bin says.
+    # Measured 2026-09-09: of 116 items reported empty in a day, 62 still showed
+    # pickable stock here — and both the board and the create believed it. The
+    # report is per BIN, so the same item in another bin is untouched and the
+    # order stays pickable from there.
+    from logistics_portal.api.short_shelf import active as _short_active
+    empty = _short_active()
     totals = {}
     for r in frappe.db.sql(
             "SELECT item_code, warehouse, GREATEST(actual_qty - reserved_qty, 0) FROM `tabBin` "
             "WHERE item_code IN %s AND " + cond,
             tuple([tuple(item_codes)] + wargs)):
-        if r[1] in rej:
+        if r[1] in rej or (r[0], r[1]) in empty:
             continue
         totals[r[0]] = totals.get(r[0], 0) + float(r[2] or 0)
     # Batch/serial items: cap by ee's own batch-aware availability — Bin stock
@@ -2839,7 +2850,17 @@ def report_short_pick(pick_list, order, item_code=None, defer=0):
         frappe.delete_doc("Pick List", pick_list, force=1, ignore_permissions=True)
         deleted = True
 
-    # Cool-down + audit trail on the order.
+    # The mark belongs on the shelf the picker was standing at, so the next
+    # order carrying this item is not sent to the same empty bin. `rows` are
+    # this order's lines on the list, each already pointing at the bin the
+    # engine chose, which is exactly where the picker just looked.
+    from logistics_portal.api.short_shelf import mark as _mark_shelf
+    for _r in rows:
+        if item_code and _r.item_code != item_code:
+            continue
+        _mark_shelf(_r.item_code, _r.warehouse)
+
+    # Kept for the audit trail and for reporting — no longer a gate.
     so = frappe.get_doc("Sales Order", so_name)
     if so.meta.has_field("custom_short_picked_at"):
         so.db_set("custom_short_picked_at", frappe.utils.now_datetime(),
@@ -2854,7 +2875,8 @@ def report_short_pick(pick_list, order, item_code=None, defer=0):
                 "; ".join(f"{t['qty']}x {t['itemCode']} -> {t['shelf']}" for t in tote))
     so.add_comment("Comment",
                    f"Short pick: item{what} not found on the shelf by {user} — "
-                   f"pulled off {pick_list}, back to the pool for 24h.{owed}")
+                   f"pulled off {pick_list}; that shelf is held until it is "
+                   f"counted or the belief expires.{owed}")
 
     # Tell the dispatchers something physical is wrong.
     dispatchers = [u for u, r in SEED_ROLES.items() if r in ("dispatcher", "manager")]
