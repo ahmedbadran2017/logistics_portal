@@ -201,6 +201,56 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
         d_rng = ("custom_last_call_at IS NOT NULL AND "
                  + rng.format(col="custom_last_call_at"))
 
+    # A search makes every tab chip a question: "is my customer in THIS one?"
+    # The counts used to ignore the search box entirely, so typing a phone left
+    # all ten chips showing their unfiltered totals while the list underneath
+    # showed the one match — click "Follow up 13" and get one row, or none.
+    # Measured 2026-09-09: searching a phone gave counts 13 / rows 1 for one
+    # agent and counts 1 / rows 0 for another. Now the same predicate the rows
+    # use narrows the chips, which also turns the chip strip into the answer to
+    # "which tab is this customer's order in".
+    #
+    # Built here, used by both — and like the row search it drops the date
+    # window, because a lookup that answers "not found" for an order sitting
+    # right there is worse than no search at all.
+    # Some count queries alias the table (`so.`) and some do not, so both forms
+    # are built from the SAME parts rather than string-munged out of each other.
+    q_txt = str(q or "").strip()
+    q_cnt = q_cnt_so = ""
+    _q_vals = {}
+    if q_txt:
+        _d = q_txt.lstrip("#").strip()
+
+        def _cols(a):
+            if _d.isdigit():
+                cols = [f"{a}name = %(qexact)s", f"{a}name LIKE %(qpre)s"]
+                if len(_d) >= 8:
+                    cols += [f"{a}custom_customer_phone LIKE %(qphone)s",
+                             f"{a}custom_shipping_phone LIKE %(qphone)s"]
+            else:
+                cols = [f"{a}customer_name LIKE %(qlike)s",
+                        f"{a}name LIKE %(qpre)s"]
+            return " AND (" + " OR ".join(cols) + ")"
+
+        if _d.isdigit():
+            _q_vals["qexact"] = "#" + _d
+            _q_vals["qpre"] = _d + "%"
+            # Anchored on purpose: the row search only reaches the phone
+            # columns for 8+ digits because one unanchored LIKE over them
+            # costs 1.13s on this table. The chips obey the same rule.
+            if len(_d) >= 8:
+                _q_vals["qphone"] = "%" + _d
+        else:
+            _q_vals["qlike"] = f"%{q_txt}%"
+            _q_vals["qpre"] = q_txt + "%"
+        q_cnt, q_cnt_so = _cols(""), _cols("so.")
+        rng_vals.update(_q_vals)
+        vals.update(_q_vals)
+
+    def _rng_or_all(sql_range):
+        """During a search the window is irrelevant — same rule the rows follow."""
+        return "1 = 1" if q_txt else sql_range
+
     # Seed the DONE tabs too: the board increments these optimistically
     # after an action, and a window with no prior decisions would leave
     # them absent -> `undefined++` -> NaN in the tab badge.
@@ -218,8 +268,8 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
         for r in frappe.db.sql(
                 f"""SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
                     WHERE docstatus = 1 AND company = %(co)s
-                      AND custom_sales_status IN %(sts)s{me_q}
-                      AND {in_hand} AND {rng_sql}
+                      AND custom_sales_status IN %(sts)s{me_q}{q_cnt}
+                      AND {in_hand} AND {_rng_or_all(rng_sql)}
                     GROUP BY custom_sales_status""",
                 {"sts": sts, "co": _CO, **rng_vals}, as_dict=True):
             for k, v in QUEUES.items():
@@ -233,8 +283,8 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     for r in frappe.db.sql(
             f"""SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
                 WHERE docstatus = 1 AND company = %(co)s
-                  AND custom_sales_status IN %(sts)s{me_done}
-                  AND {d_rng}
+                  AND custom_sales_status IN %(sts)s{me_done}{q_cnt}
+                  AND {_rng_or_all(d_rng)}
                 GROUP BY custom_sales_status""",
             {"sts": tuple(_AUTOMATION_DONE.values()), "co": _CO, **rng_vals}, as_dict=True):
         for k, v in _AUTOMATION_DONE.items():
@@ -247,8 +297,8 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     counts["duplicated"] = int(frappe.db.sql(
         f"""SELECT COUNT(*) FROM `tabSales Order`
             WHERE docstatus = 1 AND company = %(co)s
-              AND custom_sales_status = 'Duplicated'{me_done}
-              AND {q_rng}""",
+              AND custom_sales_status = 'Duplicated'{me_done}{q_cnt}
+              AND {_rng_or_all(q_rng)}""",
         {"co": _CO, **rng_vals})[0][0])
 
     # Monitoring: live orders whose customer has taken 2+ parcels and kept
@@ -261,17 +311,18 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     # exact rows are only computed when the monitor tab itself is open.
     _mck = "lp_cf_monitor_" + (me if mine_only else "all")
     _mc = frappe.cache().get_value(_mck)
-    if _mc is not None and tab != "monitor":
+    if _mc is not None and tab != "monitor" and not q_txt:
         counts["monitor"] = int(_mc)
     else:
         counts["monitor"] = int(frappe.db.sql(
             f"""SELECT COUNT(*) FROM `tabSales Order` so
                 WHERE so.docstatus = 1 AND so.company = %(co)s
                   AND so.custom_sales_status IN %(sts)s{me_so}
-                  AND {_IN_HAND} AND {_CUST_KEY} IN %(risky)s""",
-            {"sts": tuple(QUEUES.values()), "co": _CO, "risky": risky,
+                  AND {_IN_HAND} AND {_CUST_KEY} IN %(risky)s{q_cnt_so}""",
+            {"sts": tuple(QUEUES.values()), "co": _CO, "risky": risky, **_q_vals,
              **({"me_like": f'%"{me}"%'} if mine_only else {})})[0][0])
-        frappe.cache().set_value(_mck, counts["monitor"], expires_in_sec=300)
+        if not q_txt:
+            frappe.cache().set_value(_mck, counts["monitor"], expires_in_sec=300)
 
     # City check: the agent's own confirmed orders whose city Cathedis can't
     # turn into an AWB (Arabic / junk / never-seen town). SAME predicate as
@@ -284,7 +335,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     # for every tab — cache it per scope exactly like the monitor count above.
     _cck = "lp_cf_citycheck_" + (me if mine_only else "all")
     _cc = frappe.cache().get_value(_cck)
-    if _cc is not None and tab != "citycheck":
+    if _cc is not None and tab != "citycheck" and not q_txt:
         counts["citycheck"] = int(_cc)
     else:
         counts["citycheck"] = int(frappe.db.sql(
@@ -299,10 +350,11 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
                                     AND p.docstatus < 2)
                   AND ({_BAD_CITY}
                        OR LOWER(TRIM(COALESCE({_EFF_CITY}, ''))) NOT IN %(acc)s)
-                  {me_so}""",
-            {"co": _CO, "acc": _acc,
+                  {me_so}{q_cnt_so}""",
+            {"co": _CO, "acc": _acc, **_q_vals,
              **({"me_like": f'%"{me}"%'} if mine_only else {})})[0][0])
-        frappe.cache().set_value(_cck, counts["citycheck"], expires_in_sec=300)
+        if not q_txt:
+            frappe.cache().set_value(_cck, counts["citycheck"], expires_in_sec=300)
 
     # Not Delivered: shipped-then-failed parcels the confirmation team calls
     # back to arrange a redelivery/reship or to cancel. Post-shipment work
@@ -316,8 +368,8 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     counts["notdelivered"] = int(frappe.db.sql(
         f"""SELECT COUNT(*) FROM `tabSales Order`
             WHERE docstatus = 1 AND company = %(co)s
-              AND custom_sales_status = 'Not Delivered'{me_q}
-              AND {nd_rng}""", nd_vals)[0][0])
+              AND custom_sales_status = 'Not Delivered'{me_q}{q_cnt}
+              AND {_rng_or_all(nd_rng)}""", nd_vals)[0][0])
 
     vals["co"] = _CO
     if tab == "monitor":
