@@ -912,6 +912,7 @@ def _insert_one(sos, picker=None):
     pl.purpose = "Delivery"
     if picker and frappe.get_meta("Pick List").has_field("custom_assigned_picker"):
         pl.custom_assigned_picker = picker
+    dropped = []
     bins = _resolve_bins({it.item_code for so in sos for it in so.items})
     # Running pool per (item, bin): two orders on the same list must not both be
     # written against the same single unit.
@@ -921,6 +922,7 @@ def _insert_one(sos, picker=None):
             left[(code, c["bin"])] = c["qty"]
 
     for so in sos:
+        rows_for_order, unplaceable = [], None
         for it in so.items:
             pending = (it.qty or 0) - (it.delivered_qty or 0)
             if pending <= 0:
@@ -941,13 +943,26 @@ def _insert_one(sos, picker=None):
                     left[(it.item_code, c["bin"])] = have - take
                     rows_for_line.append((c["bin"], take))
                     pending -= take
-            # Anything still unplaced keeps the old behaviour so the controller
-            # can have its say rather than the line vanishing here.
+            # Anything still unplaced used to be written against the sales
+            # order's own warehouse, "so the controller can have its say". The
+            # controller does not have a say -- it THROWS. That warehouse is
+            # 'ERPNext - JM' on 63% of Moroccan order lines and 'Morocco - JM'
+            # on another 5%, and both hold zero stock (this function's own
+            # docstring says as much), so ee answers "picked quantity 1.0 is
+            # greater than available stock 0.0 in the warehouse ERPNext - JM"
+            # and refuses the WHOLE combined document. Measured 2026-09-09: 77
+            # shattered batches in thirty days, every one that message, all
+            # traced to ten items with no pickable stock left anywhere.
+            # Poisoning a thirty-order batch to keep one unpickable order is a
+            # bad trade, and that order could not have shipped complete anyway.
+            # Drop it here, by name, the way _allocate_and_insert drops the
+            # ones it can see coming.
             if pending > 0:
-                rows_for_line.append((b["bin"] if b else it.warehouse, pending))
+                unplaceable = it.item_code
+                break
 
             for wh, q in rows_for_line:
-                pl.append("locations", {
+                rows_for_order.append({
                     "item_code": it.item_code, "qty": q, "stock_qty": q,
                     "conversion_factor": it.conversion_factor or 1,
                     "sales_order": so.name, "sales_order_item": it.name,
@@ -959,6 +974,16 @@ def _insert_one(sos, picker=None):
                 # Item name (verified on prod: a value trimmed to 140 came back
                 # 185 long). The length is fixed where it belongs — the field —
                 # in install.ensure_pick_field_lengths().
+        if unplaceable:
+            # Reported by RETURN, not by appending to the caller's list: this
+            # function is retried after a rollback, and a list appended to
+            # mid-attempt keeps entries for work that never happened and
+            # repeats them on every retry.
+            dropped.append({"order": so.name,
+                            "reason": f"no pickable stock ({unplaceable})"})
+            continue
+        for row in rows_for_order:
+            pl.append("locations", row)
     if not pl.get("locations"):
         raise frappe.ValidationError("nothing pickable")
     pl.insert()
@@ -978,7 +1003,13 @@ def _insert_one(sos, picker=None):
     # PL-54830). Drop partially-covered orders NOW; the caller's soNames diff
     # reports them as skipped.
     need = {}
+    # Orders we deliberately left off above are not "partially stripped" — they
+    # were never on the document. Counting them here would flag every one as
+    # partial and trigger a pointless re-save of a list that is already correct.
+    dropped_names = {d["order"] for d in dropped}
     for so in sos:
+        if so.name in dropped_names:
+            continue
         for it in so.items:
             pending = (it.qty or 0) - (it.delivered_qty or 0)
             if pending > 0:
@@ -1002,7 +1033,8 @@ def _insert_one(sos, picker=None):
 
     on_pl = {l.sales_order for l in pl.locations if l.sales_order}
     return {"pl": pl.name, "orders": len(on_pl),
-            "items": len(pl.locations), "soNames": sorted(on_pl)}
+            "items": len(pl.locations), "soNames": sorted(on_pl),
+            "dropped": dropped}
 
 
 def _short_err(e):
@@ -1137,8 +1169,11 @@ def _allocate_and_insert(sos, skipped, picker):
         # accepted (its availability source differs at the margin) — the doc
         # saves without it, SILENTLY. Diff requested vs saved and say so.
         on_pl = set(r.pop("soNames", []))
+        ours = r.pop("dropped", [])
+        skipped.extend(ours)
+        named = {d["order"] for d in ours}
         for so in sos:
-            if so.name not in on_pl:
+            if so.name not in on_pl and so.name not in named:
                 skipped.append({"order": so.name,
                                 "reason": "dropped by stock validation on save"})
         return {**r, "skipped": skipped, "pls": [r["pl"]]}
@@ -1180,8 +1215,11 @@ def _allocate_and_insert(sos, skipped, picker):
         try:
             r = _insert_one(pool, picker)
             on_pl = set(r.pop("soNames", []))
+            ours = r.pop("dropped", [])
+            skipped.extend(ours)
+            named = {d["order"] for d in ours}
             for so in pool:
-                if so.name not in on_pl:
+                if so.name not in on_pl and so.name not in named:
                     skipped.append({"order": so.name,
                                     "reason": "dropped by stock validation on save"})
             return {**r, "skipped": skipped, "pls": [r["pl"]],
