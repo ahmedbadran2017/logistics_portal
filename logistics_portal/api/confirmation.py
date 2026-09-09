@@ -195,8 +195,28 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     # custom_allocated_to fence already keeps the automation's mass out, so
     # fall back to the order's last touch; the TEAM scope keeps the strict
     # portal-decision clock (the fallback would pour ~167k automation rows in).
+    #
+    # Written as two disjoint branches rather than a COALESCE around the
+    # column, because COALESCE(a, b) hides BOTH columns from every index: the
+    # three queries the done tabs run (the GROUP BY count, the total, the row
+    # page) each fell back to a full scan of the 265,656-row table. Measured
+    # 2026-09-09 on prod for one agent's Confirmed tab: 1,061 ms for 20 rows
+    # (type=range over 103,336 rows + filesort), 322 ms for the count
+    # (type=ALL), 1,079 ms for the GROUP BY — 2.0 s of a 2.2 s board load,
+    # three queries. Split, each branch is a plain range on a real column and
+    # `lp_so_agent_status_idx` covers the whole predicate.
+    #
+    # The two branches are exactly the COALESCE's two cases, so the rows the
+    # tab shows do not change. (custom_last_call_at is set on 67 of 265,656
+    # rows — the human decisions taken through this workspace — so the first
+    # branch is a handful and the second is the tab.)
+    def _decided(a=""):
+        return "((%s IS NOT NULL AND %s) OR (%s IS NULL AND %s))" % (
+            a + "custom_last_call_at", rng.format(col=a + "custom_last_call_at"),
+            a + "custom_last_call_at", rng.format(col=a + "modified"))
+
     if mine_only:
-        d_rng = rng.format(col="COALESCE(custom_last_call_at, modified)")
+        d_rng = _decided()
     else:
         d_rng = ("custom_last_call_at IS NOT NULL AND "
                  + rng.format(col="custom_last_call_at"))
@@ -304,8 +324,27 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     # Monitoring: live orders whose customer has taken 2+ parcels and kept
     # none of them. Nothing is blocked — the team looks and decides. Measured:
     # this group still takes delivery 27% of the time.
-    from logistics_portal.api.customers import risky_phones
-    risky = tuple(risky_phones()) or ("",)
+    # Both heavy sets below are fetched ONLY if something on this load
+    # actually needs them. They used to be computed unconditionally, above
+    # the very caches that exist to avoid them: risky_phones() is a ~2.5s
+    # scan of every Delivery Note (cached 30 min) and _accepted_cities() a
+    # 180-day scan of shipped orders (cached 10 min), so whichever board load
+    # happened to land on an expired key paid the full scan for a tab that
+    # wasn't even open. Measured 2026-09-09 on prod: 1,817 ms + 256 ms of a
+    # 5,320 ms cold load, versus 0 ms once warm.
+    _lazy = {}
+
+    def risky_set():
+        if "risky" not in _lazy:
+            from logistics_portal.api.customers import risky_phones
+            _lazy["risky"] = tuple(risky_phones()) or ("",)
+        return _lazy["risky"]
+
+    def accepted_set():
+        if "acc" not in _lazy:
+            from logistics_portal.api.city import _accepted_cities
+            _lazy["acc"] = tuple({c.lower() for c in _accepted_cities()}) or ("",)
+        return _lazy["acc"]
     # The monitor count crosses a ~6.8k-phone IN list with a per-row REGEXP —
     # the single heaviest piece of a cold board load. Cache it per scope; the
     # exact rows are only computed when the monitor tab itself is open.
@@ -319,7 +358,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
                 WHERE so.docstatus = 1 AND so.company = %(co)s
                   AND so.custom_sales_status IN %(sts)s{me_so}
                   AND {_IN_HAND} AND {_CUST_KEY} IN %(risky)s{q_cnt_so}""",
-            {"sts": tuple(QUEUES.values()), "co": _CO, "risky": risky, **_q_vals,
+            {"sts": tuple(QUEUES.values()), "co": _CO, "risky": risky_set(), **_q_vals,
              **({"me_like": f'%"{me}"%'} if mine_only else {})})[0][0])
         if not q_txt:
             frappe.cache().set_value(_mck, counts["monitor"], expires_in_sec=300)
@@ -329,8 +368,6 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     # the floor's City Check page — one shared pool, whoever fixes it first
     # (confirmation or logistics) clears it for both.
     from logistics_portal.api.picking import _BAD_CITY, _EFF_CITY
-    from logistics_portal.api.city import _accepted_cities
-    _acc = tuple({c.lower() for c in _accepted_cities()}) or ("",)
     # Four correlated address subqueries deep and it ran on EVERY board load,
     # for every tab — cache it per scope exactly like the monitor count above.
     _cck = "lp_cf_citycheck_" + (me if mine_only else "all")
@@ -351,7 +388,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
                   AND ({_BAD_CITY}
                        OR LOWER(TRIM(COALESCE({_EFF_CITY}, ''))) NOT IN %(acc)s)
                   {me_so}{q_cnt_so}""",
-            {"co": _CO, "acc": _acc, **_q_vals,
+            {"co": _CO, "acc": accepted_set(), **_q_vals,
              **({"me_like": f'%"{me}"%'} if mine_only else {})})[0][0])
         if not q_txt:
             frappe.cache().set_value(_cck, counts["citycheck"], expires_in_sec=300)
@@ -377,14 +414,14 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
                  "so.custom_sales_status IN %(statuses)s", _IN_HAND,
                  f"{_CUST_KEY} IN %(risky)s"]
         vals["statuses"] = tuple(QUEUES.values())
-        vals["risky"] = risky
+        vals["risky"] = risky_set()
     elif tab in _AUTOMATION_DONE:
         conds = ["so.docstatus = 1", "so.company = %(co)s",
                  "so.custom_sales_status = %(status)s"]
         # Same clock split as the counts: agents (allocated_to-fenced) see
         # their desk-era decisions too; the team view stays portal-stamped.
         if mine_only:
-            conds.append(rng.format(col="COALESCE(so.custom_last_call_at, so.modified)"))
+            conds.append(_decided("so."))
         else:
             conds.append("so.custom_last_call_at IS NOT NULL")
             conds.append(rng.format(col="so.custom_last_call_at"))
@@ -405,7 +442,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
                      WHERE pli.sales_order = so.name AND p.docstatus < 2)""",
                  f"""({_BAD_CITY}
                      OR LOWER(TRIM(COALESCE({_EFF_CITY}, ''))) NOT IN %(acc)s)"""]
-        vals["acc"] = _acc
+        vals["acc"] = accepted_set()
     elif tab == "notdelivered":
         conds = ["so.docstatus = 1", "so.company = %(co)s",
                  "so.custom_sales_status = 'Not Delivered'",

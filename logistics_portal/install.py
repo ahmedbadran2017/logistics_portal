@@ -35,6 +35,23 @@ INDEXES = [
     # with an operator standing at the handover station waiting for it.
     ("Delivery Note", ["custom_awb"], "lp_dn_awb_idx"),
     ("Delivery Note", ["custom_tracking_number"], "lp_dn_track_no_idx"),
+    # The confirmation board's "done" tabs (Confirmed / Cancelled /
+    # Duplicated). An agent sees their OWN decisions, so every one of the
+    # three queries a tab runs is fenced on custom_allocated_to — a column
+    # with no index at all, over 265,656 rows. Measured 2026-09-09 on prod:
+    # the row page cost 1,061 ms for 20 rows, the total 322 ms (type=ALL,
+    # full table scan) and the tab counts 1,079 ms — 2.0 s of a 2.2 s board
+    # load. The last two columns let the decision window be read straight
+    # from the index (see confirmation._decided).
+    ("Sales Order",
+     ["custom_allocated_to", "custom_sales_status", "custom_last_call_at", "modified"],
+     "lp_so_agent_status_idx"),
+    # The same tabs in the TEAM scope (manager / section admin) date strictly
+    # on custom_last_call_at, which is set on 67 rows of the 265,656 — and
+    # without an index the board still read all of them. lp_so_sales_creation
+    # _idx carries `creation` as its second column, so it cannot serve this.
+    ("Sales Order", ["custom_sales_status", "custom_last_call_at"],
+     "lp_so_sales_lastcall_idx"),
 ]
 
 
