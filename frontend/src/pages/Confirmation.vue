@@ -249,7 +249,6 @@
             </button>
             <button class="cf-act cf-act-soft text-amber-700" :disabled="busy === r.order" :title="t('cf.actDna')" @click="act(r, 'dna')"><Icon name="phone-off" :size="15" /></button>
             <button class="cf-act cf-act-soft text-sky-700" :disabled="busy === r.order" :title="t('cf.actFollowup')" @click="act(r, 'followup')"><Icon name="clock" :size="15" /></button>
-            <button class="cf-act cf-act-soft text-stone-500" :disabled="busy === r.order" :title="t('cf.actOnhold')" @click="act(r, 'onhold')"><Icon name="circle-pause" :size="15" /></button>
             <button class="cf-act cf-act-soft text-violet-600" :disabled="busy === r.order" :title="t('cf.actDuplicate')" @click="act(r, 'duplicate')"><Icon name="copy" :size="15" /></button>
             <button :title="t('common.close')" class="cf-act cf-act-soft text-rose-600" :disabled="busy === r.order"
                     :class="cancelFor === r.order ? 'ring-2' : ''"
@@ -425,7 +424,6 @@ const TABS = [
   { key: "confirmed", label: "cf.tabConfirmed", icon: "check-circle", onColor: "bg-emerald-100 text-emerald-700" },
   { key: "dna", label: "cf.tabDna", icon: "phone-off", onColor: "bg-amber-100 text-amber-700" },
   { key: "followup", label: "cf.tabFollowup", icon: "clock", onColor: "bg-sky-100 text-sky-700" },
-  { key: "onhold", label: "cf.tabOnhold", icon: "pause", onColor: "bg-stone-200 text-stone-600" },
   { key: "monitor", label: "cf.tabMonitor", icon: "shield-alert", onColor: "bg-rose-100 text-rose-700" },
   { key: "notdelivered", label: "cf.tabNotDelivered", icon: "package-x", onColor: "bg-orange-100 text-orange-700" },
   // Same pool as the floor's City Check — whoever fixes the city first wins.
@@ -465,7 +463,7 @@ async function togglePin(r) {
 }
 
 const route = useRoute();
-const TAB_KEYS = ["pending", "dna", "followup", "onhold", "monitor",
+const TAB_KEYS = ["pending", "dna", "followup", "monitor",
   "notdelivered", "confirmed", "cancelled", "duplicated", "citycheck"];
 // Where was I? The router remounts this page on every visit (no keep-alive,
 // by design), so all working state died on navigation: open the Workspace,
@@ -496,7 +494,7 @@ function toggleHistory() {
     tab.value = "pending"; page.value = 1; load();
   }
 }
-const WORK_TABS = new Set(["pending", "dna", "followup", "onhold", "monitor"]);
+const WORK_TABS = new Set(["pending", "dna", "followup", "monitor"]);
 // Agent live rows: the whole card opens the Workspace.
 const rowsOpenWs = computed(() =>
   !canBulk.value && !isDone.value && !isNd.value && tab.value !== "citycheck");
@@ -761,7 +759,6 @@ async function act(r, action, note) {
       if (!staysHere) data.value.counts[tab.value] = Math.max(0, (data.value.counts[tab.value] || 1) - 1);
       if (action === "dna" && tab.value !== "dna") data.value.counts.dna++;
       if (action === "followup" && tab.value !== "followup") data.value.counts.followup++;
-      if (action === "onhold" && tab.value !== "onhold") data.value.counts.onhold++;
       // The row moves to a terminal tab — or back to pending on an undo.
       if (action === "confirm") data.value.counts.confirmed++;
       if (action === "cancel") data.value.counts.cancelled++;

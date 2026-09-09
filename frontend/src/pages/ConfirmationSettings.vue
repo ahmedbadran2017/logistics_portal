@@ -124,7 +124,6 @@ const isManager = computed(() => role.value === "manager");
 const TIMERS = [
   { key: "retryDna", label: "cfs.tDna" },
   { key: "retryFollowup", label: "cfs.tFollowup" },
-  { key: "retryOnhold", label: "cfs.tOnhold" },
   { key: "slaFirstCallH", label: "cfs.tSla" },
 ];
 

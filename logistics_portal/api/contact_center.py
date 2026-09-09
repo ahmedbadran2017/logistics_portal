@@ -52,6 +52,11 @@ def _today_by_prefix(prefix, doctypes=("Sales Order",)):
 # custom_allocated_to holds the CONFIRMATION agent, not the packer), so they
 # get no scheme rather than a scheme of zeros.
 _BONUS_KEY = "lp_bonus_settings"
+# The scheme went live for September 2026. Months before it are not history —
+# they are the era the corrected basis can't fully reconstruct and nobody was
+# playing by these rules; showing them would put unearned zeros and unearned
+# heroes on the same board. Every month FROM here on stays browsable forever.
+SCHEME_START = "2026-09"
 GROUPS = ("cc", "floor")
 _ROLE_GROUP = {"confirmation": "cc", "picker": "floor"}
 # What a point is WORTH. The old handoff design paid money and gated it on
@@ -112,11 +117,19 @@ _BONUS_DEFAULTS = {
     # including the one delivering 50.4%, and a cap everybody reaches is not a
     # cap, it is a salary. One point ≈ one MAD at the default perPoint.
     "points": {
-        # The work.
-        "cf.confirm": 0.1, "cf.cancel": 0.05, "cf.duplicate": 0.05,
-        "cf.dna": 0.02, "cf.followup": 0.02, "cf.onhold": 0.02,
+        # The work. Cancels earn NOTHING by decision (Ahmed 2026-09-09): a
+        # cancel is sometimes the right call, but paying for it — even 0.05 —
+        # buys end-of-day sweeps, and this team demonstrably sweeps (416
+        # cancels in one measured minute). Right calls that kill an order are
+        # their own reward: they protect the delivery rate the gate reads.
+        # cf.onhold is GONE, not zero: the state itself was retired, and a
+        # key absent from this table is invisible to the board, the receipt
+        # and the recipe alike — stored settings merge over these keys, so
+        # deleting it here deletes it everywhere.
+        "cf.confirm": 0.1, "cf.cancel": 0.0, "cf.duplicate": 0.05,
+        "cf.dna": 0.02, "cf.followup": 0.02,
         "rs.redeliver": 0.5, "rs.reship": 0.5, "rs.returnreq": 0.1,
-        "rs.dna": 0.02, "rs.cancel": 0.1, "rs.resolve": 0.1,
+        "rs.dna": 0.02, "rs.cancel": 0.0, "rs.resolve": 0.1,
         "cs.resolve": 0.3, "cs.reply": 0.05, "cs.create": 0.05,
         "cs.take": 0.02, "cs.hold": 0.0, "cs.reopen": 0.0,
         # THE OUTCOME. A confirm is a promise; a delivered parcel is the money.
@@ -708,6 +721,8 @@ def bonus(month=None, group=None):
     month = (month or "").strip()
     if not _re.match(r"^\d{4}-\d{2}$", month):
         month = str(now_datetime())[:7]
+    if month < SCHEME_START:
+        month = SCHEME_START
 
     my_group = bonus_group_for(role)
     group = (group or "").strip() or my_group
@@ -1134,6 +1149,8 @@ def bonus_breakdown(user=None, month=None, group="cc"):
     month = (month or "").strip()
     if not _re.match(r"^\d{4}-\d{2}$", month):
         month = str(now_datetime())[:7]
+    if month < SCHEME_START:
+        month = SCHEME_START
     s = _bonus_settings()
     pts = s["points"]
 

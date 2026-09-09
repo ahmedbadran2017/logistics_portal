@@ -451,11 +451,14 @@ const { success, warn } = useToast();
 const now = new Date();
 const fmt = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
 const months = computed(() => {
+  // History exists from September 2026 — the month the scheme went live.
+  // Before that nobody was playing by these rules, so "Last month" only
+  // appears once there is a played month to look back at. The server clamps
+  // the same way, so a hand-typed URL cannot reach further either.
   const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  return [
-    { key: fmt(now), label: t("bn.thisMonth") },
-    { key: fmt(prev), label: t("bn.lastMonth") },
-  ];
+  const out = [{ key: fmt(now), label: t("bn.thisMonth") }];
+  if (prev >= new Date(2026, 8, 1)) out.push({ key: fmt(prev), label: t("bn.lastMonth") });
+  return out;
 });
 
 const month = ref(fmt(now));

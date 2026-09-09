@@ -1708,7 +1708,7 @@ export default {
     howOpen: "Show me the recipe",
     howClose: "Got it, hide the recipe",
     how1Title: "Every call drops a coin",
-    how1Body: "Confirm, cancel, mark no-answer — every real decision you make is worth points. Small coins, but they add up fast when you keep the queue moving.",
+    how1Body: "Confirm, log a no-answer, set a follow-up — real decisions drop coins. Cancels earn nothing on purpose: a right cancel is not wasted, it protects your delivery rate — the door to the vault below.",
     how1Live: "You this month: {n} decisions",
     how2Title: "A delivered parcel is the jackpot",
     how2Body: "One parcel that reaches the customer pays {x}× more than the confirm call itself. Confirm carelessly and the parcel bounces back — coin gone. The game only pays for parcels that arrive.",

@@ -22,7 +22,11 @@ QUEUES = {
     "pending": "Pending",
     "dna": "Did not Answer",
     "followup": "Follow Up",
-    "onhold": "On Hold",
+    # "onhold" retired 2026-09-09 (Ahmed): the team stopped using it — zero
+    # On Hold orders exist on prod, in-hand or otherwise. The STATUS string
+    # stays readable everywhere (search, history, _PARKED legacy guard); only
+    # the tab, the button and the retry timer are gone, so nothing new can
+    # enter the state.
 }
 # Where an order GOES when the lane is done with it. The agent has to be able
 # to look at their own decisions — to check one, to answer "what did I do with
@@ -45,7 +49,6 @@ _ACTIONS = {
     "confirm": "Confirmed",
     "dna": "Did not Answer",
     "followup": "Follow Up",
-    "onhold": "On Hold",
     "cancel": "Cancelled",
     # Desk parity: agents mark ~23 duplicate orders a month there.
     "duplicate": "Duplicated",
@@ -53,7 +56,7 @@ _ACTIONS = {
     "reopen": "Pending",
 }
 # How long an order rests before it resurfaces at the top of its queue.
-_RETRY_HOURS = {"dna": 4, "followup": 24, "onhold": 48}
+_RETRY_HOURS = {"dna": 4, "followup": 24}
 
 # Money above this is not a Moroccan COD order, it is a typo or seed data.
 # Measured: the average real order is 233 MAD and every one of the 247,409
@@ -126,7 +129,7 @@ _PARKED = ("so.custom_sales_status = 'On Hold' AND "
 # and anything else reading the Desk trail in this module.
 _ST_ACTION_MAP = {"Confirmed": "confirm", "Cancelled": "cancel",
                   "Did not Answer": "dna", "Follow Up": "followup",
-                  "On Hold": "onhold", "Duplicated": "duplicate"}
+                  "Duplicated": "duplicate"}
 
 _DUE_AT = "COALESCE(so.custom_next_call_at, so.creation)"
 _DUE = f"{_DUE_AT} <= %(now)s AND NOT ({_PARKED})"
@@ -924,7 +927,7 @@ def act(order, action, note=None, _bulk=False):
         updates["custom_call_attempts"] = attempts
         s = _cf_settings()
         hours = {"dna": s["retryDna"], "followup": s["retryFollowup"],
-                 "onhold": s["retryOnhold"]}[action]
+                 }[action]
         updates["custom_next_call_at"] = add_to_date(now, hours=hours)
     else:
         updates["custom_next_call_at"] = None

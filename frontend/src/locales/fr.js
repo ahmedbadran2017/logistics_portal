@@ -1709,7 +1709,7 @@ export default {
     howOpen: "Montrez-moi la recette",
     howClose: "Compris, masquer la recette",
     how1Title: "Chaque appel dépose une pièce",
-    how1Body: "Confirmer, annuler, marquer sans réponse — chaque vraie décision vaut des points. Des petites pièces, mais ça monte vite quand la file avance.",
+    how1Body: "Confirmer, marquer sans réponse, planifier un rappel — les vraies décisions déposent des pièces. Annuler ne rapporte rien, exprès : une bonne annulation n'est pas perdue, elle protège votre taux de livraison — la porte du coffre ci-dessous.",
     how1Live: "Vous ce mois-ci : {n} décisions",
     how2Title: "Un colis livré, c'est le jackpot",
     how2Body: "Un colis qui atteint le client paie {x}× plus que l'appel lui-même. Confirmez à la légère et le colis revient — pièce perdue. Le jeu ne paie que les colis qui arrivent.",

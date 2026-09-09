@@ -163,18 +163,37 @@
             <span><span class="inline-block w-2 h-2 rounded-full bg-amber-300 me-1" />{{ t('cf.actDna') }}</span>
           </span>
         </div>
-        <div v-if="(d.daily || []).length" class="flex items-end gap-1 h-[124px]">
-          <div v-for="(f, fi) in d.daily" :key="f.date" class="group flex-1 flex flex-col items-center gap-0.5 min-w-0"
-               :title="`${f.date} · ${f.confirm}✓ ${f.cancel}✗ ${f.dna}·`">
-            <span class="text-[9px] font-bold tabular-nums text-stone-400 group-hover:text-stone-700 transition-colors">{{ dayTotal(f) || '' }}</span>
-            <div class="w-full max-w-[28px] flex flex-col justify-end rounded-t overflow-hidden md-bar transition-transform group-hover:scale-y-[1.04] origin-bottom"
-                 :class="best && f.date === best.date ? 'ring-2 ring-[var(--accent-400)] ring-offset-1' : ''"
-                 :style="{ height: '92px', animationDelay: Math.min(fi * 35, 700) + 'ms' }">
-              <div class="w-full bg-amber-300" :style="{ height: fH(f.dna) }" />
-              <div class="w-full bg-rose-400" :style="{ height: fH(f.cancel) }" />
-              <div class="w-full bg-emerald-400" :style="{ height: fH(f.confirm) }" />
+        <!-- Columns are FIXED width and centered, never flex-stretched: a
+             single-day range used to hand one 28px bar an entire panel of
+             emptiness. Gridlines give the heights something to be read
+             against; the baseline grounds the bars. -->
+        <div v-if="(d.daily || []).length" class="relative">
+          <div class="absolute inset-x-0 top-[18px] bottom-[22px] pointer-events-none">
+            <div v-for="g in [0, 1, 2, 3]" :key="g"
+                 class="absolute inset-x-0 border-t border-dashed border-stone-100"
+                 :style="{ top: g * 33.33 + '%' }" />
+            <div class="absolute inset-x-0 bottom-0 border-t border-stone-200" />
+          </div>
+          <div class="relative flex items-end justify-center gap-2 sm:gap-3 overflow-x-auto pb-0.5"
+               style="scrollbar-width: none">
+            <div v-for="(f, fi) in d.daily" :key="f.date"
+                 class="group flex-none w-11 sm:w-12 flex flex-col items-center gap-1"
+                 :title="`${f.date} · ${f.confirm} ${t('cf.actConfirm')} · ${f.cancel} ${t('cf.actCancel')} · ${f.dna} ${t('cf.actDna')}`">
+              <span class="text-[10px] font-bold tabular-nums transition-colors"
+                    :class="best && f.date === best.date ? 'text-[var(--accent-600)]' : 'text-stone-500 group-hover:text-stone-800'">
+                {{ dayTotal(f) || '' }}</span>
+              <div class="w-8 flex flex-col justify-end rounded-md overflow-hidden md-bar
+                          transition-transform group-hover:scale-y-[1.03] origin-bottom bg-stone-50"
+                   :class="best && f.date === best.date ? 'ring-2 ring-[var(--accent-400)] ring-offset-1' : ''"
+                   :style="{ height: '112px', animationDelay: Math.min(fi * 35, 700) + 'ms' }">
+                <div class="w-full bg-amber-300" :style="{ height: fH(f.dna) }" />
+                <div class="w-full bg-rose-400" :style="{ height: fH(f.cancel) }" />
+                <div class="w-full bg-emerald-400" :style="{ height: fH(f.confirm) }" />
+              </div>
+              <span class="text-[9.5px] tabular-nums font-medium"
+                    :class="best && f.date === best.date ? 'text-[var(--accent-600)]' : 'text-stone-400'">
+                {{ f.date.slice(8) }}/{{ f.date.slice(5, 7) }}</span>
             </div>
-            <span class="text-[8.5px] text-stone-400 tabular-nums">{{ f.date.slice(8) }}</span>
           </div>
         </div>
         <div v-else class="text-center text-[12px] text-stone-400 py-8">{{ t('ccd.noData') }}</div>
@@ -194,7 +213,13 @@ const d = ref(null);
 const dp = ref(null);   // previous window, for the Δ chips
 const loading = ref(true);
 const loadError = ref("");
-const RANGES = ["today", "yest", "7d", "month", "lastMonth"];
+// "Last month" only once a month AFTER September 2026 exists to look back
+// at — the scheme started then, and August's numbers were never played by
+// these rules. From October onward the chip appears and history accumulates.
+const EPOCH = new Date(2026, 8, 1);
+const _now0 = new Date();
+const RANGES = ["today", "yest", "7d", "month",
+  ...(new Date(_now0.getFullYear(), _now0.getMonth() - 1, 1) >= EPOCH ? ["lastMonth"] : [])];
 // Remember the chip across visits — an agent who lives on "today" should not
 // re-click it every time they glance at their numbers.
 let _r0 = "7d";
@@ -353,7 +378,7 @@ const deltas = computed(() => {
 });
 const fMax = computed(() =>
   Math.max(1, ...(d.value?.daily || []).map(dayTotal)));
-function fH(n) { return Math.round(((n || 0) * 92) / fMax.value) + "px"; }
+function fH(n) { return Math.round(((n || 0) * 112) / fMax.value) + "px"; }
 function fmtN(v) { return Number(v || 0).toLocaleString("en-US", { maximumFractionDigits: 0 }); }
 </script>
 

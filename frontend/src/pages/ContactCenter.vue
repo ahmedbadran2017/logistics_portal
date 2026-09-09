@@ -39,7 +39,6 @@
             <span class="cco-chip"><b>{{ d.cf.counts.pending }}</b> {{ t('cf.tabPending') }}</span>
             <span class="cco-chip"><b>{{ d.cf.counts.dna }}</b> {{ t('cf.tabDna') }}</span>
             <span class="cco-chip"><b>{{ d.cf.counts.followup }}</b> {{ t('cf.tabFollowup') }}</span>
-            <span class="cco-chip"><b>{{ d.cf.counts.onhold }}</b> {{ t('cf.tabOnhold') }}</span>
           </div>
           <div class="cco-today">
             <span class="text-emerald-600 font-bold tabular-nums">{{ d.cf.today.confirm || 0 }}</span> {{ t('cco.confirmedToday') }}
