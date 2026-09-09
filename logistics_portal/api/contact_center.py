@@ -70,7 +70,9 @@ _MONEY_DEFAULTS = {
     "perPoint": {"cc": 1.0, "floor": 4.0},   # MAD per point earned
     "monthlyCap": {"cc": 1500, "floor": 1500},
     # Quality gate: no payout above the base until the agent clears it.
-    # cc is gated on confirm rate — a number the agent actually controls.
+    # cc is gated on DELIVERY rate (see _quality_pct) — of what the agent
+    # confirmed and shipped, what actually stuck. Confirm rate would reward
+    # the opposite: confirm everything and score 100%.
     # floor has NO honest per-person quality signal yet (same-day measures the
     # dispatcher's list timing, not the picker's work), so it stays off.
     "gateOn": {"cc": 1, "floor": 0},
@@ -486,6 +488,11 @@ def delivery_rate(user, month=None):
 
     Not confirm rate, which rewards the opposite of quality: an agent who
     confirms everything scores 100%.
+
+    Fenced to the orders this agent actually CONFIRMED, not merely the ones
+    allocated to them. The automation closes most of an allocated cohort by
+    itself, so the allocated basis measured the bot and called it the agent's
+    quality — and this number gates their pay.
     """
     where = "AND dn.posting_date >= %(start)s AND dn.posting_date < DATE_ADD(%(start)s, INTERVAL 1 MONTH)" if month else ""
     vals = {"u": user}
@@ -504,6 +511,14 @@ def delivery_rate(user, month=None):
               ON dni.against_sales_order = so.name AND dni.docstatus = 1
             JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
             WHERE so.docstatus = 1 AND so.custom_allocated_to = %(u)s
+              AND (EXISTS (SELECT 1 FROM `tabComment` c
+                           WHERE c.reference_doctype = 'Sales Order'
+                             AND c.reference_name = so.name AND c.owner = %(u)s
+                             AND c.content LIKE 'Confirmation: confirm%%')
+                OR EXISTS (SELECT 1 FROM `tabVersion` v
+                           WHERE v.ref_doctype = 'Sales Order'
+                             AND v.docname = so.name AND v.owner = %(u)s
+                             AND v.data LIKE '%%"Confirmed"%%'))
               AND dn.custom_track_shipment_status IN
                   ('Delivered', 'Delivery Exception', 'Failed Attempt')
               {where}""", vals, as_dict=True)[0]
@@ -530,13 +545,23 @@ def _quality_pct(user, group, month):
 def _streak_days(user, group, month):
     """Consecutive working days ending at the last day worked this month."""
     if group == "cc":
+        # BOTH trails. A day worked entirely in the Desk leaves no comment, so
+        # reading comments alone broke the run on every such day — and the
+        # Desk is where most of this lane's work still happens.
         rows = frappe.db.sql(
-            """SELECT DISTINCT DATE(c.creation) d FROM `tabComment` c
-               WHERE c.owner = %(u)s AND c.creation >= %(start)s
-                 AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
-                 AND (c.content LIKE 'Confirmation: %%' OR c.content LIKE 'Rescue: %%'
-                      OR c.content LIKE 'CS: %%')
-               ORDER BY d""", {"u": user, "start": f"{month}-01 00:00:00"})
+            """SELECT DISTINCT d FROM (
+                 SELECT DATE(c.creation) d FROM `tabComment` c
+                 WHERE c.owner = %(u)s AND c.creation >= %(start)s
+                   AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
+                   AND (c.content LIKE 'Confirmation: %%' OR c.content LIKE 'Rescue: %%'
+                        OR c.content LIKE 'CS: %%')
+                 UNION
+                 SELECT DATE(v.creation) d FROM `tabVersion` v
+                 WHERE v.ref_doctype = 'Sales Order' AND v.owner = %(u)s
+                   AND v.creation >= %(start)s
+                   AND v.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
+                   AND v.data LIKE '%%custom_sales_status%%'
+               ) x ORDER BY d""", {"u": user, "start": f"{month}-01 00:00:00"})
     else:
         rows = frappe.db.sql(
             """SELECT DISTINCT DATE(pl.creation) d FROM `tabPick List` pl
