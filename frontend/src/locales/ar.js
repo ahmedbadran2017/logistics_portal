@@ -627,6 +627,8 @@ export default {
     actions: { assign: "إسناد", openPl: "فتح PL", print: "طباعة", open: "فتح", manifest: "مانيفست", track: "تتبع", openRet: "فتح RET", fix: "إصلاح" },
     pickReady: "جاهز للتجهيز", pickPartial: "جزئي", pickOos: "نافد المخزون",
     pickReadyHint: "كل الأصناف متوفرة", pickPartialHint: "بعض الأصناف ناقصة", pickOosHint: "لا شيء متوفر",
+    pickCooling: "الرف كان فاضي",
+    pickCoolingHint: "الـpicker مالقاش دول على الرف — متوقفين لحد ما مدة الانتظار تعدّي أو يتعمل جرد للرف",
     missing: "ناقص",
     stuckOos: "واقفين نافد المخزون", blockingTitle: "وفّر دول الأول — بيحجبوا أكبر عدد أوردرات",
     blIncoming: "{n} في الطريق", blNoPo: "بدون PO",

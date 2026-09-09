@@ -627,6 +627,8 @@ export default {
     actions: { assign: "Assigner", openPl: "Ouvrir PL", print: "Imprimer", open: "Ouvrir", manifest: "Manifeste", track: "Suivre", openRet: "Ouvrir RET", fix: "Corriger" },
     pickReady: "Prêt à préparer", pickPartial: "Partiel", pickOos: "Rupture de stock",
     pickReadyHint: "tous les articles en stock", pickPartialHint: "articles manquants", pickOosHint: "rien en stock",
+    pickCooling: "Rayon vide",
+    pickCoolingHint: "un préparateur ne les a pas trouvés en rayon — écartés jusqu'à la fin du délai ou un comptage",
     missing: "Manquant",
     stuckOos: "bloqués en rupture", blockingTitle: "Réapprovisionner en priorité — bloque le plus de commandes",
     blIncoming: "{n} en route", blNoPo: "sans BC",

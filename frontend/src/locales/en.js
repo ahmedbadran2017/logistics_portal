@@ -627,6 +627,8 @@ export default {
     actions: { assign: "Assign", openPl: "Open PL", print: "Print", open: "Open", manifest: "Manifest", track: "Track", openRet: "Open RET", fix: "Fix" },
     pickReady: "Ready to prepare", pickPartial: "Partial", pickOos: "Out of stock",
     pickReadyHint: "all items in stock", pickPartialHint: "some items missing", pickOosHint: "nothing in stock",
+    pickCooling: "Shelf was empty",
+    pickCoolingHint: "a picker found these missing on the shelf — held back until the cooldown clears or the shelf is counted",
     missing: "Missing",
     stuckOos: "stuck out of stock", blockingTitle: "Restock these first — blocking the most orders",
     blIncoming: "{n} incoming", blNoPo: "no PO",
