@@ -570,20 +570,63 @@ def _pick_availability():
     per = {}
     for r in rows:
         d = per.setdefault(r.so, {"n": 0, "enough": 0, "some": 0, "missing": [],
-                                  "miss_codes": [], "val": float(r.val or 0),
-                                  "created": r.created})
+                                  "miss_codes": [], "lines": [],
+                                  "val": float(r.val or 0), "created": r.created})
         d["n"] += 1
-        need = float(r.need or 0)
-        aq = shared.get(r.code, 0) + sre.get((r.so, r.code), 0)
-        if aq > 0:
+        d["lines"].append((r.code, float(r.need or 0), r.item_name))
+        # "Some" is about the ITEM, not about this order's turn: it decides
+        # OOS ("nothing in stock") vs Partial, and that answer should not
+        # change because another order was served first.
+        if (shared.get(r.code, 0) + sre.get((r.so, r.code), 0)) > 0:
             d["some"] += 1
-        if aq >= need:
-            d["enough"] += 1
+
+    # One unit, one order. The old test asked each order on its own whether the
+    # pool covered it and never spent anything, so the same last piece was
+    # promised to everybody holding it — and worse, an order's OWN reservation
+    # was added on top of a pool that had already been zeroed for a reason that
+    # has nothing to do with reservations. Measured 2026-09-09 on the live
+    # pool: 81 orders called Ready, of which 28 could not be picked and 9 had a
+    # line with no pickable bin anywhere. Three different causes behind those
+    # zeros — an open draft pick list already holding the piece (PL-55772 held
+    # all 6 of one item), the batch ledger answering nothing for a shelf the
+    # Bin says has two, and stock sitting only in warehouses the engine
+    # refuses — and the old code's comment assumed away all three: "a genuinely
+    # empty item has no reservation to hand back either". It is not empty. It
+    # is spoken for, and the reservation is still on the books.
+    #
+    # So spend from one ceiling, the way create does: _available_totals is
+    # already "what the create can actually take", and every order draws from
+    # it in turn. A reservation no longer conjures a unit; it buys its holder a
+    # place at the front of the queue for one that exists.
+    ceiling = {}
+    for code in {r.code for r in rows}:
+        ceiling[code] = max(0.0, float(totals.get(code, 0)))
+
+    def _has_own(so_name):
+        for code, _need, _nm in per[so_name]["lines"]:
+            if sre.get((so_name, code), 0) > 0:
+                return 0            # sorts first
+        return 1
+
+    for name in sorted(per, key=lambda s: (_has_own(s), str(per[s]["created"] or ""))):
+        d = per[name]
+        short_line = None
+        for code, need, _nm in d["lines"]:
+            if ceiling.get(code, 0) < need:
+                short_line = code
+                break
+        if short_line is None:
+            d["enough"] = d["n"]
+            for code, need, _nm in d["lines"]:
+                ceiling[code] = ceiling.get(code, 0) - need
         else:
-            # short OR zero — the line can't be fully picked, so it's "missing".
-            if len(d["missing"]) < 6:
-                d["missing"].append(r.item_name)
-            d["miss_codes"].append((r.code, r.item_name))
+            # Name every line this order cannot have, not just the first — the
+            # restock worklist is built from these.
+            for code, need, nm in d["lines"]:
+                if ceiling.get(code, 0) < need:
+                    if len(d["missing"]) < 6:
+                        d["missing"].append(nm)
+                    d["miss_codes"].append((code, nm))
 
     ready, partial, oos, local, missing = [], [], [], [], {}
     block = {}  # code -> {name, orders:set, mad, oldest}
