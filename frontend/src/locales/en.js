@@ -1310,6 +1310,9 @@ export default {
     badLogin: "Invalid email or password.",
   },
   md: {
+    touchTitle: "Median time to your first touch",
+    touchWithin: "{p}% inside {h}h",
+    hoursShort: "h",
     deskSrc: "Counted from the decisions you made — on the desk or here.",
     autoClosed: "the automation closed {n} of your orders",
     cohortSrc: "Built from your allocated orders (desk decisions leave no portal trail yet).",

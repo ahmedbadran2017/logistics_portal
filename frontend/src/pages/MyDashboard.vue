@@ -130,6 +130,28 @@
         </div>
       </div>
 
+      <!-- Time to first touch. Deliberately its own quiet row and not a
+           fifth KPI tile: it is a number to look at, not one that pays. -->
+      <div v-if="d.touch && d.touch.n" class="md-in flex items-center gap-3 flex-wrap
+                  bg-white rounded-xl ring-1 ring-stone-200/70 px-4 py-3"
+           style="animation-delay: 270ms">
+        <Icon name="clock" :size="14" class="text-stone-400 flex-shrink-0" />
+        <span class="text-[12px] font-semibold text-stone-800">{{ t('md.touchTitle') }}</span>
+        <span class="text-[18px] font-extrabold tabular-nums"
+              :class="d.touch.median <= d.touch.slaH ? 'text-emerald-600' : 'text-stone-800'">
+          {{ d.touch.median }}<span class="text-[11px] font-bold ms-0.5">{{ t('md.hoursShort') }}</span>
+        </span>
+        <div class="flex-1 min-w-[120px] h-1.5 rounded-full bg-stone-100 overflow-hidden">
+          <div class="h-full rounded-full transition-all duration-700"
+               :class="d.touch.withinPct >= 60 ? 'bg-emerald-500'
+                       : d.touch.withinPct >= 35 ? 'bg-amber-400' : 'bg-rose-400'"
+               :style="{ width: d.touch.withinPct + '%' }" />
+        </div>
+        <span class="text-[11.5px] text-stone-500 tabular-nums">
+          {{ t('md.touchWithin').replace('{p}', String(d.touch.withinPct)).replace('{h}', String(d.touch.slaH)) }}
+        </span>
+      </div>
+
       <!-- my daily decisions -->
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 md-in" style="animation-delay: 300ms">
         <div class="flex items-center gap-2 mb-3">

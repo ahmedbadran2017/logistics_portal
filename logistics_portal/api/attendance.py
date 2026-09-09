@@ -15,7 +15,9 @@ whose `user_id` is the session user, so there is no way to read anybody else.
 """
 
 import frappe
-from frappe.utils import now_datetime, time_diff_in_seconds
+from frappe.utils import time_diff_in_seconds
+
+from logistics_portal.api import clock as _clock
 
 
 def _my_employee():
@@ -59,12 +61,18 @@ def my_status():
            WHERE employee = %s ORDER BY time DESC LIMIT 1""",
         (emp.name,), as_dict=True)
 
-    now = now_datetime()
+    # The floor's clock, not the site's. Timestamps are stored on Istanbul
+    # time and the people punching in are in Morocco, so a 07:12 punch was
+    # being shown back to them as 09:12 — the one number on this chip, wrong
+    # by two hours, on the screen of the person who made it. Same reason the
+    # day boundary moves: "today" is their today.
+    now = _clock.floor_now()
     today = str(now)[:10]
+    d0, d1 = _clock.day_bounds(today)
     logs = frappe.db.sql(
         """SELECT log_type, time FROM `tabEmployee Checkin`
-           WHERE employee = %s AND DATE(time) = %s ORDER BY time""",
-        (emp.name, today), as_dict=True)
+           WHERE employee = %s AND time >= %s AND time < %s ORDER BY time""",
+        (emp.name, d0, d1), as_dict=True)
 
     # Pair the day's logs into IN→OUT stretches. A stray second IN does not
     # restart the clock and a stray OUT with nothing open is ignored, so a
@@ -79,7 +87,7 @@ def my_status():
                 worked += max(0.0, time_diff_in_seconds(r.time, open_at))
                 open_at = None
     if open_at is not None:
-        worked += max(0.0, time_diff_in_seconds(now, open_at))
+        worked += max(0.0, time_diff_in_seconds(_clock.floor_now(), _clock.to_floor(open_at)))
 
     out = {"employeeName": emp.employee_name or "", "hrApp": "/hrms",
            "workedMin": int(worked // 60), "serverNow": str(now)[:19]}
@@ -88,7 +96,7 @@ def my_status():
         return out
 
     is_in = (last[0].log_type or "").upper() == "IN"
-    t = last[0].time
+    t = _clock.to_floor(last[0].time)
     out["state"] = "in" if is_in else "out"
     out["lastAt"] = str(t)[:19]
     # Same day or not — the UI shows a date only when it is not today, so an

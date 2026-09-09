@@ -15,6 +15,8 @@ import json
 import frappe
 from frappe.utils import add_to_date, flt, now_datetime
 
+from logistics_portal.api import clock as _clock
+
 # The queues this lane owns. Orders leave the lane on Confirm/Cancel.
 QUEUES = {
     "pending": "Pending",
@@ -191,7 +193,8 @@ def day_target(user=None):
     if str(s.get("dayTargetMode", "auto")).lower() != "auto":
         return fixed
     user = user or frappe.session.user
-    today = str(now_datetime())[:10]
+    today = _clock.floor_today()
+    _t0, _t1 = _clock.day_bounds(today)
     # Cached per person per day. The two halves are cheap to want and dear to
     # fetch — reading "what have I decided today" out of `tabVersion` costs
     # 1.7s on its own and 7.0s with the company join, on a 2.95M-row table
@@ -209,15 +212,16 @@ def day_target(user=None):
     done = int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabComment`
            WHERE reference_doctype = 'Sales Order' AND owner = %s
-             AND content LIKE 'Confirmation: %%' AND creation >= %s""",
-        (user, today + " 00:00:00"))[0][0] or 0)
+             AND content LIKE 'Confirmation: %%'
+             AND creation >= %s AND creation < %s""",
+        (user, _t0, _t1))[0][0] or 0)
     done += int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabVersion` v
            JOIN `tabSales Order` so ON so.name = v.docname
            WHERE v.ref_doctype = 'Sales Order' AND so.company = %s
-             AND v.owner = %s AND v.creation >= %s
+             AND v.owner = %s AND v.creation >= %s AND v.creation < %s
              AND v.data LIKE '%%custom_sales_status%%'""",
-        (_CO, user, today + " 00:00:00"))[0][0] or 0)
+        (_CO, user, _t0, _t1))[0][0] or 0)
     ahead = int(frappe.db.sql(
         f"""SELECT COUNT(*) FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s
@@ -260,13 +264,18 @@ def _range(days, frm, to):
     import re as _re
     ok = lambda d: bool(d and _re.match(r"^\d{4}-\d{2}-\d{2}$", str(d).strip()))
     if ok(frm) or ok(to):
+        # A day the person picking it lives in. Timestamps are stored on the
+        # SITE's clock (Istanbul) and the floor is in Morocco, so "9 September"
+        # is not the stored 00:00-24:00 of that date — see api/clock. The
+        # BOUNDARIES move, never the column: `col >= a AND col < b` still uses
+        # an index, and the indexes are what made this lane fast.
         conds, v = [], {}
         if ok(frm):
             conds.append("{col} >= %(frm)s")
-            v["frm"] = str(frm).strip() + " 00:00:00"
+            v["frm"] = _clock.day_bounds(str(frm).strip())[0]
         if ok(to):
-            conds.append("{col} <= %(to)s")
-            v["to"] = str(to).strip() + " 23:59:59"
+            conds.append("{col} < %(to)s")
+            v["to"] = _clock.day_bounds(str(to).strip())[1]
         return " AND ".join(conds), v
     days = min(max(int(days or 30), 1), 365)
     return "{col} >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)", {"days": days}
@@ -702,15 +711,17 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
 
     sla_h = _cf_settings().get("slaFirstCallH", 6)
 
-    today = str(now_datetime())[:10]
+    today = _clock.floor_today()
+    _d0, _d1 = _clock.day_bounds(today)
     mine = {"confirm": 0, "cancel": 0, "dna": 0, "followup": 0, "onhold": 0,
             "duplicate": 0}
     for r in frappe.db.sql(
             """SELECT c.content, COUNT(*) n FROM `tabComment` c
                WHERE c.reference_doctype = 'Sales Order' AND c.owner = %s
-                 AND c.creation >= %s AND c.content LIKE 'Confirmation: %%'
+                 AND c.creation >= %s AND c.creation < %s
+                 AND c.content LIKE 'Confirmation: %%'
                GROUP BY c.content""",
-            (me, f"{today} 00:00:00"), as_dict=True):
+            (me, _d0, _d1), as_dict=True):
         for k in mine:
             if r.content.startswith(f"Confirmation: {k}"):
                 mine[k] += int(r.n or 0)
@@ -1330,9 +1341,10 @@ def _decisions_by(user, rng, rng_vals, limit=6000):
     # Company-fenced like every other read in this lane: the site also holds
     # Maslak and China orders in the identical statuses, and a desk agent who
     # touches one must not have it counted as Morocco confirmation work.
-    confirmed = set()
+    confirmed, touched = set(), {}
     rows = frappe.db.sql(
-        f"""SELECT DATE(v.creation) d, v.docname, v.data FROM `tabVersion` v
+        f"""SELECT {_clock.sql_local("v.creation")} d, v.creation at, v.docname, v.data
+            FROM `tabVersion` v
             JOIN `tabSales Order` so ON so.name = v.docname
             WHERE v.ref_doctype = 'Sales Order' AND v.owner = %(u)s
               AND so.company = %(co)s
@@ -1354,10 +1366,12 @@ def _decisions_by(user, rng, rng_vals, limit=6000):
             acts[action] += 1
             if action == "confirm":
                 confirmed.add(r.docname)
+            if r.docname not in touched or r.at < touched[r.docname]:
+                touched[r.docname] = r.at
             day = daily.setdefault(str(r.d), {"confirm": 0, "cancel": 0, "dna": 0})
             if action in day:
                 day[action] += 1
-    return acts, daily, confirmed
+    return acts, daily, confirmed, touched
 
 
 def _auto_closed_for(user, rng, rng_vals):
@@ -1417,9 +1431,10 @@ def my_report(days=7, frm=None, to=None, as_user=None):
     daily = {}
     # Rows, not a GROUP BY, because the money and delivery cards below need to
     # know WHICH orders the agent confirmed — not just how many.
-    mine_confirmed = set()
+    mine_confirmed, mine_touched = set(), {}
     for r in frappe.db.sql(
-            f"""SELECT DATE(c.creation) d, c.content, c.reference_name so
+            f"""SELECT {_clock.sql_local("c.creation")} d, c.creation at,
+                       c.content, c.reference_name so
                 FROM `tabComment` c
                 WHERE c.reference_doctype = 'Sales Order' AND c.owner = %(me)s
                   AND c.content LIKE 'Confirmation: %%' AND {c_rng}""",
@@ -1433,6 +1448,8 @@ def my_report(days=7, frm=None, to=None, as_user=None):
         acts[action] += 1
         if action == "confirm":
             mine_confirmed.add(r.so)
+        if r.so and (r.so not in mine_touched or r.at < mine_touched[r.so]):
+            mine_touched[r.so] = r.at
         day = daily.setdefault(str(r.d), {"confirm": 0, "cancel": 0, "dna": 0})
         if action in day:
             day[action] += 1
@@ -1440,8 +1457,11 @@ def my_report(days=7, frm=None, to=None, as_user=None):
     # The portal writes a comment and no Version row; the desk writes a Version
     # row and no comment. Disjoint trails → SUM them, so an agent who works in
     # both places sees one honest total instead of whichever half was bigger.
-    d_acts, d_daily, d_confirmed = _decisions_by(me, rng, rng_vals)
+    d_acts, d_daily, d_confirmed, d_touched = _decisions_by(me, rng, rng_vals)
     mine_confirmed |= d_confirmed
+    for _o, _at in d_touched.items():
+        if _o not in mine_touched or _at < mine_touched[_o]:
+            mine_touched[_o] = _at
     portal_n = sum(acts.values())
     desk_n = sum(d_acts.values())
     source = ("portal" if not desk_n else "desk" if not portal_n else "both")
@@ -1486,8 +1506,30 @@ def my_report(days=7, frm=None, to=None, as_user=None):
     else:
         money, stick = (0, 0), (0, 0)
 
+    # How long an order waited for this agent's FIRST action on it. Shown,
+    # never scored: a metric like this is satisfied by opening the queue and
+    # marking everything "no answer" in one sweep, and this team demonstrably
+    # sweeps — 416 cancels in a single minute, measured. So it is a number to
+    # look at and to argue with, not one that moves money.
+    touch = {"median": None, "withinPct": None, "n": 0,
+             "slaH": int(_cf_settings().get("slaFirstCallH", 6))}
+    if mine_touched:
+        born = dict(frappe.db.sql(
+            "SELECT name, creation FROM `tabSales Order` WHERE name IN %s",
+            (tuple(mine_touched),)))
+        gaps = sorted(
+            (mine_touched[o] - born[o]).total_seconds() / 3600.0
+            for o in mine_touched
+            if born.get(o) and mine_touched[o] >= born[o])
+        if gaps:
+            touch["n"] = len(gaps)
+            touch["median"] = round(gaps[len(gaps) // 2], 1)
+            touch["withinPct"] = round(
+                100.0 * len([g for g in gaps if g <= touch["slaH"]]) / len(gaps))
+
     out = {
         "acts": acts,
+        "touch": touch,
         "daily": [{"date": d, **v} for d, v in sorted(daily.items())],
         "cohort": {"n": int(money[0] or 0),
                    "value": round(float(money[1] or 0))},
@@ -1768,14 +1810,14 @@ def report(days=7, frm=None, to=None):
 
     # ── day by day ───────────────────────────────────────────────────────
     funnel = frappe.db.sql(
-        f"""SELECT DATE(c.creation) d,
+        f"""SELECT {_clock.sql_local("c.creation")} d,
                    SUM(c.content LIKE 'Confirmation: confirm%%') conf,
                    SUM(c.content LIKE 'Confirmation: cancel%%') canc,
                    SUM(c.content LIKE 'Confirmation: dna%%') dna
             FROM `tabComment` c
             WHERE c.reference_doctype = 'Sales Order'
               AND c.content LIKE 'Confirmation: %%' AND {c_rng}
-            GROUP BY DATE(c.creation) ORDER BY d""", rng_vals, as_dict=True)
+            GROUP BY d ORDER BY d""", rng_vals, as_dict=True)
 
     # ── the hour of the day the work actually happens ────────────────────
     hours = {int(r[0]): int(r[1]) for r in frappe.db.sql(
@@ -2527,10 +2569,12 @@ def next_up(limit=20, as_user=None):
 
     def _when(dt):
         # HH:MM reads as "today" — a call-back due TOMORROW 08:30 must say so.
+        # Shown on the floor's clock, not the site's: a call-back the portal
+        # printed as 16:30 was due at 14:30 where the person taking it stands.
         if not dt:
             return ""
-        v = str(dt)
-        return v[11:16] if v[:10] == str(now_datetime())[:10] else v[5:16]
+        v = str(_clock.to_floor(dt))
+        return v[11:16] if v[:10] == _clock.floor_today() else v[5:16]
 
     rows = [{
         "order": r.name, "customer": r.customer or "",

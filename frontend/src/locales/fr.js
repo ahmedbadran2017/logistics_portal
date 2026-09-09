@@ -1311,6 +1311,9 @@ export default {
     badLogin: "E-mail ou mot de passe incorrect.",
   },
   md: {
+    touchTitle: "Délai médian avant votre première action",
+    touchWithin: "{p}% sous {h}h",
+    hoursShort: "h",
     deskSrc: "Compté à partir des décisions que vous avez prises — sur le desk ou ici.",
     autoClosed: "l'automatisation a clôturé {n} de vos commandes",
     cohortSrc: "Construit à partir de vos commandes allouées (les décisions desk ne laissent pas encore de trace portail).",
