@@ -127,6 +127,10 @@ export default {
     settings: "الإعدادات",
     performance: "أدائي",
     attendance: "الحضور والانصراف",
+    attIn: "داخل من",
+    attOut: "خرجت",
+    attNone: "لسه ماسجلتش",
+    attSinceYesterday: "لسه مسجّل دخول من يوم فات",
     copilot: "المساعد",
   },
   sla: {

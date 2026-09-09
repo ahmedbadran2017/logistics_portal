@@ -90,6 +90,32 @@
       </div>
     </div>
 
+    <!-- On the clock? Read-only, from Frappe HR's own logs. The floor punches
+         in the HR app; this only saves them opening it to remember whether
+         they did. Tapping it goes there. -->
+    <a
+      v-if="att && att.state !== 'no_employee'"
+      :href="att.hrApp || '/hrms'"
+      class="mx-2 mb-1 flex items-center gap-2 px-2 py-1.5 rounded-lg ring-1 transition-colors"
+      :class="attOn ? 'bg-emerald-50 ring-emerald-200/70 hover:bg-emerald-100'
+                    : attOut ? 'bg-stone-50 ring-stone-200 hover:bg-stone-100'
+                             : 'bg-amber-50 ring-amber-200/70 hover:bg-amber-100'"
+    >
+      <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+            :class="attOn ? 'bg-emerald-500' : attOut ? 'bg-stone-400' : 'bg-amber-500'" />
+      <span class="min-w-0 flex-1 leading-tight">
+        <span class="block text-[11.5px] font-semibold truncate"
+              :class="attOn ? 'text-emerald-800' : attOut ? 'text-stone-700' : 'text-amber-800'">
+          {{ attLabel }}
+        </span>
+        <span v-if="attOn && att.workedMin" class="block text-[10px] text-emerald-700/80 tabular-nums">
+          {{ hhmm(att.workedMin) }}
+        </span>
+      </span>
+      <Icon name="external-link" :size="12" class="flex-shrink-0"
+            :class="attOn ? 'text-emerald-400' : 'text-stone-300'" />
+    </a>
+
     <!-- Role switcher card -->
     <div class="p-2 border-t border-stone-100 relative">
       <button
@@ -226,6 +252,48 @@ const consolTimer = setInterval(() => {
   if (document.visibilityState === "visible") loadConsolCount();
 }, 120000);
 onUnmounted(() => clearInterval(consolTimer));
+
+// ── On the clock ────────────────────────────────────────────────────────────
+// The punch happens in Frappe HR's app; this is a read of what it recorded, so
+// the state can go stale between polls. Refresh on focus as well as on a timer:
+// coming back from the HR app is exactly when the answer has just changed.
+const att = ref(null);
+async function loadAtt() {
+  try {
+    att.value = await api("attendance.my_status");
+  } catch (e) {
+    att.value = null;   // never let a status chip break the nav
+  }
+}
+onMounted(loadAtt);
+const attTimer = setInterval(() => {
+  if (document.visibilityState === "visible") loadAtt();
+}, 300000);
+function onVis() { if (document.visibilityState === "visible") loadAtt(); }
+document.addEventListener("visibilitychange", onVis);
+onUnmounted(() => {
+  clearInterval(attTimer);
+  document.removeEventListener("visibilitychange", onVis);
+});
+
+const attOn = computed(() => att.value?.state === "in");
+// A checkout from a previous day is not "you left at 14:48" — it is "you have
+// not punched today". Saying the former for a log from February would be
+// precise and useless.
+const attOut = computed(() => att.value?.state === "out" && !att.value?.stale);
+const attLabel = computed(() => {
+  const a = att.value;
+  if (!a) return "";
+  if (a.state === "in") {
+    return a.stale ? t("nav.attSinceYesterday") : `${t("nav.attIn")} ${a.since || ""}`;
+  }
+  if (a.state === "out" && !a.stale) return `${t("nav.attOut")} ${(a.lastAt || "").slice(11, 16)}`;
+  return t("nav.attNone");
+});
+function hhmm(mins) {
+  const h = Math.floor((mins || 0) / 60), m = (mins || 0) % 60;
+  return h ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
+}
 
 const initials = computed(() =>
   (fullName.value || "?").split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase()

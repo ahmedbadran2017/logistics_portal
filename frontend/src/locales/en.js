@@ -127,6 +127,10 @@ export default {
     settings: "Settings",
     performance: "My Performance",
     attendance: "Attendance",
+    attIn: "In since",
+    attOut: "Out at",
+    attNone: "Not clocked in",
+    attSinceYesterday: "Still clocked in from an earlier day",
     copilot: "Copilot",
   },
   sla: {

@@ -127,6 +127,10 @@ export default {
     settings: "Paramètres",
     performance: "Ma performance",
     attendance: "Pointage",
+    attIn: "Entré à",
+    attOut: "Sorti à",
+    attNone: "Pas encore pointé",
+    attSinceYesterday: "Toujours pointé depuis un jour précédent",
     copilot: "Copilote",
   },
   sla: {
