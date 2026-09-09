@@ -13,8 +13,11 @@
       </div>
     </header>
 
-    <div v-if="loading && !d" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      <span v-for="n in 4" :key="n" class="h-[104px] rounded-2xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
+    <div v-if="loading && !d" class="space-y-3">
+      <span class="block h-[132px] rounded-2xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <span v-for="n in 4" :key="n" class="h-[104px] rounded-2xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
+      </div>
     </div>
     <div v-else-if="loadError" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
       <div class="text-[14px] font-semibold text-rose-700">{{ t('cf.loadFail') }}</div>
@@ -23,35 +26,80 @@
     </div>
 
     <template v-else-if="d">
-      <div v-if="d.source === 'desk' || d.autoClosed" class="flex items-center gap-2 flex-wrap text-[11px] -mb-2">
-        <span v-if="d.source === 'desk'" class="inline-flex items-center gap-1.5 text-stone-400">
-          <Icon name="info" :size="11" />{{ t('md.deskSrc') }}
-        </span>
-        <span v-if="d.autoClosed" class="inline-flex items-center gap-1.5 text-sky-700 bg-sky-50 ring-1 ring-sky-200/70 rounded-full px-2.5 py-0.5 font-semibold">
-          <Icon name="send" :size="11" />{{ t('md.autoClosed').replace('{n}', String(d.autoClosed)) }}
-        </span>
+      <!-- HERO. The one thing worth looking at first: how far through the day
+           this person is, and the streak they are protecting. -->
+      <section class="md-hero md-in" :class="{ 'md-hero-hit': hit }">
+        <div class="md-hero-glow" aria-hidden="true" />
+        <div class="relative flex items-center gap-5 flex-wrap sm:flex-nowrap">
+          <div class="relative w-[104px] h-[104px] flex-shrink-0">
+            <svg viewBox="0 0 104 104" class="w-full h-full -rotate-90">
+              <defs>
+                <linearGradient id="mdRing" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" :stop-color="hit ? '#34d399' : 'var(--accent-400, #fb923c)'" />
+                  <stop offset="100%" :stop-color="hit ? '#059669' : 'var(--accent-600, #ea580c)'" />
+                </linearGradient>
+              </defs>
+              <circle cx="52" cy="52" r="44" fill="none" stroke="rgb(255 255 255 / .14)" stroke-width="9" />
+              <circle cx="52" cy="52" r="44" fill="none" stroke="url(#mdRing)" stroke-width="9"
+                      stroke-linecap="round" :stroke-dasharray="RING"
+                      :stroke-dashoffset="RING - RING * Math.min(1, goalPct / 100)"
+                      class="md-ring" />
+            </svg>
+            <span class="absolute inset-0 flex flex-col items-center justify-center">
+              <span class="text-[27px] font-extrabold tabular-nums text-white leading-none">{{ nHero }}</span>
+              <span v-if="showTarget" class="text-[10.5px] font-semibold text-white/55 tabular-nums mt-0.5">/ {{ goal }}</span>
+            </span>
+          </div>
+
+          <div class="min-w-0 flex-1">
+            <div class="text-[15px] font-bold text-white leading-snug">{{ heroLine }}</div>
+            <div class="text-[12px] text-white/60 mt-0.5">
+              {{ range === 'today' ? t('md.heroDone') : t('md.heroPeriod') }}
+            </div>
+            <div class="flex items-center gap-2 flex-wrap mt-2.5">
+              <span v-if="streak >= 1" class="md-chip md-chip-live">
+                <Icon name="zap" :size="11" />
+                {{ streak > 1 ? t('md.streak').replace('{n}', String(streak)) : t('md.streakOne') }}
+              </span>
+              <span v-if="best" class="md-chip">
+                <Icon name="award" :size="11" />
+                {{ t('md.best').replace('{n}', String(best.n)).replace('{d}', best.date.slice(5)) }}
+              </span>
+              <span v-if="d.autoClosed" class="md-chip">
+                <Icon name="bot" :size="11" />
+                {{ t('md.autoClosed').replace('{n}', String(d.autoClosed)) }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="flex items-center gap-1.5 text-[11px] text-stone-400 -mt-2">
+        <Icon name="info" :size="11" /><span>{{ t('md.autoNote') }}</span>
       </div>
+
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div class="md-kpi md-in" style="animation-delay: 0ms">
+        <div class="md-kpi md-in" style="animation-delay: 60ms">
           <div class="md-kpi-l"><Icon name="activity" :size="12" class="inline -mt-px me-1" />{{ t('ccd.kDecisions') }}</div>
           <div class="flex items-baseline gap-2 mt-1">
-            <span class="text-[26px] font-extrabold tabular-nums text-stone-900">{{ nTotal }}</span>
+            <span class="text-[28px] font-extrabold tabular-nums text-stone-900">{{ nTotal }}</span>
             <span v-if="deltas.total" class="md-delta" :class="deltas.total.up ? 'md-up' : 'md-down'">{{ deltas.total.txt }}</span>
           </div>
           <div class="text-[11px] text-stone-400 tabular-nums">{{ d.acts.dna }} {{ t('cf.actDna') }} · {{ d.acts.followup }} {{ t('cf.actFollowup') }}</div>
         </div>
-        <div class="md-kpi md-in flex items-center gap-3" style="animation-delay: 70ms">
-          <div class="relative w-[64px] h-[64px] flex-shrink-0">
-            <svg viewBox="0 0 64 64" class="w-full h-full -rotate-90">
-              <circle cx="32" cy="32" r="26" fill="none" stroke="rgb(231 229 228)" stroke-width="7" />
-              <circle cx="32" cy="32" r="26" fill="none" stroke-width="7" stroke-linecap="round"
+
+        <div class="md-kpi md-in flex items-center gap-3" style="animation-delay: 120ms">
+          <div class="relative w-[66px] h-[66px] flex-shrink-0">
+            <svg viewBox="0 0 66 66" class="w-full h-full -rotate-90">
+              <circle cx="33" cy="33" r="27" fill="none" stroke="rgb(231 229 228)" stroke-width="7" />
+              <circle cx="33" cy="33" r="27" fill="none" stroke-width="7" stroke-linecap="round"
                       :stroke="rate === null ? 'rgb(214 211 209)' : rate >= 50 ? 'rgb(16 185 129)' : 'rgb(244 63 94)'"
-                      :stroke-dasharray="163.4" :stroke-dashoffset="163.4 - (163.4 * (rate || 0)) / 100"
-                      style="transition: stroke-dashoffset .7s ease" />
+                      :stroke-dasharray="169.6" :stroke-dashoffset="169.6 - (169.6 * (rate || 0)) / 100"
+                      class="md-ring" />
             </svg>
             <span class="absolute inset-0 flex items-center justify-center text-[15px] font-extrabold tabular-nums"
                   :class="rate === null ? 'text-stone-300' : rate >= 50 ? 'text-emerald-600' : 'text-rose-600'">
-              {{ rate === null ? '—' : rate + '%' }}</span>
+              {{ rate === null ? '—' : nRate + '%' }}</span>
           </div>
           <div class="min-w-0">
             <div class="md-kpi-l">{{ t('ccd.kRate') }}</div>
@@ -59,20 +107,22 @@
               <span class="text-emerald-600 font-bold">{{ d.acts.confirm }} <Icon name="check" :size="10" class="inline -mt-px" /></span>
               <span class="text-rose-500 font-bold">{{ d.acts.cancel }} <Icon name="x" :size="10" class="inline -mt-px" /></span>
             </div>
-            <div class="text-[10px] text-stone-400 mt-0.5"><span v-if="deltas.rate" class="md-delta" :class="deltas.rate.up ? 'md-up' : 'md-down'">{{ deltas.rate.txt }}</span></div>
+            <div class="text-[10px] mt-0.5"><span v-if="deltas.rate" class="md-delta" :class="deltas.rate.up ? 'md-up' : 'md-down'">{{ deltas.rate.txt }}</span></div>
           </div>
         </div>
-        <div class="md-kpi md-in" style="animation-delay: 140ms">
+
+        <div class="md-kpi md-in" style="animation-delay: 180ms">
           <div class="md-kpi-l"><Icon name="wallet" :size="12" class="inline -mt-px me-1" />{{ t('ccd.kValue') }}</div>
           <div class="flex items-baseline gap-2 mt-1">
-            <span class="text-[26px] font-extrabold tabular-nums text-stone-900">{{ fmtN(nValue) }}</span>
+            <span class="text-[28px] font-extrabold tabular-nums text-stone-900">{{ fmtN(nValue) }}</span>
             <span v-if="deltas.value" class="md-delta" :class="deltas.value.up ? 'md-up' : 'md-down'">{{ deltas.value.txt }}</span>
           </div>
           <div class="text-[11px] text-stone-400 tabular-nums">{{ fmtN(d.cohort.n) }} {{ t('md.myOrders') }}</div>
         </div>
-        <div class="md-kpi md-in" style="animation-delay: 210ms">
+
+        <div class="md-kpi md-in" style="animation-delay: 240ms">
           <div class="md-kpi-l"><Icon name="package-check" :size="12" class="inline -mt-px me-1" />{{ t('ccd.stickTitle') }}</div>
-          <div class="text-[26px] font-extrabold tabular-nums mt-1"
+          <div class="text-[28px] font-extrabold tabular-nums mt-1"
                :class="stickPct === null ? 'text-stone-300' : stickPct >= 60 ? 'text-emerald-600' : stickPct >= 40 ? 'text-amber-600' : 'text-rose-600'">
             {{ stickPct === null ? '—' : stickPct + '%' }}
           </div>
@@ -81,7 +131,7 @@
       </div>
 
       <!-- my daily decisions -->
-      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 md-in" style="animation-delay: 300ms">
         <div class="flex items-center gap-2 mb-3">
           <Icon name="trending-up" :size="14" class="text-[var(--accent-600)]" />
           <span class="text-[12px] font-semibold text-stone-900">{{ t('ccd.dailyTitle') }}</span>
@@ -91,11 +141,13 @@
             <span><span class="inline-block w-2 h-2 rounded-full bg-amber-300 me-1" />{{ t('cf.actDna') }}</span>
           </span>
         </div>
-        <div v-if="(d.daily || []).length" class="flex items-end gap-1 h-[110px]">
-          <div v-for="(f, fi) in d.daily" :key="f.date" class="flex-1 flex flex-col items-center gap-0.5 min-w-0"
+        <div v-if="(d.daily || []).length" class="flex items-end gap-1 h-[124px]">
+          <div v-for="(f, fi) in d.daily" :key="f.date" class="group flex-1 flex flex-col items-center gap-0.5 min-w-0"
                :title="`${f.date} · ${f.confirm}✓ ${f.cancel}✗ ${f.dna}·`">
-            <div class="w-full max-w-[26px] flex flex-col justify-end rounded-t overflow-hidden md-bar"
-                 :style="{ height: '92px', animationDelay: Math.min(fi * 30, 600) + 'ms' }">
+            <span class="text-[9px] font-bold tabular-nums text-stone-400 group-hover:text-stone-700 transition-colors">{{ dayTotal(f) || '' }}</span>
+            <div class="w-full max-w-[28px] flex flex-col justify-end rounded-t overflow-hidden md-bar transition-transform group-hover:scale-y-[1.04] origin-bottom"
+                 :class="best && f.date === best.date ? 'ring-2 ring-[var(--accent-400)] ring-offset-1' : ''"
+                 :style="{ height: '92px', animationDelay: Math.min(fi * 35, 700) + 'ms' }">
               <div class="w-full bg-amber-300" :style="{ height: fH(f.dna) }" />
               <div class="w-full bg-rose-400" :style="{ height: fH(f.cancel) }" />
               <div class="w-full bg-emerald-400" :style="{ height: fH(f.confirm) }" />
@@ -104,18 +156,6 @@
           </div>
         </div>
         <div v-else class="text-center text-[12px] text-stone-400 py-8">{{ t('ccd.noData') }}</div>
-      </div>
-
-      <!-- today's target, mirrored from the workspace ring -->
-      <div v-if="range === 'today' && d.target" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 flex items-center gap-3">
-        <Icon name="gauge" :size="15" class="text-[var(--accent-600)]" />
-        <span class="text-[12.5px] font-semibold text-stone-800">{{ t('md.targetToday') }}</span>
-        <div class="flex-1 h-2 rounded-full bg-stone-100 overflow-hidden">
-          <div class="h-full rounded-full transition-all duration-700"
-               :class="total >= d.target ? 'bg-emerald-500' : 'bg-[var(--accent-500)]'"
-               :style="{ width: Math.min(100, Math.round((total * 100) / d.target)) + '%' }" />
-        </div>
-        <span class="text-[13px] font-bold tabular-nums" :class="total >= d.target ? 'text-emerald-600' : 'text-stone-700'">{{ total }}/{{ d.target }}</span>
       </div>
     </template>
   </div>
@@ -134,6 +174,7 @@ const loading = ref(true);
 const loadError = ref("");
 const RANGES = ["today", "yest", "7d", "month", "lastMonth"];
 const range = ref("7d");
+const RING = 2 * Math.PI * 44;
 
 const day = 86400000;
 const localIso = (dt) =>
@@ -184,6 +225,7 @@ onMounted(load);
 
 const total = computed(() =>
   Object.values(d.value?.acts || {}).reduce((a, b) => a + (b || 0), 0));
+function dayTotal(f) { return (f.confirm || 0) + (f.cancel || 0) + (f.dna || 0); }
 
 // Count-up: the numbers roll to their value — the page feels alive without
 // a single external library. One RAF loop per target, cancellable.
@@ -213,10 +255,56 @@ const rate = computed(() => {
   const dec = (a.confirm || 0) + (a.cancel || 0);
   return dec ? Math.round((a.confirm * 100) / dec) : null;
 });
+const nRate = useCountUp(computed(() => rate.value || 0));
 const stickPct = computed(() => {
   const st = d.value?.stick;
   return st?.shipped ? Math.round((st.delivered * 100) / st.shipped) : null;
 });
+
+// --- the hero ---
+// One rule for every range: the goal is the daily target multiplied by the
+// days in the window. The ring and the number then measure the same thing —
+// a ring filling against the best day while the number showed the period
+// total would be two different claims in one graphic.
+const winDays = computed(() => {
+  const [f, t2] = windowFor(range.value);
+  return Math.max(1, Math.round((new Date(t2) - new Date(f)) / day) + 1);
+});
+const goal = computed(() => (d.value?.target || 0) * winDays.value);
+const showTarget = computed(() => goal.value > 0);
+const nHero = useCountUp(total);
+const goalPct = computed(() =>
+  goal.value ? Math.round((total.value * 100) / goal.value) : 0);
+const hit = computed(() => showTarget.value && total.value >= goal.value);
+const heroLine = computed(() => {
+  if (!d.value) return "";
+  if (!showTarget.value) return t("md.heroPeriod");
+  if (hit.value) return t("md.heroHit");
+  if (!total.value) return t("md.heroNone");
+  return t("md.heroToGo").replace("{n}", String(goal.value - total.value));
+});
+// Best day and streak come straight out of the daily series — nothing is
+// stored, so they can never drift from the bars right below them.
+const best = computed(() => {
+  const rows = (d.value?.daily || []).filter((f) => dayTotal(f) > 0);
+  if (!rows.length) return null;
+  return rows.reduce((a, b) => (dayTotal(b) > dayTotal(a) ? b : a), rows[0]);
+});
+// Days ON TARGET, counted back from the newest day that has any work. A day
+// with nothing on it breaks the run; a weekend with no orders simply is not
+// in the series, so it cannot silently claim a streak either.
+const streak = computed(() => {
+  const tgt = d.value?.target || 0;
+  const rows = d.value?.daily || [];
+  if (!tgt || !rows.length) return 0;
+  let n = 0;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (dayTotal(rows[i]) >= tgt) n++;
+    else break;
+  }
+  return n;
+});
+
 function rateOf(rep) {
   const a = rep?.acts;
   const dec = (a?.confirm || 0) + (a?.cancel || 0);
@@ -237,15 +325,51 @@ const deltas = computed(() => {
   };
 });
 const fMax = computed(() =>
-  Math.max(1, ...(d.value?.daily || []).map((f) => (f.confirm || 0) + (f.cancel || 0) + (f.dna || 0))));
+  Math.max(1, ...(d.value?.daily || []).map(dayTotal)));
 function fH(n) { return Math.round(((n || 0) * 92) / fMax.value) + "px"; }
 function fmtN(v) { return Number(v || 0).toLocaleString("en-US", { maximumFractionDigits: 0 }); }
 </script>
 
 <style scoped>
+.md-hero {
+  position: relative; overflow: hidden;
+  border-radius: 20px; padding: 20px 22px;
+  background: linear-gradient(135deg, #1c1917 0%, #292524 55%, #1c1917 100%);
+  box-shadow: 0 10px 30px -18px rgb(28 25 23 / .8);
+}
+/* A slow drifting wash so the card is not a flat rectangle. Purely
+   decorative, and it stops entirely for anyone who asked for less motion. */
+.md-hero-glow {
+  position: absolute; inset: -40%;
+  background: radial-gradient(closest-side, var(--accent-500, #f97316) 0%, transparent 70%);
+  opacity: .20; filter: blur(10px);
+  animation: md-drift 14s ease-in-out infinite alternate;
+}
+.md-hero-hit .md-hero-glow {
+  background: radial-gradient(closest-side, #10b981 0%, transparent 70%);
+  opacity: .28;
+}
+@keyframes md-drift {
+  from { transform: translate3d(-8%, -6%, 0) scale(1); }
+  to   { transform: translate3d(10%, 8%, 0) scale(1.15); }
+}
+.md-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10.5px; font-weight: 700; color: rgb(255 255 255 / .82);
+  background: rgb(255 255 255 / .10); border: 1px solid rgb(255 255 255 / .14);
+  border-radius: 9999px; padding: 3px 9px;
+}
+.md-chip-live { color: #fde68a; border-color: rgb(253 230 138 / .35); background: rgb(253 230 138 / .12); }
+.md-ring { transition: stroke-dashoffset .9s cubic-bezier(.2, .7, .3, 1); }
+
 .md-kpi {
   background: white; border-radius: 16px; padding: 16px;
   box-shadow: inset 0 0 0 1px rgb(231 229 228 / .7);
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.md-kpi:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 0 0 1px rgb(214 211 209 / .9), 0 8px 20px -14px rgb(28 25 23 / .5);
 }
 .md-kpi-l {
   font-size: 11px; font-weight: 600; text-transform: uppercase;
@@ -270,5 +394,11 @@ function fmtN(v) { return Number(v || 0).toLocaleString("en-US", { maximumFracti
 }
 @keyframes md-grow {
   to { transform: scaleY(1); }
+}
+/* Motion is decoration here, never information: everything below still
+   reads correctly standing still. */
+@media (prefers-reduced-motion: reduce) {
+  .md-in, .md-bar, .md-hero-glow { animation: none; opacity: 1; transform: none; }
+  .md-ring { transition: none; }
 }
 </style>

@@ -1208,8 +1208,9 @@ def _decisions_by(user, rng, rng_vals, limit=6000):
     # Company-fenced like every other read in this lane: the site also holds
     # Maslak and China orders in the identical statuses, and a desk agent who
     # touches one must not have it counted as Morocco confirmation work.
+    confirmed = set()
     rows = frappe.db.sql(
-        f"""SELECT DATE(v.creation) d, v.data FROM `tabVersion` v
+        f"""SELECT DATE(v.creation) d, v.docname, v.data FROM `tabVersion` v
             JOIN `tabSales Order` so ON so.name = v.docname
             WHERE v.ref_doctype = 'Sales Order' AND v.owner = %(u)s
               AND so.company = %(co)s
@@ -1229,10 +1230,12 @@ def _decisions_by(user, rng, rng_vals, limit=6000):
             if not action:
                 continue
             acts[action] += 1
+            if action == "confirm":
+                confirmed.add(r.docname)
             day = daily.setdefault(str(r.d), {"confirm": 0, "cancel": 0, "dna": 0})
             if action in day:
                 day[action] += 1
-    return acts, daily
+    return acts, daily, confirmed
 
 
 def _auto_closed_for(user, rng, rng_vals):
@@ -1252,16 +1255,23 @@ def _auto_closed_for(user, rng, rng_vals):
 
 
 @frappe.whitelist()
-def my_report(days=7, frm=None, to=None):
-    """The agent's OWN numbers over a window — same DNA as the admin
-    dashboard, zero team data: decisions from THEIR comment trail, money and
-    delivery outcome from THEIR allocated cohort. Any CC role."""
-    _gate()
+def my_report(days=7, frm=None, to=None, as_user=None):
+    """The agent's OWN numbers over a window — zero team data, and zero of
+    the automation's: decisions from THEIR two trails, money and delivery
+    outcome over the orders THEY confirmed. Any CC role."""
+    role = _gate()
     me = frappe.session.user
+    # "Viewing as <agent>" showed the VIEWER'S numbers, because this endpoint
+    # never took the parameter the rest of the lane does — a manager checking
+    # on an agent read four zeroes and a flat chart while that agent was
+    # having a heavy day. Same gate as board()/next_up: only someone who is
+    # not already scoped to themselves can look through another pair of eyes.
+    as_user = (as_user or "").strip()
+    if as_user and (role == "manager" or _is_cf_admin()):
+        me = as_user
     rng, rng_vals = _range(days, frm, to)
     rng_vals = {**rng_vals, "co": _CO, "me": me}
     c_rng = rng.format(col="c.creation")
-    so_rng = rng.format(col="so.creation")
 
     # Cached per agent and window. This is a report, not a queue: the screen
     # opens with TWO calls (this period and the one before, for the deltas)
@@ -1283,27 +1293,33 @@ def my_report(days=7, frm=None, to=None):
     acts = {"confirm": 0, "cancel": 0, "dna": 0, "followup": 0,
             "onhold": 0, "duplicate": 0}
     daily = {}
+    # Rows, not a GROUP BY, because the money and delivery cards below need to
+    # know WHICH orders the agent confirmed — not just how many.
+    mine_confirmed = set()
     for r in frappe.db.sql(
-            f"""SELECT DATE(c.creation) d, c.content, COUNT(*) n
+            f"""SELECT DATE(c.creation) d, c.content, c.reference_name so
                 FROM `tabComment` c
                 WHERE c.reference_doctype = 'Sales Order' AND c.owner = %(me)s
-                  AND c.content LIKE 'Confirmation: %%' AND {c_rng}
-                GROUP BY DATE(c.creation), c.content""", rng_vals, as_dict=True):
+                  AND c.content LIKE 'Confirmation: %%' AND {c_rng}""",
+            rng_vals, as_dict=True):
         if "(bulk)" in (r.content or ""):
             continue
         action = (r.content.split("Confirmation: ", 1)[1] or "").split(" ", 1)[0]
         action = action.strip("()\u2014- ")
         if action not in acts:
             continue
-        acts[action] += int(r.n or 0)
+        acts[action] += 1
+        if action == "confirm":
+            mine_confirmed.add(r.so)
         day = daily.setdefault(str(r.d), {"confirm": 0, "cancel": 0, "dna": 0})
         if action in day:
-            day[action] += int(r.n or 0)
+            day[action] += 1
 
     # The portal writes a comment and no Version row; the desk writes a Version
     # row and no comment. Disjoint trails → SUM them, so an agent who works in
     # both places sees one honest total instead of whichever half was bigger.
-    d_acts, d_daily = _decisions_by(me, rng, rng_vals)
+    d_acts, d_daily, d_confirmed = _decisions_by(me, rng, rng_vals)
+    mine_confirmed |= d_confirmed
     portal_n = sum(acts.values())
     desk_n = sum(d_acts.values())
     source = ("portal" if not desk_n else "desk" if not portal_n else "both")
@@ -1315,28 +1331,38 @@ def my_report(days=7, frm=None, to=None):
             day[k2] += v.get(k2, 0)
 
     sane = 100000
-    money = frappe.db.sql(
-        f"""SELECT COUNT(*) n,
-                   SUM(CASE WHEN so.custom_sales_status = 'Confirmed'
-                            AND so.grand_total <= %(sane)s
-                       THEN so.grand_total ELSE 0 END) confirmed_value
-            FROM `tabSales Order` so
-            WHERE so.docstatus = 1 AND so.company = %(co)s
-              AND so.custom_allocated_to = %(me)s AND {so_rng}""",
-        {**rng_vals, "sane": sane})[0]
-
-    stick = frappe.db.sql(
-        f"""SELECT COUNT(DISTINCT so.name),
-                   COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status
-                                            = 'Delivered'
-                                       THEN so.name END)
-            FROM `tabSales Order` so
-            JOIN `tabDelivery Note Item` dni
-              ON dni.against_sales_order = so.name AND dni.docstatus = 1
-            JOIN `tabDelivery Note` dn
-              ON dn.name = dni.parent AND dn.docstatus = 1
-            WHERE so.docstatus = 1 AND so.company = %(co)s
-              AND so.custom_allocated_to = %(me)s AND {so_rng}""", rng_vals)[0]
+    # Money and delivery used to be measured over everything ALLOCATED to the
+    # agent in the window. On prod that is mostly not their work: for one
+    # agent over seven days, 1,042 orders were allocated and she had touched
+    # 326 of them — the WhatsApp automation had closed 621 by itself. So the
+    # card said "your confirmed value" while two thirds of it was the bot's,
+    # which is the opposite of a number somebody can be proud of or judged on.
+    #
+    # Both now run over the orders THIS agent confirmed, from the same two
+    # trails the decisions come from. `autoClosed` still reports the bot's
+    # share beside them, as context and never as credit.
+    if mine_confirmed:
+        names = tuple(mine_confirmed)
+        money = frappe.db.sql(
+            """SELECT COUNT(*) n,
+                      SUM(CASE WHEN so.grand_total <= %(sane)s
+                          THEN so.grand_total ELSE 0 END) confirmed_value
+               FROM `tabSales Order` so
+               WHERE so.name IN %(names)s AND so.custom_sales_status = 'Confirmed'""",
+            {"sane": sane, "names": names})[0]
+        stick = frappe.db.sql(
+            """SELECT COUNT(DISTINCT so.name),
+                      COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status
+                                               = 'Delivered'
+                                          THEN so.name END)
+               FROM `tabSales Order` so
+               JOIN `tabDelivery Note Item` dni
+                 ON dni.against_sales_order = so.name AND dni.docstatus = 1
+               JOIN `tabDelivery Note` dn
+                 ON dn.name = dni.parent AND dn.docstatus = 1
+               WHERE so.name IN %(names)s""", {"names": names})[0]
+    else:
+        money, stick = (0, 0), (0, 0)
 
     out = {
         "acts": acts,
