@@ -95,6 +95,34 @@ _PARKED = ("so.custom_sales_status = 'On Hold' AND "
            "COALESCE(so.custom_call_attempts, 0) = 0 AND "
            "so.custom_next_call_at IS NULL")
 
+# When is a retry order due? ONE definition, because next_up draws the plan
+# and next_order hands out the work, and a queue pane that disagrees with the
+# queue is worse than no pane.
+#
+# It used to mean "it has a timer and the timer has passed". That is only ever
+# true of orders decided in the PORTAL: custom_next_call_at is written by
+# act(), and a decision taken in the DESK writes none. So a Desk "Did not
+# Answer" landed in the agent's tab and was never handed back — not resting,
+# not due, simply unreachable by the one screen built to work the queue.
+#
+# Measured on prod 2026-09-09: 127 of the 140 retry-status orders in hand (105
+# Did not Answer, 22 Follow Up) carried no timer, every one with zero call
+# attempts logged, 36 of them past 72 hours and the oldest 14 days. Workspace
+# was handing the two agents who carry that queue 3 orders and 2 orders; this
+# gives them 56 and 68 — work they already own and had no way to reach.
+#
+# An order with no timer has been waiting since it was created and nobody
+# scheduled a call for it: overdue, not resting. Dating it by creation says
+# that, and also floats the most neglected to the top. It is the same
+# expression the board's retry tabs already window on, so Workspace serves
+# exactly what those tabs show.
+#
+# _PARKED stays out — On Hold with no attempt AND no timer is the legacy pile
+# that never entered the call flow. That pile is 0 today, so this guard holds
+# a door rather than closing one.
+_DUE_AT = "COALESCE(so.custom_next_call_at, so.creation)"
+_DUE = f"{_DUE_AT} <= %(now)s AND NOT ({_PARKED})"
+
 
 def _gate():
     from logistics_portal.api.auth import resolve_role
@@ -2204,9 +2232,8 @@ def next_order(skip=None, as_user=None):
         (f"""SELECT so.name FROM `tabSales Order` so
              WHERE so.docstatus = 1 AND so.company = %(co)s
                AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
-               AND so.custom_next_call_at IS NOT NULL
-               AND so.custom_next_call_at <= %(now)s{me_q}
-             ORDER BY so.custom_next_call_at LIMIT 25""",
+               AND {_DUE}{me_q}
+             ORDER BY {_DUE_AT} LIMIT 25""",
          {"sts": retry_sts}),
         (f"""SELECT so.name FROM `tabSales Order` so
              WHERE so.docstatus = 1 AND so.company = %(co)s
@@ -2328,9 +2355,8 @@ def next_up(limit=20, as_user=None):
         f"""{sel} FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s
               AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
-              AND so.custom_next_call_at IS NOT NULL
-              AND so.custom_next_call_at <= %(now)s{me_q}
-            ORDER BY so.custom_next_call_at LIMIT %(limit)s""",
+              AND {_DUE}{me_q}
+            ORDER BY {_DUE_AT} LIMIT %(limit)s""",
         {**vals, "sts": retry_sts}, as_dict=True)
     room = max(0, limit - len(due))
     fresh = frappe.db.sql(
