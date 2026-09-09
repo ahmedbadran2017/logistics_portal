@@ -52,6 +52,18 @@ INDEXES = [
     # _idx carries `creation` as its second column, so it cannot serve this.
     ("Sales Order", ["custom_sales_status", "custom_last_call_at"],
      "lp_so_sales_lastcall_idx"),
+    # My Dashboard reads each agent's decision trail out of `tabVersion` —
+    # the desk writes a Version row and no comment, so the Version trail is
+    # the only record of half the decisions. That table is 2.95M rows and
+    # 4.1 GB with nothing indexed but (ref_doctype, docname) and `modified`,
+    # so a filter on owner+creation had no way in: MariaDB drove the join
+    # from `tabSales Order` instead, full-scanning 206,676 orders and probing
+    # 4 GB of versions to return 718 rows. Measured 2026-09-09: 7.1s of an
+    # 8.8s call, and the page makes TWO of them (this period and the one
+    # before), so opening My Dashboard cost the better part of twenty
+    # seconds. NB: adding this index rewrites a 4 GB table — run the migrate
+    # off-peak.
+    ("Version", ["owner", "ref_doctype", "creation"], "lp_version_owner_idx"),
 ]
 
 

@@ -777,6 +777,10 @@ def act(order, action, note=None, _bulk=False):
         for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
             frappe.cache().delete_value(k)
         frappe.cache().delete_keys("lp_suggest")
+    # The decision that was just taken belongs on the agent's own dashboard
+    # now, not up to a minute from now — their cached report is theirs alone,
+    # so dropping it costs nobody else anything.
+    frappe.cache().delete_keys("lp_myrep_%s" % frappe.session.user)
     return {"ok": True, "order": order, "action": action, "attempts": attempts}
 
 
@@ -874,6 +878,7 @@ def bulk_cancel(orders=None, reason=None):
     for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
         frappe.cache().delete_value(k)
     frappe.cache().delete_keys("lp_suggest")
+    frappe.cache().delete_keys("lp_myrep_%s" % frappe.session.user)
     return {"ok": True, "done": len(done), "skipped": skipped}
 
 
@@ -1230,6 +1235,23 @@ def my_report(days=7, frm=None, to=None):
     c_rng = rng.format(col="c.creation")
     so_rng = rng.format(col="so.creation")
 
+    # Cached per agent and window. This is a report, not a queue: the screen
+    # opens with TWO calls (this period and the one before, for the deltas)
+    # and every period chip — Today, Yesterday, 7 days, This month, Last
+    # month — fires two more. Without this, clicking along that row pays the
+    # full cost five times over for windows that mostly cannot have changed.
+    # A window that already ended cannot change at all, so it is held far
+    # longer than one still running.
+    import json as _cj
+    _closed = bool(to) and str(to)[:10] < str(now_datetime())[:10]
+    _ck = "lp_myrep_%s_%s_%s_%s" % (me, days, frm or "", to or "")
+    _hit = frappe.cache().get_value(_ck)
+    if _hit:
+        try:
+            return _cj.loads(_hit)
+        except Exception:
+            pass
+
     acts = {"confirm": 0, "cancel": 0, "dna": 0, "followup": 0,
             "onhold": 0, "duplicate": 0}
     daily = {}
@@ -1288,7 +1310,7 @@ def my_report(days=7, frm=None, to=None):
             WHERE so.docstatus = 1 AND so.company = %(co)s
               AND so.custom_allocated_to = %(me)s AND {so_rng}""", rng_vals)[0]
 
-    return {
+    out = {
         "acts": acts,
         "daily": [{"date": d, **v} for d, v in sorted(daily.items())],
         "cohort": {"n": int(money[0] or 0),
@@ -1299,6 +1321,9 @@ def my_report(days=7, frm=None, to=None):
         "stick": {"shipped": int(stick[0] or 0), "delivered": int(stick[1] or 0)},
         "target": int(_cf_settings().get("dayTarget", 40)),
     }
+    frappe.cache().set_value(_ck, _cj.dumps(out, default=str),
+                             expires_in_sec=900 if _closed else 60)
+    return out
 
 
 @frappe.whitelist()
