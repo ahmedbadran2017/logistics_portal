@@ -126,6 +126,7 @@ export default {
     audit: "Audit",
     settings: "Paramètres",
     performance: "Ma performance",
+    attendance: "Pointage",
     copilot: "Copilote",
   },
   sla: {

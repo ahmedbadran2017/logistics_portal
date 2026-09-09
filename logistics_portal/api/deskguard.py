@@ -32,6 +32,12 @@ from werkzeug.utils import redirect as _wz_redirect
 # (a real emergency) without a code change; revoke it to re-lock.
 _OVERRIDE_ROLE = "Logistics Desk Override"
 _PORTAL_HOME = "/logistics"
+# Frappe HR's own mobile app, served at /hrms — outside /app, so this guard
+# never touched it. The floor has been punching in there all along, with GPS on
+# every log (the Desk form records no location), which is why blocking the Desk
+# did not cost anybody a single check-in. Someone landing on /app/hr is
+# following an old bookmark, so send them to HR rather than to the pick floor.
+_HR_APP = "/hrms"
 
 
 def _bounce(dest):
@@ -83,7 +89,11 @@ def block_desk_for_portal_team():
         # Bounce to the user's OWN portal instead of a dead-end error page:
         # the contact center is a separate surface since 2026-08-27. Both
         # targets are real pages (templates/pages/logistics.html and
-        # confirmation.html), so neither lands on a 404.
+        # confirmation.html), so neither lands on a 404. Someone who asked for
+        # HR gets HR — dumping them on the pick floor answers a question they
+        # did not ask.
+        if path == "/app/hr" or path.startswith("/app/hr/"):
+            _bounce(_HR_APP)
         _bounce("/confirmation" if role in ("confirmation", "cs", "tracking")
                 else _PORTAL_HOME)
     except HTTPException:

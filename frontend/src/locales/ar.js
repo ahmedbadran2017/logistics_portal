@@ -126,6 +126,7 @@ export default {
     audit: "التدقيق",
     settings: "الإعدادات",
     performance: "أدائي",
+    attendance: "الحضور والانصراف",
     copilot: "المساعد",
   },
   sla: {

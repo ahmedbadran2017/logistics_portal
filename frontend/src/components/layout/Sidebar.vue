@@ -35,7 +35,22 @@
             {{ t(group.section) }}
           </div>
           <div class="space-y-px">
-            <router-link v-for="item in group.items" :key="item.label" :to="{ name: item.to }" custom v-slot="{ navigate }">
+            <!-- One loop, so the order in roles.js is the order on screen. An
+                 item can point OUT of the SPA (item.href): attendance lives in
+                 Frappe HR's own app, and standing up a second writer to
+                 Employee Checkin — the doctype payroll reads — to save one hop
+                 would be a poor trade. Those render as a plain link. -->
+            <template v-for="item in group.items" :key="item.label">
+            <a
+              v-if="item.href"
+              :href="item.href"
+              class="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] font-medium cursor-pointer group transition-colors text-stone-600 hover:bg-stone-100 hover:text-stone-900"
+            >
+              <Icon :name="item.icon" :size="16" class="text-stone-400 group-hover:text-stone-600" />
+              <span class="flex-1 truncate">{{ t(item.label) }}</span>
+              <Icon name="external-link" :size="13" class="text-stone-300" />
+            </a>
+            <router-link v-else :to="{ name: item.to }" custom v-slot="{ navigate }">
               <a
                 class="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] font-medium cursor-pointer group transition-colors"
                 :class="isActive(item) ? 'bg-[var(--accent-50)] text-[var(--accent-700)]' : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'"
@@ -50,6 +65,7 @@
                 </span>
               </a>
             </router-link>
+            </template>
           </div>
         </div>
       </template>

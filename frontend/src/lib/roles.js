@@ -106,6 +106,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { href: "/hrms", label: "nav.attendance", icon: "clock" },
         ],
       },
     ],
@@ -119,6 +120,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "Queue", label: "nav.queue", icon: "list-checks" },
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { href: "/hrms", label: "nav.attendance", icon: "clock" },
           { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         ],
       },
@@ -143,6 +145,7 @@ export const ROLE_CONFIG = {
         section: "nav.me",
         items: [
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { href: "/hrms", label: "nav.attendance", icon: "clock" },
         ],
       },
     ],
@@ -169,6 +172,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "MyDashboard", label: "nav.myDashboard", icon: "gauge" },
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { href: "/hrms", label: "nav.attendance", icon: "clock" },
           { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         ],
       },
@@ -192,6 +196,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "MyCsDashboard", label: "nav.myDashboard", icon: "gauge" },
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { href: "/hrms", label: "nav.attendance", icon: "clock" },
           { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         ],
       },
@@ -214,6 +219,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "MyTrackingDashboard", label: "nav.myDashboard", icon: "gauge" },
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { href: "/hrms", label: "nav.attendance", icon: "clock" },
           { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         ],
       },
@@ -240,6 +246,7 @@ export const ROLE_CONFIG = {
         section: "nav.me",
         items: [
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { href: "/hrms", label: "nav.attendance", icon: "clock" },
         ],
       },
     ],
@@ -283,6 +290,7 @@ const CC_MANAGER = {
         { to: "Team", label: "nav.team", icon: "users" },
         { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { href: "/hrms", label: "nav.attendance", icon: "clock" },
         { to: "Settings", label: "nav.settings", icon: "settings" },
       ],
     },
