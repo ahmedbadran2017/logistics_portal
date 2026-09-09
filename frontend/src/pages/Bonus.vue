@@ -115,6 +115,59 @@
         </div>
       </div>
 
+      <!-- How the money happens — the recipe, told with the agent's own
+           live numbers so it is a mirror, not a poster. Numbers come from
+           the SAME endpoint as the receipt; prose never restates a figure
+           that settings could change under it. -->
+      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+        <button type="button" class="w-full px-4 py-3 flex items-center gap-2.5 hover:bg-stone-50 transition-colors"
+                @click="toggleHow">
+          <span class="w-8 h-8 rounded-lg grid place-items-center bg-amber-100 text-amber-600 shrink-0">
+            <Icon name="sparkles" :size="15" />
+          </span>
+          <span class="text-[13px] font-bold text-stone-900 flex-1 text-start">{{ t('bn.howTitle') }}</span>
+          <span class="text-[11.5px] font-semibold text-[var(--accent-600)]">
+            {{ howOpen ? t('bn.howClose') : t('bn.howOpen') }}
+          </span>
+          <Icon :name="howOpen ? 'chevron-up' : 'chevron-down'" :size="14" class="text-stone-400" />
+        </button>
+
+        <div v-if="howOpen" class="px-4 pb-4">
+          <div v-if="howLoading" class="py-6 text-center text-[12px] text-stone-400">…</div>
+          <template v-else>
+            <div class="grid sm:grid-cols-2 gap-3">
+              <div v-for="(st, si) in howSteps" :key="si"
+                   class="bn-how rounded-xl p-3.5 ring-1 ring-stone-200/70"
+                   :style="{ animationDelay: si * 90 + 'ms' }">
+                <div class="flex items-center gap-2.5">
+                  <span class="bn-how-n">{{ si + 1 }}</span>
+                  <span class="w-8 h-8 rounded-lg grid place-items-center shrink-0" :class="st.tint">
+                    <Icon :name="st.icon" :size="15" />
+                  </span>
+                  <span class="text-[12.5px] font-bold text-stone-900">{{ st.title }}</span>
+                </div>
+                <p class="text-[11.5px] text-stone-500 leading-relaxed mt-2">{{ st.body }}</p>
+                <div v-if="st.live" class="mt-2.5 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1
+                            text-[11px] font-bold tabular-nums" :class="st.liveTint">
+                  <Icon :name="st.liveIcon" :size="10" />{{ st.live }}
+                </div>
+              </div>
+            </div>
+            <div class="mt-3 rounded-lg px-3.5 py-2.5 text-[11.5px] font-semibold flex items-center gap-2"
+                 :class="howScheme?.moneyOn ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200/70'
+                                            : 'bg-sky-50 text-sky-800 ring-1 ring-sky-200/70'">
+              <Icon name="wallet" :size="13" class="shrink-0" />
+              <span>{{ howScheme?.moneyOn
+                  ? t('bn.howMoney').replace('{v}', String(howScheme.perPoint)).replace(/\{c\}/g, howScheme.currency).replace('{cap}', String(howScheme.cap))
+                  : t('bn.howMoneyOff') }}</span>
+            </div>
+            <div class="mt-2 flex items-center gap-1.5 text-[10.5px] text-stone-400">
+              <Icon name="info" :size="10" class="shrink-0" /><span>{{ t('bn.howFair') }}</span>
+            </div>
+          </template>
+        </div>
+      </div>
+
       <!-- team kicker: everyone gets it, or nobody does -->
       <div v-if="d.money?.kickerOn" class="rounded-2xl p-4 flex items-center gap-3.5 flex-wrap"
            :class="d.money.kickerHit ? 'bn-kick-on' : 'bn-kick-off'">
@@ -377,6 +430,9 @@ const { role, ccAdmin, viewAs } = useAuth();
 // the manager/section admins see (and keep designing) the actual board.
 const comingSoon = computed(() => {
   if (!IS_CC) return false;
+  // The moment the manager flips money.on, the promise page steps aside on
+  // its own — no deploy between "activated" and "the team can see it".
+  if (Number(scheme.value?.money?.on)) return false;
   if (viewAs.value) return true;
   const admin = ccAdmin.value?.cf || ccAdmin.value?.rs || ccAdmin.value?.cs;
   return role.value !== "manager" && !admin;
@@ -415,6 +471,61 @@ async function toggleBreakdown(user) {
 }
 const loading = ref(true);
 const loadError = ref("");
+
+// The recipe. Opens with the agent's OWN month from bonus_breakdown — the
+// same call the receipt uses, so the explainer can never disagree with the
+// receipt below it.
+const howOpen = ref(false);
+const howLoading = ref(false);
+const howData = ref(null);
+const howScheme = computed(() => howData.value?.scheme || null);
+async function toggleHow() {
+  howOpen.value = !howOpen.value;
+  if (!howOpen.value || howData.value) return;
+  howLoading.value = true;
+  try {
+    howData.value = await api("contact_center.bonus_breakdown",
+      { month: d.value?.month, group: d.value?.group });
+  } catch { howData.value = null; }
+  finally { howLoading.value = false; }
+}
+const howSteps = computed(() => {
+  const b = howData.value;
+  const sc = howScheme.value || {};
+  const fill = (k, m) => Object.entries(m).reduce(
+    (a, [kk, vv]) => a.replaceAll("{" + kk + "}", String(vv)), t(k));
+  const actions = (b?.lines || []).reduce((a, l) => a + (l.count || 0), 0);
+  const ratio = sc.confirmEach ? Math.round((sc.deliveredEach ?? b?.deliveredEach ?? 0) / sc.confirmEach) : 4;
+  const steps = [
+    { icon: "phone", tint: "bg-sky-100 text-sky-600",
+      title: t("bn.how1Title"), body: t("bn.how1Body"),
+      live: b ? fill("bn.how1Live", { n: actions }) : "",
+      liveIcon: "activity", liveTint: "bg-sky-50 text-sky-700 ring-1 ring-sky-200/70" },
+    { icon: "package-check", tint: "bg-emerald-100 text-emerald-600",
+      title: t("bn.how2Title"), body: fill("bn.how2Body", { x: ratio }),
+      live: b ? fill("bn.how2Live", { n: b.delivered, p: b.deliveredPts }) : "",
+      liveIcon: "check", liveTint: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/70" },
+  ];
+  // The gate step only exists where the scheme actually gates.
+  if (sc.gateOn) {
+    const r = sc.deliveryRate;
+    steps.push({ icon: "unlock", tint: "bg-amber-100 text-amber-600",
+      title: t("bn.how3Title"), body: fill("bn.how3Body", { g: sc.gatePct }),
+      live: r == null ? t("bn.how3LiveNone")
+        : r >= sc.gatePct ? fill("bn.how3LivePass", { r })
+        : fill("bn.how3LiveFail", { r, d: (sc.gatePct - r).toFixed(1) }),
+      liveIcon: r != null && r >= sc.gatePct ? "check-circle" : "shield-alert",
+      liveTint: r != null && r >= sc.gatePct
+        ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/70"
+        : "bg-amber-50 text-amber-700 ring-1 ring-amber-200/70" });
+  }
+  steps.push({ icon: "zap", tint: "bg-violet-100 text-violet-600",
+    title: t("bn.how4Title"),
+    body: fill("bn.how4Body", { s: 5, pct: sc.streakStepPct || 10, cap: sc.streakCapPct || 30 }),
+    live: b ? fill("bn.how4Live", { n: b.streakDays || 0 }) : "",
+    liveIcon: "zap", liveTint: "bg-violet-50 text-violet-700 ring-1 ring-violet-200/70" });
+  return steps;
+});
 const scheme = ref(null);
 const dirty = ref(false);
 const saving = ref(false);
@@ -486,10 +597,33 @@ async function saveScheme() {
   }
 }
 
-onMounted(() => { if (comingSoon.value) return; load(); loadScheme(); });
+onMounted(async () => {
+  // Scheme first: comingSoon depends on money.on, so the promise page must
+  // not be the thing that decides whether we ever find out it was switched on.
+  await loadScheme();
+  if (!comingSoon.value) load();
+});
 </script>
 
 <style scoped>
+.bn-how {
+  opacity: 0;
+  animation: bn-how-in .4s cubic-bezier(.2, .7, .3, 1) forwards;
+}
+@keyframes bn-how-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.bn-how-n {
+  width: 20px; height: 20px; border-radius: 9999px; flex-shrink: 0;
+  display: grid; place-items: center;
+  font-size: 10.5px; font-weight: 800; color: white;
+  background: var(--accent-500, #f97316);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bn-how { animation: none; opacity: 1; transform: none; }
+}
+
 .bn-scene { position: relative; width: 120px; height: 96px; }
 .bn-wallet {
   position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);

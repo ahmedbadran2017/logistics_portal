@@ -1094,6 +1094,7 @@ def bonus_breakdown(user=None, month=None, group="cc"):
 
     rows = {}
     seen = set()
+    confirmed_orders = set()
     for prefix, lane, dts in (("Confirmation", "cf", ("Sales Order",)),
                               ("Rescue", "rs", ("Sales Order",)),
                               ("CS", "cs", ("Issue",))):
@@ -1116,24 +1117,45 @@ def bonus_breakdown(user=None, month=None, group="cc"):
                 continue
             seen.add(dd)
             rows[key] = rows.get(key, 0) + 1
+            if key == "cf.confirm":
+                confirmed_orders.add(r.rn or "")
+    # The Desk half of the same work — the receipt must match the board, and
+    # the board reads both trails (49 portal vs 2,132 desk actions in one
+    # month; a receipt that showed the 49 would convince every agent the
+    # scheme is broken on day one).
+    for u2, order, action in _desk_confirmation_work(month):
+        if u2 != user:
+            continue
+        key = "cf." + action
+        if key not in pts or (order, key) in seen:
+            continue
+        seen.add((order, key))
+        rows[key] = rows.get(key, 0) + 1
+        if key == "cf.confirm":
+            confirmed_orders.add(order)
 
     # Delivered outcome (parcel grain, same query family as the board).
     d_rate = pts.get("cf.delivered", 0)
     delivered = returned = 0
-    r = frappe.db.sql(
-        """SELECT COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status
-                 = 'Delivered' THEN dn.name END),
-                  COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status IN
-                 ('Delivery Exception', 'Failed Attempt') THEN dn.name END)
-           FROM `tabSales Order` so
-           JOIN `tabDelivery Note Item` dni
-             ON dni.against_sales_order = so.name AND dni.docstatus = 1
-           JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
-           WHERE so.docstatus = 1 AND so.custom_allocated_to = %(u)s
-             AND dn.posting_date >= %(start)s
-             AND dn.posting_date < DATE_ADD(%(start)s, INTERVAL 1 MONTH)""",
-        {"u": user, "start": f"{month}-01"})[0]
-    delivered, returned = int(r[0] or 0), int(r[1] or 0)
+    # Same basis as the board: parcels from the orders THIS person confirmed,
+    # not from everything allocated to them (the allocated basis credited the
+    # automation's parcels — 9.6x too many, measured).
+    delivered = returned = 0
+    if confirmed_orders:
+        r = frappe.db.sql(
+            """SELECT COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status
+                     = 'Delivered' THEN dn.name END),
+                      COUNT(DISTINCT CASE WHEN dn.custom_track_shipment_status IN
+                     ('Delivery Exception', 'Failed Attempt') THEN dn.name END)
+               FROM `tabSales Order` so
+               JOIN `tabDelivery Note Item` dni
+                 ON dni.against_sales_order = so.name AND dni.docstatus = 1
+               JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
+               WHERE so.docstatus = 1 AND so.name IN %(names)s
+                 AND dn.posting_date >= %(start)s
+                 AND dn.posting_date < DATE_ADD(%(start)s, INTERVAL 1 MONTH)""",
+            {"names": tuple(confirmed_orders), "start": f"{month}-01"})[0]
+        delivered, returned = int(r[0] or 0), int(r[1] or 0)
 
     lines = [{"key": k, "count": n, "each": pts[k],
               "subtotal": round(n * pts[k], 1)}
@@ -1141,11 +1163,28 @@ def bonus_breakdown(user=None, month=None, group="cc"):
     dpts = round(delivered * d_rate, 1)
     total = round(sum(x["subtotal"] for x in lines) + dpts, 1)
     streak = _streak_days(user, "cc", month)
+    # Everything the "how does this work" explainer needs, from the LIVE
+    # scheme — the page must never restate a rule in prose that settings can
+    # change out from under it.
+    m = s["money"]
+    shipped = delivered + returned
     return {"user": user, "month": month, "lines": lines,
             "delivered": delivered, "returned": returned,
             "deliveredEach": d_rate, "deliveredPts": dpts,
             "streakDays": streak, "total": total,
-            "target": s["targets"].get(group, 0)}
+            "target": s["targets"].get(group, 0),
+            "scheme": {
+                "moneyOn": int(m.get("on") or 0),
+                "currency": m.get("currency") or "MAD",
+                "perPoint": float((m.get("perPoint") or {}).get(group, 0)),
+                "cap": float((m.get("monthlyCap") or {}).get(group, 0)),
+                "gateOn": int((m.get("gateOn") or {}).get(group, 0)),
+                "gatePct": float((m.get("gatePct") or {}).get(group, 0)),
+                "streakStepPct": float(m.get("streakStepPct") or 0),
+                "streakCapPct": float(m.get("streakCapPct") or 0),
+                "confirmEach": float(pts.get("cf.confirm", 0)),
+                "deliveryRate": round(100.0 * delivered / shipped, 1) if shipped else None,
+            }}
 
 
 def warm_cc_caches():
