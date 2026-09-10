@@ -297,6 +297,67 @@
         </div>
       </template>
     </div>
+
+    <!-- ═══ Sibling three: the ledger chain that disagrees with itself ═══ -->
+    <div v-if="chain" class="space-y-4 pt-2">
+      <div class="flex items-center gap-2">
+        <Icon name="activity" :size="15" class="text-rose-500" />
+        <h2 class="text-[15px] font-bold text-stone-900">{{ t('brepair.chainTitle') }}</h2>
+      </div>
+      <p class="text-[12.5px] text-stone-500 -mt-2">{{ t('brepair.chainHint') }}</p>
+
+      <div v-if="!chain.broken" class="bg-white rounded-xl ring-1 ring-emerald-200/70 p-6 text-center">
+        <Icon name="check-circle" :size="20" class="mx-auto mb-1.5 text-emerald-500" />
+        <div class="text-[13px] font-semibold text-stone-800">{{ t('brepair.chainClean') }}</div>
+      </div>
+      <template v-else>
+        <div class="grid grid-cols-3 gap-3">
+          <div class="bg-white rounded-xl ring-1 ring-rose-200/70 p-4">
+            <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('brepair.chainBroken') }}</div>
+            <div class="text-[24px] font-extrabold tabular-nums text-rose-600 mt-1">{{ fmt(chain.broken) }}</div>
+          </div>
+          <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+            <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('brepair.chainScanned') }}</div>
+            <div class="text-[24px] font-extrabold tabular-nums text-stone-900 mt-1">{{ fmt(chain.scanned) }}</div>
+          </div>
+          <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+            <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('brepair.chainQueued') }}</div>
+            <div class="text-[24px] font-extrabold tabular-nums text-stone-900 mt-1">{{ fmt(chain.alreadyQueued) }}</div>
+          </div>
+        </div>
+        <div v-if="(chain.rows || []).length" class="bg-white rounded-xl ring-1 ring-stone-200/70 divide-y divide-stone-100 max-h-[300px] overflow-y-auto">
+          <div v-for="r in chain.rows.slice(0, 40)" :key="r.item" class="px-4 py-2 flex items-center gap-3 text-[12px] tabular-nums">
+            <span class="font-mono text-stone-800">{{ r.sku || r.item }}</span>
+            <span class="text-stone-500 truncate flex-1" dir="auto">{{ r.name }}</span>
+            <span class="text-stone-600">sum <b>{{ r.sum }}</b></span>
+            <span class="text-rose-600">chain <b>{{ r.chain }}</b></span>
+            <span class="text-stone-400">bin {{ r.bin }}</span>
+            <span v-if="r.queued" class="text-[10.5px] font-bold text-sky-600">{{ t('brepair.chainInFlight') }}</span>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 flex items-center gap-2 flex-wrap">
+          <span class="text-[12px] text-stone-500">{{ t('brepair.limitLabel') }}</span>
+          <button v-for="n in [1, 20, 100]" :key="n"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold tabular-nums ring-1 transition-colors"
+                  :class="chainLimit === n ? 'text-white bg-[var(--accent-600)] ring-[var(--accent-600)]' : 'text-stone-700 bg-white ring-stone-200 hover:bg-stone-50'"
+                  @click="chainLimit = n">{{ n }}</button>
+          <button
+            class="h-9 px-4 rounded-lg text-[13px] font-semibold transition-colors disabled:opacity-50 ms-auto"
+            :class="chainArmed ? 'text-white bg-rose-600' : 'text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]'"
+            :disabled="chainBusy" @click="doChainRepair">
+            <span class="inline-flex items-center gap-1.5">
+              <Icon name="refresh-cw" :size="14" />
+              {{ chainBusy ? t('brepair.releasing') : chainArmed ? t('brepair.releaseSure').replace('{n}', String(chainLimit)) : t('brepair.chainBtn').replace('{n}', String(chainLimit)) }}
+            </span>
+          </button>
+        </div>
+        <div v-if="chainRes" class="bg-white rounded-xl ring-1 ring-emerald-200/70 px-4 py-2.5 flex items-center gap-2 flex-wrap">
+          <Icon name="check-circle" :size="14" class="text-emerald-600" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('brepair.chainQueuedN').replace('{n}', String((chainRes.queued || []).length)) }}</span>
+          <span class="text-[11.5px] text-stone-500">{{ chainRes.note }}</span>
+        </div>
+      </template>
+    </div>
   </div>
 </template>
 
@@ -348,6 +409,31 @@ const sreArmed = ref(false);
 const sreBusy = ref(false);
 const sreRes = ref(null);
 let sreArmT = null;
+// ── ledger chain repair state ──
+const chain = ref(null);
+const chainLimit = ref(1);
+const chainArmed = ref(false);
+const chainBusy = ref(false);
+const chainRes = ref(null);
+let chainArmT = null;
+async function doChainRepair() {
+  if (!chainArmed.value) {
+    chainArmed.value = true;
+    clearTimeout(chainArmT);
+    chainArmT = setTimeout(() => { chainArmed.value = false; }, 4000);
+    return;
+  }
+  chainArmed.value = false;
+  chainBusy.value = true;
+  try {
+    chainRes.value = await apiPost("batch_repair.ledger_chain_repair", { limit: chainLimit.value });
+    chain.value = await api("batch_repair.ledger_chain_scan");
+  } catch (e) {
+    warn(t("brepair.releaseFail"), String(e.message || e));
+  }
+  chainBusy.value = false;
+}
+
 async function doSreRelease() {
   if (!sreArmed.value) {
     sreArmed.value = true;
@@ -388,6 +474,7 @@ async function load() {
   try { draft.value = await api("picking.draft_radar"); } catch (e) { draft.value = null; }
   sc.value = await liveOr(null, () => api("batch_repair.scan"));
   sre.value = await liveOr(null, () => api("batch_repair.sre_scan"));
+  chain.value = await liveOr(null, () => api("batch_repair.ledger_chain_scan"));
   rr.value = await liveOr(null, () => api("returns_repair.scan"));
   loading.value = false;
 }

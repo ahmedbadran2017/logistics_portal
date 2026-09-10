@@ -343,3 +343,104 @@ def snapshot_batch_holds():
                    "itself lives in the pick-list app."),
         "audience": "manager",
     })
+
+
+# ── Ledger-chain repair ─────────────────────────────────────────────────────
+# Found 2026-09-10 from a restock that refused to move a piece the Bin said
+# was there. Three answers to "how many are in the Return Zone" for one item:
+# the SLE SUM said 2, the Bin said 1, and the running-balance chain
+# (qty_after_transaction — the number ERPNext's negative-stock validation
+# actually reads) said 0. Two return receipts had posted one minute apart and
+# the second wrote "after = 0" on a +1 — a posting race snapped the chain.
+# Measured across the Return Zone: 754 of 3,617 items disagree with
+# themselves, 749 with the chain BELOW the sum, which refuses every move of
+# stock that physically exists. ERPNext's own cure is Repost Item Valuation:
+# it rebuilds the chain and the Bin from the vouchers. This bench creates
+# those repost jobs — scan first, repair with limit=1, verify, then the rest.
+
+
+@frappe.whitelist()
+def ledger_chain_scan(warehouse="Return Zone - JM"):
+    """Items whose ledger disagrees with itself in one warehouse:
+    SUM(actual_qty) vs the chain tail vs the Bin. Read-only."""
+    _gate()
+    rows = frappe.db.sql("""
+        SELECT sle.item_code,
+               SUM(sle.actual_qty) AS s,
+               SUBSTRING_INDEX(GROUP_CONCAT(sle.qty_after_transaction
+                   ORDER BY sle.posting_date DESC, sle.posting_time DESC,
+                            sle.creation DESC), ',', 1) AS tail,
+               COALESCE(b.actual_qty, 0) AS bin_q,
+               MIN(sle.posting_date) AS first_d
+        FROM `tabStock Ledger Entry` sle
+        LEFT JOIN `tabBin` b ON b.item_code = sle.item_code
+                             AND b.warehouse = sle.warehouse
+        WHERE sle.warehouse = %s AND sle.is_cancelled = 0
+        GROUP BY sle.item_code, b.actual_qty""", (warehouse,), as_dict=True)
+    names = {}
+    broken = []
+    for r in rows:
+        s, tail, bq = float(r.s or 0), float(r.tail or 0), float(r.bin_q or 0)
+        if abs(s - tail) > 0.001 or abs(s - bq) > 0.001:
+            broken.append({"item": r.item_code, "sum": s, "chain": tail,
+                           "bin": bq, "firstDate": str(r.first_d or "")[:10],
+                           "gap": round(abs(s - tail), 1)})
+    if broken:
+        for r in frappe.db.sql(
+                """SELECT name, item_name, custom_sku FROM `tabItem`
+                   WHERE name IN %s""",
+                (tuple(x["item"] for x in broken),), as_dict=True):
+            names[r.name] = (r.item_name or r.name, r.custom_sku or "")
+    for x in broken:
+        x["name"], x["sku"] = names.get(x["item"], (x["item"], ""))
+    broken.sort(key=lambda x: -x["gap"])
+    # An open repost already covers a pair — show it so repair isn't doubled.
+    open_riv = {r[0] for r in frappe.db.sql(
+        """SELECT item_code FROM `tabRepost Item Valuation`
+           WHERE warehouse = %s AND docstatus = 1
+             AND status IN ('Queued', 'In Progress')""", (warehouse,))}
+    for x in broken:
+        x["queued"] = x["item"] in open_riv
+    return {"warehouse": warehouse, "scanned": len(rows),
+            "broken": len(broken), "rows": broken[:300],
+            "alreadyQueued": len(open_riv)}
+
+
+@frappe.whitelist(methods=["POST"])
+def ledger_chain_repair(warehouse="Return Zone - JM", limit=1):
+    """Queue Repost Item Valuation for the worst N broken pairs. The repost
+    scheduler does the actual rebuild in the background; this only files the
+    jobs — idempotent, skips pairs already queued. Start with limit=1."""
+    _gate()
+    limit = min(max(int(limit or 1), 1), 100)
+    scan = ledger_chain_scan(warehouse)
+    made, skipped = [], 0
+    for x in scan["rows"]:
+        if len(made) >= limit:
+            break
+        if x["queued"]:
+            skipped += 1
+            continue
+        try:
+            riv = frappe.get_doc({
+                "doctype": "Repost Item Valuation",
+                "based_on": "Item and Warehouse",
+                "item_code": x["item"],
+                "warehouse": warehouse,
+                # From the pair's FIRST movement, so the whole chain is
+                # rebuilt, not just the tail.
+                "posting_date": x["firstDate"] or frappe.utils.nowdate(),
+                "posting_time": "00:00:00",
+                "allow_negative_stock": 1,
+            })
+            riv.flags.ignore_permissions = True
+            riv.insert(ignore_permissions=True)
+            riv.submit()
+            made.append({"item": x["item"], "sku": x["sku"], "riv": riv.name})
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:2000],
+                             f"ledger_chain_repair {x['item']}")
+    frappe.db.commit()
+    return {"ok": True, "queued": made, "skippedAlreadyQueued": skipped,
+            "note": "Reposts run in the background scheduler; re-scan in a "
+                    "few minutes to watch the broken count fall."}
