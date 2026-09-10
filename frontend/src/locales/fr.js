@@ -73,6 +73,8 @@ export default {
     confirmation: "Confirmation",
     overview: "Aperçu",
     fulfillment: "Exécution",
+    afterShip: "Après expédition",
+    tools: "Outils",
     inventoryGrp: "Inventaire",
     operations: "Opérations",
     me: "Moi",

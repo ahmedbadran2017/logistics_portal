@@ -73,6 +73,8 @@ export default {
     confirmation: "التأكيد",
     overview: "نظرة عامة",
     fulfillment: "التنفيذ",
+    afterShip: "بعد الشحن",
+    tools: "الأدوات",
     inventoryGrp: "المخزون",
     operations: "العمليات",
     me: "أنا",

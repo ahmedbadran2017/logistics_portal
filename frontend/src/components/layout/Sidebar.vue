@@ -30,11 +30,23 @@
            lanes (Confirmation / Rescue / CS) each stand on their own route,
            no umbrella switcher. Cross-lane navigation lives in the admin hub. -->
       <template v-for="(group, gi) in nav" :key="group.section">
-        <div :class="gi > 0 ? 'mt-4' : ''">
-          <div class="px-3 mb-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400">
-            {{ t(group.section) }}
-          </div>
-          <div class="space-y-px">
+        <div :class="gi > 0 ? 'mt-3' : ''">
+          <!-- Section headers fold. Six groups is the honest size of this
+               portal, but nobody works all six at once — the fold lets each
+               role keep only their morning on screen, and the choice is
+               remembered per browser. The group holding the CURRENT page can
+               be folded visually but never silently: its header keeps the
+               accent dot so "where am I" always has an answer. -->
+          <button type="button"
+                  class="w-full flex items-center gap-1.5 px-3 mb-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-stone-400 hover:text-stone-600 transition-colors group/sec"
+                  @click="toggleSection(group.section)">
+            <span class="truncate">{{ t(group.section) }}</span>
+            <span v-if="isFolded(group.section) && sectionHasActive(group)"
+                  class="w-1.5 h-1.5 rounded-full bg-[var(--accent-500)] flex-shrink-0" />
+            <Icon :name="isFolded(group.section) ? 'chevron-down' : 'chevron-up'" :size="11"
+                  class="ms-auto text-stone-300 group-hover/sec:text-stone-500 flex-shrink-0" />
+          </button>
+          <div v-show="!isFolded(group.section)" class="space-y-px">
             <!-- One loop, so the order in roles.js is the order on screen. An
                  item can point OUT of the SPA (item.href): attendance lives in
                  Frappe HR's own app, and standing up a second writer to
@@ -235,6 +247,26 @@ const route = useRoute();
 const menuOpen = ref(false);
 
 const nav = computed(() => navFor(role.value, hiddenPages.value, IS_CC));
+
+// Folded sections, remembered per browser. localStorage on purpose (not
+// session): which parts of the menu a person keeps open is a workstation
+// habit, not a login-scoped state.
+const FOLD_KEY = "lp_nav_folded";
+const folded = ref(new Set());
+try {
+  folded.value = new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || "[]"));
+} catch { /* a fresh browser simply starts fully open */ }
+function isFolded(sec) { return folded.value.has(sec); }
+function toggleSection(sec) {
+  const next = new Set(folded.value);
+  if (next.has(sec)) next.delete(sec);
+  else next.add(sec);
+  folded.value = next;
+  try { localStorage.setItem(FOLD_KEY, JSON.stringify([...next])); } catch {}
+}
+function sectionHasActive(group) {
+  return (group.items || []).some((it) => it.to && isActive(it));
+}
 
 // Consolidation badge — the agent must SEE that a cluster of their own
 // customers appeared without having to visit the page.

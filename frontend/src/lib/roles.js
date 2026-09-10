@@ -11,12 +11,16 @@ export const ROLE_CONFIG = {
   manager: {
     home: "Cockpit",
     nav: [
+      // Six sections, each answering ONE question, in the order a manager's
+      // day actually asks them. The old "fulfillment" was a thirteen-item
+      // wall that mixed the forward journey with the return loop; the split
+      // follows the parcel: watch it, push it out, chase what came back,
+      // keep the shelves true, fix what broke, run the people.
       {
+        // Live monitoring — is today healthy?
         section: "nav.overview",
         items: [
           { to: "Cockpit", label: "nav.cockpit", icon: "gauge" },
-          { to: "TeamPerformance", label: "nav.teamPerf", icon: "award" },
-          { to: "VelocityBoard", label: "nav.velocity", icon: "gauge-circle" },
           { to: "FloorBoard", label: "nav.floor", icon: "trending-up" },
           { to: "SlaBoard", label: "nav.sla", icon: "shield-alert" },
           { to: "Alerts", label: "nav.alerts", icon: "bell" },
@@ -24,6 +28,7 @@ export const ROLE_CONFIG = {
         ],
       },
       {
+        // The forward journey, in the order a parcel travels it.
         section: "nav.fulfillment",
         items: [
           { to: "Pipeline", label: "nav.orders", icon: "shopping-bag" },
@@ -33,23 +38,37 @@ export const ROLE_CONFIG = {
           { to: "CityCheck", label: "nav.cityCheck", icon: "map-pin" },
           { to: "PackStation", label: "nav.pack", icon: "tag" },
           { to: "Shipments", label: "nav.shipments", icon: "truck" },
+          { to: "Carriers", label: "nav.carriers", icon: "send" },
+        ],
+      },
+      {
+        // After the truck left: track it, rescue it, take it back, reshelve.
+        section: "nav.afterShip",
+        items: [
           { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
           { to: "Exceptions", label: "nav.exceptions", icon: "alert-circle" },
           { to: "Returns", label: "nav.returns", icon: "rotate-ccw" },
           { to: "ReturnReceiving", label: "nav.receiving", icon: "package-check" },
           { to: "RestockZone", label: "nav.restock", icon: "boxes" },
-          { to: "Carriers", label: "nav.carriers", icon: "send" },
         ],
       },
       {
+        // The shelves: what's on them, what arrives, keeping them honest.
         section: "nav.inventoryGrp",
         items: [
           { to: "Warehouse", label: "nav.warehouse", icon: "warehouse" },
-          { to: "Slotting", label: "nav.slotting", icon: "layout-grid" },
-          { to: "MoveStock", label: "nav.move", icon: "route" },
-          { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
-          { to: "CycleCount", label: "nav.count", icon: "list-checks" },
           { to: "Inventory", label: "nav.stock", icon: "boxes" },
+          { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
+          { to: "MoveStock", label: "nav.move", icon: "route" },
+          { to: "CycleCount", label: "nav.count", icon: "list-checks" },
+          { to: "Slotting", label: "nav.slotting", icon: "layout-grid" },
+          { to: "VelocityBoard", label: "nav.velocity", icon: "zap" },
+        ],
+      },
+      {
+        // Utilities and repair benches — reached on purpose, not passed daily.
+        section: "nav.tools",
+        items: [
           { to: "SkuLookup", label: "nav.skuLookup", icon: "search" },
           { to: "ShelfLabels", label: "nav.shelfLabels", icon: "printer" },
           { to: "Weights", label: "nav.weights", icon: "scale" },
@@ -58,9 +77,11 @@ export const ROLE_CONFIG = {
         ],
       },
       {
+        // The people: who they are, how they did, what they earn.
         section: "nav.team",
         items: [
           { to: "Team", label: "nav.team", icon: "users" },
+          { to: "TeamPerformance", label: "nav.teamPerf", icon: "award" },
           { to: "Bonus", label: "nav.bonus", icon: "wallet" },
           { to: "Settings", label: "nav.settings", icon: "settings" },
         ],
