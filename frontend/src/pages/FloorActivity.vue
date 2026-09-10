@@ -31,6 +31,7 @@
             <span class="relative inline-flex w-2.5 h-2.5 rounded-full" :class="liveTone(p).dot" />
           </span>
           <span class="text-[12px] font-bold truncate" :class="liveTone(p).name" dir="auto">{{ p.name }}</span>
+          <span v-if="roleTag(p)" class="text-[9px] font-semibold text-stone-400 flex-shrink-0">{{ roleTag(p) }}</span>
         </div>
         <div class="text-[10.5px] mt-1 tabular-nums" :class="liveTone(p).sub">
           <template v-if="p.lastAgoMin === null">{{ t('fa.noScansYet') }}</template>
@@ -52,7 +53,9 @@
            class="bg-white rounded-xl ring-1 ring-stone-200/70 px-4 py-3 hover:shadow-sm transition-shadow">
         <div class="flex items-center gap-3 flex-wrap">
           <div class="min-w-[150px]">
-            <div class="text-[13.5px] font-bold text-stone-900" dir="auto">{{ p.name }}</div>
+            <div class="text-[13.5px] font-bold text-stone-900" dir="auto">{{ p.name }}
+              <span v-if="roleTag(p)" class="text-[10px] font-semibold text-stone-400">· {{ roleTag(p) }}</span>
+            </div>
             <div class="text-[10.5px] text-stone-400 tabular-nums">
               <template v-if="p.punchIn">{{ t('fa.punched') }} {{ p.punchIn }} · </template>
               {{ t('fa.firstScan') }} {{ p.first }}
@@ -179,6 +182,10 @@ function liveTone(p) {
                name: "text-stone-700", sub: "text-stone-400" },
   }[level];
 }
+function roleTag(p) {
+  if (!p.role || p.role === "none") return t("fa.role_none");
+  return t("fa.role_" + p.role, p.role);
+}
 function mainStation(p) {
   let best = "", n = -1;
   for (const [st, c] of Object.entries(p.stations || {})) if (c > n) { best = st; n = c; }
@@ -200,21 +207,10 @@ async function saveNote(p) {
   noteBusy.value = false;
 }
 
-// One shared axis from the earliest to the latest slot anyone touched, so a
-// silent half-hour shows as a hole that lines up across all the rows.
-const axis = computed(() => {
-  const slots = new Set();
-  for (const p of d.value?.people || []) Object.keys(p.slots).forEach((s) => slots.add(s));
-  if (!slots.size) return [];
-  const all = [...slots].sort();
-  const [h0, m0] = all[0].split(":").map(Number);
-  const [h1, m1] = all[all.length - 1].split(":").map(Number);
-  const out = [];
-  for (let x = h0 * 2 + (m0 >= 30 ? 1 : 0); x <= h1 * 2 + (m1 >= 30 ? 1 : 0); x++) {
-    out.push(`${String(Math.floor(x / 2)).padStart(2, "0")}:${x % 2 ? "30" : "00"}`);
-  }
-  return out;
-});
+// The axis comes from the server: the WHOLE working day (floorStart..now or
+// floorEnd), so a silent morning is a visible hole, not a cropped chart —
+// an axis that starts at the first scan hides exactly what a gap is.
+const axis = computed(() => d.value?.axis || []);
 function cellCls(n) {
   if (!n) return "bg-stone-100";
   if (n >= 20) return "bg-emerald-600";

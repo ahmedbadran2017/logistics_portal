@@ -257,7 +257,16 @@ def floor_activity(day=None):
     # payload could not show because it only knew people who had scanned.
     # Scanner roles only: judging a desk job by scan silence would be unjust
     # noise, and unjust noise is how a board loses the team.
+    # Widened 2026-09-10 on the manager's call: the first cut whitelisted
+    # picker/packer/returns and half the floor was invisible — most floor
+    # staff carry no portal role at all (resolves to None), and the
+    # dispatcher sorts at the wall too. Everyone punched in joins the board
+    # EXCEPT the contact-centre lanes (confirmation/cs/tracking): their work
+    # holds no scanner and they have their own dashboards. The ALERT keeps
+    # the narrow scanner-role whitelist — see silent_now — so showing
+    # everyone here never pages anyone about a desk job.
     from logistics_portal.api.auth import resolve_role
+    roles = {}
     for r in frappe.db.sql(
             """SELECT DISTINCT e.user_id, e.employee_name, MIN(c.time) t
                FROM `tabEmployee Checkin` c
@@ -265,12 +274,14 @@ def floor_activity(day=None):
                WHERE c.log_type = 'IN' AND c.time >= %s AND c.time < %s
                  AND e.user_id IS NOT NULL AND e.user_id != ''
                GROUP BY e.user_id, e.employee_name""", (d0, d1), as_dict=True):
+        try:
+            role = resolve_role(r.user_id)
+        except Exception:
+            role = None
+        roles[r.user_id] = role or "none"
         if r.user_id in out:
             continue
-        try:
-            if resolve_role(r.user_id) not in ("picker", "packer", "returns"):
-                continue
-        except Exception:
+        if role in ("confirmation", "cs", "tracking"):
             continue
         out[r.user_id] = {"user": r.user_id, "scans": 0, "units": 0,
                           "stations": {}, "first": None, "last": None,
@@ -318,8 +329,28 @@ def floor_activity(day=None):
         # None when they have not scanned at all today.
         p["lastAgoMin"] = int((fnow - prev_at).total_seconds() // 60) \
             if prev_at else None
+        p["role"] = roles.get(p["user"], "")
         p["notes"] = notes.get(p["user"], [])
         people.append(p)
     people.sort(key=lambda x: -x["scans"])
+    # The axis is the WHOLE working day, not just the hours that happen to
+    # hold scans: a strip that starts at the first scan hides exactly the
+    # thing a morning gap is — before this, a 14:04 first scan drew an axis
+    # that began at 14:00 and the silent morning simply did not exist.
+    # Bounds: the floor's configured day, widened by any scan outside it,
+    # and today never extends past the current half-hour (the future is not
+    # silence, it just has not happened).
+    from logistics_portal.api.settings import get_ops
+    lo = int(get_ops("floorStart") or 9) * 2
+    hi = int(get_ops("floorEnd") or 19) * 2
+    slots_all = [int(k[:2]) * 2 + (1 if k[3:] == "30" else 0)
+                 for p in people for k in p["slots"]]
+    if slots_all:
+        lo = min(lo, min(slots_all))
+        hi = max(hi, max(slots_all) + 1)
+    if day == str(fnow)[:10]:
+        hi = min(hi, fnow.hour * 2 + (1 if fnow.minute >= 30 else 0) + 1)
+    axis = ["%02d:%s" % (x // 2, "30" if x % 2 else "00")
+            for x in range(lo, max(hi, lo + 1))]
     return {"day": day, "people": people, "totalScans": len(rows),
-            "floorNow": str(fnow)[11:16]}
+            "axis": axis, "floorNow": str(fnow)[11:16]}
