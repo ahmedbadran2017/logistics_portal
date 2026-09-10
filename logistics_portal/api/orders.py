@@ -1933,3 +1933,79 @@ def reship(order):
     frappe.db.commit()
     return {"ok": True, "order": new.name, "original": name,
             "total": float(new.grand_total or 0)}
+
+
+def guard_cancelled_resurrect(doc, method=None):
+    """A cancelled order stays cancelled unless a HUMAN says otherwise.
+
+    TKT-2609-3709664: the external WhatsApp flow, writing through the API as
+    Administrator, was flipping Cancelled orders back to "Follow Up" — 116
+    flips on 88 orders in 30 days, every one owned by Administrator, at all
+    hours, changing nothing but the status field. The team then cancelled
+    the same order a second time, and customers who had said "not
+    interested" were called again. Verified end-to-end on one order:
+    cancel → resurrect → cancel → resurrect → another call, in six days.
+
+    The guard reverts exactly that transition when the actor is the
+    automation identity; an agent or manager reopening on purpose (their own
+    session user) is untouched. Runs on validate, so the write simply never
+    lands — and one witness comment per order (not per attempt) records that
+    the automation keeps trying.
+    """
+    if doc.get("custom_sales_status") != "Follow Up" or doc.is_new():
+        return
+    if frappe.session.user not in ("Administrator", "Guest"):
+        return
+    try:
+        old = doc.get_doc_before_save()
+    except Exception:
+        old = None
+    if not old or old.get("custom_sales_status") != "Cancelled":
+        return
+    doc.custom_sales_status = "Cancelled"
+    try:
+        marker = "Automation tried to reopen this cancelled order"
+        if not frappe.db.exists("Comment", {
+                "reference_doctype": "Sales Order",
+                "reference_name": doc.name,
+                "content": ("like", f"%{marker}%")}):
+            doc.add_comment(
+                "Comment",
+                f"{marker} (Cancelled → Follow Up) — blocked. "
+                "TKT-2609-3709664")
+    except Exception:
+        pass
+
+
+def restore_resurrected_cancels():
+    """One-time repair riding the next deploy — TKT-2609-3709664.
+
+    Six orders were sitting in "Follow Up" because the external automation
+    resurrected them after a human cancel (see guard_cancelled_resurrect).
+    Restore the human's decision. Conditional on the status STILL being
+    Follow Up at migrate time — an agent may have re-cancelled (or genuinely
+    reopened) one in the meantime, and either way their newer decision wins.
+    Idempotent via a site default.
+    """
+    if frappe.db.get_default("lp_tkt3709664_restored"):
+        return
+    names = ("#256787", "#256948", "#257996", "#258007",
+             "J-004476", "J-005176")
+    for name in names:
+        try:
+            if frappe.db.get_value("Sales Order", name,
+                                   "custom_sales_status") != "Follow Up":
+                continue
+            frappe.db.set_value("Sales Order", name,
+                                "custom_sales_status", "Cancelled",
+                                update_modified=False)
+            frappe.get_doc("Sales Order", name).add_comment(
+                "Comment",
+                "Restored to Cancelled — the WhatsApp automation had "
+                "reopened this cancelled order as Follow Up. "
+                "TKT-2609-3709664")
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:2000],
+                             "restore_resurrected_cancels")
+    frappe.db.set_default("lp_tkt3709664_restored", "1")
+    frappe.db.commit()

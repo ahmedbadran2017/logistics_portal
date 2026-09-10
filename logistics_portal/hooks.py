@@ -52,6 +52,10 @@ doc_events = {
     },
     "Sales Order": {
         "on_update": "logistics_portal.api.orders.stamp_stage_timestamps",
+        # A cancelled order stays cancelled unless a human reopens it —
+        # blocks the external WhatsApp flow's Cancelled→Follow Up resurrects
+        # (TKT-2609-3709664).
+        "validate": "logistics_portal.api.orders.guard_cancelled_resurrect",
     },
     "Delivery Note": {
         "validate": "logistics_portal.api.shipping.capture_packer",
@@ -70,6 +74,9 @@ after_migrate = [
     # One-time: seed the manifest station's month of history from the
     # Shipment child rows that always carried the who/when.
     "logistics_portal.api.scanlog.backfill_manifest_history",
+    # One-time: put the six automation-resurrected cancelled orders back to
+    # Cancelled (TKT-2609-3709664); the validate guard stops new resurrects.
+    "logistics_portal.api.orders.restore_resurrected_cancels",
     "logistics_portal.install.ensure_catalog_fields",
     "logistics_portal.install.ensure_pick_fields",
     "logistics_portal.install.ensure_pick_field_lengths",
