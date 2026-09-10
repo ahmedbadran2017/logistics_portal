@@ -86,6 +86,7 @@ const routes = [
       // Manager
       { path: "cockpit", name: "Cockpit", component: () => import("@/pages/Cockpit.vue") },
       { path: "team-performance", name: "TeamPerformance", component: () => import("@/pages/TeamPerformance.vue") },
+      { path: "floor-activity", name: "FloorActivity", component: () => import("@/pages/FloorActivity.vue") },
       { path: "velocity", name: "VelocityBoard", component: () => import("@/pages/VelocityBoard.vue") },
       { path: "shipments", name: "Shipments", component: () => import("@/pages/Shipments.vue") },
       { path: "audit", name: "Audit", component: () => import("@/pages/Audit.vue") },

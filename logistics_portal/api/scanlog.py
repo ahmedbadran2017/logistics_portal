@@ -71,6 +71,47 @@ def ensure_doctype():
         frappe.log_error(frappe.get_traceback()[:2000], "scanlog.ensure_doctype")
 
 
+def backfill_manifest_history():
+    """Seed the log from the one station that always HAD a witness.
+
+    manifest_scan appends a Shipment Delivery Note child row, and child rows
+    carry owner + creation — so the manifest station's history exists even
+    though nobody wrote it here. Copy the last 30 days in once, and the
+    activity screen opens with a month of real manifest data instead of an
+    empty room; pick and sort genuinely have no past (raw UPDATEs) and start
+    from the deploy. Idempotent via a site-default flag.
+    """
+    if frappe.db.get_default("lp_scanlog_backfilled"):
+        return {"seeded": 0}
+    if not frappe.db.exists("DocType", DT):
+        return {"seeded": 0}
+    rows = frappe.db.sql(
+        """SELECT sdn.owner, sdn.creation,
+                  (SELECT dni.against_sales_order FROM `tabDelivery Note Item` dni
+                   WHERE dni.parent = sdn.delivery_note
+                     AND dni.against_sales_order IS NOT NULL LIMIT 1) so
+           FROM `tabShipment Delivery Note` sdn
+           WHERE sdn.creation >= DATE_SUB(NOW(), INTERVAL 30 DAY)""",
+        as_dict=True)
+    n = 0
+    for r in rows:
+        try:
+            d = frappe.get_doc({"doctype": DT, "station": "manifest",
+                                "sales_order": r.so or "", "qty": 1})
+            d.insert(ignore_permissions=True)
+            # The witness must carry the ORIGINAL actor and moment, not the
+            # migration's — db_set after insert, because insert stamps its own.
+            frappe.db.set_value(DT, d.name,
+                                {"owner": r.owner, "creation": r.creation},
+                                update_modified=False)
+            n += 1
+        except Exception:
+            continue
+    frappe.db.set_default("lp_scanlog_backfilled", "1")
+    frappe.db.commit()
+    return {"seeded": n}
+
+
 @frappe.whitelist()
 def floor_activity(day=None):
     """Per-person movement for one floor day — manager's answer to "who was
@@ -113,10 +154,29 @@ def floor_activity(day=None):
             if gap > p["maxGapMin"]:
                 p["maxGapMin"] = int(gap)
         p["_prev"] = at
+    # Who are these emails, and when did HR see them arrive? First punch of
+    # the floor day, so "clocked in 09:07, first scan 10:40" is one glance.
+    users = tuple(out) or ("",)
+    emp = {r.user_id: r for r in frappe.db.sql(
+        """SELECT user_id, name emp, employee_name FROM `tabEmployee`
+           WHERE user_id IN %s""", (users,), as_dict=True)}
+    punch = {}
+    if emp:
+        for r in frappe.db.sql(
+                """SELECT e.user_id, MIN(c.time) t
+                   FROM `tabEmployee Checkin` c
+                   JOIN `tabEmployee` e ON e.name = c.employee
+                   WHERE e.user_id IN %s AND c.log_type = 'IN'
+                     AND c.time >= %s AND c.time < %s
+                   GROUP BY e.user_id""", (users, d0, d1), as_dict=True):
+            punch[r.user_id] = str(clock.to_floor(r.t))[11:16]
     people = []
     for p in out.values():
         p.pop("_prev", None)
         p["maxGapMin"] = int(p["maxGapMin"])
+        p["name"] = (emp.get(p["user"], {}) or {}).get("employee_name") \
+            or p["user"].split("@")[0]
+        p["punchIn"] = punch.get(p["user"])
         people.append(p)
     people.sort(key=lambda x: -x["scans"])
     return {"day": day, "people": people, "totalScans": len(rows)}
