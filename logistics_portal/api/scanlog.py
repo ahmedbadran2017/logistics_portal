@@ -96,6 +96,61 @@ def floor_note(user, day, text):
     return {"ok": True}
 
 
+def silent_now(threshold_min=15):
+    """Who on the floor is silent RIGHT NOW — the alert engine's feed.
+
+    A person counts when they hold a scanner-station role, punched in on the
+    floor day, and either their last scan is older than the threshold or
+    they have scanned nothing at all for twice the threshold since punching
+    in. Evaluated only INSIDE the floor's working window (ops floorStart..
+    floorEnd): without that fence the engine would cry wolf every evening
+    the moment the shift ends, and a wolf-crying alert is muted within a
+    week. Returns [{name, user, min, station}], empty outside the window.
+    """
+    from logistics_portal.api import clock
+    from logistics_portal.api.auth import resolve_role
+    from logistics_portal.api.settings import get_ops
+    fnow = clock.floor_now()
+    lo = int(get_ops("floorStart") or 9)
+    hi = int(get_ops("floorEnd") or 19)
+    # Half an hour of grace at the start: nobody scans at 09:00 sharp.
+    if not (lo * 60 + 30 <= fnow.hour * 60 + fnow.minute < hi * 60):
+        return []
+    day = str(fnow)[:10]
+    d0, d1 = clock.day_bounds(day)
+    last = {r.owner: r.t for r in frappe.db.sql(
+        """SELECT owner, MAX(creation) t FROM `tabLP Scan Event`
+           WHERE creation >= %s AND creation < %s GROUP BY owner""",
+        (d0, d1), as_dict=True)}
+    st_of = {r.owner: r.st for r in frappe.db.sql(
+        """SELECT owner, SUBSTRING_INDEX(GROUP_CONCAT(station ORDER BY creation DESC), ',', 1) st
+           FROM `tabLP Scan Event`
+           WHERE creation >= %s AND creation < %s GROUP BY owner""",
+        (d0, d1), as_dict=True)}
+    out = []
+    for r in frappe.db.sql(
+            """SELECT e.user_id u, e.employee_name nm, MIN(c.time) t
+               FROM `tabEmployee Checkin` c
+               JOIN `tabEmployee` e ON e.name = c.employee
+               WHERE c.log_type = 'IN' AND c.time >= %s AND c.time < %s
+                 AND e.user_id IS NOT NULL AND e.user_id != ''
+               GROUP BY e.user_id, e.employee_name""", (d0, d1), as_dict=True):
+        try:
+            if resolve_role(r.u) not in ("picker", "packer", "returns"):
+                continue
+        except Exception:
+            continue
+        anchor = last.get(r.u) or r.t
+        silent = (fnow - clock.to_floor(anchor)).total_seconds() / 60.0
+        limit = threshold_min if r.u in last else threshold_min * 2
+        if silent >= limit:
+            out.append({"name": r.nm or r.u.split("@")[0], "user": r.u,
+                        "min": int(silent),
+                        "station": st_of.get(r.u, "")})
+    out.sort(key=lambda x: -x["min"])
+    return out
+
+
 def backfill_manifest_history():
     """Seed the log from the one station that always HAD a witness.
 

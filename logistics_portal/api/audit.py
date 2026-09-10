@@ -566,10 +566,28 @@ def problem_radar():
                           "ever took — the silent-parcel family.",
                 "route": "/logistics/shipments?orphans=1"})
 
+    def floor_silence():
+        """Scanner-station people punched in and silent 15+ minutes, inside
+        the working window only. ONE aggregated finding with the names — a
+        per-person alert would page the manager three times for one lunch
+        conversation. The floor-activity page (where this routes) carries
+        the manager-note margin that records the legitimate exceptions."""
+        from logistics_portal.api.scanlog import silent_now
+        rows = silent_now(15)
+        if rows:
+            findings.append({"key": "floorSilence", "sev": "critical",
+                "count": len(rows),
+                "title": "Silent on the floor 15+ min",
+                "detail": " · ".join("%s (%d min%s)" % (
+                    r["name"], r["min"],
+                    ", " + r["station"] if r["station"] else "")
+                    for r in rows[:6]),
+                "route": "/logistics/floor-activity"})
+
     for fn in (open_breaches, at_risk_today, stuck_to_pick, no_awb, unprinted_aging,
                missed_manifest, exceptions_open, return_zone, short_picked,
                stale_ret_batch, consol_waiting, poison_drafts, stale_receiving,
-               cycle_aging):
+               cycle_aging, floor_silence):
         check(fn)
 
     sev_rank = {"critical": 0, "warning": 1, "info": 2}
