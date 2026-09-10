@@ -1270,6 +1270,8 @@ export default {
     hCancelled: "Annulées", hLifetime: "Encaissé",
   },
   cf: {
+    newArrived: "{n} nouvelles commandes viennent d'arriver",
+    newShow: "Les afficher",
     emptyHint: "Les nouvelles commandes arrivent ici automatiquement — faites une pause ou passez aux files de rappel.",
     title: "Confirmation",
     intro: "La traîne que l'automatisation WhatsApp ne clôt pas — appelez, décidez, passez au suivant.",

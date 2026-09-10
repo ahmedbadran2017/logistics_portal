@@ -1269,6 +1269,8 @@ export default {
     hCancelled: "Cancelled", hLifetime: "Collected",
   },
   cf: {
+    newArrived: "{n} new orders just arrived",
+    newShow: "Show them",
     emptyHint: "New orders land here automatically — take a break or check the retry queues.",
     title: "Confirmation",
     intro: "The tail the WhatsApp automation can't close — call, decide, move on.",

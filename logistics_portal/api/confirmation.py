@@ -2662,3 +2662,34 @@ def next_up(limit=20, as_user=None):
             # Admin scope serves the whole pool — the pane must not call the
             # team's plan "my queue".
             "scope": "mine" if mine else "team"}
+
+
+@frappe.whitelist()
+def new_orders_ping(since=None):
+    """The "new orders just landed" heartbeat — TKT-2609-3803989, item 1.
+
+    Returns how many Pending orders ARRIVED (creation, site clock) after
+    `since`, in the caller's own scope — an agent counts only their _assign,
+    a manager or section admin the whole section — plus the server clock so
+    the client can baseline the next call without trusting its own clock.
+    Deliberately one indexed COUNT and nothing else: it polls forever from
+    every open confirmation tab, so it must stay too cheap to notice.
+    """
+    import re as _re
+    role = _gate()
+    since = (since or "").strip()[:19]
+    now = str(now_datetime())[:19]
+    if not _re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$", since):
+        # First call of a session: no baseline yet — hand one out.
+        return {"count": 0, "serverNow": now}
+    vals = {"co": _CO, "since": since}
+    scope = ""
+    if role != "manager" and not _is_cf_admin():
+        vals["me_like"] = f'%"{frappe.session.user}"%'
+        scope = " AND so._assign LIKE %(me_like)s"
+    n = frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status = 'Pending'
+              AND so.creation > %(since)s{scope}""", vals)[0][0]
+    return {"count": int(n or 0), "serverNow": now}

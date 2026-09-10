@@ -78,6 +78,18 @@
       </div>
     </div>
 
+    <!-- "new orders just landed" — TKT-2609 item 1: the queue's doorbell.
+         Fed by a 45s ping scoped to the agent; clicking jumps to Pending. -->
+    <Transition name="cfslide">
+      <button v-if="newCount" @click="showNew"
+              class="w-full flex items-center gap-2.5 rounded-xl px-4 py-2.5 text-[12.5px] font-bold text-white shadow-sm hover:shadow transition-shadow"
+              :style="{ background: 'var(--accent-600)' }">
+        <Icon name="bell" :size="14" />
+        <span>{{ t('cf.newArrived').replace('{n}', String(newCount)) }}</span>
+        <span class="ms-auto text-[11.5px] font-semibold opacity-90">{{ t('cf.newShow') }}</span>
+      </button>
+    </Transition>
+
     <!-- bulk bar — on every tab, with the actions that tab honestly allows.
          Hidden on Not-Delivered: those are per-customer redelivery calls, with
          no honest batch equivalent (same reasoning as the absent bulk confirm). -->
@@ -578,6 +590,8 @@ async function load(opts) {
     rows.value = res.rows || [];
     total.value = res.total || 0;
     loadError.value = "";
+    // The agent just SAW the pending queue — the doorbell has been answered.
+    if (tab.value === "pending") { newCount.value = 0; pingSince = ""; }
   } catch (e) {
     if (seq !== loadSeq) return;
     loadError.value = String(e.message || e);
@@ -600,8 +614,43 @@ watch(() => route.query.tab, (v) => {
 const pollTimer = setInterval(() => {
   if (document.visibilityState === "visible" && !loading.value
       && !selected.value.size && !cancelFor.value && !editFor.value) load({ quiet: true });
-}, 120000);
-onUnmounted(() => { clearInterval(pollTimer); clearTimeout(qTimer); });
+}, 60000);
+// The real "I have to refresh every time" killer: agents live in WhatsApp
+// tabs — the moment they come BACK, the list refreshes itself.
+function onVis() {
+  if (document.visibilityState !== "visible") return;
+  ping();
+  if (!loading.value && !selected.value.size && !cancelFor.value && !editFor.value)
+    load({ quiet: true });
+}
+document.addEventListener("visibilitychange", onVis);
+
+// ── "new orders just landed" (TKT-2609 item 1) ─────────────────────────────
+// A cheap scoped ping every 45s. The count accumulates against the moment
+// the agent last actually saw the Pending list, so working in another tab
+// never hides an arriving order — the banner keeps score until they look.
+const newCount = ref(0);
+let pingSince = "";
+async function ping() {
+  if (document.visibilityState !== "visible") return;
+  try {
+    const r = await api("confirmation.new_orders_ping",
+      pingSince ? { since: pingSince } : {});
+    if (!pingSince) pingSince = r.serverNow;
+    else if (r.count) newCount.value = r.count;
+  } catch {}
+}
+const pingTimer = setInterval(ping, 45000);
+onMounted(ping);
+function showNew() {
+  newCount.value = 0; pingSince = "";
+  if (tab.value !== "pending") tab.value = "pending";
+  page.value = 1; load();
+}
+onUnmounted(() => {
+  clearInterval(pollTimer); clearInterval(pingTimer); clearTimeout(qTimer);
+  document.removeEventListener("visibilitychange", onVis);
+});
 
 const isDone = computed(() => DONE.includes(tab.value));
 // The Not-Delivered tab is a live tab, but its orders are already shipped — the
