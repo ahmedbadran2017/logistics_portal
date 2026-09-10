@@ -1651,8 +1651,14 @@ def report(days=7, frm=None, to=None):
     # the headline confirm rate on a sample of five.
     import json as _j_desk
     _st_map = _status_action_map()
+    # The chart and the hour strip below merge these desk tallies in — they
+    # were comment-trail-only, so a day worked mostly on the Desk drew as a
+    # near-empty column while the leaderboard right above it counted the
+    # same day in the hundreds. Same fix, same buckets, same floor clock.
+    desk_daily = {}
+    desk_hours = {}
     for r in frappe.db.sql(
-            f"""SELECT v.owner, v.data FROM `tabVersion` v
+            f"""SELECT v.owner, v.creation, v.data FROM `tabVersion` v
                 JOIN `tabSales Order` so ON so.name = v.docname
                 WHERE v.ref_doctype = 'Sales Order' AND so.company = %(co)s
                   AND v.owner NOT IN %(auto)s
@@ -1676,6 +1682,12 @@ def report(days=7, frm=None, to=None):
                                                "bulk": 0})
             if action in a:
                 a[action] += 1
+            if action in ("confirm", "cancel", "dna"):
+                _at = _clock.to_floor(r.creation)
+                dd = desk_daily.setdefault(str(_at)[:10], {"confirm": 0,
+                                                           "cancel": 0, "dna": 0})
+                dd[action] += 1
+                desk_hours[_at.hour] = desk_hours.get(_at.hour, 0) + 1
 
     # ── per-agent money, on the COHORT of orders that arrived in the window.
     # NB: `collected` is the money that actually reached us — a confirm whose
@@ -1845,22 +1857,41 @@ def report(days=7, frm=None, to=None):
                 GROUP BY 1 ORDER BY n DESC LIMIT 15""", {"co": _CO, **rng_vals})]
 
     # ── day by day ───────────────────────────────────────────────────────
-    funnel = frappe.db.sql(
-        f"""SELECT {_clock.sql_local("c.creation")} d,
+    funnel_map = {}
+    for f in frappe.db.sql(
+            f"""SELECT {_clock.sql_local("c.creation")} d,
                    SUM(c.content LIKE 'Confirmation: confirm%%') conf,
                    SUM(c.content LIKE 'Confirmation: cancel%%') canc,
                    SUM(c.content LIKE 'Confirmation: dna%%') dna
             FROM `tabComment` c
             WHERE c.reference_doctype = 'Sales Order'
               AND c.content LIKE 'Confirmation: %%' AND {c_rng}
-            GROUP BY d ORDER BY d""", rng_vals, as_dict=True)
+            GROUP BY d ORDER BY d""", rng_vals, as_dict=True):
+        funnel_map[str(f.d)] = {"confirm": int(f.conf or 0),
+                                "cancel": int(f.canc or 0),
+                                "dna": int(f.dna or 0)}
+    # BOTH trails, like the leaderboard: the Desk day joins the chart.
+    for dstr, dd in desk_daily.items():
+        row = funnel_map.setdefault(dstr, {"confirm": 0, "cancel": 0, "dna": 0})
+        for k in ("confirm", "cancel", "dna"):
+            row[k] += dd[k]
+    funnel = [{"d": k, "conf": v["confirm"], "canc": v["cancel"],
+               "dna": v["dna"]} for k, v in sorted(funnel_map.items())]
 
     # ── the hour of the day the work actually happens ────────────────────
+    # Floor-clock hours, both trails: HOUR(creation) was the SITE's clock, so
+    # the whole strip sat two hours late — "the team works at 21h" was 19h
+    # Morocco — and the Desk's calls were missing from it entirely.
+    _hoff = int(round(_clock.offset_hours() * 60))
+    _hcol = f"HOUR(DATE_ADD(c.creation, INTERVAL {_hoff} MINUTE))" \
+        if _hoff else "HOUR(c.creation)"
     hours = {int(r[0]): int(r[1]) for r in frappe.db.sql(
-        f"""SELECT HOUR(c.creation), COUNT(*) FROM `tabComment` c
+        f"""SELECT {_hcol}, COUNT(*) FROM `tabComment` c
             WHERE c.reference_doctype = 'Sales Order'
               AND c.content LIKE 'Confirmation: %%' AND {c_rng}
-            GROUP BY HOUR(c.creation)""", rng_vals)}
+            GROUP BY 1""", rng_vals)}
+    for h, n in desk_hours.items():
+        hours[h] = hours.get(h, 0) + n
 
 
     # ── the chase ladder the automation ran before we ever called ────────
@@ -1927,8 +1958,8 @@ def report(days=7, frm=None, to=None):
         # (leaderboard, bonus, team averages) must stay human-only.
         "automation": automation,
         "reasons": reason_rows,
-        "funnel": [{"date": str(f.d), "confirm": int(f.conf or 0),
-                    "cancel": int(f.canc or 0), "dna": int(f.dna or 0)} for f in funnel],
+        "funnel": [{"date": f["d"], "confirm": f["conf"],
+                    "cancel": f["canc"], "dna": f["dna"]} for f in funnel],
         "hours": [{"h": h, "n": hours.get(h, 0)}
                   for h in range(min(hours) if hours else 8,
                                  (max(hours) if hours else 20) + 1)],

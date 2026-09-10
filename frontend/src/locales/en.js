@@ -1629,6 +1629,11 @@ export default {
     thStatus: "Status", thAge: "Age", thValue: "Value",
   },
   cfr: {
+    kIn: "Orders in",
+    autoTitle: "Automation (WhatsApp)",
+    stickTrend: "Shipped vs delivered, day by day",
+    citiesTitle: "Where parcels fail",
+    noData: "No decisions in this window",
     thAuto: "Bot",
     thAutoHint: "Orders in this agent's queue that the WhatsApp automation closed — not their decisions",
     title: "Confirmation — section reports",

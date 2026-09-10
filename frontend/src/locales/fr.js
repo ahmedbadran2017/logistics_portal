@@ -1630,6 +1630,11 @@ export default {
     thStatus: "Statut", thAge: "Âge", thValue: "Valeur",
   },
   cfr: {
+    kIn: "Commandes entrées",
+    autoTitle: "Automatisation (WhatsApp)",
+    stickTrend: "Expédié vs livré, jour par jour",
+    citiesTitle: "Où les colis échouent",
+    noData: "Aucune décision sur cette période",
     thAuto: "Bot",
     thAutoHint: "Commandes de cet agent clôturées par l'automatisation WhatsApp — pas ses décisions",
     title: "Confirmation — rapports du service",
