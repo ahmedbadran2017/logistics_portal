@@ -573,11 +573,13 @@ def problem_radar():
         conversation. The floor-activity page (where this routes) carries
         the manager-note margin that records the legitimate exceptions."""
         from logistics_portal.api.scanlog import silent_now
-        rows = silent_now(15)
+        # 20 minutes (Ahmed 2026-09-10, tuned up from 15 after the first
+        # live day) — the zero-scan grace after punching in is double that.
+        rows = silent_now(20)
         if rows:
             findings.append({"key": "floorSilence", "sev": "critical",
                 "count": len(rows),
-                "title": "Silent on the floor 15+ min",
+                "title": "Silent on the floor 20+ min",
                 "detail": " · ".join("%s (%d min%s)" % (
                     r["name"], r["min"],
                     ", " + r["station"] if r["station"] else "")

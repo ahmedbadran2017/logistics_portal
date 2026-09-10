@@ -96,7 +96,7 @@ def floor_note(user, day, text):
     return {"ok": True}
 
 
-def silent_now(threshold_min=15):
+def silent_now(threshold_min=20):
     """Who on the floor is silent RIGHT NOW — the alert engine's feed.
 
     A person counts when they hold a scanner-station role, punched in on the

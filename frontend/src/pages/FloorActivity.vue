@@ -161,12 +161,13 @@ const tick = setInterval(async () => {
 onUnmounted(() => clearInterval(tick));
 
 // The pulse: station discipline means silence is signal here. Green = scanned
-// within 5 minutes; amber = 5-15; rose = 15+ while punched in; stone = punched
-// in and not one scan yet. The manager's note rides the card so the recorded
-// exception travels with the red it excuses.
+// within 5 minutes; amber = 5-20; rose = 20+ while punched in — the same 20
+// the alert engine fires on, so the card never turns red without the bell
+// agreeing; stone = punched in and not one scan yet. The manager's note
+// rides the card so the recorded exception travels with the red it excuses.
 function liveTone(p) {
   const level = p.lastAgoMin === null ? "off"
-    : p.lastAgoMin <= 5 ? "on" : p.lastAgoMin <= 15 ? "cooling" : "silent";
+    : p.lastAgoMin <= 5 ? "on" : p.lastAgoMin <= 20 ? "cooling" : "silent";
   return {
     on:      { box: "bg-emerald-50 ring-emerald-200", dot: "bg-emerald-500", pulse: true,
                name: "text-emerald-900", sub: "text-emerald-700/80" },
