@@ -18,6 +18,31 @@
       <span>{{ t('fa.honesty') }}</span>
     </div>
 
+    <!-- NOW: one pulsing card per person. Station discipline is the rule
+         here — someone on sort stays on sort — so silence is a real signal,
+         and the manager's note is the recorded exception. -->
+    <div v-if="!loading && d && day === today && d.people.length"
+         class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+      <div v-for="p in d.people" :key="'live-' + p.user"
+           class="rounded-xl ring-1 px-3 py-2.5" :class="liveTone(p).box">
+        <div class="flex items-center gap-2">
+          <span class="relative flex w-2.5 h-2.5 flex-shrink-0">
+            <span v-if="liveTone(p).pulse" class="absolute inline-flex w-full h-full rounded-full opacity-60 animate-ping" :class="liveTone(p).dot" />
+            <span class="relative inline-flex w-2.5 h-2.5 rounded-full" :class="liveTone(p).dot" />
+          </span>
+          <span class="text-[12px] font-bold truncate" :class="liveTone(p).name" dir="auto">{{ p.name }}</span>
+        </div>
+        <div class="text-[10.5px] mt-1 tabular-nums" :class="liveTone(p).sub">
+          <template v-if="p.lastAgoMin === null">{{ t('fa.noScansYet') }}</template>
+          <template v-else-if="p.lastAgoMin <= 5">{{ t('fa.liveNow') }} · {{ mainStation(p) }}</template>
+          <template v-else>{{ t('fa.silentFor').replace('{m}', String(p.lastAgoMin)) }} · {{ mainStation(p) }}</template>
+        </div>
+        <div v-if="p.notes.length" class="text-[10px] mt-0.5 truncate" :class="liveTone(p).sub">
+          <Icon name="edit" :size="9" class="inline -mt-px" /> {{ p.notes[p.notes.length - 1].text }}
+        </div>
+      </div>
+    </div>
+
     <div v-if="loading" class="space-y-2">
       <div v-for="n in 4" :key="n" class="h-[76px] rounded-xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
     </div>
@@ -57,6 +82,29 @@
             </div>
           </div>
         </div>
+        <!-- the manager's margin: what the silences meant, in their words,
+             with their name on it — and the box to add the next one. -->
+        <div v-if="p.notes.length || noteFor === p.user" class="mt-2 space-y-1">
+          <div v-for="(n, ni) in p.notes" :key="ni" class="text-[11px] text-stone-500 flex items-start gap-1.5">
+            <Icon name="edit" :size="10" class="mt-0.5 flex-shrink-0 text-stone-300" />
+            <span dir="auto">{{ n.text }} <span class="text-stone-300">· {{ n.by }} {{ n.at }}</span></span>
+          </div>
+        </div>
+        <div class="mt-1.5 flex items-center gap-1.5">
+          <template v-if="noteFor === p.user">
+            <input v-model="noteText" :placeholder="t('fa.notePh')" dir="auto"
+                   class="h-8 flex-1 max-w-[380px] ps-3 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] focus:outline-none focus:ring-2"
+                   style="--tw-ring-color: var(--accent-300)"
+                   @keyup.enter="saveNote(p)" />
+            <button class="h-8 px-3 rounded-lg text-[11.5px] font-semibold text-white bg-stone-900 disabled:opacity-40"
+                    :disabled="!noteText.trim() || noteBusy" @click="saveNote(p)">{{ t('fa.noteSave') }}</button>
+            <button class="h-8 px-2 text-[11.5px] text-stone-400" @click="noteFor = ''">✕</button>
+          </template>
+          <button v-else class="text-[10.5px] font-semibold text-stone-400 hover:text-stone-700"
+                  @click="noteFor = p.user; noteText = ''">
+            + {{ t('fa.noteAdd') }}
+          </button>
+        </div>
         <!-- the day as a strip: one cell per 30 minutes, darker = busier.
              Same hour axis for everyone, so silence lines up vertically. -->
         <div class="flex items-center gap-px mt-2.5">
@@ -79,9 +127,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
-import { api } from "@/lib/resource";
+import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 
 const { t } = useI18n();
@@ -104,6 +152,52 @@ async function load() {
 }
 function onDay(e) { day.value = e.target.value || today; load(); }
 onMounted(load);
+// Live board: today refreshes itself every 60s, so this can sit on an office
+// screen as a wall dashboard. Quiet — no skeleton flash on the refresh.
+const tick = setInterval(async () => {
+  if (day.value !== today || document.visibilityState !== "visible") return;
+  try { d.value = await api("scanlog.floor_activity", { day: day.value }); } catch {}
+}, 60000);
+onUnmounted(() => clearInterval(tick));
+
+// The pulse: station discipline means silence is signal here. Green = scanned
+// within 5 minutes; amber = 5-15; rose = 15+ while punched in; stone = punched
+// in and not one scan yet. The manager's note rides the card so the recorded
+// exception travels with the red it excuses.
+function liveTone(p) {
+  const level = p.lastAgoMin === null ? "off"
+    : p.lastAgoMin <= 5 ? "on" : p.lastAgoMin <= 15 ? "cooling" : "silent";
+  return {
+    on:      { box: "bg-emerald-50 ring-emerald-200", dot: "bg-emerald-500", pulse: true,
+               name: "text-emerald-900", sub: "text-emerald-700/80" },
+    cooling: { box: "bg-amber-50 ring-amber-200", dot: "bg-amber-500", pulse: false,
+               name: "text-amber-900", sub: "text-amber-700/80" },
+    silent:  { box: "bg-rose-50 ring-rose-200", dot: "bg-rose-500", pulse: false,
+               name: "text-rose-900", sub: "text-rose-700/90" },
+    off:     { box: "bg-white ring-stone-200", dot: "bg-stone-300", pulse: false,
+               name: "text-stone-700", sub: "text-stone-400" },
+  }[level];
+}
+function mainStation(p) {
+  let best = "", n = -1;
+  for (const [st, c] of Object.entries(p.stations || {})) if (c > n) { best = st; n = c; }
+  return best ? t("fa.st_" + best) : "";
+}
+
+// Manager margin notes.
+const noteFor = ref("");
+const noteText = ref("");
+const noteBusy = ref(false);
+async function saveNote(p) {
+  if (!noteText.value.trim()) return;
+  noteBusy.value = true;
+  try {
+    await apiPost("scanlog.floor_note", { user: p.user, day: day.value, text: noteText.value.trim() });
+    noteFor.value = ""; noteText.value = "";
+    d.value = await api("scanlog.floor_activity", { day: day.value });
+  } catch (e) { /* the toast layer isn't wired here; keep the input so nothing is lost */ }
+  noteBusy.value = false;
+}
 
 // One shared axis from the earliest to the latest slot anyone touched, so a
 // silent half-hour shows as a hole that lines up across all the rows.

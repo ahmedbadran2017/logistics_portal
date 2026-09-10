@@ -71,6 +71,31 @@ def ensure_doctype():
         frappe.log_error(frappe.get_traceback()[:2000], "scanlog.ensure_doctype")
 
 
+@frappe.whitelist(methods=["POST"])
+def floor_note(user, day, text):
+    """The floor manager's margin note on a person's day — "he was unloading
+    the 14:10 truck", "sent to help returns". This is what makes a red card
+    fair: the station discipline is the manager's to certify, so their word
+    is recorded next to the silence it explains, with their name and the
+    moment they wrote it. Stored as a Comment on the Employee record, so it
+    outlives this screen and joins the person's own history."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Managers only.", frappe.PermissionError)
+    user = (user or "").strip()
+    text = (text or "").strip()[:280]
+    day = (day or "").strip()[:10]
+    if not (user and text and day):
+        frappe.throw("Missing note details.")
+    emp = frappe.db.get_value("Employee", {"user_id": user}, "name")
+    if not emp:
+        frappe.throw("No employee record for that user.")
+    frappe.get_doc("Employee", emp).add_comment(
+        "Comment", f"Floor {day}: {text}")
+    frappe.db.commit()
+    return {"ok": True}
+
+
 def backfill_manifest_history():
     """Seed the log from the one station that always HAD a witness.
 
@@ -156,6 +181,8 @@ def floor_activity(day=None):
         p["_prev"] = at
     # Who are these emails, and when did HR see them arrive? First punch of
     # the floor day, so "clocked in 09:07, first scan 10:40" is one glance.
+    # NB: the punched-but-silent merge below adds people to `out`, so the
+    # employee map is rebuilt after it via _emp_for.
     users = tuple(out) or ("",)
     emp = {r.user_id: r for r in frappe.db.sql(
         """SELECT user_id, name emp, employee_name FROM `tabEmployee`
@@ -170,13 +197,74 @@ def floor_activity(day=None):
                      AND c.time >= %s AND c.time < %s
                    GROUP BY e.user_id""", (users, d0, d1), as_dict=True):
             punch[r.user_id] = str(clock.to_floor(r.t))[11:16]
+    # People who PUNCHED IN today, hold a scanner-station role, and have not
+    # scanned once — the loudest signal on the board, and the one the old
+    # payload could not show because it only knew people who had scanned.
+    # Scanner roles only: judging a desk job by scan silence would be unjust
+    # noise, and unjust noise is how a board loses the team.
+    from logistics_portal.api.auth import resolve_role
+    for r in frappe.db.sql(
+            """SELECT DISTINCT e.user_id, e.employee_name, MIN(c.time) t
+               FROM `tabEmployee Checkin` c
+               JOIN `tabEmployee` e ON e.name = c.employee
+               WHERE c.log_type = 'IN' AND c.time >= %s AND c.time < %s
+                 AND e.user_id IS NOT NULL AND e.user_id != ''
+               GROUP BY e.user_id, e.employee_name""", (d0, d1), as_dict=True):
+        if r.user_id in out:
+            continue
+        try:
+            if resolve_role(r.user_id) not in ("picker", "packer", "returns"):
+                continue
+        except Exception:
+            continue
+        out[r.user_id] = {"user": r.user_id, "scans": 0, "units": 0,
+                          "stations": {}, "first": None, "last": None,
+                          "slots": {}, "maxGapMin": 0, "_prev": None}
+        punch.setdefault(r.user_id, str(clock.to_floor(r.t))[11:16])
+
+    # Rebuild the employee map AFTER the merge — the silent-but-punched rows
+    # were not in it, and without this they would lose their names and their
+    # notes.
+    users = tuple(out) or ("",)
+    emp = {r.user_id: r for r in frappe.db.sql(
+        """SELECT user_id, name emp, employee_name FROM `tabEmployee`
+           WHERE user_id IN %s""", (users,), as_dict=True)}
+
+    # The floor manager's margin notes — "was unloading the truck 14:10-14:40"
+    # — kept on the Employee record so they outlive this screen.
+    notes = {}
+    emp_users = {v["emp"]: k for k, v in emp.items()}
+    if emp:
+        for r in frappe.db.sql(
+                """SELECT c.reference_name emp, c.owner, c.creation, c.content
+                   FROM `tabComment` c
+                   WHERE c.reference_doctype = 'Employee'
+                     AND c.reference_name IN %s
+                     AND c.content LIKE %s
+                   ORDER BY c.creation""",
+                (tuple(v["emp"] for v in emp.values()), f"Floor {day}:%"),
+                as_dict=True):
+            u = emp_users.get(r.emp)
+            if u:
+                notes.setdefault(u, []).append({
+                    "by": (r.owner or "").split("@")[0],
+                    "at": str(clock.to_floor(r.creation))[11:16],
+                    "text": (r.content or "").split(":", 2)[-1].strip()})
+
+    fnow = clock.floor_now()
     people = []
     for p in out.values():
-        p.pop("_prev", None)
+        prev_at = p.pop("_prev", None)
         p["maxGapMin"] = int(p["maxGapMin"])
         p["name"] = (emp.get(p["user"], {}) or {}).get("employee_name") \
             or p["user"].split("@")[0]
         p["punchIn"] = punch.get(p["user"])
+        # Minutes of silence since their last scan — the live board's pulse.
+        # None when they have not scanned at all today.
+        p["lastAgoMin"] = int((fnow - prev_at).total_seconds() // 60) \
+            if prev_at else None
+        p["notes"] = notes.get(p["user"], [])
         people.append(p)
     people.sort(key=lambda x: -x["scans"])
-    return {"day": day, "people": people, "totalScans": len(rows)}
+    return {"day": day, "people": people, "totalScans": len(rows),
+            "floorNow": str(fnow)[11:16]}
