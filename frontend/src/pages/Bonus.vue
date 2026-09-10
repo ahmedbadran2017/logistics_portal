@@ -260,9 +260,17 @@
                       <span class="font-bold text-stone-800 w-[60px] text-end">{{ l.subtotal }}</span>
                     </div>
                     <div class="flex items-center gap-2 text-[12px] tabular-nums">
-                      <span class="text-stone-600 flex-1">{{ t('bn.k_delivered') }} <span class="text-[10.5px] text-rose-400" v-if="breakdown.returned">· {{ breakdown.returned }} {{ t('ws.refused') }}</span></span>
+                      <span class="text-stone-600 flex-1">{{ t('bn.k_delivered') }}</span>
                       <span class="text-stone-400">{{ breakdown.delivered }} × {{ breakdown.deliveredEach }}</span>
                       <span class="font-bold text-emerald-600 w-[60px] text-end">{{ breakdown.deliveredPts }}</span>
+                    </div>
+                    <!-- the deduction: the one negative in the scheme, and the
+                         receipt says so in red rather than hiding it in a net -->
+                    <div v-if="breakdown.returned && breakdown.returnedEach"
+                         class="flex items-center gap-2 text-[12px] tabular-nums">
+                      <span class="text-rose-600 flex-1">{{ t('bn.k_failed') }}</span>
+                      <span class="text-rose-400">{{ breakdown.returned }} × {{ breakdown.returnedEach }}</span>
+                      <span class="font-bold text-rose-600 w-[60px] text-end">{{ breakdown.returnedPts }}</span>
                     </div>
                     <div class="flex items-center gap-2 text-[12px] tabular-nums pt-1 border-t border-stone-200/70">
                       <span class="text-stone-500 flex-1">{{ t('bn.kStreak').replace('{n}', String(breakdown.streakDays)) }}</span>

@@ -134,9 +134,17 @@ _BONUS_DEFAULTS = {
         # and the recipe alike — stored settings merge over these keys, so
         # deleting it here deletes it everywhere.
         "cf.confirm": 0.1, "cf.cancel": 0.0, "cf.duplicate": 0.05,
-        "cf.dna": 0.02, "cf.followup": 0.02,
+        # dna/followup pay NOTHING (Ahmed 2026-09-10) — and deliberately not
+        # a NEGATIVE either: these are log entries the agent writes with
+        # their own hand, and taxing the log teaches people to stop keeping
+        # it — unrecorded no-answers get no retry timer and the queue goes
+        # dark. Measured before zeroing: the top agent's 242 no-answers were
+        # 5.5% of her points, logged at a human pace (max 3/minute), and 46%
+        # of those orders later CONVERTED — the follow-through the log
+        # exists to drive.
+        "cf.dna": 0.0, "cf.followup": 0.0,
         "rs.redeliver": 0.5, "rs.reship": 0.5, "rs.returnreq": 0.1,
-        "rs.dna": 0.02, "rs.cancel": 0.0, "rs.resolve": 0.1,
+        "rs.dna": 0.0, "rs.cancel": 0.0, "rs.resolve": 0.1,
         "cs.resolve": 0.3, "cs.reply": 0.05, "cs.create": 0.05,
         "cs.take": 0.02, "cs.hold": 0.0, "cs.reopen": 0.0,
         # THE OUTCOME. A confirm is a promise; a delivered parcel is the money.
@@ -150,9 +158,17 @@ _BONUS_DEFAULTS = {
         # that is when the cash arrived.
         # Four times a confirm: the outcome is what the company is buying.
         "cf.delivered": 0.4,
-        # A returned parcel is not a penalty — it is simply an unearned point.
-        # Fining it on top would push agents to cancel anything doubtful.
-        "cf.returned": 0.0,
+        # THE NEGATIVE (Ahmed 2026-09-10): a parcel that bounced from an
+        # order you confirmed COSTS points. This is the one penalty that
+        # cannot be gamed, because the carrier writes it, not the agent —
+        # every penalty on a logged action just teaches people to stop
+        # logging. Half the delivered rate, so the net outcome of a careless
+        # confirm is firmly negative while one bad parcel never erases two
+        # good ones. The earlier fear — "fining returns pushes agents to
+        # cancel anything doubtful" — is defused by cancel itself paying
+        # zero: when in doubt, a cancel now costs nothing and a forced
+        # confirm risks -0.2.
+        "cf.returned": -0.2,
         # Floor: the live top picker moves ~3,100 orders a month.
         "pick.picked": 0.1,
     },
@@ -238,8 +254,12 @@ def save_bonus_settings(settings=None):
         for k in out["points"]:
             if k in settings["points"]:
                 v = float(settings["points"][k])
-                if not (0 <= v <= 100):
-                    frappe.throw(f"{k}: points must be between 0 and 100.")
+                # Only the carrier-written outcome may go negative; a stray
+                # minus on any hand-logged action would quietly teach the
+                # team to stop logging (see the points table).
+                lo = -100 if k == "cf.returned" else 0
+                if not (lo <= v <= 100):
+                    frappe.throw(f"{k}: points must be between {lo} and 100.")
                 out["points"][k] = v
     if isinstance(settings.get("money"), dict):
         m = settings["money"]
@@ -478,15 +498,20 @@ def _cc_board(month, pts):
                                      "actions": 0})
 
     rows = []
+    r_rate = pts.get("cf.returned", 0)
     for u, a in per_agent.items():
         o = outcome.get(u, {"delivered": 0, "returned": 0})
         shipped = o["delivered"] + o["returned"]
-        dpts = o["delivered"] * d_rate
+        # NET outcome: what landed earns, what bounced deducts — so the four
+        # columns still sum to the points column. The receipt itemises the
+        # two halves. Floor at zero: the scheme punishes a careless month by
+        # paying nothing, never by billing anybody.
+        dpts = o["delivered"] * d_rate + o["returned"] * r_rate
         rows.append({
             "agent": u.split("@")[0], "user": u,
             "cols": [round(a["cf"], 1), round(a["rs"], 1), round(a["cs"], 1),
                      round(dpts, 1)],
-            "points": round(a["cf"] + a["rs"] + a["cs"] + dpts, 1),
+            "points": round(max(0.0, a["cf"] + a["rs"] + a["cs"] + dpts), 1),
             "actions": a["actions"],
             # The two numbers the agent has to see. A careless confirm is a
             # return, and a return is a round trip paid for nothing.
@@ -1245,7 +1270,9 @@ def bonus_breakdown(user=None, month=None, group="cc"):
               "subtotal": round(n * pts[k], 1)}
              for k, n in sorted(rows.items(), key=lambda x: -x[1] * pts[x[0]])]
     dpts = round(delivered * d_rate, 1)
-    total = round(sum(x["subtotal"] for x in lines) + dpts, 1)
+    r_rate = pts.get("cf.returned", 0)
+    rpts = round(returned * r_rate, 1)
+    total = round(max(0.0, sum(x["subtotal"] for x in lines) + dpts + rpts), 1)
     streak = _streak_days(user, "cc", month)
     # Everything the "how does this work" explainer needs, from the LIVE
     # scheme — the page must never restate a rule in prose that settings can
@@ -1255,6 +1282,7 @@ def bonus_breakdown(user=None, month=None, group="cc"):
     return {"user": user, "month": month, "lines": lines,
             "delivered": delivered, "returned": returned,
             "deliveredEach": d_rate, "deliveredPts": dpts,
+            "returnedEach": r_rate, "returnedPts": rpts,
             "streakDays": streak, "total": total,
             "target": s["targets"].get(group, 0),
             "scheme": {
