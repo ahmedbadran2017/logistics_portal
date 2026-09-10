@@ -257,15 +257,24 @@ def floor_activity(day=None):
     # payload could not show because it only knew people who had scanned.
     # Scanner roles only: judging a desk job by scan silence would be unjust
     # noise, and unjust noise is how a board loses the team.
-    # Widened 2026-09-10 on the manager's call: the first cut whitelisted
-    # picker/packer/returns and half the floor was invisible — most floor
-    # staff carry no portal role at all (resolves to None), and the
-    # dispatcher sorts at the wall too. Everyone punched in joins the board
-    # EXCEPT the contact-centre lanes (confirmation/cs/tracking): their work
-    # holds no scanner and they have their own dashboards. The ALERT keeps
-    # the narrow scanner-role whitelist — see silent_now — so showing
-    # everyone here never pages anyone about a desk job.
+    # Tuned twice on the manager's calls (2026-09-10): the first cut
+    # whitelisted picker/packer/returns and hid the dispatcher; the second
+    # cut showed EVERYONE punched in — and flooded the board with office
+    # staff who never touch the floor. The final rule: zero-scan rows only
+    # for the scanner roles plus the dispatcher plus the named floor
+    # supervisors (lp_floor_extra); anyone who actually SCANNED appears
+    # regardless of role. The ALERT keeps the narrow scanner-role whitelist
+    # — see silent_now — so nobody is paged about a desk job.
+    import json as _j
     from logistics_portal.api.auth import resolve_role
+    # The floor's own supervisor watches from the wall, not a scanner — on
+    # the manager's call he belongs on the board. More names can join via
+    # the lp_floor_extra default (JSON list of emails) without a deploy.
+    extra = {"ossamanahila@gmail.com"}
+    try:
+        extra |= set(_j.loads(frappe.db.get_default("lp_floor_extra") or "[]"))
+    except Exception:
+        pass
     roles = {}
     for r in frappe.db.sql(
             """SELECT DISTINCT e.user_id, e.employee_name, MIN(c.time) t
@@ -281,7 +290,8 @@ def floor_activity(day=None):
         roles[r.user_id] = role or "none"
         if r.user_id in out:
             continue
-        if role in ("confirmation", "cs", "tracking"):
+        if role not in ("picker", "packer", "returns", "dispatcher") \
+                and r.user_id not in extra:
             continue
         out[r.user_id] = {"user": r.user_id, "scans": 0, "units": 0,
                           "stations": {}, "first": None, "last": None,
