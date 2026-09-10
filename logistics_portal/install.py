@@ -64,6 +64,12 @@ INDEXES = [
     # seconds. NB: adding this index rewrites a 4 GB table — run the migrate
     # off-peak.
     ("Version", ["owner", "ref_doctype", "creation"], "lp_version_owner_idx"),
+    # The scan witness log: every activity question slices on person-over-time
+    # or station-over-time. (Created by scanlog.ensure_doctype, which hooks.py
+    # runs in the same after_migrate pass; add_index is try/except, so the
+    # very first migrate simply picks these up on its second run.)
+    ("LP Scan Event", ["owner", "creation"], "lp_scan_owner_idx"),
+    ("LP Scan Event", ["station", "creation"], "lp_scan_station_idx"),
 ]
 
 

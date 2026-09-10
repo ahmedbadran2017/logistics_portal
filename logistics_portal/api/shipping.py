@@ -564,6 +564,8 @@ def manifest_scan(code):
     sh.append("shipment_delivery_note", {"delivery_note": d.dn, "grand_total": d.value or 0})
     sh.value_of_goods = float(sh.value_of_goods or 0) + float(d.value or 0)
     sh.save(ignore_permissions=True)
+    from logistics_portal.api.scanlog import log_scan
+    log_scan("manifest", sales_order=d.so)
     frappe.db.commit()
     return {"ok": True, "dn": d.dn, "awb": d.awb or "", "order": d.so or "",
             "customer": d.customer or "", "value": float(d.value or 0),

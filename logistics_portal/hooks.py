@@ -63,6 +63,9 @@ doc_events = {
 # ---------------------------------------------------------------------------
 # Performance indexes for the board queries (idempotent, runs on every migrate).
 after_migrate = [
+    # The scan witness doctype must exist BEFORE ensure_indexes tries to
+    # index its table — order in this list is execution order.
+    "logistics_portal.api.scanlog.ensure_doctype",
     "logistics_portal.install.ensure_indexes",
     "logistics_portal.install.ensure_catalog_fields",
     "logistics_portal.install.ensure_pick_fields",

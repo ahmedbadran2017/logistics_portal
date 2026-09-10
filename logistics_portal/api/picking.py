@@ -264,6 +264,10 @@ def scan_pick(pick_list, code):
         on = frappe.db.exists("Pick List Item", {"parent": pick_list, "item_code": item_code})
         return {"ok": False, "reason": "done" if on else "not_on_list",
                 "itemCode": item_code, "name": r.get("name")}
+    # The raw UPDATE above is deliberate and leaves no trail at all — this is
+    # the trail: one witness row per scan (who/when/where), never a gate.
+    from logistics_portal.api.scanlog import log_scan
+    log_scan("pick", pick_list=pick_list, item_code=item_code)
     it = frappe.db.sql(
         """SELECT SUM(qty) q, SUM(COALESCE(custom_scanned_qty,0)) s FROM `tabPick List Item`
            WHERE parent=%s AND item_code=%s""", (pick_list, item_code), as_dict=True)[0]
@@ -2789,6 +2793,8 @@ def sort_scan(pick_list, code):
         # Someone else just filled this line — report the item as done.
         return {"ok": False, "reason": "done", "itemCode": item_code,
                 "name": r.get("name"), "sku": r.get("sku")}
+    from logistics_portal.api.scanlog import log_scan
+    log_scan("sort", pick_list=pick_list, sales_order=row.so, item_code=item_code)
 
     # Re-read remaining AFTER the write so it reflects concurrent scans.
     left = int(frappe.db.sql(
