@@ -298,6 +298,16 @@ def floor_activity(day=None):
                           "slots": {}, "maxGapMin": 0, "_prev": None}
         punch.setdefault(r.user_id, str(clock.to_floor(r.t))[11:16])
 
+    # Role tags for people who scanned WITHOUT punching in — the roles map
+    # above only knows the punched, so a packer who skipped the HR clock
+    # showed a generic "floor" tag.
+    for u in out:
+        if u not in roles:
+            try:
+                roles[u] = resolve_role(u) or "none"
+            except Exception:
+                roles[u] = "none"
+
     # Rebuild the employee map AFTER the merge — the silent-but-punched rows
     # were not in it, and without this they would lose their names and their
     # notes.
