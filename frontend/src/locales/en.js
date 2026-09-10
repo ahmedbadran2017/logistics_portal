@@ -1443,6 +1443,8 @@ export default {
     exitList: "Exit list",
     listDone: "List finished — back to serve-next",
     workList: "Work this list",
+    k_nd: "not delivered",
+    k_duplicated: "duplicate",
     k_dna: "call back",
     k_followup: "follow-up",
     k_onhold: "on hold",

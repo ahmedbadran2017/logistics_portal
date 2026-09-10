@@ -288,7 +288,7 @@
                         @click="cancelReason = rs">{{ rs }}</button>
               </div>
               <button class="h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50"
-                      :disabled="!cancelReason || busy" @click="decide('cancel', cancelReason)">{{ t('cf.cancelConfirm') }}</button>
+                      :disabled="!cancelReason || busy" @click="submitCancel">{{ t('cf.cancelConfirm') }}</button>
             </div>
           </Transition>
 
@@ -326,7 +326,38 @@
             </button>
           </div>
 
-          <div v-if="!inLane" class="rounded-xl bg-stone-50 ring-1 ring-stone-200/70 px-3.5 py-2.5 text-[12px] text-stone-500">
+          <!-- Not-Delivered decisions: Rescue's action set, run through
+               rescue.act so the transitions live in one place — same engine
+               the tab's inline buttons use. -->
+          <div v-if="isNdCard" class="flex flex-wrap gap-2">
+            <button class="ws-decide flex-[2] min-w-[160px] text-white bg-emerald-600 hover:bg-emerald-700"
+                    :disabled="busy" @click="decideNd('redeliver')">
+              <Icon name="refresh-cw" :size="15" /><span>{{ t('rs.actRedeliver') }}</span> <kbd>1</kbd>
+            </button>
+            <button class="ws-decide flex-1 min-w-[120px] bg-violet-50 text-violet-700 ring-1 ring-violet-200 hover:bg-violet-100"
+                    :disabled="busy" @click="decideNd('reship')">
+              <Icon name="send" :size="14" /><span>{{ t('rs.actReship') }}</span> <kbd>2</kbd>
+            </button>
+            <button class="ws-decide flex-1 min-w-[120px] bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100"
+                    :disabled="busy" @click="decideNd('dna')">
+              <Icon name="phone-off" :size="14" /><span>{{ t('cf.actDna') }}</span> <kbd>3</kbd>
+            </button>
+            <button class="ws-decide flex-1 min-w-[120px] bg-white text-rose-600 ring-1 ring-rose-200 hover:bg-rose-50"
+                    :disabled="busy" :class="panel === 'cancel' ? 'ring-2' : ''"
+                    @click="panel = panel === 'cancel' ? '' : 'cancel'">
+              <Icon name="x" :size="14" /><span>{{ t('rs.actCancel') }}</span> <kbd>4</kbd>
+            </button>
+          </div>
+
+          <!-- Duplicated: one honest exit — back into the queue. -->
+          <div v-else-if="isDupCard" class="flex flex-wrap gap-2">
+            <button class="ws-decide flex-1 min-w-[180px] bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100"
+                    :disabled="busy" @click="decide('reopen')">
+              <Icon name="rotate-ccw" :size="15" /><span>{{ t('cf.bulkReopen') }}</span> <kbd>1</kbd>
+            </button>
+          </div>
+
+          <div v-if="!inLane && !isNdCard && !isDupCard" class="rounded-xl bg-stone-50 ring-1 ring-stone-200/70 px-3.5 py-2.5 text-[12px] text-stone-500">
             {{ t('ws.outOfLane') }}
           </div>
 
@@ -632,12 +663,17 @@ const dueCount = computed(() => plan.value?.dueCount || 0);
 const KIND_CLS = {
   dna: "text-amber-700 bg-amber-100",
   followup: "text-sky-700 bg-sky-100",
-  onhold: "text-stone-600 bg-stone-200",
+  nd: "text-orange-700 bg-orange-100",
+  duplicated: "text-violet-700 bg-violet-100",
 };
 
 // The card tells the ORDER's truth from the order itself (orders.detail) —
 // never from the plan row, which deep-linked opens aren't part of.
-const ST_KIND = { "Did not Answer": "dna", "Follow Up": "followup", "On Hold": "onhold" };
+// LIVE statuses only — inLane hangs off this map, so Not Delivered and
+// Duplicated must NOT be in it: their cards carry their own action rows
+// (rescue's set, and Reopen) below, never the confirm row.
+const ST_KIND = { "Did not Answer": "dna", "Follow Up": "followup" };
+const ROW_KIND = { ...ST_KIND, "Not Delivered": "nd", "Duplicated": "duplicated" };
 // Is this order still ours to decide? The clickable history can land the
 // agent on a delivered, returned or cancelled order — the backend rejects a
 // decision there, so the buttons must not be offered in the first place.
@@ -645,12 +681,18 @@ const inLane = computed(() => {
   const st = active.value?.sales_status;
   return !!st && (st === "Pending" || !!ST_KIND[st]);
 });
+// Two more cards the workspace knows how to work — the reason the pin
+// button and the two tab buttons exist on Not Delivered and Duplicated.
+const isNdCard = computed(() => active.value?.sales_status === "Not Delivered");
+const isDupCard = computed(() => active.value?.sales_status === "Duplicated");
 const stChip = computed(() => {
   const st = active.value?.sales_status;
   if (!st) return null;
   const kind = ST_KIND[st];
   if (kind) return { label: t("ws.k_" + kind), cls: KIND_CLS[kind] };
   if (st === "Pending") return { label: t("cf.tabPending"), cls: "text-[var(--accent-700)] bg-[var(--accent-100)]" };
+  if (st === "Not Delivered")
+    return { label: t("cf.tabNotDelivered"), cls: "text-orange-700 bg-orange-100" };
   const done = { Confirmed: "confirmed", Cancelled: "cancelled",
                  Duplicated: "duplicated" }[st];
   return { label: done ? t("cf.st" + done) : st, cls: "text-stone-600 bg-stone-200" };
@@ -671,7 +713,8 @@ const miniActivity = ref([]);
 // Board-tab list mode: the agent picked a queue on the Confirmation board and
 // works it here start to finish — no bouncing back after every decision.
 const WORK_TAB_LABEL = { pending: "cf.tabPending", dna: "cf.tabDna",
-  followup: "cf.tabFollowup", onhold: "cf.tabOnhold", monitor: "cf.tabMonitor" };
+  followup: "cf.tabFollowup", monitor: "cf.tabMonitor",
+  notdelivered: "cf.tabNotDelivered", duplicated: "cf.tabDuplicated" };
 const tabMode = ref("");
 const tabRows = ref([]);
 const tabLoading = ref(false);
@@ -684,7 +727,7 @@ async function loadTabQueue(tb) {
     if (seq !== tabSeq) return;
     tabRows.value = (r?.rows || []).map((x) => ({
       order: x.order, customer: x.customer, total: x.total, ageH: x.ageH,
-      attempts: x.attempts, due: !!x.due, kind: ST_KIND[x.status] || (KIND_CLS[tb] ? tb : "pending"),
+      attempts: x.attempts, due: !!x.due, kind: ROW_KIND[x.status] || (KIND_CLS[tb] ? tb : "pending"),
     }));
   } catch (e) { if (seq === tabSeq) tabRows.value = []; }
   if (seq === tabSeq) tabLoading.value = false;
@@ -951,6 +994,36 @@ async function _serve(skipCurrent = false) {
   }
 }
 
+// A cancel from the panel posts to whichever engine owns this card.
+function submitCancel() {
+  if (isNdCard.value) decideNd("cancel", cancelReason.value);
+  else decide("cancel", cancelReason.value);
+}
+
+// Rescue decisions for a Not-Delivered card — mirrors decide(), but through
+// rescue.act, because a shipped-then-failed parcel's transitions belong to
+// the rescue engine (confirmation.act rightly refuses them).
+async function decideNd(action, note) {
+  if (!active.value) return;
+  busy.value = true;
+  try {
+    await apiPost("rescue.act", { id: active.value.name, action, note });
+    success(t(`rs.done_${action}`), active.value.name);
+    popCoin(action === "cancel" ? "cancel" : action === "dna" ? "dna" : "confirm");
+    panel.value = ""; cancelReason.value = "";
+    // dna re-queues with a retry timer; every other decision removes it.
+    if (action !== "dna") {
+      if (plan.value?.rows) plan.value.rows = plan.value.rows.filter((r) => r.order !== active.value.name);
+      if (tabMode.value) { await advanceTab(active.value?.name); busy.value = false; return; }
+    } else if (tabMode.value) { await advanceTab(active.value?.name); busy.value = false; return; }
+    await _serve(false);
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function decide(action, note) {
   if (!active.value) return;
   busy.value = true;
@@ -1040,6 +1113,21 @@ function onKey(e) {
   // While a new card is loading, `active` still holds the old order — a
   // keystroke here decided (or skipped) the wrong one.
   else if (!active.value || busy.value || cardLoading.value) return;
+  // Each card kind answers its own digits — the live map used to fire on ANY
+  // card, posting a confirm at an order the backend was guaranteed to refuse.
+  else if (isNdCard.value) {
+    if (c === "Digit1" || c === "Numpad1") decideNd("redeliver");
+    else if (c === "Digit2" || c === "Numpad2") decideNd("reship");
+    else if (c === "Digit3" || c === "Numpad3") decideNd("dna");
+    else if (c === "Digit4" || c === "Numpad4") panel.value = panel.value === "cancel" ? "" : "cancel";
+    else if (c === "KeyM") panel.value = panel.value === "note" ? "" : "note";
+    return;
+  }
+  else if (isDupCard.value) {
+    if (c === "Digit1" || c === "Numpad1") decide("reopen");
+    return;
+  }
+  else if (!inLane.value) return;
   else if (c === "Digit1" || c === "Numpad1") onConfirm();
   else if (c === "Digit2" || c === "Numpad2") decide("dna");
   else if (c === "Digit3" || c === "Numpad3") decide("followup");

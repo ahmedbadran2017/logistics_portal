@@ -965,6 +965,7 @@ def act(order, action, note=None, _bulk=False):
     # now, not up to a minute from now — their cached report is theirs alone,
     # so dropping it costs nobody else anything.
     frappe.cache().delete_keys("lp_myrep_%s" % frappe.session.user)
+    unpin_after_decision(order)
     return {"ok": True, "order": order, "action": action, "attempts": attempts}
 
 
@@ -2346,6 +2347,22 @@ def _pins_all():
         return {}
 
 
+def unpin_after_decision(order, user=None):
+    """A decided order leaves the workspace queue on its own.
+
+    Nothing ever removed a pin: _pins_write had exactly one caller —
+    pin_order itself — so a pinned order was served again after every
+    decision, forever, until the agent noticed and unpinned it by hand.
+    Called from confirmation.act and rescue.act; safe on a name that was
+    never pinned, and rescue may hand it a Delivery Note name (its DN
+    queues), which simply matches nothing.
+    """
+    user = user or frappe.session.user
+    mine = _pins_all().get(user) or []
+    if order in mine:
+        _pins_write(user, [x for x in mine if x != order])
+
+
 def _pins_for(user):
     """This agent's pins, newest first, with anything no longer workable
     dropped — an order someone else already decided must not sit at the front
@@ -2600,7 +2617,7 @@ def next_up(limit=20, as_user=None):
         {**vals, "sts": retry_sts})[0][0]
 
     status_tab = {"Did not Answer": "dna", "Follow Up": "followup",
-                  "On Hold": "onhold"}
+                  "Not Delivered": "nd", "Duplicated": "duplicated"}
 
     def _when(dt):
         # HH:MM reads as "today" — a call-back due TOMORROW 08:30 must say so.

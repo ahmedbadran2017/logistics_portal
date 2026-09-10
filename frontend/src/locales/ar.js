@@ -1443,6 +1443,8 @@ export default {
     exitList: "خروج",
     listDone: "القايمة خلصت — رجعنا للتوزيع التلقائي",
     workList: "اشتغل على القايمة",
+    k_nd: "لم يتم التسليم",
+    k_duplicated: "مكرر",
     k_dna: "معاودة",
     k_followup: "متابعة",
     k_onhold: "معلق",

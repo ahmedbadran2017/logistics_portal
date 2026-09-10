@@ -443,6 +443,13 @@ def act(id=None, action=None, note=None):
             "Comment", tag + (f" (attempt {attempts})" if action == "dna" else ""))
 
     frappe.db.commit()
+    # A pinned parcel leaves the actor's workspace queue with the decision —
+    # same contract as confirmation.act, or the pin serves it forever.
+    try:
+        from logistics_portal.api.confirmation import unpin_after_decision
+        unpin_after_decision(order or id)
+    except Exception:
+        pass
     return {"ok": True, "id": id, "action": action, "attempts": attempts,
             "order": order or ""}
 

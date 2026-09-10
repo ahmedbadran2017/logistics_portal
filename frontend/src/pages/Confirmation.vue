@@ -63,7 +63,7 @@
                  style="accent-color: var(--accent-600)" @change="toggleAll" />
           {{ t('rs.selectPage') }}
         </label>
-        <button v-if="!canBulk && !isDone && !isNd && rows.length && WORK_TABS.has(tab)"
+        <button v-if="!canBulk && rows.length && WS_LIST_TABS.has(tab)"
                 class="h-10 px-4 rounded-xl text-[12.5px] font-bold text-white inline-flex items-center gap-1.5 shadow-sm hover:shadow transition-shadow"
                 :style="{ background: 'var(--accent-600)' }" @click="workList">
           <Icon name="sparkles" :size="14" />{{ t('ws.workList') }}
@@ -495,6 +495,11 @@ function toggleHistory() {
   }
 }
 const WORK_TABS = new Set(["pending", "dna", "followup", "monitor"]);
+// The tabs the Workspace can WALK as a list. Not Delivered and Duplicated
+// joined (Ahmed 2026-09-10): their cards carry their own action rows there —
+// rescue's set, and Reopen — so "work this list" is as real for them as for
+// the call queues.
+const WS_LIST_TABS = new Set([...WORK_TABS, "notdelivered", "duplicated"]);
 // Agent live rows: the whole card opens the Workspace.
 const rowsOpenWs = computed(() =>
   !canBulk.value && !isDone.value && !isNd.value && tab.value !== "citycheck");
@@ -502,7 +507,7 @@ function openWs(r) {
   // Carry the tab too: the Workspace then walks THIS queue after each
   // decision instead of bouncing the agent back here.
   router.push({ name: "Workspace", query: {
-    order: r.order, ...(WORK_TABS.has(tab.value) ? { tab: tab.value } : {}) } });
+    order: r.order, ...(WS_LIST_TABS.has(tab.value) ? { tab: tab.value } : {}) } });
 }
 function workList() {
   router.push({ name: "Workspace", query: { tab: tab.value } });

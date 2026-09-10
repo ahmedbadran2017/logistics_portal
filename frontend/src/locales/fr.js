@@ -1444,6 +1444,8 @@ export default {
     exitList: "Quitter la liste",
     listDone: "Liste termin\u00e9e \u2014 retour au service auto",
     workList: "Travailler cette liste",
+    k_nd: "non livrée",
+    k_duplicated: "doublon",
     k_dna: "\u00e0 rappeler",
     k_followup: "relance",
     k_onhold: "en attente",
