@@ -1035,3 +1035,147 @@ def bulk_exceptions(action, dns=None, note=None):
             failed.append({"name": dn, "error": str(e)[:90]})
     frappe.db.commit()
     return {"ok": True, "action": action, "done": done, "failed": failed}
+
+
+# ── The cycle, in one glance ────────────────────────────────────────────────
+# Audited 2026-09-10 over 4,000 shipped orders: the stages themselves are
+# healthy (pick-to-label median 1.1h) — what failed was ATTENTION. Every
+# stage already had a page that can fix its stuck orders, but each page sits
+# behind its own menu item, and a number nobody looks at is a number that
+# does not exist: 59 labeled parcels sat in dispatch for 3+ days while the
+# page that would have shown them went unopened. This strip is the one
+# morning glance, each chip deep-linking to the EXISTING page that fixes it.
+
+
+@frappe.whitelist()
+def cycle_strip():
+    """The outbound journey as four chips: count + oldest age per stage.
+    Manager/dispatcher. Cached briefly — it rides the Cockpit's refresh."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    import json as _j
+    cache = frappe.cache()
+    hit = cache.get_value("lp_cycle_strip")
+    if hit:
+        try:
+            return _j.loads(hit)
+        except Exception:
+            pass
+    co = "Justyol Morocco"
+    # The SITE clock, never the DB's: MariaDB's NOW() runs on UTC while rows
+    # are stored on the site's Istanbul time, so an age measured against
+    # NOW() reads three hours young — a freshly created list showed "-2h".
+    from frappe.utils import now_datetime
+    now = str(now_datetime())[:19]
+
+    # 1 — confirmed, and no pick list exists. Same family as the Stranded
+    # page this chip links to, so the click always finds its number.
+    s1 = frappe.db.sql("""
+        SELECT COUNT(*), MAX(TIMESTAMPDIFF(HOUR, so.creation, %(now)s))
+        FROM `tabSales Order` so
+        WHERE so.docstatus = 1 AND so.company = %(co)s
+          AND so.custom_sales_status = 'Confirmed'
+          AND COALESCE(so.custom_logistics_status,'') IN ('', 'Pending')
+          AND so.creation >= DATE_SUB(%(now)s, INTERVAL 90 DAY)
+          AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
+                          JOIN `tabPick List` p ON p.name = pli.parent
+                          WHERE pli.sales_order = so.name AND p.docstatus < 2)""",
+        {"co": co, "now": now})[0]
+
+    # 2 — on a pick list, no label yet: the floor's live work-in-progress.
+    s2 = frappe.db.sql("""
+        SELECT COUNT(DISTINCT pli.sales_order),
+               MAX(TIMESTAMPDIFF(HOUR, p.creation, %(now)s))
+        FROM `tabPick List` p
+        JOIN `tabPick List Item` pli ON pli.parent = p.name
+        JOIN `tabSales Order` so ON so.name = pli.sales_order
+        WHERE p.docstatus < 2 AND p.creation >= DATE_SUB(%(now)s, INTERVAL 30 DAY)
+          AND so.company = %(co)s AND so.custom_sales_status = 'Confirmed'
+          AND COALESCE(so.custom_logistics_status,'') IN
+              ('', 'Pending', 'Picked', 'Label Generated')
+          AND NOT EXISTS (SELECT 1 FROM `tabDelivery Note Item` dni
+                          JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+                          WHERE dni.against_sales_order = so.name
+                            AND dn.docstatus = 1)""", {"co": co, "now": now})[0]
+
+    # 3 — labeled 24h+ ago, never manifest-scanned, and the carrier's
+    # tracking says it has NOT moved: a box standing in dispatch.
+    s3 = frappe.db.sql("""
+        SELECT COUNT(*), MAX(TIMESTAMPDIFF(HOUR, dn.creation, %(now)s))
+        FROM `tabDelivery Note` dn
+        WHERE dn.docstatus = 1
+          AND dn.creation >= DATE_SUB(%(now)s, INTERVAL 30 DAY)
+          AND dn.creation < DATE_SUB(%(now)s, INTERVAL 24 HOUR)
+          AND COALESCE(dn.custom_track_shipment_status,'') IN
+              ('', 'Pending', 'Label Generated', 'Label Printed')
+          AND NOT EXISTS (SELECT 1 FROM `tabShipment Delivery Note` sdn
+                          WHERE sdn.delivery_note = dn.name)""", {"now": now})[0]
+
+    # 4 — handed over on a manifest, the floor's day (context, not a worry).
+    from logistics_portal.api import clock
+    d0, d1 = clock.day_bounds(clock.floor_today())
+    s4 = frappe.db.sql("""
+        SELECT COUNT(*) FROM `tabShipment Delivery Note`
+        WHERE creation >= %s AND creation < %s""", (d0, d1))[0][0]
+
+    out = {"stages": [
+        {"key": "noList", "n": int(s1[0] or 0), "oldestH": int(s1[1] or 0),
+         "to": "Stranded"},
+        {"key": "picking", "n": int(s2[0] or 0), "oldestH": int(s2[1] or 0),
+         "to": "PickLists"},
+        {"key": "noManifest", "n": int(s3[0] or 0), "oldestH": int(s3[1] or 0),
+         "to": "Shipments"},
+        {"key": "handedToday", "n": int(s4 or 0), "oldestH": 0,
+         "to": "Manifest"},
+    ]}
+    cache.set_value("lp_cycle_strip", _j.dumps(out), expires_in_sec=120)
+    return out
+
+
+@frappe.whitelist()
+def label_orphans():
+    """Labeled parcels that never met a manifest scanner, split by what that
+    silence means:
+
+      stuck  — carrier tracking never moved: a physical box standing in the
+               dispatch area. Go pick it up.
+      leaked — the carrier IS moving it (or delivered it): the box left the
+               building without a manifest scan. Nothing to fetch — but the
+               manifest is the only proof of handover this company holds in
+               a dispute, and each of these left without one. Audited
+               2026-09-10: 139 of 466 orphans in one 14-day window had
+               already moved with the carrier — the door discipline, not the
+               parcel, is what this column is about.
+    """
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("packer", "dispatcher", "manager"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    from frappe.utils import now_datetime
+    now = str(now_datetime())[:19]
+    rows = frappe.db.sql("""
+        SELECT dn.name dn, dn.custom_awb awb, dn.customer_name customer,
+               dn.custom_track_shipment_status trk,
+               TIMESTAMPDIFF(HOUR, dn.creation, %(now)s) age_h,
+               (SELECT dni.against_sales_order FROM `tabDelivery Note Item` dni
+                WHERE dni.parent = dn.name AND dni.against_sales_order IS NOT NULL
+                LIMIT 1) so
+        FROM `tabDelivery Note` dn
+        WHERE dn.docstatus = 1
+          AND dn.creation >= DATE_SUB(%(now)s, INTERVAL 30 DAY)
+          AND NOT EXISTS (SELECT 1 FROM `tabShipment Delivery Note` sdn
+                          WHERE sdn.delivery_note = dn.name)
+        ORDER BY dn.creation""", {"now": now}, as_dict=True)
+    stuck, leaked = [], []
+    for r in rows:
+        row = {"dn": r.dn, "order": r.so or "", "awb": r.awb or "",
+               "customer": r.customer or "", "track": r.trk or "",
+               "ageH": int(r.age_h or 0)}
+        if (r.trk or "") in ("", "Pending", "Label Generated", "Label Printed"):
+            # under 24h it is simply today's flow, not an orphan yet
+            if row["ageH"] >= 24:
+                stuck.append(row)
+        else:
+            leaked.append(row)
+    return {"stuck": stuck[:200], "leaked": leaked[:200],
+            "stuckN": len(stuck), "leakedN": len(leaked)}

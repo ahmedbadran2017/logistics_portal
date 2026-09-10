@@ -32,6 +32,31 @@
         </div>
       </div>
 
+      <!-- The cycle, one glance. Four stages of the outbound journey, each
+           chip = count + oldest age, each clicking through to the EXISTING
+           page that fixes it. Built after the 2026-09-10 audit found the
+           stages healthy but unwatched: 59 labeled boxes stood in dispatch
+           for days while the page that listed them went unopened. -->
+      <div v-if="cyc" class="flex items-stretch gap-1.5 overflow-x-auto pb-0.5" style="scrollbar-width:none">
+        <template v-for="(st, si) in cyc.stages" :key="st.key">
+          <Icon v-if="si" name="chevron-right" :size="14" class="self-center text-stone-300 flex-shrink-0 rtl:rotate-180" />
+          <router-link :to="cycTo(st)" custom v-slot="{ navigate }">
+            <button class="flex-1 min-w-[150px] text-start rounded-xl ring-1 px-3.5 py-2.5 transition-all hover:shadow-sm"
+                    :class="cycTone(st).box" @click="navigate">
+              <div class="text-[10.5px] font-semibold uppercase tracking-wide" :class="cycTone(st).label">
+                {{ t('shp.cyc_' + st.key) }}
+              </div>
+              <div class="flex items-baseline gap-2 mt-0.5">
+                <span class="text-[20px] font-extrabold tabular-nums" :class="cycTone(st).n">{{ st.n }}</span>
+                <span v-if="st.oldestH >= 24" class="text-[10.5px] font-bold tabular-nums" :class="cycTone(st).label">
+                  {{ t('shp.cycOldest').replace('{d}', String(Math.floor(st.oldestH / 24))) }}
+                </span>
+              </div>
+            </button>
+          </router-link>
+        </template>
+      </div>
+
       <!-- Skeleton until the live snapshot arrives — never demo numbers -->
       <template v-if="loading && !isLive">
         <div class="h-[88px] rounded-2xl ring-1 ring-stone-200/60 bg-white animate-pulse" />
@@ -404,7 +429,30 @@ function onDateChange(e) {
   load();
 }
 
+// The cycle strip — independent of the snapshot load, so a slow one never
+// blocks the other.
+const cyc = ref(null);
+async function loadCycle() {
+  try { cyc.value = await api("shipping.cycle_strip"); } catch { cyc.value = null; }
+}
+function cycTo(st) {
+  return { name: st.to, ...(st.key === "noManifest" ? { query: { orphans: 1 } } : {}) };
+}
+function cycTone(st) {
+  // handedToday is context, never a worry; the rest heat up with the OLDEST
+  // waiting order — a pile of fresh work is normal, one old order is not.
+  const level = st.key === "handedToday" ? "ok"
+    : st.oldestH >= 72 ? "bad" : st.oldestH >= 24 ? "warn" : st.n ? "ok" : "idle";
+  return {
+    bad:  { box: "bg-rose-50 ring-rose-200 hover:bg-rose-100", label: "text-rose-600", n: "text-rose-700" },
+    warn: { box: "bg-amber-50 ring-amber-200 hover:bg-amber-100", label: "text-amber-600", n: "text-amber-700" },
+    ok:   { box: "bg-white ring-stone-200/70 hover:bg-stone-50", label: "text-stone-400", n: "text-stone-800" },
+    idle: { box: "bg-white ring-stone-200/70 hover:bg-stone-50", label: "text-stone-400", n: "text-stone-300" },
+  }[level];
+}
+
 onMounted(load);
+onMounted(loadCycle);
 
 // ── Breached orders panel ───────────────────────────────────────────
 const breachedOpen = ref(false);

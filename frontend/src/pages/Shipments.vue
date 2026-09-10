@@ -165,10 +165,53 @@
           <p class="text-[12.5px] text-stone-500 mt-0.5">{{ CARRIER }} · {{ WAREHOUSE }}</p>
         </div>
         <div class="flex items-center gap-2">
+          <button class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium rounded-lg ring-1 transition-colors whitespace-nowrap"
+                  :class="orphansOpen ? 'text-white bg-rose-600 ring-rose-600' : 'text-rose-700 bg-rose-50 ring-rose-200 hover:bg-rose-100'"
+                  @click="toggleOrphans">
+            <Icon name="alert-triangle" :size="14" /> {{ t("shp.orphansBtn") }}<template v-if="orphans"> · {{ orphans.stuckN + orphans.leakedN }}</template>
+          </button>
           <button class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium text-white bg-stone-900 rounded-lg hover:bg-stone-800 transition-colors whitespace-nowrap"
                   @click="$router.push({ name: 'Manifest' })">
             <Icon name="plus" :size="15" /> {{ t("shp.todaysManifest") }}
           </button>
+        </div>
+      </div>
+
+      <!-- Labeled, never manifest-scanned. Two silences with two meanings:
+           a box still standing here, and a box that left without the one
+           scan that proves the carrier took it. -->
+      <div v-if="orphansOpen" class="mb-4 rounded-xl ring-1 ring-rose-200/70 bg-white overflow-hidden">
+        <div v-if="orphansLoading" class="p-6 text-center text-[12.5px] text-stone-400">…</div>
+        <div v-else-if="orphans" class="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-stone-100">
+          <div v-for="side in ['stuck', 'leaked']" :key="side" class="min-w-0">
+            <div class="px-4 py-2.5 flex items-center gap-2"
+                 :class="side === 'stuck' ? 'bg-rose-50/60' : 'bg-amber-50/60'">
+              <Icon :name="side === 'stuck' ? 'package-x' : 'shield-alert'" :size="14"
+                    :class="side === 'stuck' ? 'text-rose-600' : 'text-amber-600'" />
+              <span class="text-[12.5px] font-bold" :class="side === 'stuck' ? 'text-rose-700' : 'text-amber-700'">
+                {{ t('shp.orphans_' + side) }} · {{ orphans[side + 'N'] }}
+              </span>
+              <span class="text-[11px] text-stone-500 truncate">{{ t('shp.orphans_' + side + 'Hint') }}</span>
+            </div>
+            <div class="max-h-[320px] overflow-y-auto">
+              <table class="w-full">
+                <tbody>
+                  <tr v-for="r in orphans[side]" :key="r.dn" class="border-t border-stone-50 text-[12px]">
+                    <td class="px-4 py-1.5 font-mono text-[11px] text-stone-700">{{ r.order || r.dn }}</td>
+                    <td class="px-2 py-1.5 font-mono text-[10.5px] text-stone-400 hidden sm:table-cell">{{ r.awb || '—' }}</td>
+                    <td class="px-2 py-1.5 text-stone-600 truncate max-w-[140px]" dir="auto">{{ r.customer }}</td>
+                    <td class="px-2 py-1.5 text-[11px] text-stone-500 hidden lg:table-cell">{{ r.track || '—' }}</td>
+                    <td class="px-4 py-1.5 text-end tabular-nums font-bold"
+                        :class="r.ageH >= 72 ? 'text-rose-600' : 'text-stone-600'">
+                      {{ Math.floor(r.ageH / 24) }}{{ t('shp.dayShort') }}</td>
+                  </tr>
+                  <tr v-if="!orphans[side].length">
+                    <td class="px-4 py-4 text-center text-[12px] text-stone-400">{{ t('shp.orphansNone') }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -275,6 +318,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from "vue";
+import { useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { CARRIER, WAREHOUSE, fmtMAD } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
@@ -291,6 +335,24 @@ const open = ref(null);
 // Live only — skeleton while loading, honest empty state after. No demo.
 const shipments = ref([]);
 const loading = ref(true);
+
+// The orphan panel — deep-linked from the Cockpit's cycle strip (?orphans=1)
+// or toggled by its header button.
+const orphansOpen = ref(false);
+const orphans = ref(null);
+const orphansLoading = ref(false);
+async function loadOrphans() {
+  orphansLoading.value = true;
+  try { orphans.value = await api("shipping.label_orphans"); }
+  catch { orphans.value = { stuck: [], leaked: [], stuckN: 0, leakedN: 0 }; }
+  orphansLoading.value = false;
+}
+function toggleOrphans() {
+  orphansOpen.value = !orphansOpen.value;
+  if (orphansOpen.value && !orphans.value) loadOrphans();
+}
+const _route = useRoute();
+if (_route.query.orphans) { orphansOpen.value = true; loadOrphans(); }
 
 onMounted(async () => {
   try {
