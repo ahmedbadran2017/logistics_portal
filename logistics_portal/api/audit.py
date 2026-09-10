@@ -526,9 +526,50 @@ def problem_radar():
                           "picks allocate from Receiving, and stale rows there send pickers to ghosts.",
                 "route": "/logistics/move"})
 
+    def cycle_aging():
+        """The two cycle stages the 2026-09-10 audit caught rotting unseen:
+        a confirmed order with no pick list for 3 days, and a labeled box
+        that never met the manifest scanner. The Cockpit strip shows them
+        every morning; this makes them impossible to miss on a morning
+        nobody opened the Cockpit. Ages measured against the SITE clock —
+        MariaDB's NOW() runs on UTC and reads three hours young."""
+        from frappe.utils import now_datetime
+        now = str(now_datetime())[:19]
+        n, _ = one("""SELECT COUNT(*) FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.company = 'Justyol Morocco'
+              AND so.custom_sales_status = 'Confirmed'
+              AND COALESCE(so.custom_logistics_status,'') IN ('', 'Pending')
+              AND so.creation < DATE_SUB(%s, INTERVAL 72 HOUR)
+              AND so.creation >= DATE_SUB(%s, INTERVAL 90 DAY)
+              AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
+                              JOIN `tabPick List` p ON p.name = pli.parent
+                              WHERE pli.sales_order = so.name AND p.docstatus < 2)""",
+            (now, now))
+        if n:
+            findings.append({"key": "cycleNoList", "sev": "critical", "count": n,
+                "title": "Confirmed 3d+ with no pick list",
+                "detail": "The customer said yes days ago and the floor has "
+                          "never heard of the order.",
+                "route": "/logistics/stranded"})
+        n, _ = one("""SELECT COUNT(*) FROM `tabDelivery Note` dn
+            WHERE dn.docstatus = 1
+              AND dn.creation < DATE_SUB(%s, INTERVAL 72 HOUR)
+              AND dn.creation >= DATE_SUB(%s, INTERVAL 30 DAY)
+              AND COALESCE(dn.custom_track_shipment_status,'') IN
+                  ('', 'Pending', 'Label Generated', 'Label Printed')
+              AND NOT EXISTS (SELECT 1 FROM `tabShipment Delivery Note` sdn
+                              WHERE sdn.delivery_note = dn.name)""", (now, now))
+        if n:
+            findings.append({"key": "cycleOrphans", "sev": "critical", "count": n,
+                "title": "Labeled 3d+ and never on a manifest",
+                "detail": "Boxes standing in dispatch that no carrier scan "
+                          "ever took — the silent-parcel family.",
+                "route": "/logistics/shipments?orphans=1"})
+
     for fn in (open_breaches, at_risk_today, stuck_to_pick, no_awb, unprinted_aging,
                missed_manifest, exceptions_open, return_zone, short_picked,
-               stale_ret_batch, consol_waiting, poison_drafts, stale_receiving):
+               stale_ret_batch, consol_waiting, poison_drafts, stale_receiving,
+               cycle_aging):
         check(fn)
 
     sev_rank = {"critical": 0, "warning": 1, "info": 2}
