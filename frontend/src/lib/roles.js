@@ -109,14 +109,27 @@ export const ROLE_CONFIG = {
         ],
       },
       {
+        // After the truck left — a dispatcher chases parcels too. This lived
+        // under "Me", which is where nobody looks for work.
+        section: "nav.afterShip",
+        items: [
+          { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
+        ],
+      },
+      {
         section: "nav.inventoryGrp",
         items: [
           { to: "Warehouse", label: "nav.warehouse", icon: "warehouse" },
-          { to: "Slotting", label: "nav.slotting", icon: "layout-grid" },
-          { to: "MoveStock", label: "nav.move", icon: "route" },
-          { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
-          { to: "CycleCount", label: "nav.count", icon: "list-checks" },
           { to: "Inventory", label: "nav.stock", icon: "boxes" },
+          { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
+          { to: "MoveStock", label: "nav.move", icon: "route" },
+          { to: "CycleCount", label: "nav.count", icon: "list-checks" },
+          { to: "Slotting", label: "nav.slotting", icon: "layout-grid" },
+        ],
+      },
+      {
+        section: "nav.tools",
+        items: [
           { to: "SkuLookup", label: "nav.skuLookup", icon: "search" },
           { to: "ShelfLabels", label: "nav.shelfLabels", icon: "printer" },
           { to: "Weights", label: "nav.weights", icon: "scale" },
@@ -125,7 +138,6 @@ export const ROLE_CONFIG = {
       {
         section: "nav.me",
         items: [
-          { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
           { href: "/hrms", label: "nav.attendance", icon: "clock" },
         ],
@@ -140,9 +152,14 @@ export const ROLE_CONFIG = {
         section: "nav.operations",
         items: [
           { to: "Queue", label: "nav.queue", icon: "list-checks" },
+        ],
+      },
+      {
+        section: "nav.me",
+        items: [
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
-          { href: "/hrms", label: "nav.attendance", icon: "clock" },
           { to: "Bonus", label: "nav.bonus", icon: "wallet" },
+          { href: "/hrms", label: "nav.attendance", icon: "clock" },
         ],
       },
     ],
@@ -193,8 +210,8 @@ export const ROLE_CONFIG = {
         items: [
           { to: "MyDashboard", label: "nav.myDashboard", icon: "gauge" },
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
-          { href: "/hrms", label: "nav.attendance", icon: "clock" },
           { to: "Bonus", label: "nav.bonus", icon: "wallet" },
+          { href: "/hrms", label: "nav.attendance", icon: "clock" },
         ],
       },
     ],
@@ -217,8 +234,8 @@ export const ROLE_CONFIG = {
         items: [
           { to: "MyCsDashboard", label: "nav.myDashboard", icon: "gauge" },
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
-          { href: "/hrms", label: "nav.attendance", icon: "clock" },
           { to: "Bonus", label: "nav.bonus", icon: "wallet" },
+          { href: "/hrms", label: "nav.attendance", icon: "clock" },
         ],
       },
     ],
@@ -240,8 +257,8 @@ export const ROLE_CONFIG = {
         items: [
           { to: "MyTrackingDashboard", label: "nav.myDashboard", icon: "gauge" },
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
-          { href: "/hrms", label: "nav.attendance", icon: "clock" },
           { to: "Bonus", label: "nav.bonus", icon: "wallet" },
+          { href: "/hrms", label: "nav.attendance", icon: "clock" },
         ],
       },
     ],
@@ -250,17 +267,25 @@ export const ROLE_CONFIG = {
     home: "Returns",
     nav: [
       {
+        // The return loop in the order a parcel travels it: it comes back,
+        // gets received, goes back on a shelf — and Tracking to see what is
+        // still on the road toward this desk.
         section: "nav.operations",
         items: [
           { to: "Returns", label: "nav.returns", icon: "rotate-ccw" },
           { to: "ReturnReceiving", label: "nav.receiving", icon: "package-check" },
           { to: "RestockZone", label: "nav.restock", icon: "boxes" },
+          { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
+        ],
+      },
+      {
+        section: "nav.inventoryGrp",
+        items: [
+          { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
+          { to: "MoveStock", label: "nav.move", icon: "route" },
+          { to: "CycleCount", label: "nav.count", icon: "list-checks" },
           { to: "ShelfLabels", label: "nav.shelfLabels", icon: "printer" },
           { to: "Weights", label: "nav.weights", icon: "scale" },
-          { to: "MoveStock", label: "nav.move", icon: "route" },
-          { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
-          { to: "CycleCount", label: "nav.count", icon: "list-checks" },
-          { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
         ],
       },
       {
@@ -309,10 +334,10 @@ const CC_MANAGER = {
       section: "nav.team",
       items: [
         { to: "Team", label: "nav.team", icon: "users" },
-        { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         { to: "Performance", label: "nav.performance", icon: "trending-up" },
-          { href: "/hrms", label: "nav.attendance", icon: "clock" },
+        { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         { to: "Settings", label: "nav.settings", icon: "settings" },
+        { href: "/hrms", label: "nav.attendance", icon: "clock" },
       ],
     },
   ],
