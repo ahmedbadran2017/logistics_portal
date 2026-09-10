@@ -19,6 +19,7 @@ export const LANES = [
     tabs: [
       { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
       { to: "ConfirmationDashboard", label: "nav.cfDashboard", icon: "gauge", admin: true },
+      { to: "ConfirmationActivity", label: "nav.cfActivity", icon: "activity", admin: true },
       { to: "ConfirmationReports", label: "nav.cfReports", icon: "trending-up", admin: true },
       { to: "ConfirmationSettings", label: "nav.cfSettings", icon: "settings", admin: true },
     ],

@@ -1326,3 +1326,221 @@ def warm_cc_caches():
         frappe.get_attr("logistics_portal.api.confirmation.dashboard")(days=30)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "warm_cc_caches")
+
+
+# ── the team's day, made visible ───────────────────────────────────────────
+# The floor got its activity board (scanlog.floor_activity) and the manager
+# immediately asked the obvious next question: where is the same board for
+# the people on the phones? Their "scan" is a decision, and it lives on TWO
+# disjoint trails — the portal's `Confirmation:/Rescue:/CS:` comments and the
+# Desk's Version rows (0/39 overlap, measured) — so this reads both, exactly
+# like the bonus board learned to.
+
+def _cc_activity_events(d0, d1):
+    """[(owner, creation, station, order)] for one day, both trails."""
+    from logistics_portal.api.confirmation import _AUTOMATION_USERS, _CO
+    events = []
+    for prefix, dts in (("Confirmation", ("Sales Order",)),
+                        ("Rescue", ("Sales Order",)),
+                        ("CS", ("Issue",))):
+        for r in frappe.db.sql(
+                """SELECT c.owner, c.creation, c.content, c.reference_name rn
+                   FROM `tabComment` c
+                   WHERE c.reference_doctype IN %(dts)s
+                     AND c.creation >= %(d0)s AND c.creation < %(d1)s
+                     AND c.content LIKE %(pfx)s""",
+                {"dts": dts, "d0": d0, "d1": d1, "pfx": prefix + ": %"},
+                as_dict=True):
+            if r.owner in _AUTOMATION_USERS:
+                continue
+            if prefix == "Rescue":
+                st = "rescue"
+            elif prefix == "CS":
+                st = "cs"
+            else:
+                a = (r.content.split(": ", 1)[1] or "") \
+                    .split(" ", 1)[0].strip("()—-→ ").lower()
+                st = a if a in ("confirm", "cancel", "dna", "followup") \
+                    else "other"
+            events.append((r.owner, r.creation, st, r.rn or ""))
+    # The Desk trail: a Version row is the only witness a Desk decision
+    # leaves. A status change is a decision; any other save by the agent
+    # (phone fixed, address corrected) is still work — labelled "edit" so
+    # the board never confuses touching with deciding.
+    for r in frappe.db.sql(
+            """SELECT v.owner, v.creation, v.docname,
+                      (v.data LIKE '%%custom_sales_status%%') is_dec
+               FROM `tabVersion` v
+               JOIN `tabSales Order` so ON so.name = v.docname
+               WHERE v.ref_doctype = 'Sales Order' AND so.company = %(co)s
+                 AND v.creation >= %(d0)s AND v.creation < %(d1)s""",
+            {"co": _CO, "d0": d0, "d1": d1}, as_dict=True):
+        if r.owner in _AUTOMATION_USERS:
+            continue
+        events.append((r.owner, r.creation,
+                       "desk" if r.is_dec else "edit", r.docname))
+    events.sort(key=lambda e: (e[0], e[1]))
+    return events
+
+
+@frappe.whitelist()
+def team_activity(day=None):
+    """Per-agent movement for one contact-centre day — the confirmation
+    admin's answer to "who is actually on the phones, and when". Same shape
+    as scanlog.floor_activity so the two boards read as one language:
+    timeline at 30-minute grain, actions/hour, longest silent gap, live
+    pulse, and the admin's margin notes.
+
+    Slower pulse than the floor on purpose: a call is longer than a scan,
+    so the frontend colours on 10/30 minutes where the floor uses 5/20.
+    """
+    if not _is_any_cc_admin():
+        frappe.throw("Section admins only.", frappe.PermissionError)
+    from logistics_portal.api import clock
+    from logistics_portal.api.auth import resolve_role
+    day = (day or clock.floor_today())[:10]
+    d0, d1 = clock.day_bounds(day)
+
+    roles = {}
+
+    def _lane_role(u):
+        if u not in roles:
+            try:
+                roles[u] = resolve_role(u) or "none"
+            except Exception:
+                roles[u] = "none"
+        return roles[u]
+
+    out = {}
+    total = 0
+    for owner, at_raw, st, order in _cc_activity_events(d0, d1):
+        # Only the lanes themselves: a manager poking an order, or a floor
+        # role editing one, is not this team's day.
+        if _lane_role(owner) not in ("confirmation", "cs", "tracking"):
+            continue
+        at = clock.to_floor(at_raw)
+        p = out.setdefault(owner, {
+            "user": owner, "actions": 0, "orders": set(),
+            "stations": {}, "first": None, "last": None,
+            "slots": {}, "maxGapMin": 0, "_prev": None})
+        total += 1
+        p["actions"] += 1
+        if order:
+            p["orders"].add(order)
+        p["stations"][st] = p["stations"].get(st, 0) + 1
+        t = str(at)[11:16]
+        if p["first"] is None:
+            p["first"] = t
+        p["last"] = t
+        slot = "%02d:%02d" % (at.hour, 0 if at.minute < 30 else 30)
+        p["slots"][slot] = p["slots"].get(slot, 0) + 1
+        if p["_prev"] is not None:
+            gap = (at - p["_prev"]).total_seconds() / 60.0
+            if gap > p["maxGapMin"]:
+                p["maxGapMin"] = int(gap)
+        p["_prev"] = at
+
+    # Punched in, zero actions — the loudest row on the board, and the whole
+    # reason it exists. HR's punch is the only witness before the first call.
+    punch = {}
+    for r in frappe.db.sql(
+            """SELECT e.user_id, MIN(c.time) t
+               FROM `tabEmployee Checkin` c
+               JOIN `tabEmployee` e ON e.name = c.employee
+               WHERE c.log_type = 'IN' AND c.time >= %s AND c.time < %s
+                 AND e.user_id IS NOT NULL AND e.user_id != ''
+               GROUP BY e.user_id""", (d0, d1), as_dict=True):
+        if _lane_role(r.user_id) not in ("confirmation", "cs", "tracking"):
+            continue
+        punch[r.user_id] = str(clock.to_floor(r.t))[11:16]
+        if r.user_id not in out:
+            out[r.user_id] = {"user": r.user_id, "actions": 0,
+                              "orders": set(), "stations": {},
+                              "first": None, "last": None, "slots": {},
+                              "maxGapMin": 0, "_prev": None}
+
+    users = tuple(out) or ("",)
+    emp = {r.user_id: r for r in frappe.db.sql(
+        """SELECT user_id, name emp, employee_name FROM `tabEmployee`
+           WHERE user_id IN %s""", (users,), as_dict=True)}
+    full = {}
+    missing = [u for u in out if u not in emp]
+    if missing:
+        full = {r[0]: r[1] for r in frappe.db.sql(
+            """SELECT name, full_name FROM `tabUser` WHERE name IN %s""",
+            (tuple(missing),))}
+
+    # The admin's margin notes — "was on the WhatsApp queue 14:00-15:00" —
+    # kept on the Employee record with the writer's name, same as the floor.
+    notes = {}
+    emp_users = {v["emp"]: k for k, v in emp.items()}
+    if emp:
+        for r in frappe.db.sql(
+                """SELECT c.reference_name emp, c.owner, c.creation, c.content
+                   FROM `tabComment` c
+                   WHERE c.reference_doctype = 'Employee'
+                     AND c.reference_name IN %s
+                     AND c.content LIKE %s
+                   ORDER BY c.creation""",
+                (tuple(v["emp"] for v in emp.values()), f"CC {day}:%"),
+                as_dict=True):
+            u = emp_users.get(r.emp)
+            if u:
+                notes.setdefault(u, []).append({
+                    "by": (r.owner or "").split("@")[0],
+                    "at": str(clock.to_floor(r.creation))[11:16],
+                    "text": (r.content or "").split(":", 2)[-1].strip()})
+
+    fnow = clock.floor_now()
+    people = []
+    for p in out.values():
+        prev_at = p.pop("_prev", None)
+        p["orders"] = len(p["orders"])
+        p["maxGapMin"] = int(p["maxGapMin"])
+        p["name"] = (emp.get(p["user"], {}) or {}).get("employee_name") \
+            or full.get(p["user"]) or p["user"].split("@")[0]
+        p["punchIn"] = punch.get(p["user"])
+        p["lastAgoMin"] = int((fnow - prev_at).total_seconds() // 60) \
+            if prev_at else None
+        p["role"] = roles.get(p["user"], "")
+        p["notes"] = notes.get(p["user"], [])
+        people.append(p)
+    people.sort(key=lambda x: -x["actions"])
+
+    # Whole working day, like the floor's axis — a silent morning must be a
+    # visible hole. The phones run later than the floor: default 09..21,
+    # widened by anything that actually happened, today capped at now.
+    from logistics_portal.api.settings import get_ops
+    lo = int(get_ops("ccStart") or get_ops("floorStart") or 9) * 2
+    hi = int(get_ops("ccEnd") or 21) * 2
+    slots_all = [int(k[:2]) * 2 + (1 if k[3:] == "30" else 0)
+                 for p in people for k in p["slots"]]
+    if slots_all:
+        lo = min(lo, min(slots_all))
+        hi = max(hi, max(slots_all) + 1)
+    if day == str(fnow)[:10]:
+        hi = min(hi, fnow.hour * 2 + (1 if fnow.minute >= 30 else 0) + 1)
+    axis = ["%02d:%s" % (x // 2, "30" if x % 2 else "00")
+            for x in range(lo, max(hi, lo + 1))]
+    return {"day": day, "people": people, "totalActions": total,
+            "axis": axis, "floorNow": str(fnow)[11:16]}
+
+
+@frappe.whitelist(methods=["POST"])
+def team_note(user=None, day=None, text=None):
+    """The section admin's margin note on an agent's day — twin of
+    scanlog.floor_note, under its own `CC {day}:` prefix so the two boards
+    never read each other's margins."""
+    if not _is_any_cc_admin():
+        frappe.throw("Section admins only.", frappe.PermissionError)
+    user = (user or "").strip()
+    text = (text or "").strip()[:280]
+    day = (day or "").strip()[:10]
+    if not (user and text and day):
+        frappe.throw("Missing note details.")
+    emp = frappe.db.get_value("Employee", {"user_id": user}, "name")
+    if not emp:
+        frappe.throw("No employee record for that user.")
+    frappe.get_doc("Employee", emp).add_comment("Comment", f"CC {day}: {text}")
+    frappe.db.commit()
+    return {"ok": True}

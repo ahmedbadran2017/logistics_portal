@@ -37,6 +37,7 @@ const routes = [
         children: [
           { path: "", name: "Confirmation", component: () => import("@/pages/Confirmation.vue") },
           { path: "dashboard", name: "ConfirmationDashboard", component: () => import("@/pages/ConfirmationDashboard.vue") },
+          { path: "activity", name: "ConfirmationActivity", component: () => import("@/pages/ConfirmationActivity.vue") },
           { path: "reports", name: "ConfirmationReports", component: () => import("@/pages/ConfirmationReports.vue") },
           { path: "settings", name: "ConfirmationSettings", component: () => import("@/pages/ConfirmationSettings.vue") },
         ],

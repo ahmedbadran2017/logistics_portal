@@ -64,6 +64,13 @@ INDEXES = [
     # seconds. NB: adding this index rewrites a 4 GB table — run the migrate
     # off-peak.
     ("Version", ["owner", "ref_doctype", "creation"], "lp_version_owner_idx"),
+    # The CC team-activity board slices ONE DAY of Sales Order versions with
+    # no owner in hand (the owner set is what it is trying to discover). The
+    # (ref_doctype, docname) core index cannot serve a creation range, so the
+    # day read full-scanned ~3M rows — measured 6.8s. This turns it into a
+    # range scan. Same off-peak caveat as the owner index: it rewrites a big
+    # table once.
+    ("Version", ["ref_doctype", "creation"], "lp_version_day_idx"),
     # The scan witness log: every activity question slices on person-over-time
     # or station-over-time. (Created by scanlog.ensure_doctype, which hooks.py
     # runs in the same after_migrate pass; add_index is try/except, so the
