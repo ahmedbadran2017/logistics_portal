@@ -217,7 +217,11 @@
                 <div class="text-[12.5px] text-stone-800 truncate">{{ it.name }}</div>
                 <div class="text-[10.5px] text-stone-400 font-mono">{{ it.sku }}</div>
               </div>
-              <span v-if="it.short" class="text-[10px] font-bold rounded-full px-2 py-0.5 bg-rose-50 text-rose-700 ring-1 ring-rose-200 whitespace-nowrap flex-shrink-0"
+              <span v-if="it.local" class="text-[10px] font-bold rounded-full px-2 py-0.5 bg-sky-50 text-sky-700 ring-1 ring-sky-200 whitespace-nowrap flex-shrink-0"
+                    :title="t('ws.localHint')">
+                {{ t('ws.localItem') }}
+              </span>
+              <span v-else-if="it.short" class="text-[10px] font-bold rounded-full px-2 py-0.5 bg-rose-50 text-rose-700 ring-1 ring-rose-200 whitespace-nowrap flex-shrink-0"
                     :title="t('ws.availHint')">
                 {{ it.avail ? t('ws.availN').replace('{n}', String(it.avail)) : t('ws.availZero') }}
               </span>

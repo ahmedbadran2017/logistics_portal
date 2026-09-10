@@ -1460,6 +1460,8 @@ export default {
     oosOne: "Rupture de stock — un article ne peut pas être préparé",
     oosN: "Rupture de stock — {n} articles ne peuvent pas être préparés",
     oosHint: "Proposez un échange ou une commande partielle maintenant, ou annulez — ne confirmez pas ce que l'entrepôt ne peut pas expédier.",
+    localItem: "fournisseur local",
+    localHint: "Stock chez le fournisseur local, pas sur nos étagères — confirmez normalement ; il expédie.",
     oosFix: "Modifier",
     availN: "plus que {n}",
     availZero: "rupture",

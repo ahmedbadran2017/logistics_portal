@@ -1638,11 +1638,32 @@ def detail(name):
             # One shared definition, so the card, the board and the create can
             # never disagree about the same line again.
             _totals, _sre, _free = availability(_codes)
+            # A LOCAL supplier's item is never "out of stock" on this card:
+            # its stock lives at the supplier, not on our shelves, so our
+            # pool math reading zero is a statement about our warehouse, not
+            # about the order. Flagging it rose taught agents to refuse
+            # perfectly fulfillable orders (Ahmed 2026-09-10). It still gets
+            # its own quiet chip — the agent should know it ships from the
+            # supplier — and the Orders board keeps its separate `local`
+            # bucket with the PO-promise radar for the follow-through.
+            _local = set()
+            try:
+                _local = {r2[0] for r2 in frappe.db.sql(
+                    """SELECT i.name FROM `tabItem` i
+                       JOIN `tabSupplier` s ON s.name = i.default_supplier
+                       WHERE i.name IN %s AND s.supplier_group = %s""",
+                    (tuple(_codes), LOCAL_SUPPLIER_GROUP))}
+            except Exception:
+                pass
             for r in items:
                 _need = float(r.qty or 0)
                 _f = _free(name, r.sku)
                 r["avail"] = int(max(0, _f))
-                r["short"] = bool(_f < _need)
+                if r.sku in _local:
+                    r["local"] = True
+                    r["short"] = False
+                else:
+                    r["short"] = bool(_f < _need)
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "orders.detail stock")
 
