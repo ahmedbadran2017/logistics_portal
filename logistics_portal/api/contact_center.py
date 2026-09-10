@@ -23,15 +23,22 @@ def _gate():
 
 
 def _today_by_prefix(prefix, doctypes=("Sales Order",)):
-    """Today's decision tallies from the Comment trail: {action: n, ...}."""
-    today = str(now_datetime())[:10]
+    """Today's decision tallies from the Comment trail: {action: n, ...}.
+
+    "Today" is the FLOOR's day (api/clock): on the site's Istanbul clock the
+    date rolls at 22:00 Moroccan time, and every tally in this lane zeroed
+    itself two hours before the evening shift ended.
+    """
+    from logistics_portal.api import clock as _clock
+    _d0, _d1 = _clock.day_bounds(_clock.floor_today())
     out = {}
     for r in frappe.db.sql(
             """SELECT c.content, COUNT(*) n FROM `tabComment` c
-               WHERE c.reference_doctype IN %(dts)s AND c.creation >= %(since)s
+               WHERE c.reference_doctype IN %(dts)s
+                 AND c.creation >= %(since)s AND c.creation < %(until)s
                  AND c.content LIKE %(pfx)s
                GROUP BY c.content""",
-            {"dts": tuple(doctypes), "since": f"{today} 00:00:00",
+            {"dts": tuple(doctypes), "since": _d0, "until": _d1,
              "pfx": prefix + ": %"}, as_dict=True):
         action = (r.content.split(": ", 1)[1] or "").split(" ", 1)[0].strip("()—-→ ")
         out[action] = out.get(action, 0) + int(r.n or 0)
@@ -596,15 +603,22 @@ def _streak_days(user, group, month):
         # BOTH trails. A day worked entirely in the Desk leaves no comment, so
         # reading comments alone broke the run on every such day — and the
         # Desk is where most of this lane's work still happens.
+        # Days are the FLOOR's days: on the site's Istanbul clock, an evening
+        # decision after 22:00 Morocco lands on the next date and can invent
+        # or split a worked day. This feeds a pay multiplier, so it uses the
+        # same clock the person lives in.
+        from logistics_portal.api import clock as _clk
+        _day_c = _clk.sql_local("c.creation")
+        _day_v = _clk.sql_local("v.creation")
         rows = frappe.db.sql(
-            """SELECT DISTINCT d FROM (
-                 SELECT DATE(c.creation) d FROM `tabComment` c
+            f"""SELECT DISTINCT d FROM (
+                 SELECT {_day_c} d FROM `tabComment` c
                  WHERE c.owner = %(u)s AND c.creation >= %(start)s
                    AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
                    AND (c.content LIKE 'Confirmation: %%' OR c.content LIKE 'Rescue: %%'
                         OR c.content LIKE 'CS: %%')
                  UNION
-                 SELECT DATE(v.creation) d FROM `tabVersion` v
+                 SELECT {_day_v} d FROM `tabVersion` v
                  WHERE v.ref_doctype = 'Sales Order' AND v.owner = %(u)s
                    AND v.creation >= %(start)s
                    AND v.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
@@ -639,7 +653,8 @@ def _streak_days(user, group, month):
     # wipe it out.
     # For a PAST month the anchor is that month's last day, not today —
     # otherwise reviewing March in July would show every streak as broken.
-    today = _date.fromisoformat(str(now_datetime())[:10])
+    from logistics_portal.api import clock as _clk3
+    today = _date.fromisoformat(_clk3.floor_today())
     if month == str(now_datetime())[:7]:
         anchor = today
     else:
@@ -998,8 +1013,10 @@ def speed_dashboard():
         except Exception:
             speed = None
     if speed is None:
-        trend = frappe.db.sql("""
-            SELECT DATE(so.creation) d,
+        from logistics_portal.api import clock as _clk0
+        _day_so = _clk0.sql_local("so.creation")
+        trend = frappe.db.sql(f"""
+            SELECT {_day_so} d,
                    ROUND(AVG(TIMESTAMPDIFF(MINUTE, so.creation, v.first_v))) m,
                    COUNT(*) n
             FROM (SELECT docname, MIN(creation) first_v FROM `tabVersion`
@@ -1010,10 +1027,11 @@ def speed_dashboard():
             JOIN `tabSales Order` so ON so.name = v.docname
             WHERE so.company = %s
               AND so.creation >= DATE_SUB(NOW(), INTERVAL 14 DAY)
-            GROUP BY DATE(so.creation) ORDER BY d""", (co,), as_dict=True)
+            GROUP BY d ORDER BY d""", (co,), as_dict=True)
         days = [{"d": str(r.d), "min": int(r.m or 0), "n": int(r.n or 0)}
                 for r in trend]
-        today = str(now_datetime())[:10]
+        from logistics_portal.api import clock as _clock
+        today = _clock.floor_today()
         t_row = [r for r in days if r["d"] == today]
         week = [r for r in days if r["d"] != today]
         wn = sum(r["n"] for r in week)
@@ -1026,12 +1044,15 @@ def speed_dashboard():
         cache.set_value("lp_cc_speed", _json.dumps(speed), expires_in_sec=900)
 
     # ── who is working right now (today, Version flips — desk + portal alike)
+    from logistics_portal.api import clock as _clk
+    _fd0 = _clk.day_bounds(_clk.floor_today())[0]
     agents = frappe.db.sql("""
         SELECT owner, COUNT(*) n, MAX(creation) last_at, MIN(creation) first_at
         FROM `tabVersion`
-        WHERE ref_doctype = 'Sales Order' AND creation >= CURDATE()
+        WHERE ref_doctype = 'Sales Order' AND creation >= %(d0)s
           AND data LIKE '%%custom_sales_status%%'
-        GROUP BY owner ORDER BY n DESC LIMIT 20""", as_dict=True)
+        GROUP BY owner ORDER BY n DESC LIMIT 20""",
+        {"d0": _fd0}, as_dict=True)
     team, automation = [], 0
     for a in agents:
         if a.owner in ("Administrator", "Guest"):
@@ -1098,8 +1119,9 @@ def speed_dashboard():
     except Exception:
         fire["waUnhandled"] = 0
 
-    # today's outcomes
-    today0 = str(now_datetime())[:10] + " 00:00:00"
+    # today's outcomes — the floor's today
+    from logistics_portal.api import clock as _clk2
+    today0 = _clk2.day_bounds(_clk2.floor_today())[0]
     r = frappe.db.sql("""
         SELECT SUM(data LIKE '%%"Confirmed"%%'), SUM(data LIKE '%%"Cancelled"%%')
         FROM `tabVersion`

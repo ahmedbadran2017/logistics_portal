@@ -292,14 +292,18 @@ def board(tab="inbox", days=7, q="", limit=30, offset=0):
                 "resoBreached": bool(tab != "resolved" and str(reso_due) <= str(now)),
             })
 
-    today = str(now)[:10]
+    # The floor's today (api/clock): the site date rolls at 22:00 Morocco,
+    # and this tally zeroed itself mid-evening-shift like the others did.
+    from logistics_portal.api import clock as _clock
+    _d0, _d1 = _clock.day_bounds(_clock.floor_today())
     mine_today = {"resolve": 0, "reply": 0, "create": 0}
     for r in frappe.db.sql(
             """SELECT c.content, COUNT(*) n FROM `tabComment` c
                WHERE c.reference_doctype = 'Issue' AND c.owner = %s
-                 AND c.creation >= %s AND c.content LIKE 'CS: %%'
+                 AND c.creation >= %s AND c.creation < %s
+                 AND c.content LIKE 'CS: %%'
                GROUP BY c.content""",
-            (frappe.session.user, f"{today} 00:00:00"), as_dict=True):
+            (frappe.session.user, _d0, _d1), as_dict=True):
         for k in mine_today:
             if r.content.startswith(f"CS: {k}"):
                 mine_today[k] += int(r.n or 0)

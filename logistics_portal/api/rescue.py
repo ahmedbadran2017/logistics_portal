@@ -239,7 +239,10 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
             _DN_SELECT + f" WHERE {where} ORDER BY dn.posting_date"
                          " LIMIT %(limit)s OFFSET %(offset)s", vals, as_dict=True)
 
-    today = str(now_datetime())[:10]
+    # The floor's today (api/clock) — the site date rolls at 22:00 Morocco
+    # and rescue is an evening lane; the tally must not zero mid-shift.
+    from logistics_portal.api import clock as _clock
+    _d0, _d1 = _clock.day_bounds(_clock.floor_today())
     mine = {"redeliver": 0, "reship": 0, "returnreq": 0, "dna": 0, "cancel": 0}
     # SO comments only: act() writes the same tag on the parcel AND the order,
     # so counting both doctypes doubled every decision. The section report
@@ -248,10 +251,10 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
     for r in frappe.db.sql(
             """SELECT c.content, COUNT(*) n FROM `tabComment` c
                WHERE c.reference_doctype = 'Sales Order'
-                 AND c.owner = %s AND c.creation >= %s
+                 AND c.owner = %s AND c.creation >= %s AND c.creation < %s
                  AND c.content LIKE 'Rescue: %%'
                GROUP BY c.content""",
-            (frappe.session.user, f"{today} 00:00:00"), as_dict=True):
+            (frappe.session.user, _d0, _d1), as_dict=True):
         for k in mine:
             if r.content.startswith(f"Rescue: {k}"):
                 mine[k] += int(r.n or 0)
