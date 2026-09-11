@@ -1215,6 +1215,53 @@ def _sre_by_order(item_codes):
     return m
 
 
+def _release_order_reservations(sos):
+    """A pick list is the PHYSICAL claim; the paper reservation hands over.
+
+    Why (2026-09-11): four live orders whose only unit was reserved FOR THEM
+    sat unpickable — ERPNext's batched availability nets ALL Stock
+    Reservation Entries out and the pick list cannot allocate reserved batch
+    stock even to the order that reserved it (verified in the v15 resolver:
+    no own-reservation path for batched items). So the moment an order
+    enters picking, its own active reservations are cancelled with a
+    witness comment — the reservation did its job (it held the unit until
+    fulfillment started) and the pick list carries the claim from here.
+    Batch-truth caches for the released items are flushed so the allocator
+    sees the freed unit immediately."""
+    names = [so.name for so in sos]
+    if not names:
+        return
+    rows = frappe.db.sql(
+        """SELECT name, voucher_no, item_code FROM `tabStock Reservation Entry`
+           WHERE docstatus = 1 AND status NOT IN ('Delivered', 'Cancelled')
+             AND voucher_type = 'Sales Order' AND voucher_no IN %s""",
+        (tuple(names),), as_dict=True)
+    if not rows:
+        return
+    cache = frappe.cache()
+    released = {}
+    for r in rows:
+        try:
+            doc = frappe.get_doc("Stock Reservation Entry", r.name)
+            doc.flags.ignore_permissions = True
+            doc.cancel()
+            released.setdefault(r.voucher_no, []).append(r.name)
+            cache.delete_value(f"lp_bt_{r.item_code}")
+        except Exception:
+            # A reservation that will not cancel must not block the batch —
+            # its order will simply drop at the coverage gate as before.
+            frappe.log_error(frappe.get_traceback()[:2000],
+                             "release_order_reservations")
+    for so_name, sre_names in released.items():
+        try:
+            frappe.get_doc("Sales Order", so_name).add_comment(
+                "Comment",
+                "Stock reservation released on entering picking ("
+                + ", ".join(sre_names) + ") — the pick list carries the claim.")
+        except Exception:
+            pass
+
+
 def _allocate_and_insert(sos, skipped, picker):
     # Apply the controller's own rule OURSELVES, up front: an order rides the
     # combined list only if FREE stock fully covers it after the orders before
@@ -1222,6 +1269,9 @@ def _allocate_and_insert(sos, skipped, picker):
     # partially-covered orders and throws when a combined doc empties out —
     # that throw is what shattered a batch into one-order lists on 2026-07-15).
     # Uncoverable orders are SKIPPED with a named reason; the rest stay merged.
+    # The orders' own reservations hand over to the pick list FIRST — see
+    # _release_order_reservations.
+    _release_order_reservations(sos)
     item_codes = {it.item_code for so in sos for it in so.items}
     totals = _available_totals(item_codes)
     # Two ledgers, spent together. `ceiling` is what physically exists and can
