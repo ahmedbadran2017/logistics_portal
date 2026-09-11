@@ -381,10 +381,20 @@ def ledger_chain_scan(warehouse="Return Zone - JM"):
     broken = []
     for r in rows:
         s, tail, bq = float(r.s or 0), float(r.tail or 0), float(r.bin_q or 0)
-        if abs(s - tail) > 0.001 or abs(s - bq) > 0.001:
+        # Broken = the CHAIN disagrees with the BIN — the only mismatch that
+        # refuses a move (validation reads the chain, the screen shows the
+        # Bin). SUM(actual_qty) was originally part of this test and it was
+        # WRONG: a Stock Reconciliation row carries actual_qty=0 while
+        # setting qty_after_transaction to an absolute count, so the additive
+        # relationship breaks legitimately at every reco and never recovers.
+        # Verified 2026-09-11 on prod: the sum-based test held "726 broken"
+        # forever (every repaired item still flagged), while the chain-vs-bin
+        # test showed the warehouse fully healed. sum stays in the row as
+        # context only.
+        if abs(tail - bq) > 0.001:
             broken.append({"item": r.item_code, "sum": s, "chain": tail,
                            "bin": bq, "firstDate": str(r.first_d or "")[:10],
-                           "gap": round(abs(s - tail), 1)})
+                           "gap": round(abs(tail - bq), 1)})
     if broken:
         for r in frappe.db.sql(
                 """SELECT name, item_name, custom_sku FROM `tabItem`
