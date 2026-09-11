@@ -45,6 +45,13 @@ doc_events = {
     # moment somebody does the work, which is the whole point of doing it.
     "Stock Reconciliation": {
         "on_submit": "logistics_portal.api.short_shelf.on_stock_reconciliation",
+        # Long Shopify titles overflow this table's varchar(140) item_name
+        # and Frappe refuses the whole count — clamp the display copy.
+        "validate": "logistics_portal.api.utils.clamp_item_names",
+    },
+    "Stock Entry": {
+        # Same overflow class: Stock Entry Detail is still varchar(140).
+        "validate": "logistics_portal.api.utils.clamp_item_names",
     },
     "Pick List": {
         "before_submit": "logistics_portal.api.picking.enforce_picker_on_submit",

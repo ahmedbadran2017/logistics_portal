@@ -66,3 +66,25 @@ def sql_in_list(values):
     if not values:
         return "''"
     return ", ".join(frappe.db.escape(v) for v in values)
+
+
+def clamp_item_names(doc, method=None):
+    """Shopify writes product titles well past 140 characters and this site
+    stores them whole (Item.item_name is TEXT). The sales-side child tables
+    were widened to match long ago — but Stock Entry Detail and Stock
+    Reconciliation Item still carry varchar(140), and Frappe force-fetches
+    the full title into them AFTER any value we set, then refuses the whole
+    document for the overflow. Runs as the validate doc-event (after the
+    fetch, before the length check) and slices the display copy to fit —
+    a count or a move must never be refused over a label.
+    """
+    for row in doc.get("items") or []:
+        v = row.get("item_name")
+        if not v:
+            continue
+        df = row.meta.get_field("item_name")
+        if not df or df.fieldtype not in ("Data", "Small Text"):
+            continue
+        limit = frappe.utils.cint(df.get("length")) or 140
+        if len(v) > limit:
+            row.item_name = v[:limit]
