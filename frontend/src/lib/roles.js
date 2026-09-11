@@ -97,6 +97,7 @@ export const ROLE_CONFIG = {
         section: "nav.operations",
         items: [
           { to: "Assign", label: "nav.assign", icon: "layout-grid" },
+          { to: "Queue", label: "nav.queue", icon: "list-checks" },
           { to: "Pipeline", label: "nav.orders", icon: "shopping-bag" },
           { to: "PickLists", label: "nav.picklists", icon: "package" },
           { to: "Stranded", label: "nav.stranded", icon: "package-x" },

@@ -165,7 +165,22 @@ onUnmounted(() => {
 const queued = ref(0);
 const unread = ref(0);
 
-const mobileRole = computed(() => isMobileRole(role.value));
+// The PDA shell is a fact about the DEVICE, not the role. Anass's day
+// (2026-09-11): his role flipped and the bottom bar vanished mid-shift —
+// a Zebra in a warehouse aisle must never render a desktop sidebar,
+// whoever is signed in. Floor roles on a small touch screen always get
+// the bar; big screens keep the sidebar; the per-role mobile flag still
+// forces the bar for roles that live on the PDA even on odd screens.
+const FLOOR_ROLES = ["picker", "packer", "dispatcher", "returns", "manager"];
+const pdaScreen = ref(false);
+try {
+  const mq = window.matchMedia("(max-width: 640px) and (pointer: coarse)");
+  pdaScreen.value = mq.matches;
+  mq.addEventListener?.("change", (e) => { pdaScreen.value = e.matches; });
+} catch { /* SSR/odd browsers: fall back to the role flag */ }
+const mobileRole = computed(() =>
+  isMobileRole(role.value)
+  || (pdaScreen.value && FLOOR_ROLES.includes(role.value)));
 const initials = computed(() =>
   (fullName.value || "?").split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase()
 );
