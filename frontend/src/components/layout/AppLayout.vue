@@ -146,7 +146,8 @@ const logoSrc = "/assets/logistics_portal/justyol-logo.png";
 const { role, roles, fullName, hiddenPages, setActiveRole, logout, viewAs, setViewAs } = useAuth();
 const { t } = useI18n();
 
-const mobileNav = computed(() => navItemsFor(role.value, hiddenPages.value));
+// The bar fits five thumbs — deeper pages stay on the desktop sidebar.
+const mobileNav = computed(() => navItemsFor(role.value, hiddenPages.value).slice(0, 5));
 
 const drawer = ref(false);
 const cmdOpen = ref(false);

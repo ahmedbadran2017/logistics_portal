@@ -170,7 +170,13 @@ export const ROLE_CONFIG = {
   packer: {
     // Home = the sorting station: that's where the packer's real work starts
     // (scan tote → allocate → print). LabelQueue stays as the reprint queue.
+    // mobile: the floor packers are hybrid (they pick and count from a PDA
+    // too — Anass 2026-09-11 could not see his assigned lists because this
+    // role rendered the DESKTOP shell on a Zebra). The bottom bar shows the
+    // first five items, so PDA-relevant ones lead; the wall screens keep the
+    // full sidebar.
     home: "PackStation",
+    mobile: true,
     nav: [
       {
         section: "nav.operations",
