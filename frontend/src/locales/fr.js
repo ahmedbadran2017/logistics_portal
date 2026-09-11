@@ -253,6 +253,9 @@ export default {
     Returned: "Retourné",
   },
   sort: {
+    lateTitle: "Étiquettes en attente d'impression",
+    lateHint: "L'étiquette est arrivée après le tri (correction de ville / relance transporteur) — imprimez et collez-la, alors le colis sera vraiment prêt.",
+    latePrint: "Imprimer",
     title: "Station de tri",
     intro: "Choisissez un bac (liste de prélèvement), puis scannez chaque article — le mur indique sa commande et imprime l'étiquette dès qu'une commande est complète.",
     printedToday: "étiquettes aujourd'hui",

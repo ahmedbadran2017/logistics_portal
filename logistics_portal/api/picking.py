@@ -2760,8 +2760,25 @@ def claim_late_labels():
     the portal, the desk, or an AWB retry. Same guarded UPDATE as sort_scan, so
     it can never overwrite a status that has already moved on.
     """
-    rows = frappe.db.sql(
-        """SELECT so.name
+    # RETIRED as a status writer (2026-09-11, Ahmed): the silent flip meant
+    # NOBODY printed the late label — a City-check retry attached the PDF,
+    # this job stamped 'Label Printed', the wall showed done, and the parcel
+    # stood with no physical label (19 live cases measured, 21h stuck at the
+    # worst). A late label is now a PRINT QUEUE at the sort side — see
+    # late_labels() and the Pack Station panel — and only a human's print
+    # flips the status, exactly like every other label.
+    return {"claimed": 0, "retired": True,
+            "pending": len(_late_label_rows(limit=400))}
+
+
+def _late_label_rows(limit=100):
+    """Fully-sorted orders whose carrier label arrived AFTER sorting — the
+    labels nobody printed yet. Feeds the Pack Station's late-labels panel."""
+    return frappe.db.sql(
+        """SELECT so.name AS so, so.customer_name AS customer,
+                  so.custom_awb AS awb, so.custom_label_url AS label_url,
+                  MAX(p.name) AS pick_list,
+                  TIMESTAMPDIFF(MINUTE, so.modified, NOW()) AS age_min
            FROM `tabSales Order` so
            JOIN `tabPick List Item` pli ON pli.sales_order = so.name
            JOIN `tabPick List` p ON p.name = pli.parent AND p.docstatus < 2
@@ -2769,23 +2786,54 @@ def claim_late_labels():
              AND so.custom_logistics_status = 'Label Generated'
              AND (COALESCE(so.custom_awb, '') != ''
                   OR COALESCE(so.custom_label_url, '') != '')
-           GROUP BY so.name
+           GROUP BY so.name, so.customer_name, so.custom_awb,
+                    so.custom_label_url, so.modified
            HAVING SUM(pli.qty) - SUM(COALESCE(pli.custom_sorted_qty, 0)) <= 0
-           LIMIT 400""", ("Justyol Morocco",))
-    if not rows:
-        return {"claimed": 0}
-    names = [r[0] for r in rows]
-    frappe.db.sql(
-        """UPDATE `tabSales Order`
-           SET custom_logistics_status = 'Label Printed'
-           WHERE name IN %s AND custom_logistics_status = 'Label Generated'""",
-        (tuple(names),))
-    n = int(frappe.db.sql("SELECT ROW_COUNT()")[0][0] or 0)
-    frappe.db.commit()
-    if n:
-        frappe.cache().delete_value("lp_board_summary")
-        frappe.cache().delete_value("lp_pick_avail")
-    return {"claimed": n}
+           ORDER BY so.modified
+           LIMIT %s""", ("Justyol Morocco", int(limit)), as_dict=True)
+
+
+@frappe.whitelist()
+def late_labels():
+    """The sort side's print queue for labels that arrived after sorting."""
+    _sort_gate()
+    rows = _late_label_rows()
+    return {"rows": [{"so": r.so, "customer": r.customer or "",
+                      "awb": r.awb or "", "labelUrl": r.label_url or "",
+                      "pickList": r.pick_list,
+                      "ageMin": int(r.age_min or 0)} for r in rows],
+            "n": len(rows)}
+
+
+def unclaim_unprinted_labels():
+    """One-time repair riding the next deploy: give back the 'Label Printed'
+    stamp the retired auto-claim put on parcels nobody printed — anything
+    stamped printed with no manifest and no sort scan in the witness log goes
+    back to 'Label Generated', which drops it straight into the new
+    late-labels print queue. Idempotent via a site default."""
+    if frappe.db.get_default("lp_unclaimed_labels"):
+        return
+    try:
+        frappe.db.sql(
+            """UPDATE `tabSales Order` so
+               SET so.custom_logistics_status = 'Label Generated'
+               WHERE so.docstatus = 1 AND so.company = 'Justyol Morocco'
+                 AND so.custom_logistics_status = 'Label Printed'
+                 AND so.custom_sales_status = 'Confirmed'
+                 AND COALESCE(so.custom_awb, '') != ''
+                 AND so.creation >= '2026-09-10 02:00:00'
+                 AND NOT EXISTS (SELECT 1 FROM `tabShipment Delivery Note` sdn
+                                 JOIN `tabDelivery Note Item` dni
+                                   ON dni.parent = sdn.delivery_note
+                                 WHERE dni.against_sales_order = so.name)
+                 AND NOT EXISTS (SELECT 1 FROM `tabLP Scan Event` e
+                                 WHERE e.sales_order = so.name
+                                   AND e.station IN ('sort', 'manifest'))""")
+        frappe.db.set_default("lp_unclaimed_labels", "1")
+        frappe.db.commit()
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000],
+                         "unclaim_unprinted_labels")
 
 
 @frappe.whitelist()

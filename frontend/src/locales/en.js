@@ -253,6 +253,9 @@ export default {
     Returned: "Returned",
   },
   sort: {
+    lateTitle: "Labels waiting to be printed",
+    lateHint: "The label arrived after sorting (city fix / carrier retry) — print and stick it, then the parcel is truly ready.",
+    latePrint: "Print",
     title: "Sorting station",
     intro: "Pick a tote (pick list), then scan each item — the wall shows which order it belongs to and prints the label the moment an order completes.",
     printedToday: "labels today",

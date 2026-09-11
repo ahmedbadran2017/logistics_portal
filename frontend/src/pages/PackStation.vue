@@ -16,6 +16,31 @@
         <ScanInput ref="scanner" :placeholder="t('sort.scanList')" @scan="onScanList" />
       </div>
 
+      <!-- Labels that arrived AFTER their parcel was sorted (a City-check fix,
+           a carrier retry). Nothing flips these to printed silently any more —
+           they wait HERE until a human prints and sticks them. -->
+      <div v-if="lateLabels.length" class="bg-white rounded-2xl ring-1 ring-rose-200/70 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-rose-100 bg-rose-50/50 flex items-center gap-2">
+          <Icon name="printer" :size="14" class="text-rose-600" />
+          <span class="text-[12.5px] font-bold text-stone-900">{{ t('sort.lateTitle') }}</span>
+          <span class="text-[12px] font-bold text-rose-700 tabular-nums">{{ lateLabels.length }}</span>
+          <span class="text-[11px] text-stone-500 hidden sm:inline">{{ t('sort.lateHint') }}</span>
+        </div>
+        <div class="divide-y divide-stone-100">
+          <div v-for="r in lateLabels" :key="r.so" class="px-4 py-2.5 flex items-center gap-3">
+            <div class="min-w-0 flex-1">
+              <span class="font-mono text-[12.5px] font-semibold text-stone-900">{{ r.so }}</span>
+              <span class="text-[11.5px] text-stone-500 ms-2 truncate" dir="auto">{{ r.customer }}</span>
+              <div class="text-[10.5px] text-stone-400 tabular-nums">AWB {{ r.awb }} · {{ r.pickList }} · {{ Math.round(r.ageMin / 60) }}h</div>
+            </div>
+            <button class="h-10 px-4 rounded-xl text-[12.5px] font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 flex-shrink-0"
+                    :disabled="lateBusy === r.so" @click="printLate(r)">
+              <Icon name="printer" :size="13" class="inline -mt-px me-1" />{{ t('sort.latePrint') }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div v-if="loadingLists" class="space-y-2.5">
         <div v-for="n in 3" :key="n" class="h-[76px] rounded-2xl ring-1 ring-stone-200/60 bg-white animate-pulse" />
       </div>
@@ -284,6 +309,7 @@ async function loadLists() {
   }
 }
 onMounted(async () => {
+  loadLateLabels();
   await loadLists();
   scanner.value?.refocus();
 });
@@ -513,6 +539,35 @@ function onImgError(e) { if (e && e.target) e.target.style.display = "none"; }
 // sent to the printer — the automatic "label out" signal that turns the slot
 // green. If print() throws (printer offline etc.) we fall back to a tab and
 // never call it, so the slot stays blue and the failure is visible.
+// ── late labels: the parcels whose label came after sorting ──────────────
+const lateLabels = ref([]);
+const lateBusy = ref("");
+async function loadLateLabels() {
+  try {
+    const res = await api("picking.late_labels");
+    lateLabels.value = res.rows || [];
+  } catch { lateLabels.value = []; }
+}
+async function printLate(r) {
+  lateBusy.value = r.so;
+  try {
+    const res = await apiPost("picking.recheck_label", {
+      pick_list: r.pickList, order: r.so,
+    });
+    if (res.ok) {
+      printLabel(r.so, () => { printedToday.value += 1; });
+      lateLabels.value = lateLabels.value.filter((x) => x.so !== r.so);
+      success(t("sort.labelArrived"), r.so);
+    } else {
+      warn(t("sort.stillNoLabel"), r.so);
+    }
+  } catch (e) {
+    warn(t("sort.stillNoLabel"), String(e.message || e));
+  } finally {
+    lateBusy.value = "";
+  }
+}
+
 function printLabel(order, onSpooled) {
   if (!order) return;
   const url = `/api/method/logistics_portal.api.picking.label_pdf?order=${encodeURIComponent(order)}`;
