@@ -776,11 +776,24 @@
                     <Icon name="package" :size="14" />
                   </span>
                   <div class="min-w-0 flex-1">
-                    <div class="text-[12px] font-medium text-stone-900 truncate">{{ it.name }}</div>
+                    <div class="text-[12px] font-medium truncate"
+                         :class="it.short ? 'text-rose-800' : 'text-stone-900'">{{ it.name }}</div>
                     <button class="font-mono text-[10.5px] text-[var(--accent-700)] hover:underline text-start" :title="t('ordersPg.skuLookupRow')" @click.stop="openSkuLookup(it.real_sku || it.sku)">
                       SKU {{ it.real_sku || it.sku }} · ×{{ it.qty }}
                     </button>
                   </div>
+                  <!-- the drawer must say WHICH line is blocking, not just that
+                       one is: rose = short (with what IS pickable), violet =
+                       local-supplier (stock is theirs, never ours). -->
+                  <span v-if="it.short"
+                        class="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-50 text-rose-700 ring-1 ring-rose-200 whitespace-nowrap flex-shrink-0 tabular-nums">
+                    {{ t('ordersPg.qvShort') }}<template v-if="it.avail"> · {{ it.avail }}</template>
+                  </span>
+                  <span v-else-if="it.local"
+                        class="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-700 ring-1 ring-violet-200 whitespace-nowrap flex-shrink-0">
+                    {{ t('ordersPg.qvLocal') }}
+                  </span>
+                  <span v-else class="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" :title="t('ordersPg.qvInStock')" />
                   <span class="font-mono text-[12px] font-semibold text-stone-800 tabular-nums">{{ fmtMAD(it.line) }}</span>
                 </div>
                 <div class="flex items-center justify-between pt-2 border-t border-stone-100">

@@ -689,6 +689,9 @@ export default {
     emptyBody: "Chaque commande en attente appartient à un client unique.",
   },
   ordersPg: {
+    qvShort: "Manquant",
+    qvLocal: "Fournisseur local",
+    qvInStock: "En stock",
     pickCity: "Ville à corriger",
     pickCityHint: "Retenues hors préparation jusqu'à correction de la ville — le transporteur refuserait l'étiquette.",
     cityTitle: "En attente d'une correction de ville",

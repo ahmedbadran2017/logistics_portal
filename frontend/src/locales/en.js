@@ -689,6 +689,9 @@ export default {
     emptyBody: "Every waiting order belongs to a unique customer right now.",
   },
   ordersPg: {
+    qvShort: "Missing",
+    qvLocal: "Local supplier",
+    qvInStock: "In stock",
     pickCity: "City issue",
     pickCityHint: "Held out of picking until the city is fixed — the carrier would refuse the label.",
     cityTitle: "Waiting on a city fix",
