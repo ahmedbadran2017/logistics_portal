@@ -798,8 +798,9 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
     "contains", so the whole order is still picked. Dispatcher / manager only.
     """
     from logistics_portal.api.auth import resolve_role
-    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
-        frappe.throw("Only a dispatcher or manager can create pick lists.",
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager",
+                                                 "picker", "packer"):
+        frappe.throw("Only the floor can create pick lists.",
                      frappe.PermissionError)
     items = (items or "any").strip()
     # `supplier` accepts one name or a JSON array of names (multi-select).
@@ -970,8 +971,13 @@ def create_pick_list_from_orders(orders, picker=None):
     import json
     from logistics_portal.api.auth import resolve_role
 
-    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
-        frappe.throw("Only a dispatcher or manager can create pick lists.", frappe.PermissionError)
+    role = resolve_role(frappe.session.user)
+    if role not in ("dispatcher", "manager", "picker", "packer"):
+        frappe.throw("Only the floor can create pick lists.", frappe.PermissionError)
+    # A picker/packer creates for THEMSELVES — they batch their own walk, the
+    # dispatcher still assigns freely (Ahmed 2026-09-11).
+    if role in ("picker", "packer"):
+        picker = frappe.session.user
 
     if isinstance(orders, str):
         orders = json.loads(orders)
@@ -2384,10 +2390,16 @@ def create_batches(batches):
     import json
     from logistics_portal.api.auth import resolve_role
 
-    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
-        frappe.throw("Only a dispatcher or manager can create pick lists.", frappe.PermissionError)
+    role = resolve_role(frappe.session.user)
+    if role not in ("dispatcher", "manager", "picker", "packer"):
+        frappe.throw("Only the floor can create pick lists.", frappe.PermissionError)
     if isinstance(batches, str):
         batches = json.loads(batches)
+    if role in ("picker", "packer"):
+        # Their batches, their name — see create_pick_list_from_orders.
+        for b in (batches or []):
+            if isinstance(b, dict):
+                b["picker"] = frappe.session.user
     batches = batches or []
     if not batches or len(batches) > 20:
         frappe.throw("Select between 1 and 20 batches.")
@@ -2583,7 +2595,7 @@ def _pick_list_for_order(order):
 # the tote in front of the sorter IS a pick list, so scans only match orders
 # on that list (never someone else's oldest order).
 # ---------------------------------------------------------------------------
-_SORT_ROLES = ("packer", "dispatcher", "manager")
+_SORT_ROLES = ("picker", "packer", "dispatcher", "manager")
 
 
 def _sort_gate():

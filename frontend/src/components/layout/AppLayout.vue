@@ -74,10 +74,40 @@
           :to="{ name: item.to }"
           class="flex-1 flex flex-col items-center justify-center gap-1 transition-colors"
           :class="route.name === item.to ? 'text-[var(--accent-600)]' : 'text-stone-400'"
+          @click="moreOpen = false"
         >
           <Icon :name="item.icon" :size="21" />
           <span class="text-[10px] font-medium">{{ t(item.label) }}</span>
         </router-link>
+        <button v-if="moreNav.length"
+                class="flex-1 flex flex-col items-center justify-center gap-1 transition-colors"
+                :class="moreOpen || moreNav.some((i) => i.to === route.name) ? 'text-[var(--accent-600)]' : 'text-stone-400'"
+                @click="moreOpen = !moreOpen">
+          <Icon name="layout-grid" :size="21" />
+          <span class="text-[10px] font-medium">{{ t('nav.more') }}</span>
+        </button>
+      </div>
+      <!-- the More sheet: every remaining page of the role, thumb-sized -->
+      <div v-if="moreOpen" class="absolute inset-0 z-20" @click="moreOpen = false">
+        <div class="absolute inset-0 bg-stone-900/30" />
+        <div class="absolute bottom-[60px] inset-x-0 bg-white rounded-t-2xl p-4 shadow-2xl" @click.stop>
+          <div class="grid grid-cols-4 gap-3">
+            <template v-for="item in moreNav" :key="item.to || item.href">
+              <a v-if="item.href" :href="item.href"
+                 class="flex flex-col items-center gap-1.5 py-2 rounded-xl text-stone-600 active:bg-stone-100">
+                <Icon :name="item.icon" :size="22" />
+                <span class="text-[10px] font-semibold text-center leading-tight">{{ t(item.label) }}</span>
+              </a>
+              <router-link v-else :to="{ name: item.to }"
+                           class="flex flex-col items-center gap-1.5 py-2 rounded-xl"
+                           :class="route.name === item.to ? 'bg-[var(--accent-50)] text-[var(--accent-700)]' : 'text-stone-600 active:bg-stone-100'"
+                           @click="moreOpen = false">
+                <Icon :name="item.icon" :size="22" />
+                <span class="text-[10px] font-semibold text-center leading-tight">{{ t(item.label) }}</span>
+              </router-link>
+            </template>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -146,8 +176,15 @@ const logoSrc = "/assets/logistics_portal/justyol-logo.png";
 const { role, roles, fullName, hiddenPages, setActiveRole, logout, viewAs, setViewAs } = useAuth();
 const { t } = useI18n();
 
-// The bar fits five thumbs — deeper pages stay on the desktop sidebar.
-const mobileNav = computed(() => navItemsFor(role.value, hiddenPages.value).slice(0, 5));
+// The bar fits five thumbs. A role with more pages gets four + a More
+// sheet — nothing is unreachable on a PDA any more (the shipper could not
+// open Manifest, the picker could not reach Pick Lists).
+const allNav = computed(() => navItemsFor(role.value, hiddenPages.value));
+const mobileNav = computed(() =>
+  allNav.value.length > 5 ? allNav.value.slice(0, 4) : allNav.value);
+const moreNav = computed(() =>
+  allNav.value.length > 5 ? allNav.value.slice(4) : []);
+const moreOpen = ref(false);
 
 const drawer = ref(false);
 const cmdOpen = ref(false);

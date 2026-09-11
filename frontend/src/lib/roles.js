@@ -156,6 +156,10 @@ export const ROLE_CONFIG = {
         items: [
           { to: "Queue", label: "nav.queue", icon: "list-checks" },
           { to: "CycleCount", label: "nav.count", icon: "calculator" },
+          { to: "Manifest", label: "nav.manifest", icon: "package-check" },
+          { to: "PackStation", label: "nav.pack", icon: "tag" },
+          { to: "PickLists", label: "nav.picklists", icon: "package" },
+          { to: "Shipments", label: "nav.shipments", icon: "truck" },
         ],
       },
       {

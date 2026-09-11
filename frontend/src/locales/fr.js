@@ -36,6 +36,7 @@ export default {
     returns: "Retours",
   },
   nav: {
+    more: "Plus",
     myDashboard: "Mon tableau de bord",
     logistics: "Logistique",
     ccPortal: "Centre de contact",

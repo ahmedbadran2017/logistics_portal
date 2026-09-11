@@ -36,6 +36,7 @@ export default {
     returns: "المرتجعات",
   },
   nav: {
+    more: "المزيد",
     myDashboard: "لوحتي",
     logistics: "اللوجستيات",
     ccPortal: "مركز التواصل",
