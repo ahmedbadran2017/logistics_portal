@@ -1867,6 +1867,9 @@ export default {
     done_reopen: "Reopened",
   },
   bn: {
+    soonTitle: "Bonus — coming soon",
+    soonBody: "The logistics bonus scheme is being finalized. Once it switches on, every confirmed move you make here will count — and this page will show your points, your streak and your payout.",
+    soonChip: "Launching soon",
     howTitle: "How the money happens",
     howOpen: "Show me the recipe",
     howClose: "Got it, hide the recipe",

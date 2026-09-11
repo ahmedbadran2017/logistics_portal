@@ -1,5 +1,24 @@
 <template>
-  <div class="p-5 sm:p-6 space-y-4 max-w-[1000px] mx-auto">
+  <!-- The logistics bonus scheme is not switched on yet (Ahmed 2026-09-11):
+       the floor sees an honest 'coming soon' instead of a board of zeros
+       that reads like they earned nothing. Managers still see everything. -->
+  <div v-if="floorComingSoon" class="p-5 sm:p-6 max-w-[560px] mx-auto">
+    <div class="mt-10 rounded-3xl bg-white ring-1 ring-stone-200/70 p-10 text-center">
+      <div class="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center"
+           :style="{ background: 'var(--accent-50)' }">
+        <Icon name="wallet" :size="28" class="text-[var(--accent-600)]" />
+      </div>
+      <h1 class="text-[19px] font-bold text-stone-900 mt-4">{{ t('bn.soonTitle') }}</h1>
+      <p class="text-[13px] text-stone-500 mt-2 leading-relaxed">{{ t('bn.soonBody') }}</p>
+      <span class="inline-flex items-center gap-1.5 mt-5 text-[11.5px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-full"
+            :style="{ background: 'var(--accent-50)', color: 'var(--accent-700)' }">
+        <span class="w-2 h-2 rounded-full animate-pulse" :style="{ background: 'var(--accent-500)' }" />
+        {{ t('bn.soonChip') }}
+      </span>
+    </div>
+  </div>
+
+  <div v-else class="p-5 sm:p-6 space-y-4 max-w-[1000px] mx-auto">
     <header class="flex items-start justify-between gap-3 flex-wrap">
       <div>
         <h1 class="text-[20px] font-bold text-stone-900 tracking-tight">{{ t('bn.title') }}</h1>
@@ -437,6 +456,10 @@ import { IS_CC } from "@/lib/portal";
 
 const { t } = useI18n();
 const { role, ccAdmin, viewAs } = useAuth();
+// Floor roles wait for the scheme to be switched on; CC lanes + managers
+// see the live board.
+const floorComingSoon = computed(() =>
+  ["picker", "packer", "dispatcher", "returns"].includes(role.value));
 const isManager = computed(() => role.value === "manager");
 // CC agents — and a manager viewing as one — get the coming-soon panel; only
 // the manager/section admins see (and keep designing) the actual board.
@@ -618,6 +641,7 @@ async function saveScheme() {
 }
 
 onMounted(async () => {
+  if (floorComingSoon.value) return;
   // Scheme first: comingSoon depends on money.on, so the promise page must
   // not be the thing that decides whether we ever find out it was switched on.
   await loadScheme();

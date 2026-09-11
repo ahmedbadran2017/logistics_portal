@@ -1868,6 +1868,9 @@ export default {
     done_reopen: "Rouvert",
   },
   bn: {
+    soonTitle: "Bonus — bientôt disponible",
+    soonBody: "Le programme de bonus logistique est en cours de finalisation. Dès son lancement, chaque action comptera — et cette page affichera vos points, votre série et votre prime.",
+    soonChip: "Lancement bientôt",
     howTitle: "Comment l'argent arrive",
     howOpen: "Montrez-moi la recette",
     howClose: "Compris, masquer la recette",
