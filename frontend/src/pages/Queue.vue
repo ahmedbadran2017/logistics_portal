@@ -66,6 +66,7 @@
             <div class="min-w-0">
               <div class="text-[13.5px] font-medium text-stone-800 truncate">{{ pl.customer }}</div>
               <div class="text-[11.5px] text-stone-500 mt-0.5">{{ pl.qty }} {{ t("queue.pieces") }}</div>
+              <PlLife v-if="pl.life" :life="pl.life" compact class="mt-1.5" />
             </div>
             <div class="flex items-center gap-2 flex-shrink-0 ps-2">
               <div class="text-end">
@@ -87,6 +88,7 @@
 import { computed, onMounted, ref, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import PlLife from "@/components/ui/PlLife.vue";
 import { api } from "@/lib/resource";
 import { useAuth } from "@/composables/useAuth";
 import { useI18n } from "@/composables/useI18n";

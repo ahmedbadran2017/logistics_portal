@@ -53,6 +53,57 @@ def _resolve_order_name(order):
 # Whitelisted API
 # ---------------------------------------------------------------------------
 @frappe.whitelist()
+def _pl_life(names):
+    """The pick list's LIFE STORY — picked / sorted / printed / shipped — for
+    a batch of lists in two grouped reads. Ahmed 2026-09-11: the list must
+    tell its whole story everywhere it appears, so the picker sees their
+    scan land, the sorter sees what is left, and a parcel stuck between
+    printed and shipped stops being invisible.
+
+    Units for the floor stages (picked/sorted count pieces), orders for the
+    paper stages (printed/shipped count parcels)."""
+    names = [n for n in (names or []) if n]
+    if not names:
+        return {}
+    out = {}
+    for r in frappe.db.sql(
+            """SELECT pli.parent, SUM(pli.qty) units,
+                      SUM(LEAST(COALESCE(pli.custom_scanned_qty, pli.picked_qty, 0), pli.qty)) picked,
+                      SUM(LEAST(COALESCE(pli.custom_sorted_qty, 0), pli.qty)) sorted_u
+               FROM `tabPick List Item` pli
+               WHERE pli.parent IN %s GROUP BY pli.parent""",
+            (tuple(names),), as_dict=True):
+        out[r.parent] = {"units": int(r.units or 0),
+                         "picked": int(r.picked or 0),
+                         "sorted": int(r.sorted_u or 0),
+                         "orders": 0, "printed": 0, "shipped": 0}
+    for r in frappe.db.sql(
+            """SELECT pli.parent,
+                      COUNT(DISTINCT pli.sales_order) orders,
+                      COUNT(DISTINCT CASE WHEN so.custom_logistics_status
+                              IN ('Label Printed', 'Shipped')
+                            THEN pli.sales_order END) printed,
+                      COUNT(DISTINCT CASE WHEN so.custom_logistics_status = 'Shipped'
+                            THEN pli.sales_order END) shipped
+               FROM `tabPick List Item` pli
+               LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
+               WHERE pli.parent IN %s AND pli.sales_order IS NOT NULL
+               GROUP BY pli.parent""",
+            (tuple(names),), as_dict=True):
+        o = out.setdefault(r.parent, {"units": 0, "picked": 0, "sorted": 0})
+        o["orders"] = int(r.orders or 0)
+        o["printed"] = int(r.printed or 0)
+        o["shipped"] = int(r.shipped or 0)
+    return out
+
+
+@frappe.whitelist()
+def pl_life(pick_list):
+    """One list's life story — for screens that hold a single list open."""
+    life = _pl_life([(pick_list or "").strip()])
+    return life.get((pick_list or "").strip()) or {}
+
+
 def my_queue(user=None):
     """The picker's actionable queue: DRAFT pick lists assigned to them (by the
     dispatcher or the autopilot) or created by them. Oldest first — matching the
@@ -75,10 +126,12 @@ def my_queue(user=None):
                ORDER BY pl.creation
                LIMIT 50""",
             {"u": user}, as_dict=True)
+        life = _pl_life([pl.name for pl in pls])
         out = []
         for pl in pls:
             orders = int(pl.orders or 0)
             out.append({
+                "life": life.get(pl.name),
                 "name": pl.so_one if orders == 1 and pl.so_one else pl.name,
                 "pick_list": pl.name,
                 "customer": (pl.customer or "") if orders == 1 else f"Combined · {orders} orders",
@@ -443,12 +496,14 @@ def pick_lists(status="", q="", days=7, limit=30, offset=0):
                 LIMIT %(limit)s OFFSET %(offset)s""",
             vals, as_dict=True)
 
+        life = _pl_life([r.name for r in rows])
         out = []
         for r in rows:
             orders = int(r.orders or 0)
             skus = int(r.skus or 0)
             out.append({
                 "no": r.name,
+                "life": life.get(r.name),
                 "picker": r.picker or "",
                 "items": int(r.items_cnt or 0),
                 "qty": int(r.qty or 0),
@@ -2514,10 +2569,11 @@ def sorting_lists(days=2, limit=30):
            HAVING pending > 0
            ORDER BY pl.creation DESC LIMIT %s""",
         (_SORT_DONE, _SORT_DONE, days, limit), as_dict=True)
+    life = _pl_life([r.name for r in rows])
     return [{"name": r.name, "picker": (r.picker or "").split("@")[0],
              "orders": int(r.orders or 0), "qty": int(r.qty or 0),
              "printed": int(r.printed or 0), "pending": int(r.pending or 0),
-             "blocked": int(r.blocked or 0)}
+             "blocked": int(r.blocked or 0), "life": life.get(r.name)}
             for r in rows]
 
 
@@ -2578,7 +2634,8 @@ def sorting_detail(pick_list):
     if submitted:
         from frappe.utils import time_diff_in_seconds, now_datetime
         age_min = int(max(0, time_diff_in_seconds(now_datetime(), submitted)) // 60)
-    return {"pickList": pick_list, "orders": out, "ageMin": age_min}
+    return {"pickList": pick_list, "orders": out, "ageMin": age_min,
+            "life": _pl_life([pick_list]).get(pick_list)}
 
 
 @frappe.whitelist()

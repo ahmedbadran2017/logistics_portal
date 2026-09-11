@@ -189,6 +189,12 @@ export default {
     popupBlocked: "Popup blocked — allow popups for this site once.",
     kioskHint: "For hands-free printing, launch Chrome on this laptop with the flag:",
   },
+  plife: {
+    picked: "Picked",
+    sorted: "Sorted",
+    printed: "Printed",
+    shipped: "Shipped",
+  },
   fa: {
     title: "Floor activity",
     intro: "Who scanned what, when — the floor's day, person by person.",

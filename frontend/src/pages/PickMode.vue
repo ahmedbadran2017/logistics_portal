@@ -68,6 +68,7 @@
     <!-- Scanner -->
     <div class="px-4 py-3 bg-white border-b border-stone-200/70 sticky top-[74px] z-10">
       <ScanInput ref="scanner" :placeholder="t('pickm.scanPh')" @scan="onScan" />
+      <PlLife v-if="life" :life="life" compact class="mt-2" />
     </div>
 
     <!-- Loading -->
@@ -158,6 +159,7 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import ScanInput from "@/components/ui/ScanInput.vue";
+import PlLife from "@/components/ui/PlLife.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
@@ -229,6 +231,7 @@ async function onScan(code) {
     l.scannedQty = Math.min(l.scannedQty + 1, l.qty);
     flash.value = l.sku;
     setTimeout(() => { if (flash.value === l.sku) flash.value = ""; }, 800);
+    touchLife();
   }
   scanner.value?.showSuccess(`${res.name || res.itemCode} · ${res.totalScanned}/${res.totalQty}`);
   if (res.totalScanned >= res.totalQty) success(t("pickm.allScanned"), props.id);
@@ -256,6 +259,20 @@ let deferTimer = null;
 let shortTimer = null;
 
 function lineKey(l) { return l.sku + "|" + l.so; }
+
+// The list's life story — refreshed quietly after every landed scan, so the
+// picker literally watches their own bar fill.
+const life = ref(null);
+let lifeTimer = null;
+async function loadLife() {
+  try { life.value = await api("picking.pl_life", { pick_list: props.id }); }
+  catch {}
+}
+function touchLife() {
+  clearTimeout(lifeTimer);
+  lifeTimer = setTimeout(loadLife, 800);
+}
+onMounted(loadLife);
 
 // Labeling: queue one SKU label for this piece on the floor's print station.
 const lblSent = ref("");

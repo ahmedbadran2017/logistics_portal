@@ -189,6 +189,12 @@ export default {
     popupBlocked: "Popup bloqué — autorisez les popups pour ce site une fois.",
     kioskHint: "Pour imprimer sans dialogue, lancez Chrome sur ce portable avec l'option :",
   },
+  plife: {
+    picked: "Préparé",
+    sorted: "Trié",
+    printed: "Imprimé",
+    shipped: "Expédié",
+  },
   fa: {
     title: "Activité du plancher",
     intro: "Qui a scanné quoi, quand — la journée du plancher, personne par personne.",

@@ -68,12 +68,15 @@
             </span>
           </span>
           <span class="flex flex-col items-end gap-1 flex-shrink-0">
-            <span class="text-[12.5px] font-bold tabular-nums" :class="l.printed ? 'text-emerald-600' : 'text-stone-400'">
-              {{ l.printed }}/{{ l.orders }}
-            </span>
-            <span class="w-24 h-1.5 rounded-full bg-stone-100 overflow-hidden">
-              <span class="block h-full rounded-full bg-emerald-500" :style="{ width: (l.orders ? l.printed / l.orders * 100 : 0) + '%' }" />
-            </span>
+            <PlLife v-if="l.life" :life="l.life" compact />
+            <template v-else>
+              <span class="text-[12.5px] font-bold tabular-nums" :class="l.printed ? 'text-emerald-600' : 'text-stone-400'">
+                {{ l.printed }}/{{ l.orders }}
+              </span>
+              <span class="w-24 h-1.5 rounded-full bg-stone-100 overflow-hidden">
+                <span class="block h-full rounded-full bg-emerald-500" :style="{ width: (l.orders ? l.printed / l.orders * 100 : 0) + '%' }" />
+              </span>
+            </template>
           </span>
           <Icon name="chevron-right" :size="15" class="text-stone-300 rtl:rotate-180 flex-shrink-0" />
         </button>
@@ -96,6 +99,7 @@
               :class="doneCount === wall.orders.length ? 'text-emerald-700 bg-emerald-50 ring-emerald-200' : 'text-stone-700 bg-white ring-stone-200'">
           {{ doneCount }}/{{ wall.orders.length }} {{ t('sort.ordersDone') }}
         </span>
+        <PlLife v-if="wall.life" :life="wall.life" class="w-full" />
       </header>
 
       <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4 sticky top-2 z-10 shadow-sm">
@@ -264,6 +268,7 @@
 import { computed, onMounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import ScanInput from "@/components/ui/ScanInput.vue";
+import PlLife from "@/components/ui/PlLife.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
