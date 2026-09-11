@@ -726,6 +726,103 @@ def save_roles(roles):
     return {"ok": True, "roles": out}
 
 
+def _wave_totals(days):
+    """Live remaining work per execution wave — the plan's heartbeat. Each
+    number is the SAME total its worklist reports, so the stepper and the
+    lists can never disagree."""
+    ev_a = evacuate_list(cls="A", limit=1, days=days)
+    nf_a = no_face_list(cls="A", limit=1, days=days)
+    mv_a = move_list(cls="A", limit=1, days=days)
+    mv_b = move_list(cls="B", limit=1, days=days)
+    ev_b = evacuate_list(cls="B", limit=1, days=days)
+    mv_c = move_list(cls="C", limit=1, days=days)
+    ev_c = evacuate_list(cls="C", limit=1, days=days)
+    ovr = overstock_list(limit=1, days=days)
+    return {
+        "evacA": {"n": int(ev_a.get("total") or 0),
+                  "units": int(ev_a.get("unitsToClear") or 0),
+                  "cold": int(ev_a.get("coldRows") or 0)},
+        "faceA": {"n": int(nf_a.get("total") or 0),
+                  "ready": int(nf_a.get("sourced") or 0),
+                  "noStock": int(nf_a.get("noStock") or 0)},
+        "moveA": {"n": int(mv_a.get("total") or 0)},
+        "classB": {"n": int(mv_b.get("total") or 0) + int(ev_b.get("total") or 0)},
+        "classC": {"n": int(mv_c.get("total") or 0) + int(ev_c.get("total") or 0)},
+        "slim": {"n": int(ovr.get("total") or 0),
+                 "units": int(ovr.get("unitsExcess") or 0)},
+    }
+
+
+@frappe.whitelist()
+def execution_plan(days=90):
+    """The physical re-org as ORDERED WAVES with live progress — the screen
+    the floor executes from (Ahmed 2026-09-11). Verified on prod before it
+    was built: 71% of all pick lines happen on SKUs with NO shelf face, and
+    only 6% inside the fast letters — so the plan leads with evacuating the
+    fast wall and giving the A-movers faces, and only then fine-sorts B/C.
+
+    Progress = 1 - remaining/baseline, where the baseline is snapshotted at
+    freeze time; before a freeze the waves show live sizes with no bars.
+    Cached 2 minutes — every number inside is the same total the worklists
+    report."""
+    _gate()
+    days = min(max(int(days or 90), 7), 365)
+    ck = f"lp_slotting_exec_{days}"
+    hit = frappe.cache().get_value(ck)
+    if hit:
+        try:
+            return json.loads(hit)
+        except Exception:
+            pass
+
+    pmap = _velocity(days)
+    place = _placement()
+    cls, total_picks = _class_map(pmap)
+    tp = sum(pmap.values()) or 1
+    roles = zone_roles()
+    load = _letter_load()
+
+    fast_now = sum(p for ic, p in pmap.items()
+                   if ic in place and place[ic][0][0] in roles["A"])
+    noface_picks = sum(p for ic, p in pmap.items() if ic not in place)
+    a_share = sum(p for ic, p in pmap.items() if cls.get(ic) == "A")
+
+    waves = _wave_totals(days)
+    frozen = active_plan()
+    baseline = (frozen or {}).get("waveBaseline") or None
+    for k, w in waves.items():
+        b = (baseline or {}).get(k, {}).get("n")
+        w["baseline"] = int(b) if b else None
+        w["donePct"] = (max(0, min(100, round((1 - w["n"] / b) * 100)))
+                        if b else None)
+
+    letters = []
+    role_of = {}
+    for c in ("A", "B", "C"):
+        for L in roles[c]:
+            role_of[L] = c
+    for L in sorted(load):
+        bins, skus = load[L]
+        letters.append({"letter": L, "bins": bins, "skus": skus,
+                        "role": role_of.get(L, "X"),
+                        "density": round(skus / bins, 1) if bins else 0})
+
+    out = {
+        "days": days,
+        "headline": {
+            "fastSharePct": round(fast_now * 100 / tp),
+            "targetFastPct": round(a_share * 100 / tp),
+            "noFacePicksPct": round(noface_picks * 100 / tp),
+            "totalPickLines": tp,
+        },
+        "letters": letters,
+        "waves": waves,
+        "frozen": _plan_summary(),
+    }
+    frappe.cache().set_value(ck, json.dumps(out), expires_in_sec=120)
+    return out
+
+
 def _plan_summary():
     """What the running plan is, and how far the floor has got through it."""
     plan = active_plan()
@@ -762,6 +859,13 @@ def freeze_plan(days=90):
         "cls": cls, "days": days, "by": frappe.session.user,
         "startedAt": str(now_datetime())[:19],
     }))
+    frappe.cache().delete_keys("lp_slotting_")
+    # Snapshot the wave sizes AS FROZEN — the progress bars' denominator.
+    # Computed after the freeze so the totals reflect the frozen classes.
+    baseline = _wave_totals(days)
+    raw = json.loads(frappe.db.get_default(_PLAN_KEY))
+    raw["waveBaseline"] = baseline
+    frappe.db.set_default(_PLAN_KEY, json.dumps(raw))
     frappe.cache().delete_keys("lp_slotting_")
     return {"ok": True, "plan": _plan_summary()}
 

@@ -23,6 +23,66 @@
     </div>
 
     <template v-else-if="ov">
+      <!-- ══ THE EXECUTION PLAN — the screen the floor works from ══ -->
+      <div v-if="exec" class="bg-stone-900 text-white rounded-2xl overflow-hidden">
+        <div class="px-5 py-4 flex items-center gap-3 flex-wrap">
+          <div>
+            <div class="text-[16px] font-bold">{{ t('slotting.exTitle') }}</div>
+            <div class="text-[11.5px] text-stone-400 mt-0.5">{{ t('slotting.exIntro') }}</div>
+          </div>
+          <div class="ms-auto flex items-center gap-4 text-center">
+            <div>
+              <div class="text-[22px] font-extrabold tabular-nums text-emerald-400">{{ exec.headline.fastSharePct }}% <span class="text-stone-500 text-[13px]">→</span> {{ exec.headline.targetFastPct }}%</div>
+              <div class="text-[9.5px] uppercase font-semibold text-stone-400">{{ t('slotting.exFast') }}</div>
+            </div>
+            <div>
+              <div class="text-[22px] font-extrabold tabular-nums text-rose-400">{{ exec.headline.noFacePicksPct }}%</div>
+              <div class="text-[9.5px] uppercase font-semibold text-stone-400">{{ t('slotting.exNoFace') }}</div>
+            </div>
+          </div>
+        </div>
+        <!-- the warehouse, letter by letter, painted by role -->
+        <div class="px-5 pb-3 flex gap-1.5 flex-wrap">
+          <div v-for="L in exec.letters" :key="L.letter"
+               class="rounded-lg px-2.5 py-1.5 text-center ring-1"
+               :class="L.role === 'A' ? 'bg-emerald-500/15 ring-emerald-400/40'
+                       : L.role === 'B' ? 'bg-violet-500/15 ring-violet-400/40'
+                       : L.role === 'C' ? 'bg-stone-500/15 ring-stone-400/30' : 'bg-amber-500/10 ring-amber-400/30'">
+            <div class="text-[15px] font-extrabold leading-none"
+                 :class="L.role === 'A' ? 'text-emerald-300' : L.role === 'B' ? 'text-violet-300' : L.role === 'C' ? 'text-stone-300' : 'text-amber-300'">{{ L.letter }}</div>
+            <div class="text-[9px] text-stone-400 tabular-nums mt-0.5">{{ L.bins }}·{{ L.skus }}</div>
+          </div>
+          <div class="text-[9.5px] text-stone-500 self-end pb-0.5 ms-1">{{ t('slotting.exMapHint') }}</div>
+        </div>
+        <!-- the six waves, in the order the floor should walk them -->
+        <div class="divide-y divide-stone-800">
+          <div v-for="(w, wi) in WAVES" :key="w.k" class="px-5 py-3 flex items-center gap-3 flex-wrap">
+            <span class="w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-extrabold flex-shrink-0"
+                  :class="waveN(w.k) === 0 ? 'bg-emerald-500 text-white' : 'bg-stone-700 text-stone-200'">
+              {{ waveN(w.k) === 0 ? '✓' : wi + 1 }}</span>
+            <div class="min-w-[180px] flex-1">
+              <div class="text-[13px] font-bold" :class="waveN(w.k) === 0 ? 'text-emerald-300' : ''">{{ t('slotting.exW_' + w.k) }}</div>
+              <div class="text-[10.5px] text-stone-400">{{ t('slotting.exWh_' + w.k) }}</div>
+            </div>
+            <div class="text-end">
+              <div class="text-[18px] font-extrabold tabular-nums" :class="waveN(w.k) === 0 ? 'text-emerald-400' : 'text-white'">{{ waveN(w.k) }}</div>
+              <div class="text-[9px] uppercase text-stone-500">{{ t('slotting.exLeft') }}</div>
+            </div>
+            <div v-if="waveObj(w.k).donePct !== null && waveObj(w.k).donePct !== undefined" class="w-28">
+              <div class="h-2 rounded-full bg-stone-700 overflow-hidden">
+                <div class="h-full rounded-full bg-emerald-500 transition-all duration-500" :style="{ width: waveObj(w.k).donePct + '%' }" />
+              </div>
+              <div class="text-[9.5px] text-stone-400 tabular-nums text-center mt-0.5">{{ waveObj(w.k).donePct }}%</div>
+            </div>
+            <button v-if="w.anchor" class="h-8 px-3 rounded-lg text-[11.5px] font-bold bg-white text-stone-900 hover:bg-stone-100"
+                    @click="goWave(w)">{{ t('slotting.exOpen') }}</button>
+          </div>
+        </div>
+        <div v-if="!exec.frozen" class="px-5 py-3 bg-amber-500/10 text-[11.5px] text-amber-300 flex items-center gap-2">
+          <Icon name="alert-triangle" :size="13" />{{ t('slotting.exFreezeWarn') }}
+        </div>
+      </div>
+
       <!-- scorecard -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
@@ -131,7 +191,7 @@
       </div>
 
       <!-- Phase 2: the move worklist -->
-      <div v-if="plan" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+      <div id="sl-move" v-if="plan" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
           <Icon name="route" :size="14" class="text-[var(--accent-600)]" />
           <span class="text-[12px] font-semibold text-stone-900">{{ t('slotting.moveTitle') }}</span>
@@ -227,7 +287,7 @@
       </div>
 
       <!-- The fastest SKUs with no picking face at all -->
-      <div v-if="noFace" class="bg-white rounded-xl ring-1 ring-rose-200/70 overflow-hidden">
+      <div id="sl-noface" v-if="noFace" class="bg-white rounded-xl ring-1 ring-rose-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
           <Icon name="alert-triangle" :size="14" class="text-rose-600" />
           <span class="text-[12px] font-semibold text-stone-900">{{ t('slotting.nfTitle') }}</span>
@@ -269,7 +329,7 @@
       </div>
 
       <!-- Clear the zone before filling it -->
-      <div v-if="evac" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+      <div id="sl-evac" v-if="evac" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
           <Icon name="arrow-right" :size="14" class="text-amber-600" />
           <span class="text-[12px] font-semibold text-stone-900">{{ t('slotting.evTitle').replace('{z}', (evac.letters || []).join('+')) }}</span>
@@ -306,7 +366,7 @@
       </div>
 
       <!-- Phase 2: excess on the fast faces -> SLOW ZONE -->
-      <div v-if="over" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+      <div id="sl-over" v-if="over" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
           <Icon name="boxes" :size="14" class="text-amber-600" />
           <span class="text-[12px] font-semibold text-stone-900">{{ t('slotting.overTitle') }}</span>
@@ -384,6 +444,27 @@ const { t } = useI18n();
 const router = useRouter();
 
 const days = ref(90);
+const exec = ref(null);
+const WAVES = [
+  { k: "evacA", anchor: "sl-evac", cls: "A" },
+  { k: "faceA", anchor: "sl-noface", cls: "A" },
+  { k: "moveA", anchor: "sl-move", cls: "A" },
+  { k: "classB", anchor: "sl-move", cls: "B" },
+  { k: "classC", anchor: "sl-move", cls: "C" },
+  { k: "slim", anchor: "sl-over", cls: "" },
+];
+function waveObj(k) { return (exec.value?.waves || {})[k] || {}; }
+function waveN(k) { return waveObj(k).n ?? "—"; }
+function goWave(w) {
+  if (w.anchor === "sl-move" && w.cls) setMoveCls(w.cls);
+  if (w.anchor === "sl-evac" && w.cls) setEvCls(w.cls);
+  if (w.anchor === "sl-noface" && w.cls) setNfCls(w.cls);
+  setTimeout(() => document.getElementById(w.anchor)?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+}
+async function loadExec() {
+  try { exec.value = await api("slotting.execution_plan", { days: days.value }); }
+  catch { exec.value = null; }
+}
 const ov = ref(null);
 const loading = ref(true);
 
@@ -426,6 +507,7 @@ function pctOf(n, z) {
 }
 
 async function load() {
+  loadExec();
   loading.value = true;
   try {
     ov.value = await api("slotting.overview", { days: days.value });
@@ -489,6 +571,7 @@ async function freezePlan() {
   planBusy.value = true;
   try {
     await apiPost("slotting.freeze_plan", { days: days.value });
+    loadExec();
     await load();
   } catch (e) {
     roleErr.value = String(e.message || e);
@@ -500,6 +583,7 @@ async function endPlan() {
   planBusy.value = true;
   try {
     await apiPost("slotting.end_plan", {});
+    loadExec();
     await load();
   } catch (e) {
     roleErr.value = String(e.message || e);
