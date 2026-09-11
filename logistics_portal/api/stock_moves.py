@@ -315,9 +315,14 @@ RECEIVING_WH = "Receiving Zone - JM"
 
 @frappe.whitelist()
 def receive_lookup(code):
-    """Resolve a scanned piece for the goods-in session: identity only —
-    qty is counted on the floor, value is ERPNext's job."""
-    _gate()
+    """Resolve a scanned piece: identity only — qty is counted on the floor,
+    value is ERPNext's job. Read-only, so it takes ANY portal role: the
+    cycle count opened to the whole team (2026-09-11) and its
+    scan-a-strange-piece flow died on a picker's PDA at the move gate —
+    "Not authorized to move stock" for a person moving nothing."""
+    from logistics_portal.api.auth import resolve_role
+    if not resolve_role(frappe.session.user):
+        frappe.throw("Portal users only.", frappe.PermissionError)
     from logistics_portal.api.picking import resolve_scan
     r = resolve_scan(code)
     item_code = r.get("itemCode")
