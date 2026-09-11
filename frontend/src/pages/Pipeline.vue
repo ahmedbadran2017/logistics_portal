@@ -178,6 +178,7 @@
           { k: 'partial', label: t('ordersPg.pickPartial'), hex: '#d97706' },
           { k: 'local',   label: t('ordersPg.pickLocal'),   hex: '#7c3aed' },
           { k: 'oos',     label: t('ordersPg.pickOos'),     hex: '#e11d48' },
+          { k: 'city',    label: t('ordersPg.pickCity'),    hex: '#0369a1' },
         ]" :key="tb.k"
         class="inline-flex items-center gap-2 h-9 ps-2.5 pe-3 rounded-lg ring-1 transition-all"
         :class="pickTab === tb.k ? 'bg-white ring-2 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.12)]' : 'bg-white/60 ring-stone-200/70 hover:bg-white'"
@@ -191,7 +192,8 @@
       <span class="text-[11px] text-stone-400 ms-1 hidden sm:inline">
         {{ pickTab === 'ready' ? t('ordersPg.pickReadyHint')
            : pickTab === 'partial' ? t('ordersPg.pickPartialHint')
-           : pickTab === 'local' ? t('ordersPg.pickLocalHint') : t('ordersPg.pickOosHint') }}
+           : pickTab === 'local' ? t('ordersPg.pickLocalHint')
+           : pickTab === 'city' ? t('ordersPg.pickCityHint') : t('ordersPg.pickOosHint') }}
       </span>
       <button class="ms-auto inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-[11.5px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200 hover:ring-stone-300 hover:text-stone-900" @click="openSkuLookup('')">
         <Icon name="search" :size="12" />{{ t('ordersPg.skuLookupBtn') }}
@@ -205,6 +207,31 @@
         <Icon name="alert-triangle" :size="12" />
         {{ (pickBuckets.oos || 0) }} · {{ fmtMAD(pickStuck.oos) }} MAD {{ t('ordersPg.stuckOos') }}
       </span>
+    </div>
+
+    <!-- Held out of the pick circle until the CITY is fixed — the fence's
+         own receipt. Fixing the city in City-check releases the order. -->
+    <div v-if="pickTab === 'city' && cityHeld && cityHeld.rows.length"
+         class="mb-3 rounded-xl ring-1 ring-sky-200/70 bg-white overflow-hidden">
+      <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+        <Icon name="map-pin" :size="14" class="text-sky-700" />
+        <span class="text-[12px] font-semibold text-stone-900">{{ t('ordersPg.cityTitle') }}</span>
+        <span class="text-[11.5px] text-stone-400 tabular-nums">{{ cityHeld.n }}</span>
+        <button class="ms-auto h-8 px-3 rounded-lg text-[12px] font-semibold text-sky-800 bg-sky-50 ring-1 ring-sky-200 hover:bg-sky-100"
+                @click="$router.push({ name: 'CityCheck' })">{{ t('ordersPg.cityFixBtn') }}</button>
+      </div>
+      <p class="px-4 py-2 text-[11.5px] text-stone-500 border-b border-stone-100">{{ t('ordersPg.cityHint') }}</p>
+      <ul class="divide-y divide-stone-100 max-h-[380px] overflow-y-auto">
+        <li v-for="r in cityHeld.rows" :key="r.so" class="px-4 py-2.5 flex items-center gap-3">
+          <span class="font-mono text-[12px] text-stone-800 flex-shrink-0">{{ r.so }}</span>
+          <span class="text-[12px] text-stone-600 truncate" dir="auto">{{ r.customer }}</span>
+          <span class="text-[11.5px] font-bold text-sky-800 bg-sky-50 ring-1 ring-sky-200/70 rounded-md px-2 py-0.5 truncate max-w-[220px]" dir="auto">
+            {{ r.city || '—' }}
+          </span>
+          <span class="ms-auto text-[11px] text-stone-400 tabular-nums flex-shrink-0">{{ Math.round(r.ageH / 24 * 10) / 10 }}d</span>
+          <span class="text-[11.5px] font-semibold text-stone-700 tabular-nums flex-shrink-0">{{ fmtMAD(r.total) }} MAD</span>
+        </li>
+      </ul>
     </div>
 
     <!-- Shown out of stock while the piece is on a Moroccan shelf -->
@@ -1003,6 +1030,7 @@ const page = ref(1);
 const pageSize = ref(20);
 const pickTab = ref("ready");
 const pickBuckets = ref({});
+const cityHeld = ref(null);
 const localBoard = ref(null);
 const falseOos = ref(null);
 const openSup = ref("");
@@ -1049,6 +1077,7 @@ async function load(stage, track = "", keepPage = false) {
     cities.value = live.cities || [];
     total.value = live.total ?? (live.rows || []).length;
     pickBuckets.value = live.pickBuckets || {};
+    cityHeld.value = live.cityHeld || null;
     if (pickTab.value === "local") loadLocalBoard();
     else localBoard.value = null;
     if (pickTab.value === "oos") loadFalseOos();

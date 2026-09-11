@@ -646,6 +646,11 @@ export default {
     emptyBody: "Chaque commande en attente appartient à un client unique.",
   },
   ordersPg: {
+    pickCity: "Ville à corriger",
+    pickCityHint: "Retenues hors préparation jusqu'à correction de la ville — le transporteur refuserait l'étiquette.",
+    cityTitle: "En attente d'une correction de ville",
+    cityHint: "Cathedis a refusé ces noms de ville (ou ne les a jamais étiquetés). Corrigez la ville dans City check et la commande revient toute seule dans le pool — ne les préparez pas.",
+    cityFixBtn: "Ouvrir City check",
     fooTitle: "Sur une étagère ici, affiché en rupture",
     fooUnits: "unités",
     fooHint: "Aucun n'est un carton oublié. Soit le registre de lot place la pièce ailleurs, soit une liste de prélèvement en brouillon la retient.",

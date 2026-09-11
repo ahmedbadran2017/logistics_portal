@@ -674,6 +674,54 @@ _POOL_WHERE = f"""so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
                                  JOIN `tabPick List` p ON p.name = pli.parent
                                  WHERE pli.sales_order = so.name AND p.docstatus < 2)"""
 
+# The city FENCE (2026-09-11, Ahmed's call): an order whose city Cathedis
+# has refused — or that our AWB history has never successfully labeled —
+# leaves the pick circle entirely until a dispatcher fixes it in City-check.
+# The Azamour case: picked, packed, stock deducted, carrier rejected the
+# city, label arrived 48 minutes late, parcel physically lost. Holding the
+# order BEFORE the floor touches it is the only point where the fix is free.
+def _city_literals():
+    try:
+        from logistics_portal.api.city import pool_city_literals
+        return pool_city_literals()
+    except Exception:
+        return ""
+
+
+def _city_known_clause():
+    lits = _city_literals()
+    if not lits:
+        # A broken cache must never empty the pool — fence open.
+        return ""
+    return f" AND LOWER(TRIM(COALESCE({_EFF_CITY}, ''))) IN ({lits})"
+
+
+def city_held(limit=80):
+    """The orders the fence is holding right now — the board's own chip.
+    Confirmed, pending, off any pick list, city not Arabic/junk (those are
+    _BAD_CITY, on the City-check screen already) but unknown to the accepted
+    list. Fixing the city in City-check releases them automatically."""
+    lits = _city_literals()
+    if not lits:
+        return {"n": 0, "rows": []}
+    from frappe.utils import now_datetime
+    rows = frappe.db.sql(
+        f"""SELECT so.name, so.customer_name customer, so.grand_total total,
+                   {_EFF_CITY} city,
+                   TIMESTAMPDIFF(HOUR, so.creation, %(now)s) age_h
+            FROM `tabSales Order` so
+            WHERE {_POOL_WHERE}
+              AND LOWER(TRIM(COALESCE({_EFF_CITY}, ''))) NOT IN ({lits})
+            ORDER BY so.creation LIMIT %(limit)s""",
+        {"now": str(now_datetime())[:19], "limit": min(max(int(limit or 80), 1), 200)},
+        as_dict=True)
+    return {"n": len(rows),
+            "rows": [{"so": r.name, "customer": r.customer or "",
+                      "city": (r.city or "").strip(),
+                      "total": float(r.total or 0), "ageH": int(r.age_h or 0)}
+                     for r in rows]}
+
+
 _CAND_CITY = ("COALESCE(NULLIF(TRIM(so.custom_shipping_city), ''), "
               "NULLIF(TRIM(addr.city), ''))")
 _CAND_CITY_JOIN = ("LEFT JOIN `tabAddress` addr ON addr.name = "
@@ -729,7 +777,7 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
             JOIN `tabSales Order Item` soi ON soi.parent = so.name
             JOIN `tabItem` i ON i.name = soi.item_code
             {_CAND_CITY_JOIN}
-            WHERE {_POOL_WHERE}
+            WHERE {_POOL_WHERE}{_city_known_clause()}
             GROUP BY so.name, so.customer_name, so.grand_total, city
             ORDER BY so.creation""", {"sku": sku}, as_dict=True)
 
@@ -742,7 +790,7 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
             JOIN `tabSales Order` so ON so.name = soi.parent
             JOIN `tabBin` b ON b.item_code = soi.item_code AND b.actual_qty > 0
                  AND b.warehouse REGEXP '^[A-Z][0-9]{{1,2}}[A-Z]?[.]? - JM$'
-            WHERE {_POOL_WHERE}""", as_dict=True):
+            WHERE {_POOL_WHERE}{_city_known_clause()}""", as_dict=True):
         order_zones.setdefault(zr.so, set()).add(zr.zone)
     for zs in order_zones.values():
         for z in zs:
@@ -2044,7 +2092,7 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
                WHERE so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
                  AND so.custom_logistics_status = 'Pending'
                  AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
-                 AND NOT {_BAD_CITY}
+                 AND NOT {_BAD_CITY}{_city_known_clause()}
                  AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
                                  JOIN `tabPick List` p ON p.name = pli.parent
                                  WHERE pli.sales_order = so.name AND p.docstatus < 2)

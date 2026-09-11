@@ -97,8 +97,15 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
             pick_avail = _pick_availability()
             pick_buckets = {k: len(pick_avail.get(k) or [])
                             for k in ("ready", "partial", "oos", "local")}
+            # City fence: orders held out of the pool until a dispatcher fixes
+            # the city — their own chip, so they stop hiding inside "Ready".
+            from logistics_portal.api.picking import city_held as _city_held
+            city_hold = _city_held(80)
+            pick_buckets["city"] = city_hold["n"]
             if pick in ("ready", "partial", "oos", "local"):
                 pick_names = pick_avail.get(pick) or []
+            elif pick == "city":
+                pick_names = [r["so"] for r in city_hold["rows"]]
                 # Who owes us the blocked item. The row already names WHAT is
                 # missing; without the supplier the dispatcher has to open each
                 # order to find out who to call, and cannot see that eleven of
@@ -133,6 +140,7 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
                 "serverNow": str(now_datetime())[:16]}
         if pick_buckets is not None:
             resp["pickBuckets"] = pick_buckets
+            resp["cityHeld"] = city_hold
             if pick_names is not None and sup_facet is not None:
                 resp["suppliers"] = sup_facet
                 resp["pickSuppliers"] = {r["no"]: sup_by_order.get(r["no"], [])

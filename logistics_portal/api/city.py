@@ -78,10 +78,58 @@ def _add_manual_city(city):
     frappe.cache().delete_value("lp_cathedis_cities")
 
 
+# City strings Cathedis itself refused ("Ville introuvable: X" in the error
+# log). This is the ground truth the accepted list was missing: the old list
+# was "any city that ever ended up with an AWB", and an order whose city a
+# human FIXED later still carried the broken spelling — so "Azamour",
+# "CASABLNACA" and even phone numbers became "accepted" forever, and the
+# check waved through exactly the orders it existed to stop (measured
+# 2026-09-11: 660 carrier rejections in 30 days while the queue showed zero).
+def _refused_cities():
+    ck = "lp_cathedis_refused"
+    cached = frappe.cache().get_value(ck)
+    if cached:
+        import json as _j
+        try:
+            return set(_j.loads(cached))
+        except Exception:
+            pass
+    import re as _re
+    out = set()
+    for (err,) in frappe.db.sql(
+            """SELECT error FROM `tabError Log`
+               WHERE error LIKE '%%Ville introuvable%%'
+                 AND creation >= DATE_SUB(NOW(), INTERVAL 120 DAY)"""):
+        for m in _re.finditer(r"Ville introuvable: ([^\"\\\n]+)", err or ""):
+            v = m.group(1).strip().lower()
+            if v:
+                out.add(v)
+    import json as _j
+    frappe.cache().set_value(ck, _j.dumps(sorted(out)), expires_in_sec=600)
+    return out
+
+
+def _hygienic(c):
+    """A string that could actually be a city. Phone numbers, house addresses
+    and two-letter fragments all made it into the AWB history."""
+    c = (c or "").strip()
+    if not (3 <= len(c) <= 32):
+        return False
+    if any(ch.isdigit() for ch in c) or "\n" in c or "\r" in c:
+        return False
+    low = c.lower()
+    for frag in ("secteur", "point de relais", "rue ", "avenue ", "lot ",
+                 "immeuble", "residence", "r\u00e9sidence", "\u00e9tage", "app "):
+        if frag in low:
+            return False
+    return True
+
+
 def _accepted_cities():
     """The Latin cities that can produce a Cathedis AWB: those seen on an AWB in
-    the last 180 days, PLUS the ones a dispatcher/manager added by hand. Cached
-    10 min. Arabic entries are dropped from the PICKER (we want a Latin target)."""
+    the last 180 days that look like a city (hygiene) and were never REFUSED by
+    Cathedis, PLUS the ones a dispatcher/manager added by hand (manual wins over
+    everything). Cached 10 min."""
     ck = "lp_cathedis_cities"
     cached = frappe.cache().get_value(ck)
     if cached:
@@ -97,6 +145,7 @@ def _accepted_cities():
              AND custom_shipping_city IS NOT NULL AND TRIM(custom_shipping_city) != ''
              AND creation >= DATE_SUB(NOW(), INTERVAL 180 DAY)
            GROUP BY custom_shipping_city ORDER BY n DESC""", _CO, as_dict=True)
+    refused = _refused_cities()
     seen, out = set(), []
     for r in rows:
         c = (r.c or "").strip()
@@ -105,7 +154,7 @@ def _accepted_cities():
         if any("؀" <= ch <= "ۿ" for ch in c):
             continue  # keep the picker Latin-only
         k = c.lower()
-        if k in seen:
+        if k in seen or k in refused or not _hygienic(c):
             continue
         seen.add(k)
         out.append(c)
@@ -327,3 +376,20 @@ def suggest_city(order, limit=8):
     scored.sort()
     lim = min(max(int(limit or 8), 1), 25)
     return {"city": raw, "exact": "", "suggestions": [x[2] for x in scored[:lim]]}
+
+
+def pool_city_literals():
+    """The accepted set as escaped SQL literals — the pick pool's city fence.
+    Empty string = fence open (never let a broken cache empty the pool)."""
+    try:
+        cities = _accepted_cities()
+    except Exception:
+        return ""
+    if not cities:
+        return ""
+    lits = []
+    for c in cities:
+        v = c.strip().lower().replace("\\", "").replace("'", "''")
+        if v:
+            lits.append("'" + v + "'")
+    return ",".join(lits)

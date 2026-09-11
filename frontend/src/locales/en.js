@@ -646,6 +646,11 @@ export default {
     emptyBody: "Every waiting order belongs to a unique customer right now.",
   },
   ordersPg: {
+    pickCity: "City issue",
+    pickCityHint: "Held out of picking until the city is fixed — the carrier would refuse the label.",
+    cityTitle: "Waiting on a city fix",
+    cityHint: "Cathedis refused these city names (or has never labeled them). Fix the city in City check and the order re-enters the pick pool by itself — do not pick these.",
+    cityFixBtn: "Open City check",
     fooTitle: "On a shelf here, still shown out of stock",
     fooUnits: "units",
     fooHint: "None of these is a box nobody noticed. Either the batch ledger puts the piece somewhere else, or an open draft pick list is already holding it.",
