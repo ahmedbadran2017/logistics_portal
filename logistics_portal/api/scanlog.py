@@ -122,6 +122,11 @@ def silent_now(threshold_min=20):
         """SELECT owner, MAX(creation) t FROM `tabLP Scan Event`
            WHERE creation >= %s AND creation < %s GROUP BY owner""",
         (d0, d1), as_dict=True)}
+    # System actions count as presence too: a picker mid stock-move must not
+    # page as "silent".
+    for owner, when, _st, _u in _sys_actions(d0, d1):
+        if owner not in last or when > last[owner]:
+            last[owner] = when
     st_of = {r.owner: r.st for r in frappe.db.sql(
         """SELECT owner, SUBSTRING_INDEX(GROUP_CONCAT(station ORDER BY creation DESC), ',', 1) st
            FROM `tabLP Scan Event`
@@ -192,6 +197,40 @@ def backfill_manifest_history():
     return {"seeded": n}
 
 
+def _sys_actions(d0, d1):
+    """Non-scanner witnesses of floor work (Ahmed 2026-09-11: 'track the
+    other actions too — more logical'). A dispatcher building pick lists,
+    a supervisor moving stock, a counter filing a reconciliation — all of
+    it leaves documents with an owner and a moment, and all of it belongs
+    on the same timeline as the scans. Returns [(owner, creation, station,
+    units)] with stations: move / receive / count / dispatch."""
+    ev = []
+    for r in frappe.db.sql(
+            """SELECT se.owner, se.creation, se.purpose,
+                      (SELECT ROUND(SUM(sed.qty)) FROM `tabStock Entry Detail` sed
+                       WHERE sed.parent = se.name) units
+               FROM `tabStock Entry` se
+               WHERE se.docstatus = 1 AND se.creation >= %s AND se.creation < %s
+                 AND se.purpose IN ('Material Transfer', 'Material Receipt')
+                 AND se.owner NOT IN ('Administrator', 'Guest')""",
+            (d0, d1), as_dict=True):
+        st = "move" if r.purpose == "Material Transfer" else "receive"
+        ev.append((r.owner, r.creation, st, int(r.units or 1)))
+    for r in frappe.db.sql(
+            """SELECT owner, creation FROM `tabStock Reconciliation`
+               WHERE creation >= %s AND creation < %s AND docstatus < 2
+                 AND owner NOT IN ('Administrator', 'Guest')""",
+            (d0, d1), as_dict=True):
+        ev.append((r.owner, r.creation, "count", 1))
+    for r in frappe.db.sql(
+            """SELECT owner, creation FROM `tabPick List`
+               WHERE creation >= %s AND creation < %s AND docstatus < 2
+                 AND owner NOT IN ('Administrator', 'Guest')""",
+            (d0, d1), as_dict=True):
+        ev.append((r.owner, r.creation, "dispatch", 1))
+    return ev
+
+
 @frappe.whitelist()
 def floor_activity(day=None):
     """Per-person movement for one floor day — manager's answer to "who was
@@ -234,6 +273,32 @@ def floor_activity(day=None):
             if gap > p["maxGapMin"]:
                 p["maxGapMin"] = int(gap)
         p["_prev"] = at
+
+    # The system's own witnesses join the same timeline — a move, a receipt,
+    # a count, a built pick list. They fill the exact gaps the honesty box
+    # apologized for: the dispatcher's day was invisible here.
+    sys_ev = sorted(_sys_actions(d0, d1), key=lambda e: (e[0], e[1]))
+    for owner, when, st, units in sys_ev:
+        at = clock.to_floor(when)
+        p = out.setdefault(owner, {
+            "user": owner, "scans": 0, "units": 0,
+            "stations": {}, "first": None, "last": None,
+            "slots": {}, "maxGapMin": 0, "_prev": None})
+        p["scans"] += 1
+        p["units"] += max(1, int(units or 1))
+        p["stations"][st] = p["stations"].get(st, 0) + 1
+        t = str(at)[11:16]
+        if p["first"] is None or t < p["first"]:
+            p["first"] = t
+        if p["last"] is None or t > p["last"]:
+            p["last"] = t
+        slot = "%02d:%02d" % (at.hour, 0 if at.minute < 30 else 30)
+        p["slots"][slot] = p["slots"].get(slot, 0) + 1
+        if p["_prev"] is None or at > p["_prev"]:
+            p["_prev"] = at
+    # NB: maxGapMin stays a SCAN-chain measure for scanner people, but a
+    # person with only system actions gets first/last/pulse from them.
+
     # Who are these emails, and when did HR see them arrive? First punch of
     # the floor day, so "clocked in 09:07, first scan 10:40" is one glance.
     # NB: the punched-but-silent merge below adds people to `out`, so the

@@ -162,6 +162,10 @@ const ST_CLS = {
   pick: "bg-emerald-50 text-emerald-700",
   sort: "bg-violet-50 text-violet-700",
   manifest: "bg-sky-50 text-sky-700",
+  move: "bg-teal-50 text-teal-700",
+  receive: "bg-lime-50 text-lime-800",
+  count: "bg-amber-50 text-amber-700",
+  dispatch: "bg-stone-100 text-stone-600",
 };
 
 async function load() {
