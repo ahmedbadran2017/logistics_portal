@@ -2036,8 +2036,28 @@ def _available_totals(item_codes):
         totals[r[0]] = totals.get(r[0], 0) + free
     # Batch/serial items: cap by ee's own batch-aware availability — Bin stock
     # whose batch ledger lives elsewhere is not coverage.
-    for it, q in _batch_truth(item_codes).items():
-        totals[it] = min(totals.get(it, 0), q)
+    #
+    # RESERVATION-BLIND on purpose (2026-09-11): ee's batch availability nets
+    # out Stock Reservation Entries, but availability() subtracts SREs AGAIN
+    # downstream and then credits each order its own reservation back — so a
+    # piece reserved FOR an order was double-counted out and the credit died
+    # on this very cap: four live orders sat in "out of stock" while their
+    # own reserved unit was on the shelf. Adding the active SRE sum back
+    # makes the batch ceiling mean the same thing as the non-batch one
+    # (physical, un-drafted, before reservations), while genuinely-stale
+    # bundle holds (which are NOT SREs) stay subtracted.
+    bt = _batch_truth(item_codes)
+    if bt:
+        sre_sum = {r[0]: float(r[1] or 0) for r in frappe.db.sql(
+            """SELECT item_code,
+                      SUM(reserved_qty - COALESCE(delivered_qty, 0))
+               FROM `tabStock Reservation Entry`
+               WHERE docstatus = 1 AND status NOT IN ('Delivered', 'Cancelled')
+                 AND item_code IN %s
+               GROUP BY item_code""", (tuple(bt),))}
+        for it, q in bt.items():
+            totals[it] = min(totals.get(it, 0),
+                             q + max(0.0, sre_sum.get(it, 0.0)))
     # Same warehouse universe on both sides of the equation: a draft row
     # parked on a non-pickable (or ee-rejected) bin must not eat into free stock.
     lcond, largs = pickable_condition("pli.warehouse")
