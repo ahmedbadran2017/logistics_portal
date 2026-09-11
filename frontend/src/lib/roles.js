@@ -154,6 +154,7 @@ export const ROLE_CONFIG = {
         section: "nav.operations",
         items: [
           { to: "Queue", label: "nav.queue", icon: "list-checks" },
+          { to: "CycleCount", label: "nav.count", icon: "calculator" },
         ],
       },
       {
@@ -175,6 +176,7 @@ export const ROLE_CONFIG = {
         section: "nav.operations",
         items: [
           { to: "PackStation", label: "nav.pack", icon: "tag" },
+          { to: "CycleCount", label: "nav.count", icon: "calculator" },
           { to: "LabelQueue", label: "nav.label", icon: "printer" },
           { to: "Manifest", label: "nav.manifest", icon: "package-check" },
           { to: "Shipments", label: "nav.shipments", icon: "truck" },

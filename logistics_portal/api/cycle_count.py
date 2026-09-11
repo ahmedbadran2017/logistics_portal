@@ -22,8 +22,13 @@ _REG = "lp_cycle_counts"
 
 
 def _gate():
+    # The whole team counts (Ahmed 2026-09-11: pickers in their idle time,
+    # everyone really). Safe to open wide because a count never posts stock —
+    # it files a DRAFT the manager approves. The MOVES a count can carry are
+    # real transfers, but they only record what the counter physically did
+    # with the pieces in their hands.
     from logistics_portal.api.auth import resolve_role
-    if resolve_role(frappe.session.user) not in ("manager", "dispatcher", "returns", "packer"):
+    if not resolve_role(frappe.session.user):
         frappe.throw("Not authorized to count stock.", frappe.PermissionError)
 
 
@@ -88,6 +93,21 @@ def bin_contents(warehouse):
         "itemCode": r.item_code, "sku": r.sku or "", "name": r.name,
         "image": r.image or "", "book": int(r.qty or 0),
     } for r in rows]}
+
+
+@frappe.whitelist()
+def item_locations(item_code):
+    """Everywhere the ledger sees this item — the shelf picker for a count
+    move. The counter found 3 of 5 and KNOWS the other 2 sit on another
+    shelf: the honest record is a transfer, not two reconciliations."""
+    _gate()
+    item_code = (item_code or "").strip()
+    rows = frappe.db.sql(
+        """SELECT warehouse, actual_qty FROM `tabBin`
+           WHERE item_code = %s AND actual_qty <> 0
+           ORDER BY actual_qty DESC LIMIT 20""", (item_code,), as_dict=True)
+    return {"locations": [{"warehouse": r.warehouse,
+                           "qty": int(r.actual_qty or 0)} for r in rows]}
 
 
 # ---------------------------------------------------------------- batches
@@ -215,10 +235,68 @@ def _batch_bundle(item_code, warehouse, counted, company):
     return bundle.name
 
 
+def _apply_count_moves(warehouse, moves):
+    """The count's transfers, as ONE submitted Material Transfer.
+
+    A short count whose missing pieces the counter can SEE on another shelf
+    is a relocation, not a loss — recording it as two reconciliations would
+    invent an expense and a gain that never happened (and every reco also
+    breaks the sum-vs-chain reading of that bin forever). One Stock Entry
+    holds every move of this count, so they land atomically.
+
+    Directions: "out" = pieces belong here on the book but physically sit on
+    `other` (transfer warehouse -> other); "in" = extra pieces found here
+    that came from `other` (transfer other -> warehouse)."""
+    if isinstance(moves, str):
+        moves = json.loads(moves)
+    moves = moves or []
+    if not moves:
+        return None
+    if len(moves) > 100:
+        frappe.throw("Too many moves for one count.")
+    lines = []
+    for m in moves:
+        code = (m.get("item_code") or "").strip()
+        qty = int(m.get("qty") or 0)
+        other = (m.get("other") or "").strip()
+        direction = (m.get("dir") or "out").strip()
+        if not code or qty <= 0 or not other:
+            continue
+        if other == warehouse:
+            frappe.throw("A count move needs a DIFFERENT shelf.")
+        if not _valid_bin(other):
+            frappe.throw(f"{other} is not a valid bin.")
+        src, tgt = (warehouse, other) if direction == "out" else (other, warehouse)
+        available = int(frappe.db.get_value(
+            "Bin", {"warehouse": src, "item_code": code}, "actual_qty") or 0)
+        if qty > available:
+            frappe.throw(f"Only {available} of {code} in {src} — cannot move {qty}.")
+        lines.append({"item_code": code, "qty": qty,
+                      "s_warehouse": src, "t_warehouse": tgt})
+    if not lines:
+        return None
+    company = frappe.db.get_value("Warehouse", warehouse, "company")         or frappe.defaults.get_global_default("company")
+    se = frappe.get_doc({
+        "doctype": "Stock Entry",
+        "stock_entry_type": "Material Transfer",
+        "company": company,
+        "remarks": f"Cycle-count relocation of {warehouse} by {frappe.session.user}",
+        "items": lines,
+    })
+    se.flags.ignore_permissions = True
+    se.insert(ignore_permissions=True)
+    se.submit()
+    for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    return se.name
+
+
 @frappe.whitelist()
-def submit_count(warehouse, counts=None, note=None):
-    """The floor's count for one bin. Only rows that DIFFER from the book go
-    into the draft reconciliation — a clean count creates nothing."""
+def submit_count(warehouse, counts=None, note=None, moves=None):
+    """The floor's count for one bin. Relocations the counter recorded are
+    applied FIRST (they change the book), then only rows that still DIFFER
+    from the book go into the draft reconciliation — a clean count creates
+    nothing."""
     _gate()
     warehouse = (warehouse or "").strip()
     if not _valid_bin(warehouse):
@@ -230,6 +308,8 @@ def submit_count(warehouse, counts=None, note=None):
         frappe.throw("Count at least one item.")
     if len(counts) > 500:
         frappe.throw("Too many lines for one count.")
+
+    moved_entry = _apply_count_moves(warehouse, moves)
 
     book = {r.item_code: r for r in frappe.db.sql(
         """SELECT item_code, actual_qty, valuation_rate FROM `tabBin`
@@ -261,7 +341,9 @@ def submit_count(warehouse, counts=None, note=None):
         summary.append({"itemCode": code, "counted": qty, "book": book_qty,
                         "delta": qty - book_qty})
     if not diffs:
-        return {"ok": True, "clean": True, "counted": len(seen)}
+        frappe.db.commit()
+        return {"ok": True, "clean": True, "counted": len(seen),
+                "moved": moved_entry}
 
     company = frappe.db.get_value("Warehouse", warehouse, "company") \
         or frappe.defaults.get_global_default("company")
@@ -316,7 +398,7 @@ def submit_count(warehouse, counts=None, note=None):
     _save_registry(reg)
     frappe.db.commit()
     return {"ok": True, "clean": False, "draft": doc.name,
-            "counted": len(seen), "diffs": summary}
+            "counted": len(seen), "diffs": summary, "moved": moved_entry}
 
 
 def _pending():
