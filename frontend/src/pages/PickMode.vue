@@ -106,6 +106,16 @@
             </div>
           </div>
           <div class="text-end flex-shrink-0 flex items-center gap-2">
+            <!-- Labeling stage: a piece with no scannable SKU on it — one tap
+                 queues the label; the floor's print station spits it out. -->
+            <button
+              class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+              :class="lblSent === lineKey(l) ? 'bg-emerald-500 text-white' : 'bg-stone-100 text-stone-400'"
+              :title="t('pickm.printLbl')"
+              @click="printLabel(l)"
+            >
+              <Icon :name="lblSent === lineKey(l) ? 'check' : 'printer'" :size="14" />
+            </button>
             <span class="text-[16px] font-bold tabular-nums"
                   :class="l.scannedQty >= l.qty ? 'text-emerald-600' : 'text-stone-900'">
               {{ l.scannedQty }}/{{ l.qty }}
@@ -246,6 +256,19 @@ let deferTimer = null;
 let shortTimer = null;
 
 function lineKey(l) { return l.sku + "|" + l.so; }
+
+// Labeling: queue one SKU label for this piece on the floor's print station.
+const lblSent = ref("");
+async function printLabel(l) {
+  try {
+    const r = await apiPost("labelprint.request", {
+      code: l.realSku || l.sku, qty: 1, station: "pick" });
+    if (r && r.ok) {
+      lblSent.value = lineKey(l);
+      setTimeout(() => { if (lblSent.value === lineKey(l)) lblSent.value = ""; }, 1600);
+    }
+  } catch {}
+}
 
 async function onShortPick(l) {
   const key = lineKey(l);

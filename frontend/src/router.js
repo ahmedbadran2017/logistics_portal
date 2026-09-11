@@ -66,6 +66,7 @@ const routes = [
       { path: "work", name: "Workspace", component: () => import("@/pages/Workspace.vue") },
       { path: "cc-dashboard", name: "CCDashboard", component: () => import("@/pages/CCDashboard.vue") },
       { path: "contact-center", name: "ContactCenter", component: () => import("@/pages/ContactCenter.vue") },
+      { path: "print-station", name: "PrintStation", component: () => import("@/pages/PrintStation.vue") },
       { path: "bonus", name: "Bonus", component: () => import("@/pages/Bonus.vue") },
 
       // Dispatcher

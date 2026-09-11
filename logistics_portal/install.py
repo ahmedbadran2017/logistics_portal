@@ -63,6 +63,9 @@ INDEXES = [
     # before), so opening My Dashboard cost the better part of twenty
     # seconds. NB: adding this index rewrites a 4 GB table — run the migrate
     # off-peak.
+    # The label print queue is polled every few seconds by the print
+    # station — the poll must be an index hit, not a scan.
+    ("LP Label Job", ["status", "creation"], "lp_lbljob_idx"),
     ("Version", ["owner", "ref_doctype", "creation"], "lp_version_owner_idx"),
     # The CC team-activity board slices ONE DAY of Sales Order versions with
     # no owner in hand (the owner set is what it is trying to discover). The

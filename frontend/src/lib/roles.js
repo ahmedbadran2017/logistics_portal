@@ -71,6 +71,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "SkuLookup", label: "nav.skuLookup", icon: "search" },
           { to: "ShelfLabels", label: "nav.shelfLabels", icon: "printer" },
+          { to: "PrintStation", label: "nav.printStation", icon: "radio" },
           { to: "Weights", label: "nav.weights", icon: "scale" },
           { to: "CatalogHub", label: "nav.catalogHub", icon: "refresh-cw" },
           { to: "BatchRepair", label: "nav.batchRepair", icon: "unlock" },
