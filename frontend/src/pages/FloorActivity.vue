@@ -108,14 +108,31 @@
             + {{ t('fa.noteAdd') }}
           </button>
         </div>
-        <!-- the day as a strip: one cell per 30 minutes, darker = busier.
-             Same hour axis for everyone, so silence lines up vertically. -->
-        <div class="flex items-center gap-px mt-2.5">
-          <span class="text-[9px] text-stone-400 tabular-nums me-1">{{ axis[0] }}</span>
-          <div v-for="slot in axis" :key="slot" class="flex-1 h-4 rounded-[3px]"
-               :class="cellCls(p.slots[slot] || 0)"
-               :title="slot + ' · ' + (p.slots[slot] || 0)" />
-          <span class="text-[9px] text-stone-400 tabular-nums ms-1">{{ axis[axis.length - 1] }}</span>
+        <!-- the day as a real heatmap: one cell per 30 minutes, intensity
+             relative to the board's busiest half-hour, the count printed on
+             any cell strong enough to carry it, an hour ruler underneath,
+             and a pulse on the CURRENT half-hour. Same axis for everyone,
+             so silence lines up vertically. -->
+        <div class="mt-3">
+          <div class="flex gap-[3px]">
+            <div v-for="(slot, si) in axis" :key="slot"
+                 class="flex-1 h-6 rounded-[5px] flex items-center justify-center transition-colors duration-300"
+                 :class="[cellCls(p.slots[slot] || 0),
+                          isToday && si === axis.length - 1 ? 'hm-now' : '']"
+                 :title="slot + ' — ' + (p.slots[slot] || 0)">
+              <span v-if="(p.slots[slot] || 0) > 0 && cellStrong(p.slots[slot])"
+                    class="text-[9px] font-bold tabular-nums text-white/95">{{ p.slots[slot] }}</span>
+              <span v-else-if="(p.slots[slot] || 0) > 0"
+                    class="text-[9px] font-bold tabular-nums text-emerald-900/60">{{ p.slots[slot] }}</span>
+            </div>
+          </div>
+          <div class="flex gap-[3px] mt-1">
+            <div v-for="slot in axis" :key="'r' + slot"
+                 class="flex-1 text-center text-[8.5px] tabular-nums leading-none"
+                 :class="slot.endsWith(':00') ? 'text-stone-400 font-medium' : 'text-stone-200'">
+              {{ slot.endsWith(':00') ? slot.slice(0, 2) : '·' }}
+            </div>
+          </div>
         </div>
       </div>
       <div class="text-[11px] text-stone-400 text-center pt-1">{{ d.totalScans }} {{ t('fa.totalScans') }}</div>
@@ -211,13 +228,26 @@ async function saveNote(p) {
 // floorEnd), so a silent morning is a visible hole, not a cropped chart —
 // an axis that starts at the first scan hides exactly what a gap is.
 const axis = computed(() => d.value?.axis || []);
+// Intensity is RELATIVE to the board's busiest half-hour, not a fixed
+// scale: a slow day still shows its own rhythm instead of a wash of the
+// palest green.
+const boardMax = computed(() => {
+  let m = 1;
+  for (const p of d.value?.people || [])
+    for (const k in p.slots) m = Math.max(m, p.slots[k]);
+  return m;
+});
 function cellCls(n) {
   if (!n) return "bg-stone-100";
-  if (n >= 20) return "bg-emerald-600";
-  if (n >= 10) return "bg-emerald-500";
-  if (n >= 4) return "bg-emerald-300";
+  const r = n / boardMax.value;
+  if (r >= 0.85) return "bg-emerald-600";
+  if (r >= 0.6) return "bg-emerald-500";
+  if (r >= 0.35) return "bg-emerald-400";
+  if (r >= 0.15) return "bg-emerald-300";
   return "bg-emerald-200";
 }
+function cellStrong(n) { return n / boardMax.value >= 0.35; }
+const isToday = computed(() => day.value === today);
 function pace(p) {
   if (!p.first || !p.last || p.first === p.last) return p.scans;
   const [h0, m0] = p.first.split(":").map(Number);
@@ -226,3 +256,7 @@ function pace(p) {
   return Math.round(p.scans / hrs);
 }
 </script>
+<style scoped>
+.hm-now { box-shadow: 0 0 0 2px var(--accent-400); animation: hmPulse 2s ease-in-out infinite; }
+@keyframes hmPulse { 0%, 100% { box-shadow: 0 0 0 2px var(--accent-400); } 50% { box-shadow: 0 0 0 2px transparent; } }
+</style>
