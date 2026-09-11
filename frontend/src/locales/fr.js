@@ -795,6 +795,8 @@ export default {
     pickableHint: "Ce que le moteur peut réellement allouer maintenant : bacs prélevables ∩ politique moteur, moins les brouillons et chaque réservation de stock vivante — le chiffre exact du tableau Commandes.",
     sreHeld: "réservé",
     sreHeldHint: "Unités tenues par des réservations de stock vivantes. Si leurs commandes sont annulées, libérez-les dans Batch Repair.",
+    shortRpt: "Signalement rayon : {q} introuvable sur {b} ({t}) — bloque le picking jusqu'au comptage du bac",
+    shortCount: "Compter le bac",
     vetoBinHint: "Zone de réserve — le moteur d'allocation refuse d'y prélever ; il faut d'abord transférer vers le mur rapide.",
     reserveTag: "réserve",
     title: "Recherche SKU", subtitle: "Trouvez le stock d'un produit sur tous les codes partageant son SKU",

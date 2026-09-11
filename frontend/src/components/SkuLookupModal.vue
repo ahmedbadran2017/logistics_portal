@@ -65,6 +65,14 @@
                 <span class="ms-auto text-[13px] font-bold tabular-nums" :class="it.avail > 0 ? 'text-emerald-600' : 'text-stone-400'">{{ it.avail }}</span>
               </div>
               <div class="text-[12px] text-stone-700 mt-1 truncate">{{ it.name }}</div>
+              <!-- WHY pickable is 0: a picker reported the shelf short — the
+                   fix is a count, and the button goes straight to it. -->
+              <div v-for="sr in (it.shortRpt || [])" :key="sr.binFull"
+                   class="mt-1.5 flex items-center gap-2 text-[10.5px] font-semibold text-amber-800 bg-amber-50 ring-1 ring-amber-200/70 rounded-lg px-2 py-1">
+                <span class="min-w-0 truncate">{{ t('sku.shortRpt').replace('{q}', String(sr.qty)).replace('{b}', sr.bin).replace('{t}', sr.at) }}</span>
+                <button class="ms-auto flex-shrink-0 h-6 px-2 rounded-md text-[10px] font-bold text-white bg-amber-600 hover:bg-amber-700"
+                        @click.stop="goCount(sr.binFull)">{{ t('sku.shortCount') }}</button>
+              </div>
               <div v-if="it.bins.length" class="flex flex-wrap gap-1 mt-1.5">
                 <span v-for="b in it.bins" :key="b.bin" class="inline-flex items-center gap-1 text-[10.5px] font-mono rounded px-1.5 py-0.5"
                       :class="b.veto ? 'text-amber-700 bg-amber-50 ring-1 ring-amber-200/60' : 'text-stone-600 bg-stone-100'"
@@ -85,8 +93,10 @@ import { ref, nextTick } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, liveOr } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
+import { useRouter } from "vue-router";
 
 const { t } = useI18n();
+const router = useRouter();
 const open = ref(false);
 const q = ref("");
 const loading = ref(false);
@@ -118,5 +128,11 @@ function openWith(query = "") {
   });
 }
 function close() { open.value = false; }
+// The report's cure is a count — jump straight to the count screen with the
+// bin preselected, and close the overlay so it isn't left floating there.
+function goCount(bin) {
+  close();
+  router.push({ name: "CycleCount", query: { bin } });
+}
 defineExpose({ openWith });
 </script>

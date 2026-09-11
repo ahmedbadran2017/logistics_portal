@@ -279,6 +279,7 @@ def sku_lookup(query, limit=80):
         binmap = {}
         pickable = {}
         sre_held = {}
+        short_rpt = {}
         if codes:
             from logistics_portal.api.warehouses import pickable_condition
             from logistics_portal.api.picking import _available_totals, _ee_rejected
@@ -302,6 +303,20 @@ def sku_lookup(query, limit=80):
             # active Stock Reservation Entry — the exact math the Orders board
             # runs, so this card can never contradict it again.
             pickable = _available_totals(codes)
+            # A picker's "not found on the shelf" report is one of the three
+            # things that zero `pickable` — and the only invisible one. Name
+            # it, with the shelf, so "in stock but pickable 0" stops being a
+            # mystery and becomes "go count that bin".
+            try:
+                from logistics_portal.api.short_shelf import _entries as _sr
+                for e in _sr():
+                    if e["item"] in codes:
+                        short_rpt.setdefault(e["item"], []).append(
+                            {"bin": e["warehouse"].replace(" - JM", ""),
+                             "binFull": e["warehouse"],
+                             "qty": int(e["qty"]), "at": str(e["at"])[:16]})
+            except Exception:
+                pass
             for r in frappe.db.sql(
                 f"""SELECT item_code, SUM(reserved_qty - delivered_qty)
                     FROM `tabStock Reservation Entry`
@@ -322,6 +337,7 @@ def sku_lookup(query, limit=80):
                 "code": it.code, "name": it.name or it.code, "avail": avail,
                 "pickable": free,
                 "sreHeld": round(sre_held.get(it.code, 0)),
+                "shortRpt": short_rpt.get(it.code, []),
                 "ordered": it.code in ordered_codes, "bins": bins[:4],
             })
         out = []
