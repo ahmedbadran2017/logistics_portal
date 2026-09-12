@@ -713,6 +713,12 @@ def _evidence(days):
                    int(r.diff_lines or 0), int(r.units or 0),
                    str(r.creation)[:16], "session")
 
+    # Counts only. Accounts revalue stock with this same doctype — same
+    # quantity, new rate — and 388 such rows on the Return Zone
+    # (2026-09-12) would otherwise report that zone as freshly counted by
+    # someone who never walked it. The ledger cannot tell the two apart (a
+    # reconciliation's entries carry actual_qty = 0 either way), so the test
+    # is whether any row actually changed a quantity.
     for r in frappe.db.sql(
             """SELECT sr.name, sr.owner, sr.posting_date AS d, sr.creation,
                       sri.warehouse AS wh, COUNT(*) AS rows_n,
@@ -721,6 +727,9 @@ def _evidence(days):
                JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent
                WHERE sr.docstatus = 1
                  AND sr.posting_date >= DATE_SUB(CURDATE(), INTERVAL %s DAY)
+                 AND EXISTS (SELECT 1 FROM `tabStock Reconciliation Item` i
+                             WHERE i.parent = sr.name
+                               AND i.qty <> i.current_qty)
                GROUP BY sr.name, sri.warehouse""", (days,), as_dict=True):
         if r.name in claimed:
             continue

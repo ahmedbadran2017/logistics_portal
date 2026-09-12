@@ -197,6 +197,14 @@ def backfill_manifest_history():
     return {"seeded": n}
 
 
+# A Stock Reconciliation counts as floor work only when it changed a
+# QUANTITY. Accounts revalue with the same doctype (same qty, new rate), and
+# the ledger cannot tell them apart — a reconciliation's entries carry
+# actual_qty = 0 either way — so the test lives on the item rows.
+COUNTED_ONLY = """AND EXISTS (SELECT 1 FROM `tabStock Reconciliation Item` i
+                             WHERE i.parent = sr.name AND i.qty <> i.current_qty)"""
+
+
 def _sys_actions(d0, d1):
     """Non-scanner witnesses of floor work (Ahmed 2026-09-11: 'track the
     other actions too — more logical'). A dispatcher building pick lists,
@@ -216,10 +224,18 @@ def _sys_actions(d0, d1):
             (d0, d1), as_dict=True):
         st = "move" if r.purpose == "Material Transfer" else "receive"
         ev.append((r.owner, r.creation, st, int(r.units or 1)))
+    # A reconciliation is only a COUNT if it changed a quantity. Accounts
+    # revalue stock with the same document — same qty, new rate — and 425 of
+    # those in six minutes (2026-09-12) put an accountant at the top of the
+    # floor board above every picker. Note the test is on the item rows:
+    # a reconciliation's ledger entries carry actual_qty = 0 whether it
+    # counted or revalued, so the ledger cannot tell the two apart.
     for r in frappe.db.sql(
-            """SELECT owner, creation FROM `tabStock Reconciliation`
-               WHERE creation >= %s AND creation < %s AND docstatus < 2
-                 AND owner NOT IN ('Administrator', 'Guest')""",
+            """SELECT sr.owner, sr.creation FROM `tabStock Reconciliation` sr
+               WHERE sr.creation >= %s AND sr.creation < %s AND sr.docstatus < 2
+                 AND sr.owner NOT IN ('Administrator', 'Guest')
+      AND EXISTS (SELECT 1 FROM `tabStock Reconciliation Item` i
+                  WHERE i.parent = sr.name AND i.qty <> i.current_qty)""",
             (d0, d1), as_dict=True):
         ev.append((r.owner, r.creation, "count", 1))
     for r in frappe.db.sql(
@@ -279,17 +295,23 @@ def floor_history(days=14):
     # dispatcher's day is no more invisible here than it is there.
     for table in ("`tabStock Entry`", "`tabStock Reconciliation`",
                   "`tabPick List`"):
-        extra = "AND purpose IN ('Material Transfer', 'Material Receipt')" \
-            if "Stock Entry" in table else ""
-        docst = "= 1" if "Stock Entry" in table else "< 2"
+        if "Stock Entry" in table:
+            extra = "AND sr.purpose IN ('Material Transfer', 'Material Receipt')"
+            docst = "= 1"
+        elif "Reconciliation" in table:
+            # Counts only — a revaluation shares the doctype, not the work.
+            extra = COUNTED_ONLY
+            docst = "< 2"
+        else:
+            extra, docst = "", "< 2"
         for r in frappe.db.sql(
-                f"""SELECT owner, {clock.sql_local("creation")} AS d,
+                f"""SELECT sr.owner, {clock.sql_local("sr.creation")} AS d,
                            COUNT(*) AS n
-                    FROM {table}
-                    WHERE creation >= %s AND creation < %s
-                      AND docstatus {docst} {extra}
-                      AND owner NOT IN ('Administrator', 'Guest')
-                    GROUP BY owner, d""", (d0, d1), as_dict=True):
+                    FROM {table} sr
+                    WHERE sr.creation >= %s AND sr.creation < %s
+                      AND sr.docstatus {docst} {extra}
+                      AND sr.owner NOT IN ('Administrator', 'Guest')
+                    GROUP BY sr.owner, d""", (d0, d1), as_dict=True):
             bump(r.owner, str(r.d), r.n)
 
     axis = [str(frappe.utils.add_days(first, i))[:10] for i in range(days)]
