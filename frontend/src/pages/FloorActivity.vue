@@ -5,10 +5,25 @@
         <h1 class="text-[19px] font-bold text-stone-900 tracking-tight">{{ t('fa.title') }}</h1>
         <p class="text-[12.5px] text-stone-500 mt-1">{{ t('fa.intro') }}</p>
       </div>
-      <label class="relative inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 cursor-pointer">
-        <Icon name="calendar" :size="14" /> {{ day }}
-        <input type="date" class="absolute inset-0 opacity-0 cursor-pointer" :value="day" :max="today" @change="onDay" />
-      </label>
+      <div class="flex items-center gap-1.5">
+        <!-- The picker alone made every other day a hunt: it looks like a
+             label, and it answers one day at a time. Arrows walk the days. -->
+        <button class="w-9 h-9 rounded-lg text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50 flex items-center justify-center"
+                :title="t('common.prevDay')" @click="stepDay(-1)">
+          <Icon name="chevron-left" :size="15" />
+        </button>
+        <label class="relative inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 cursor-pointer">
+          <Icon name="calendar" :size="14" /> {{ day }}
+          <input type="date" class="absolute inset-0 opacity-0 cursor-pointer" :value="day" :max="today" @change="onDay" />
+        </label>
+        <button class="w-9 h-9 rounded-lg text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50 flex items-center justify-center disabled:opacity-40"
+                :disabled="day >= today" :title="t('common.nextDay')" @click="stepDay(1)">
+          <Icon name="chevron-right" :size="15" />
+        </button>
+        <button v-if="day !== today"
+                class="h-9 px-3 rounded-lg text-[12.5px] font-semibold text-white bg-stone-900 hover:bg-stone-800"
+                @click="goToday">{{ t('common.today') }}</button>
+      </div>
     </header>
 
     <!-- The honesty box comes BEFORE the data: what this screen can and
@@ -17,6 +32,57 @@
       <Icon name="info" :size="13" class="mt-0.5 flex-shrink-0 text-stone-400" />
       <span>{{ t('fa.honesty') }}</span>
     </div>
+
+    <!-- History: the run of days, so a dip is visible before anyone clicks
+         into one. Each bar is a day; the open day is outlined, and clicking
+         a bar loads it above. -->
+    <section v-if="hist && hist.totals.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+      <div class="flex items-baseline gap-2 flex-wrap mb-3">
+        <span class="text-[12.5px] font-semibold text-stone-900">{{ t('common.histTitle') }}</span>
+        <span class="text-[11px] text-stone-400 tabular-nums">{{ t('common.histDays').replace('{n}', String(hist.days.length)) }}</span>
+        <div class="ms-auto flex items-center gap-1.5">
+          <button v-for="n in [7, 14, 30]" :key="n"
+                  class="h-7 px-2.5 rounded-md text-[11.5px] font-semibold ring-1 transition-colors tabular-nums"
+                  :class="histDays === n ? 'text-white bg-stone-900 ring-stone-900' : 'text-stone-600 bg-white ring-stone-200 hover:ring-stone-300'"
+                  @click="setHistDays(n)">{{ n }}{{ t('cc.dayShort') }}</button>
+        </div>
+      </div>
+      <div class="flex items-end gap-1 h-[84px]">
+        <button v-for="r in hist.totals" :key="r.day"
+                class="flex-1 min-w-[6px] flex flex-col justify-end h-full group"
+                :title="r.day + ' · ' + r.actions + ' · ' + r.people"
+                @click="pickDay(r.day)">
+          <span class="text-[9px] text-stone-400 tabular-nums text-center mb-0.5 opacity-0 group-hover:opacity-100">{{ r.actions }}</span>
+          <span class="w-full rounded-t transition-colors"
+                :class="r.day === day
+                  ? 'bg-[var(--accent-600)] ring-2 ring-[var(--accent-300)]'
+                  : (r.actions ? 'bg-[var(--accent-400)] group-hover:bg-[var(--accent-500)]' : 'bg-stone-100')"
+                :style="{ height: barH(r.actions) }" />
+        </button>
+      </div>
+      <div class="flex gap-1 mt-1">
+        <span v-for="r in hist.totals" :key="'lbl-' + r.day"
+              class="flex-1 min-w-[6px] text-[9px] text-center tabular-nums"
+              :class="r.day === day ? 'text-stone-900 font-bold' : 'text-stone-400'">
+          {{ r.day.slice(8) }}
+        </span>
+      </div>
+      <!-- Per person across the same days: who is steady, who comes and goes. -->
+      <div v-if="hist.people.length" class="mt-3 pt-3 border-t border-stone-100 space-y-1.5">
+        <div v-for="hp in hist.people" :key="'h-' + hp.user" class="flex items-center gap-2.5">
+          <span class="text-[11.5px] text-stone-700 truncate w-[130px] flex-shrink-0" dir="auto">{{ hp.name }}</span>
+          <span class="flex-1 flex items-end gap-[2px] h-[22px]">
+            <span v-for="dd in hist.days" :key="hp.user + dd"
+                  class="flex-1 rounded-sm"
+                  :class="(hp.byDay[dd] || 0) ? 'bg-emerald-400' : 'bg-stone-100'"
+                  :style="{ height: sparkH(hp.byDay[dd] || 0) }"
+                  :title="dd + ' · ' + (hp.byDay[dd] || 0)" />
+          </span>
+          <span class="text-[11px] font-bold text-stone-800 tabular-nums w-[52px] text-end flex-shrink-0">{{ hp.total }}</span>
+          <span class="text-[10px] text-stone-400 tabular-nums w-[44px] text-end flex-shrink-0">{{ hp.activeDays }}{{ t('common.histD') }}</span>
+        </div>
+      </div>
+    </section>
 
     <!-- NOW: one pulsing card per person. Station discipline is the rule
          here — someone on sort stays on sort — so silence is a real signal,
@@ -175,7 +241,38 @@ async function load() {
   loading.value = false;
 }
 function onDay(e) { day.value = e.target.value || today; load(); }
-onMounted(load);
+
+// ── History: the run of days behind the one on screen ──────────────────────
+const hist = ref(null);
+const histDays = ref(14);
+async function loadHist() {
+  try { hist.value = await api("scanlog.floor_history", { days: histDays.value }); }
+  catch { hist.value = null; }
+}
+function setHistDays(n) { histDays.value = n; loadHist(); }
+function pickDay(dd) { if (dd === day.value) return; day.value = dd; load(); }
+function stepDay(delta) {
+  const t = new Date(day.value + "T12:00:00");
+  t.setDate(t.getDate() + delta);
+  const next = t.toISOString().slice(0, 10);
+  if (next > today) return;
+  day.value = next;
+  load();
+}
+function goToday() { day.value = today; load(); }
+
+// Bars are scaled to the busiest day in the window, so a quiet fortnight
+// still shows its own shape instead of a flat line.
+const histMax = computed(() => Math.max(1, ...(hist.value?.totals || []).map((r) => r.actions)));
+function barH(n) { return n ? Math.max(4, Math.round((n / histMax.value) * 76)) + "px" : "3px"; }
+const sparkMax = computed(() => {
+  const all = [];
+  for (const p of hist.value?.people || []) all.push(...Object.values(p.byDay || {}));
+  return Math.max(1, ...all);
+});
+function sparkH(n) { return n ? Math.max(3, Math.round((n / sparkMax.value) * 22)) + "px" : "2px"; }
+
+onMounted(() => { load(); loadHist(); });
 // Live board: today refreshes itself every 60s, so this can sit on an office
 // screen as a wall dashboard. Quiet — no skeleton flash on the refresh.
 const tick = setInterval(async () => {

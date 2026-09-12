@@ -1,6 +1,12 @@
 export default {
   brand: "Justyol Logistique",
   common: {
+    prevDay: "Jour précédent",
+    nextDay: "Jour suivant",
+    today: "Aujourd'hui",
+    histTitle: "Historique",
+    histDays: "{n} derniers jours · cliquez un jour pour l'ouvrir",
+    histD: "j",
     save: "Enregistrer",
     less: "Voir moins",
     menu: "Menu",
@@ -144,12 +150,6 @@ export default {
     copilot: "Copilote",
   },
   cfa: {
-    prevDay: "Jour précédent",
-    nextDay: "Jour suivant",
-    today: "Aujourd'hui",
-    histTitle: "Historique",
-    histDays: "{n} derniers jours · cliquez un jour pour l'ouvrir",
-    histD: "j",
     title: "Activité de l'équipe confirmation",
     intro: "Qui est au téléphone en ce moment, et le déroulé réel de la journée de chaque agent — les deux pistes (portail et Desk), au grain de 30 minutes.",
     honesty: "Une action ici est une décision ou une modification de commande, sur le portail ou le Desk. Un silence peut être un long appel, la file WhatsApp ou une pause — c'est une question à poser, jamais un verdict en soi. La note sert à enregistrer la réponse.",

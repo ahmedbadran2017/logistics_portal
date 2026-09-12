@@ -232,6 +232,95 @@ def _sys_actions(d0, d1):
 
 
 @frappe.whitelist()
+def floor_history(days=14):
+    """The run of floor days: actions per day, and each person's own line.
+
+    Twin of contact_center.team_history, same shape so the two boards read as
+    one language. floor_activity answers "how did today run"; a date picker on
+    top of it still hands back one day at a time with nothing to compare
+    against, which is not history — this is.
+
+    Deliberately an aggregate: the day board pulls every event row because it
+    draws a 30-minute timeline, and a fortnight of that is tens of thousands
+    of rows to produce two numbers a day, so the counting happens in SQL. Day
+    buckets use the floor's clock, not the site's — the same seam the day
+    board reads. Only people who actually did something appear: a punched-but
+    silent row is a question about ONE day, and carries no meaning spread
+    across a fortnight.
+    """
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Managers only.", frappe.PermissionError)
+    from logistics_portal.api import clock
+
+    days = min(max(int(days or 14), 2), 60)
+    today = clock.floor_today()[:10]
+    first = str(frappe.utils.add_days(today, -(days - 1)))[:10]
+    d0 = clock.day_bounds(first)[0]
+    d1 = clock.day_bounds(today)[1]
+
+    counts = {}
+
+    def bump(owner, day_str, n):
+        if not owner or owner in ("Administrator", "Guest"):
+            return
+        counts.setdefault(owner, {})
+        counts[owner][day_str] = counts[owner].get(day_str, 0) + int(n or 0)
+
+    # The scanners.
+    for r in frappe.db.sql(
+            f"""SELECT owner, {clock.sql_local("creation")} AS d, COUNT(*) AS n
+                FROM `tabLP Scan Event`
+                WHERE creation >= %s AND creation < %s
+                GROUP BY owner, d""", (d0, d1), as_dict=True):
+        bump(r.owner, str(r.d), r.n)
+
+    # The system's own witnesses — the same four the day board folds in, so a
+    # dispatcher's day is no more invisible here than it is there.
+    for table in ("`tabStock Entry`", "`tabStock Reconciliation`",
+                  "`tabPick List`"):
+        extra = "AND purpose IN ('Material Transfer', 'Material Receipt')" \
+            if "Stock Entry" in table else ""
+        docst = "= 1" if "Stock Entry" in table else "< 2"
+        for r in frappe.db.sql(
+                f"""SELECT owner, {clock.sql_local("creation")} AS d,
+                           COUNT(*) AS n
+                    FROM {table}
+                    WHERE creation >= %s AND creation < %s
+                      AND docstatus {docst} {extra}
+                      AND owner NOT IN ('Administrator', 'Guest')
+                    GROUP BY owner, d""", (d0, d1), as_dict=True):
+            bump(r.owner, str(r.d), r.n)
+
+    axis = [str(frappe.utils.add_days(first, i))[:10] for i in range(days)]
+    totals = {d: {"actions": 0, "people": 0} for d in axis}
+    people = []
+    for user, by_day in counts.items():
+        by_day = {d: n for d, n in by_day.items() if d in totals}
+        if not by_day:
+            continue
+        try:
+            role = resolve_role(user) or "none"
+        except Exception:
+            role = "none"
+        for d, n in by_day.items():
+            totals[d]["actions"] += n
+            totals[d]["people"] += 1
+        people.append({
+            "user": user, "role": role,
+            "name": frappe.db.get_value("User", user, "full_name") or user,
+            "total": sum(by_day.values()), "byDay": by_day,
+        })
+    people.sort(key=lambda p: -p["total"])
+    return {
+        "days": axis, "today": today,
+        "totals": [{"day": d, "actions": totals[d]["actions"],
+                    "people": totals[d]["people"]} for d in axis],
+        "people": people,
+    }
+
+
+@frappe.whitelist()
 def floor_activity(day=None):
     """Per-person movement for one floor day — manager's answer to "who was
     actually working, and when". Timeline at 30-minute grain, scans/hour,
@@ -437,5 +526,10 @@ def floor_activity(day=None):
         hi = min(hi, fnow.hour * 2 + (1 if fnow.minute >= 30 else 0) + 1)
     axis = ["%02d:%s" % (x // 2, "30" if x % 2 else "00")
             for x in range(lo, max(hi, lo + 1))]
-    return {"day": day, "people": people, "totalScans": len(rows),
+    # The sum of the rows on screen, not just the scanner log: once the
+    # system's own witnesses joined each person's count, a headline built
+    # from `rows` alone contradicted the board under it (measured 2026-09-10:
+    # header 668, rows adding to 821 — the 153 moves, counts and pick lists).
+    return {"day": day, "people": people,
+            "totalScans": sum(x["scans"] for x in people),
             "axis": axis, "floorNow": str(fnow)[11:16]}

@@ -9,7 +9,7 @@
         <!-- The picker alone made every other day a hunt: it looks like a
              label, and it answers one day at a time. Arrows walk the days. -->
         <button class="w-9 h-9 rounded-lg text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50 flex items-center justify-center"
-                :title="t('cfa.prevDay')" @click="stepDay(-1)">
+                :title="t('common.prevDay')" @click="stepDay(-1)">
           <Icon name="chevron-left" :size="15" />
         </button>
         <label class="relative inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 cursor-pointer">
@@ -17,12 +17,12 @@
           <input type="date" class="absolute inset-0 opacity-0 cursor-pointer" :value="day" :max="today" @change="onDay" />
         </label>
         <button class="w-9 h-9 rounded-lg text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50 flex items-center justify-center disabled:opacity-40"
-                :disabled="day >= today" :title="t('cfa.nextDay')" @click="stepDay(1)">
+                :disabled="day >= today" :title="t('common.nextDay')" @click="stepDay(1)">
           <Icon name="chevron-right" :size="15" />
         </button>
         <button v-if="day !== today"
                 class="h-9 px-3 rounded-lg text-[12.5px] font-semibold text-white bg-stone-900 hover:bg-stone-800"
-                @click="goToday">{{ t('cfa.today') }}</button>
+                @click="goToday">{{ t('common.today') }}</button>
       </div>
     </header>
 
@@ -39,8 +39,8 @@
          a bar loads it above. -->
     <section v-if="hist && hist.totals.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
       <div class="flex items-baseline gap-2 flex-wrap mb-3">
-        <span class="text-[12.5px] font-semibold text-stone-900">{{ t('cfa.histTitle') }}</span>
-        <span class="text-[11px] text-stone-400 tabular-nums">{{ t('cfa.histDays').replace('{n}', String(hist.days.length)) }}</span>
+        <span class="text-[12.5px] font-semibold text-stone-900">{{ t('common.histTitle') }}</span>
+        <span class="text-[11px] text-stone-400 tabular-nums">{{ t('common.histDays').replace('{n}', String(hist.days.length)) }}</span>
         <div class="ms-auto flex items-center gap-1.5">
           <button v-for="n in [7, 14, 30]" :key="n"
                   class="h-7 px-2.5 rounded-md text-[11.5px] font-semibold ring-1 transition-colors tabular-nums"
@@ -80,7 +80,7 @@
                   :title="dd + ' · ' + (hp.byDay[dd] || 0)" />
           </span>
           <span class="text-[11px] font-bold text-stone-800 tabular-nums w-[46px] text-end flex-shrink-0">{{ hp.total }}</span>
-          <span class="text-[10px] text-stone-400 tabular-nums w-[44px] text-end flex-shrink-0">{{ hp.activeDays }}{{ t('cfa.histD') }}</span>
+          <span class="text-[10px] text-stone-400 tabular-nums w-[44px] text-end flex-shrink-0">{{ hp.activeDays }}{{ t('common.histD') }}</span>
         </div>
       </div>
     </section>
