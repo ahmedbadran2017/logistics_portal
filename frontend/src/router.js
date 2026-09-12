@@ -110,6 +110,9 @@ const routes = [
       { path: "move", name: "MoveStock", component: () => import("@/pages/MoveStock.vue") },
       { path: "goods-in", name: "GoodsIn", component: () => import("@/pages/GoodsIn.vue") },
       { path: "count", name: "CycleCount", component: () => import("@/pages/CycleCount.vue") },
+      // The manager's view OF the counting campaign (the screen above is the
+      // floor's view FROM inside it).
+      { path: "count-control", name: "CountControl", component: () => import("@/pages/CountControl.vue") },
       { path: "inventory", name: "Inventory", component: () => import("@/pages/Inventory.vue") },
       { path: "sku", name: "SkuLookup", component: () => import("@/pages/SkuLookup.vue") },
       { path: "shelf-labels", name: "ShelfLabels", component: () => import("@/pages/ShelfLabels.vue") },

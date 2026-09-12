@@ -12,6 +12,7 @@ approval queue.
 """
 
 import json
+import re
 
 import frappe
 from frappe.utils import nowdate, nowtime
@@ -51,6 +52,86 @@ def _registry():
 
 def _save_registry(names):
     frappe.db.set_default(_REG, json.dumps(names))
+
+
+# ---------------------------------------------------------------------------
+# Count sessions — the witness every count leaves behind.
+#
+# A clean count creates NO Stock Reconciliation (there is nothing to correct),
+# which means the work it represents used to vanish: the floor could walk a
+# whole aisle, find it perfect, and the books would look identical to an aisle
+# nobody ever touched. Coverage is exactly the question a manager needs
+# answered, so every count — clean or not — now files one small session row.
+# ---------------------------------------------------------------------------
+SESSION_DT = "LP Count Session"
+
+
+def ensure_doctype():
+    """Create the session witness on migrate. Custom doctype: lives in the DB,
+    no schema files, safe to run every time."""
+    try:
+        if frappe.db.exists("DocType", SESSION_DT):
+            return
+        frappe.get_doc({
+            "doctype": "DocType", "name": SESSION_DT, "module": "Core",
+            "custom": 1, "naming_rule": "Autoincrement",
+            "autoname": "autoincrement",
+            "fields": [
+                {"fieldname": "warehouse", "fieldtype": "Data", "label": "Bin",
+                 "in_standard_filter": 1},
+                {"fieldname": "zone", "fieldtype": "Data", "label": "Zone",
+                 "in_standard_filter": 1},
+                {"fieldname": "counter", "fieldtype": "Data", "label": "Counter",
+                 "in_standard_filter": 1},
+                {"fieldname": "lines", "fieldtype": "Int", "label": "Lines counted"},
+                {"fieldname": "diff_lines", "fieldtype": "Int", "label": "Lines differing"},
+                {"fieldname": "units", "fieldtype": "Int", "label": "Units counted"},
+                {"fieldname": "moves", "fieldtype": "Int", "label": "Relocations"},
+                {"fieldname": "draft", "fieldtype": "Data", "label": "Reconciliation"},
+            ],
+            "permissions": [
+                {"role": "System Manager", "read": 1, "write": 1, "create": 1},
+            ],
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "cycle_count.ensure_doctype")
+
+
+def _zone_of(warehouse):
+    """The aisle a bin belongs to.
+
+    Shelf codes are letter-then-number (H12B, E5C, D2C.), so the leading
+    letters ARE the aisle. Reserve racking is hyphenated (AG-E1-B, BAB-07-C)
+    and its short head is the aisle. Everything else — PLT, Return Zone,
+    SLOW ZONE, Zone de reception — is a single named place, not an aisle, so
+    it keeps its whole name and never merges with a neighbour that happens to
+    share a first word."""
+    c = (warehouse or "").replace(" - JM", "").strip()
+    if not c:
+        return "?"
+    head = re.split(r"[-\s]", c, 1)[0]
+    m = re.match(r"^([A-Za-z]{1,3})\d", head)
+    if m:
+        return m.group(1).upper()
+    if head.isalpha() and len(head) <= 3:
+        return head.upper()
+    return c.upper()
+
+
+def _log_session(warehouse, lines, diff_lines, units, moves, draft):
+    """File the witness. Never fatal: a count that physically happened must
+    not be rejected because its paperwork failed."""
+    try:
+        frappe.get_doc({
+            "doctype": SESSION_DT, "warehouse": warehouse,
+            "zone": _zone_of(warehouse), "counter": frappe.session.user,
+            "lines": int(lines or 0), "diff_lines": int(diff_lines or 0),
+            "units": int(units or 0), "moves": int(moves or 0),
+            "draft": draft or "",
+        }).insert(ignore_permissions=True)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "cycle_count._log_session")
 
 
 def _valid_bin(warehouse):
@@ -308,6 +389,11 @@ def submit_count(warehouse, counts=None, note=None, moves=None):
         frappe.throw("Count at least one item.")
     if len(counts) > 500:
         frappe.throw("Too many lines for one count.")
+    # Normalise here too: the session witness counts relocations, and over the
+    # wire `moves` is still the raw JSON string.
+    if isinstance(moves, str):
+        moves = json.loads(moves or "[]")
+    moves = moves or []
 
     moved_entry = _apply_count_moves(warehouse, moves)
 
@@ -317,6 +403,7 @@ def submit_count(warehouse, counts=None, note=None, moves=None):
 
     diffs, summary = [], []
     seen = set()
+    units_counted = 0
     for c in counts:
         code = (c.get("item_code") or "").strip()
         if not code or code in seen:
@@ -327,6 +414,7 @@ def submit_count(warehouse, counts=None, note=None, moves=None):
             frappe.throw(f"Negative count for {code}.")
         if not frappe.db.exists("Item", code):
             frappe.throw(f"Unknown item: {code}")
+        units_counted += qty
         b = book.get(code)
         book_qty = int(b.actual_qty or 0) if b else 0
         if qty == book_qty:
@@ -341,6 +429,11 @@ def submit_count(warehouse, counts=None, note=None, moves=None):
         summary.append({"itemCode": code, "counted": qty, "book": book_qty,
                         "delta": qty - book_qty})
     if not diffs:
+        # A perfect shelf is the count's best outcome and leaves nothing for
+        # ERPNext to correct — the session row is the ONLY proof the walk
+        # happened, so it is filed before the commit like any other result.
+        _log_session(warehouse, len(seen), 0, units_counted,
+                     len(moves), "")
         frappe.db.commit()
         return {"ok": True, "clean": True, "counted": len(seen),
                 "moved": moved_entry}
@@ -396,6 +489,8 @@ def submit_count(warehouse, counts=None, note=None, moves=None):
     reg = _registry()
     reg.append(doc.name)
     _save_registry(reg)
+    _log_session(warehouse, len(seen), len(diffs), units_counted,
+                 len(moves), doc.name)
     frappe.db.commit()
     return {"ok": True, "clean": False, "draft": doc.name,
             "counted": len(seen), "diffs": summary, "moved": moved_entry}
@@ -504,3 +599,187 @@ def discard_count(name):
     _save_registry([n for n in _registry() if n != name])
     frappe.db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Count control — the manager's view of the campaign.
+# ---------------------------------------------------------------------------
+
+def _control_gate():
+    from logistics_portal.api.permissions import is_portal_admin
+    if not (_is_manager() or is_portal_admin()):
+        frappe.throw("Managers only.", frappe.PermissionError)
+
+
+def _countable_bins():
+    """[(warehouse, stocked_lines, units)] for every bin the floor may count."""
+    cond, args = _movable_condition("name")
+    whs = [w[0] for w in frappe.db.sql(
+        f"""SELECT name FROM `tabWarehouse`
+            WHERE is_group = 0 AND disabled = 0 AND {cond} ORDER BY name""",
+        tuple(args))]
+    if not whs:
+        return []
+    ph = ", ".join(["%s"] * len(whs))
+    held = {r[0]: (int(r[1] or 0), int(r[2] or 0)) for r in frappe.db.sql(
+        f"""SELECT warehouse, COUNT(*), COALESCE(SUM(actual_qty), 0)
+            FROM `tabBin` WHERE warehouse IN ({ph}) AND actual_qty <> 0
+            GROUP BY warehouse""", tuple(whs))}
+    return [(w, held.get(w, (0, 0))[0], held.get(w, (0, 0))[1]) for w in whs]
+
+
+def _evidence(days):
+    """What proves a bin was counted, newest first per bin.
+
+    Two sources, deliberately merged. Session rows are the truth from now on
+    and include the clean counts nothing else records. Submitted Stock
+    Reconciliations are the only trace older counts left — and the only trace
+    of a count done from the Desk — so they stand in wherever no session
+    claims them. A reconciliation a session already points at is the SAME
+    count seen twice; the session wins and the copy is dropped."""
+    out = {}
+    people = {}
+
+    def credit(user, wh, lines, diffs, units, at, src):
+        p = people.setdefault(user, {"user": user, "sessions": 0, "bins": set(),
+                                     "lines": 0, "diffs": 0, "units": 0,
+                                     "last": "", "src": src})
+        p["sessions"] += 1
+        p["bins"].add(wh)
+        p["lines"] += lines
+        p["diffs"] += diffs
+        p["units"] += units
+        if at > p["last"]:
+            p["last"] = at
+        prev = out.get(wh)
+        if not prev or at > prev["at"]:
+            out[wh] = {"at": at, "by": user, "src": src, "lines": lines,
+                       "diffs": diffs}
+
+    claimed = set()
+    if frappe.db.exists("DocType", SESSION_DT):
+        for r in frappe.db.sql(
+                f"""SELECT warehouse, counter, lines, diff_lines, units,
+                           draft, creation
+                    FROM `tab{SESSION_DT}`
+                    WHERE creation >= DATE_SUB(NOW(), INTERVAL %s DAY)""",
+                (days,), as_dict=True):
+            if r.draft:
+                claimed.add(r.draft)
+            credit(r.counter or "?", r.warehouse, int(r.lines or 0),
+                   int(r.diff_lines or 0), int(r.units or 0),
+                   str(r.creation)[:16], "session")
+
+    for r in frappe.db.sql(
+            """SELECT sr.name, sr.owner, sr.posting_date AS d, sr.creation,
+                      sri.warehouse AS wh, COUNT(*) AS rows_n,
+                      COALESCE(SUM(sri.qty), 0) AS units
+               FROM `tabStock Reconciliation Item` sri
+               JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent
+               WHERE sr.docstatus = 1
+                 AND sr.posting_date >= DATE_SUB(CURDATE(), INTERVAL %s DAY)
+               GROUP BY sr.name, sri.warehouse""", (days,), as_dict=True):
+        if r.name in claimed:
+            continue
+        credit(r.owner or "?", r.wh, int(r.rows_n or 0), int(r.rows_n or 0),
+               int(r.units or 0), str(r.creation)[:16], "reco")
+
+    for p in people.values():
+        p["binCount"] = len(p["bins"])
+        del p["bins"]
+    return out, people
+
+
+@frappe.whitelist()
+def progress(days=30):
+    """Campaign control: how much of the warehouse has been counted, aisle by
+    aisle, and who is doing the counting."""
+    _control_gate()
+    days = min(max(int(days or 30), 1), 180)
+    bins = _countable_bins()
+    seen, people = _evidence(days)
+
+    zones, uncounted = {}, []
+    tot = {"bins": 0, "stocked": 0, "counted": 0, "countedStocked": 0,
+           "units": 0, "unitsCounted": 0}
+    for wh, lines, units in bins:
+        z = zones.setdefault(_zone_of(wh), {
+            "zone": _zone_of(wh), "bins": 0, "stocked": 0, "counted": 0,
+            "countedStocked": 0, "units": 0, "unitsCounted": 0,
+            "diffBins": 0, "lastAt": "", "lastBy": ""})
+        ev = seen.get(wh)
+        stocked = 1 if lines > 0 else 0
+        z["bins"] += 1
+        z["stocked"] += stocked
+        z["units"] += units
+        tot["bins"] += 1
+        tot["stocked"] += stocked
+        tot["units"] += units
+        if ev:
+            z["counted"] += 1
+            z["countedStocked"] += stocked
+            z["unitsCounted"] += units
+            tot["counted"] += 1
+            tot["countedStocked"] += stocked
+            tot["unitsCounted"] += units
+            if ev["diffs"]:
+                z["diffBins"] += 1
+            if ev["at"] > z["lastAt"]:
+                z["lastAt"] = ev["at"]
+                z["lastBy"] = ev["by"]
+        elif stocked:
+            uncounted.append({"bin": wh.replace(" - JM", ""), "warehouse": wh,
+                              "zone": _zone_of(wh), "lines": lines,
+                              "units": units})
+
+    def pct(a, b):
+        return round(100.0 * a / b, 1) if b else 0.0
+
+    zrows = []
+    for z in zones.values():
+        # An empty bin still needs a walk-by, but the WORK lives in the bins
+        # that hold something — so the headline percentage is the stocked one
+        # and the all-bins figure rides alongside it, never instead of it.
+        z["pct"] = pct(z["countedStocked"], z["stocked"])
+        z["pctAll"] = pct(z["counted"], z["bins"])
+        z["left"] = z["stocked"] - z["countedStocked"]
+        zrows.append(z)
+    zrows.sort(key=lambda r: (-r["stocked"], r["zone"]))
+
+    uncounted.sort(key=lambda r: -r["units"])
+    prows = sorted(people.values(), key=lambda p: -p["lines"])
+    for p in prows:
+        p["name"] = (frappe.db.get_value("User", p["user"], "full_name")
+                     or p["user"].split("@")[0])
+
+    daily = []
+    if frappe.db.exists("DocType", SESSION_DT):
+        daily = [{"day": str(r[0]), "bins": int(r[1] or 0),
+                  "lines": int(r[2] or 0)} for r in frappe.db.sql(
+            f"""SELECT DATE(creation), COUNT(DISTINCT warehouse), SUM(lines)
+                FROM `tab{SESSION_DT}`
+                WHERE creation >= DATE_SUB(NOW(), INTERVAL %s DAY)
+                GROUP BY DATE(creation) ORDER BY DATE(creation)""", (days,))]
+
+    return {
+        "days": days,
+        "headline": {
+            "bins": tot["bins"], "stocked": tot["stocked"],
+            "counted": tot["counted"], "countedStocked": tot["countedStocked"],
+            "pct": pct(tot["countedStocked"], tot["stocked"]),
+            "pctAll": pct(tot["counted"], tot["bins"]),
+            "units": tot["units"], "unitsCounted": tot["unitsCounted"],
+            "left": tot["stocked"] - tot["countedStocked"],
+            "pending": len(_pending()),
+            # How much of the picture each source carries. While this is all
+            # reconciliations, the coverage number is a FLOOR, not a fact:
+            # a clean count left no reconciliation to find.
+            "bySession": sum(1 for e in seen.values() if e["src"] == "session"),
+            "byReco": sum(1 for e in seen.values() if e["src"] == "reco"),
+        },
+        "zones": zrows,
+        "people": prows,
+        "uncounted": uncounted[:40],
+        "uncountedTotal": len(uncounted),
+        "daily": daily,
+    }

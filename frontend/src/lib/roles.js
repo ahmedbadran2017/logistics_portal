@@ -61,6 +61,7 @@ export const ROLE_CONFIG = {
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
           { to: "CycleCount", label: "nav.count", icon: "list-checks" },
+          { to: "CountControl", label: "nav.countControl", icon: "clipboard-check" },
           { to: "Slotting", label: "nav.slotting", icon: "layout-grid" },
           { to: "VelocityBoard", label: "nav.velocity", icon: "zap" },
         ],
