@@ -139,3 +139,94 @@ def _stuck():
         pack(picked, "pickedStale", "PickLists"),
         pack(labelled, "labelledStale", "PackStation"),
     ]
+
+
+# ---------------------------------------------------------------------------
+# The full tail behind a card.
+#
+# The cards print eight rows out of a query capped at forty, and their "open"
+# went to the station that owns the fix — a screen showing the whole day's
+# work, never these particular parcels. So the oldest order on the card was
+# also the hardest one to find. This returns the entire bucket, with the
+# checks that say WHICH way a parcel is stuck: a printed label with no
+# delivery note is a different failure, and a different fix, from a parcel
+# that has its note and was never handed over.
+# ---------------------------------------------------------------------------
+
+_STUCK_DEFS = {
+    "noAwb": ("so.custom_logistics_status = 'Pending'", 24),
+    "pickedStale": ("so.custom_logistics_status IN ('Picked', 'Label Generated')", 24 * 3),
+    "labelledStale": ("so.custom_logistics_status = 'Label Printed'", 24 * 5),
+}
+
+
+@frappe.whitelist()
+def stuck_list(key=None, limit=300):
+    """Every order in one stuck bucket, with the reason it is stuck."""
+    from logistics_portal.api.permissions import require_portal_user
+    require_portal_user()
+    key = key if key in _STUCK_DEFS else "labelledStale"
+    where, thresh = _STUCK_DEFS[key]
+    limit = min(max(int(limit or 300), 1), 1000)
+    awb_join = ""
+    if key == "noAwb":
+        # The bucket is DEFINED by having a submitted note and no AWB on
+        # either side, so the join is part of the question, not a detail.
+        awb_join = """JOIN `tabDelivery Note Item` dnij
+                          ON dnij.against_sales_order = so.name
+                      JOIN `tabDelivery Note` dnj
+                          ON dnj.name = dnij.parent AND dnj.docstatus = 1"""
+        where += """ AND (so.custom_awb IS NULL OR so.custom_awb = '')
+                     AND (dnj.custom_awb IS NULL OR dnj.custom_awb = '')"""
+    rows = frappe.db.sql(
+        f"""SELECT so.name, so.customer_name AS customer, so.grand_total AS value,
+                   ROUND(TIMESTAMPDIFF(HOUR, so.creation, %(now)s) / 24) AS age_d,
+                   COALESCE(NULLIF(so.custom_shipping_city, ''), addr.city) AS city,
+                   COALESCE(NULLIF(so.custom_awb, ''), '') AS so_awb,
+                   (SELECT COUNT(*) FROM `tabDelivery Note Item` dni
+                      JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+                     WHERE dni.against_sales_order = so.name AND dn.docstatus = 1) AS dns,
+                   (SELECT MAX(COALESCE(NULLIF(dn.custom_awb, ''), ''))
+                      FROM `tabDelivery Note Item` dni
+                      JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+                     WHERE dni.against_sales_order = so.name AND dn.docstatus = 1) AS dn_awb,
+                   (SELECT COUNT(*) FROM `tabShipment Delivery Note` sdn
+                      JOIN `tabDelivery Note Item` dni2 ON dni2.parent = sdn.delivery_note
+                     WHERE dni2.against_sales_order = so.name) AS in_manifest
+            FROM `tabSales Order` so {awb_join}
+            LEFT JOIN `tabAddress` addr
+                   ON addr.name = COALESCE(NULLIF(so.shipping_address_name, ''),
+                                           so.customer_address)
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status = 'Confirmed'
+              AND {where}
+              AND TIMESTAMPDIFF(HOUR, so.creation, %(now)s) > %(thresh)s
+            GROUP BY so.name ORDER BY so.creation LIMIT %(limit)s""",
+        {"co": _CO, "now": _site_now(), "thresh": thresh, "limit": limit},
+        as_dict=True)
+
+    out = []
+    for r in rows:
+        awb = r.so_awb or (r.dn_awb or "")
+        dns = int(r.dns or 0)
+        manifest = int(r.in_manifest or 0)
+        # One label per row saying what is actually missing, in the order the
+        # parcel would have needed them.
+        if not dns:
+            reason = "noDn"
+        elif not awb:
+            reason = "noAwb"
+        elif not manifest:
+            reason = "noManifest"
+        else:
+            reason = "handed"
+        out.append({
+            "order": r.name, "customer": r.customer or "",
+            "value": round(float(r.value or 0)), "ageD": int(r.age_d or 0),
+            "city": (r.city or "").strip(),
+            "awb": awb, "dns": dns, "manifest": manifest, "reason": reason,
+        })
+    groups = {}
+    for o in out:
+        groups[o["reason"]] = groups.get(o["reason"], 0) + 1
+    return {"key": key, "total": len(out), "groups": groups, "rows": out}

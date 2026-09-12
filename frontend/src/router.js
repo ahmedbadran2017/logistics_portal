@@ -90,6 +90,8 @@ const routes = [
       { path: "team-performance", name: "TeamPerformance", component: () => import("@/pages/TeamPerformance.vue") },
       { path: "floor-activity", name: "FloorActivity", component: () => import("@/pages/FloorActivity.vue") },
       { path: "velocity", name: "VelocityBoard", component: () => import("@/pages/VelocityBoard.vue") },
+      // The full tail behind one of the velocity board's stuck cards.
+      { path: "stuck/:key", name: "StuckOrders", component: () => import("@/pages/StuckOrders.vue") },
       { path: "shipments", name: "Shipments", component: () => import("@/pages/Shipments.vue") },
       { path: "audit", name: "Audit", component: () => import("@/pages/Audit.vue") },
 

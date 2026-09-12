@@ -90,7 +90,7 @@
                :class="b.n ? 'ring-rose-200' : 'ring-stone-200/70'">
             <div class="flex items-center justify-between gap-2">
               <span class="text-[12px] font-semibold text-stone-800">{{ t('vel.stuck_' + b.key) }}</span>
-              <RouterLink v-if="b.route" :to="{ name: b.route }"
+              <RouterLink v-if="b.n" :to="{ name: 'StuckOrders', params: { key: b.key } }"
                           class="text-[11px] font-semibold text-[var(--accent-700)] hover:underline">{{ t('vel.open') }}</RouterLink>
             </div>
             <div class="flex items-baseline gap-2 mt-1">
