@@ -133,15 +133,29 @@
           </div>
           <!-- decisions -->
           <div class="flex items-center gap-1.5 flex-wrap">
-            <button class="rs-act rs-act-save" :disabled="busy === r.id" :title="t('rs.actRedeliverHint')"
-                    @click="act(r, 'redeliver')">
-              <Icon name="refresh-cw" :size="14" class="inline -mt-px me-1" />{{ t('rs.actRedeliver') }}
+            <!-- Not Delivered carries no parcel — the status is a verdict on
+                 the customer, not a shipment that failed — so Redeliver and
+                 Reship have nothing to act on and the question is the plain
+                 confirmation one: does he still want it? -->
+            <button v-if="isNdTab" class="rs-act rs-act-save" :disabled="busy === r.id"
+                    @click="confirmNd(r)">
+              <Icon name="check" :size="14" class="inline -mt-px me-1" />{{ t('cf.actConfirm') }}
             </button>
-            <button class="rs-act rs-act-soft text-violet-700" :disabled="busy === r.id" :title="t('rs.actReshipHint')"
-                    @click="act(r, 'reship')"><Icon name="send" :size="15" /></button>
+            <button v-if="isNdTab" class="rs-act rs-act-soft text-sky-700" :disabled="busy === r.id"
+                    :title="t('cf.actFollowup')" @click="followNd(r)">
+              <Icon name="clock" :size="15" />
+            </button>
+            <template v-else>
+              <button class="rs-act rs-act-save" :disabled="busy === r.id" :title="t('rs.actRedeliverHint')"
+                      @click="act(r, 'redeliver')">
+                <Icon name="refresh-cw" :size="14" class="inline -mt-px me-1" />{{ t('rs.actRedeliver') }}
+              </button>
+              <button class="rs-act rs-act-soft text-violet-700" :disabled="busy === r.id" :title="t('rs.actReshipHint')"
+                      @click="act(r, 'reship')"><Icon name="send" :size="15" /></button>
+            </template>
             <button class="rs-act rs-act-soft text-amber-700" :disabled="busy === r.id" :title="t('cf.actDna')"
                     @click="act(r, 'dna')"><Icon name="phone-off" :size="15" /></button>
-            <button class="rs-act rs-act-soft text-rose-600" :disabled="busy === r.id" :title="t('rs.actReturn')"
+            <button v-if="!isNdTab" class="rs-act rs-act-soft text-rose-600" :disabled="busy === r.id" :title="t('rs.actReturn')"
                     :class="reasonFor === r.id && reasonAction === 'returnreq' ? 'ring-2' : ''"
                     @click="openReason(r, 'returnreq')"><Icon name="rotate-ccw" :size="15" /></button>
             <button class="rs-act rs-act-soft text-stone-500" :disabled="busy === r.id" :title="t('rs.actCancel')"
@@ -224,7 +238,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, onUnmounted } from "vue";
+import { computed, onMounted, ref, onUnmounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -406,6 +420,30 @@ async function act(r, action, note) {
     busy.value = "";
   }
 }
+
+// Not Delivered decisions go through confirmation.act, the engine that owns
+// Confirmed / Follow Up — the same one the workspace uses for these rows, so
+// an order lands in the same state whichever screen decided it.
+const isNdTab = computed(() => tab.value === "notdelivered");
+async function decideCf(r, action) {
+  if (busy.value) return;
+  busy.value = r.id;
+  try {
+    await apiPost("confirmation.act", { order: r.order || r.id, action });
+    rows.value = rows.value.filter((x) => x.id !== r.id);
+    total.value = Math.max(0, total.value - 1);
+    if (data.value?.counts) {
+      data.value.counts[tab.value] = Math.max(0, (data.value.counts[tab.value] || 1) - 1);
+    }
+    success(t(`cf.done_${action}`), r.order || r.id);
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    busy.value = "";
+  }
+}
+const confirmNd = (r) => decideCf(r, "confirm");
+const followNd = (r) => decideCf(r, "followup");
 
 const TRACK_KEYS = {
   "Delivery Exception": "exception", "Failed Attempt": "failed",

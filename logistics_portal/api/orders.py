@@ -1707,7 +1707,11 @@ def detail(name):
         "taxes": so.total_taxes_and_charges or 0,
         "total": so.grand_total,
         "sales_status": so.get("custom_sales_status") or "",
-        "stockShort": [r.get("name") or r.get("sku") for r in items if r.get("short")],
+        # Name to read, code to look up: the agent has the customer on the
+        # line and needs to check the shelf, not just be told there is none.
+        "stockShort": [{"name": r.get("name") or r.get("sku"),
+                        "code": r.get("sku") or ""}
+                       for r in items if r.get("short")],
         "attempts": int(so.get("custom_call_attempts") or 0),
         "next_call": str(so.get("custom_next_call_at") or "")[:16],
         "payment_collection": so.get("custom_payment_collection") or "",

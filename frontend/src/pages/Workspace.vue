@@ -201,7 +201,18 @@
               <div class="text-[12.5px] font-bold text-rose-800">
                 {{ active.stockShort.length === 1 ? t('ws.oosOne') : t('ws.oosN').replace('{n}', String(active.stockShort.length)) }}
               </div>
-              <div class="text-[11.5px] text-rose-700/90 truncate" dir="auto">{{ active.stockShort.join(' · ') }}</div>
+              <!-- Each short line opens the shelf lookup: "out of stock" is a
+                   claim the agent can now check while the customer waits,
+                   instead of a verdict they have to take on trust. -->
+              <div class="flex flex-wrap gap-1.5 mt-1">
+                <button v-for="(sh, si) in active.stockShort" :key="si"
+                        class="inline-flex items-center gap-1 max-w-full text-[11px] font-semibold text-rose-800 bg-white/70 ring-1 ring-rose-200 rounded-md px-1.5 py-0.5 hover:bg-white hover:ring-rose-300"
+                        :title="t('ws.oosCheck')" dir="auto"
+                        @click="skuModal?.openWith(sh.code || sh.name)">
+                  <Icon name="search" :size="10" class="flex-shrink-0" />
+                  <span class="truncate">{{ sh.name }}</span>
+                </button>
+              </div>
               <div class="text-[11px] text-rose-600/80 mt-0.5">{{ t('ws.oosHint') }}</div>
             </div>
             <button class="h-8 px-3 rounded-lg text-[11.5px] font-bold text-white bg-rose-600 hover:bg-rose-700 flex-shrink-0"
@@ -497,6 +508,8 @@
         </div>
       </div>
     </div>
+
+    <SkuLookupModal ref="skuModal" />
   </div>
 </template>
 
@@ -504,6 +517,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import SkuLookupModal from "@/components/SkuLookupModal.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
@@ -518,6 +532,7 @@ const activeRow = ref(null);       // the queue row (age/attempts/due)
 const cardLoading = ref(false);
 const serving = ref(false);
 const busy = ref(false);
+const skuModal = ref(null);
 const panel = ref("");
 const reasons = ref([]);
 const cancelReason = ref("");

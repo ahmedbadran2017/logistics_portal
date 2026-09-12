@@ -1675,6 +1675,7 @@ export default {
     oosOne: "Out of stock — one item can't be picked",
     oosN: "Out of stock — {n} items can't be picked",
     oosHint: "Offer a swap or a partial order now, or cancel — don't confirm what the warehouse can't ship.",
+    oosCheck: "Check the shelf for this item",
     localItem: "local supplier",
     localHint: "Stocked at the local supplier, not on our shelves — confirm normally; it ships from them.",
     oosFix: "Fix items",

@@ -230,6 +230,11 @@ def sku_lookup(query, limit=80):
     NET available stock (actual − reserved across JM warehouses) and the bins
     holding it, flagging the one that was actually ordered."""
     try:
+        # Whitelisted with no check at all until now: shelf contents are not
+        # public, and this is reached from the confirmation lane too, so the
+        # gate is the portal itself rather than a floor role.
+        from logistics_portal.api.permissions import require_portal_user
+        require_portal_user()
         q = (query or "").strip()
         if not q:
             return {"query": "", "groups": []}
