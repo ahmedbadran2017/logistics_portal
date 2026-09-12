@@ -358,57 +358,53 @@ def floor_activity(day=None):
     from logistics_portal.api import clock
     day = (day or clock.floor_today())[:10]
     d0, d1 = clock.day_bounds(day)
+    # ONE timeline per person, scans and the system's own witnesses together,
+    # in time order. They used to be two passes, and the gap was measured on
+    # the scan chain alone — so a day spent moving stock and building pick
+    # lists read as a person who never paused. Measured 2026-09-11: five of
+    # eight people had an understated longest gap, one showing 15 minutes
+    # against a true 239, and the error only ever flattered. A metric that
+    # fails silently in the kind direction is worse on this board than no
+    # metric, because nobody goes looking for it.
     rows = frappe.db.sql(
         """SELECT owner, station, creation, qty FROM `tabLP Scan Event`
-           WHERE creation >= %s AND creation < %s
-           ORDER BY owner, creation""", (d0, d1), as_dict=True)
-    out = {}
+           WHERE creation >= %s AND creation < %s""", (d0, d1), as_dict=True)
+    events = {}
     for r in rows:
-        at = clock.to_floor(r.creation)
-        p = out.setdefault(r.owner, {
-            "user": r.owner, "scans": 0, "units": 0,
-            "stations": {}, "first": None, "last": None,
-            "slots": {},          # 30-min buckets: "HH:MM" -> scans
-            "maxGapMin": 0, "_prev": None})
-        p["scans"] += 1
-        p["units"] += int(r.qty or 1)
-        p["stations"][r.station] = p["stations"].get(r.station, 0) + 1
-        t = str(at)[11:16]
-        if p["first"] is None:
-            p["first"] = t
-        p["last"] = t
-        slot = "%02d:%02d" % (at.hour, 0 if at.minute < 30 else 30)
-        p["slots"][slot] = p["slots"].get(slot, 0) + 1
-        if p["_prev"] is not None:
-            gap = (at - p["_prev"]).total_seconds() / 60.0
-            if gap > p["maxGapMin"]:
-                p["maxGapMin"] = int(gap)
-        p["_prev"] = at
+        events.setdefault(r.owner, []).append(
+            (clock.to_floor(r.creation), r.station, int(r.qty or 1)))
+    for owner, when, st, units in _sys_actions(d0, d1):
+        events.setdefault(owner, []).append(
+            (clock.to_floor(when), st, max(1, int(units or 1))))
 
-    # The system's own witnesses join the same timeline — a move, a receipt,
-    # a count, a built pick list. They fill the exact gaps the honesty box
-    # apologized for: the dispatcher's day was invisible here.
-    sys_ev = sorted(_sys_actions(d0, d1), key=lambda e: (e[0], e[1]))
-    for owner, when, st, units in sys_ev:
-        at = clock.to_floor(when)
-        p = out.setdefault(owner, {
-            "user": owner, "scans": 0, "units": 0,
-            "stations": {}, "first": None, "last": None,
-            "slots": {}, "maxGapMin": 0, "_prev": None})
-        p["scans"] += 1
-        p["units"] += max(1, int(units or 1))
-        p["stations"][st] = p["stations"].get(st, 0) + 1
-        t = str(at)[11:16]
-        if p["first"] is None or t < p["first"]:
-            p["first"] = t
-        if p["last"] is None or t > p["last"]:
+    out = {}
+    for owner, evs in events.items():
+        evs.sort(key=lambda e: e[0])
+        p = {"user": owner, "scans": 0, "units": 0,
+             "stations": {}, "first": None, "last": None,
+             "slots": {},          # 30-min buckets: "HH:MM" -> actions
+             "maxGapMin": 0, "_prev": None}
+        for at, st, units in evs:
+            p["scans"] += 1
+            p["units"] += units
+            p["stations"][st] = p["stations"].get(st, 0) + 1
+            t = str(at)[11:16]
+            if p["first"] is None:
+                p["first"] = t
             p["last"] = t
-        slot = "%02d:%02d" % (at.hour, 0 if at.minute < 30 else 30)
-        p["slots"][slot] = p["slots"].get(slot, 0) + 1
-        if p["_prev"] is None or at > p["_prev"]:
+            slot = "%02d:%02d" % (at.hour, 0 if at.minute < 30 else 30)
+            p["slots"][slot] = p["slots"].get(slot, 0) + 1
+            if p["_prev"] is not None:
+                gap = (at - p["_prev"]).total_seconds() / 60.0
+                if gap > p["maxGapMin"]:
+                    p["maxGapMin"] = int(gap)
             p["_prev"] = at
-    # NB: maxGapMin stays a SCAN-chain measure for scanner people, but a
-    # person with only system actions gets first/last/pulse from them.
+        # How much of the day actually held work: the pace denominator. A
+        # span from first to last punishes someone whose real work is spread
+        # across a shift and rewards a burst — active half-hours measure the
+        # same thing for everyone, so two people can finally be compared.
+        p["activeSlots"] = len(p["slots"])
+        out[owner] = p
 
     # Who are these emails, and when did HR see them arrive? First punch of
     # the floor day, so "clocked in 09:07, first scan 10:40" is one glance.
@@ -471,7 +467,8 @@ def floor_activity(day=None):
             continue
         out[r.user_id] = {"user": r.user_id, "scans": 0, "units": 0,
                           "stations": {}, "first": None, "last": None,
-                          "slots": {}, "maxGapMin": 0, "_prev": None}
+                          "slots": {}, "maxGapMin": 0, "_prev": None,
+                          "activeSlots": 0}
         punch.setdefault(r.user_id, str(clock.to_floor(r.t))[11:16])
 
     # Role tags for people who scanned WITHOUT punching in — the roles map

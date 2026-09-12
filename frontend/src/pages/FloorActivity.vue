@@ -138,9 +138,18 @@
               <div class="text-[17px] font-extrabold tabular-nums text-stone-900">{{ p.scans }}</div>
               <div class="text-[9.5px] uppercase font-semibold text-stone-400">{{ t('fa.scans') }}</div>
             </div>
+            <!-- Pieces, when they differ from actions: one stock move can
+                 carry 138 of them, and counting that as a single action
+                 understates the work as badly as counting it as 138 would
+                 overstate it. Both numbers, side by side. -->
+            <div v-if="p.units && p.units !== p.scans">
+              <div class="text-[17px] font-extrabold tabular-nums text-stone-600">{{ p.units }}</div>
+              <div class="text-[9.5px] uppercase font-semibold text-stone-400">{{ t('fa.units') }}</div>
+            </div>
             <div>
               <div class="text-[17px] font-extrabold tabular-nums text-stone-800">{{ pace(p) }}</div>
               <div class="text-[9.5px] uppercase font-semibold text-stone-400">{{ t('fa.perHour') }}</div>
+              <div v-if="p.activeSlots" class="text-[9px] text-stone-300 tabular-nums">{{ (p.activeSlots * 0.5).toFixed(1) }}{{ t('fa.hShort') }}</div>
             </div>
             <div>
               <div class="text-[17px] font-extrabold tabular-nums"
@@ -349,12 +358,17 @@ function cellCls(n) {
 }
 function cellStrong(n) { return n / boardMax.value >= 0.35; }
 const isToday = computed(() => day.value === today);
+// Pace over the half-hours that actually held work, not the span from first
+// action to last. The span denominator measured a different thing for every
+// person: spread a day's work across a shift and it reads slow, do the same
+// work in one burst and it reads fast — on 2026-09-11 the same person scored
+// 20/h by span and 48/h by active time. Active half-hours are the same unit
+// for everyone, which is what makes two people comparable at all. Idle time
+// is not hidden by this: it is the gap metric and the heatmap right beside it.
 function pace(p) {
-  if (!p.first || !p.last || p.first === p.last) return p.scans;
-  const [h0, m0] = p.first.split(":").map(Number);
-  const [h1, m1] = p.last.split(":").map(Number);
-  const hrs = Math.max(0.5, (h1 * 60 + m1 - h0 * 60 - m0) / 60);
-  return Math.round(p.scans / hrs);
+  const slots = p.activeSlots || Object.keys(p.slots || {}).length;
+  if (!slots) return 0;
+  return Math.round(p.scans / (slots * 0.5));
 }
 </script>
 <style scoped>
