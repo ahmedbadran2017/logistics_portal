@@ -606,9 +606,12 @@ def discard_count(name):
 # ---------------------------------------------------------------------------
 
 def _control_gate():
-    from logistics_portal.api.permissions import is_portal_admin
-    if not (_is_manager() or is_portal_admin()):
-        frappe.throw("Managers only.", frappe.PermissionError)
+    # is_portal_admin() was too wide a door for this: it trusts "Stock
+    # Manager", which on this site reaches the contact centre and accounts.
+    # Counting coverage is warehouse management, so the audience is too.
+    from logistics_portal.api.permissions import is_ops_admin
+    if not is_ops_admin():
+        frappe.throw("Warehouse management only.", frappe.PermissionError)
 
 
 def _countable_bins():
