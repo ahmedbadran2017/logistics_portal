@@ -5,11 +5,22 @@
         <h1 class="text-[20px] font-bold text-stone-900 tracking-tight">{{ t('cc.ctlTitle') }}</h1>
         <p class="text-[12.5px] text-stone-500 mt-0.5">{{ t('cc.ctlIntro') }}</p>
       </div>
-      <div class="flex items-center gap-1.5">
-        <button v-for="d in [7, 30, 90]" :key="d"
-                class="h-8 px-3 rounded-lg text-[12px] font-semibold ring-1 transition-colors tabular-nums"
-                :class="days === d ? 'text-white bg-stone-900 ring-stone-900' : 'text-stone-600 bg-white ring-stone-200 hover:ring-stone-300'"
-                @click="setDays(d)">{{ d }}{{ t('cc.dayShort') }}</button>
+      <div class="flex items-center gap-3 flex-wrap">
+        <!-- Where the count came from. "Portal" answers how far the team has
+             got with the tool, which is a different question from how much of
+             the warehouse is trustworthy. -->
+        <div class="flex items-center gap-1.5">
+          <button v-for="sc in ['all', 'portal', 'desk']" :key="sc"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold ring-1 transition-colors"
+                  :class="source === sc ? 'text-white bg-[var(--accent-600)] ring-[var(--accent-600)]' : 'text-stone-600 bg-white ring-stone-200 hover:ring-stone-300'"
+                  @click="setSource(sc)">{{ t('cc.src_' + sc) }}</button>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <button v-for="d in [7, 30, 90]" :key="d"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold ring-1 transition-colors tabular-nums"
+                  :class="days === d ? 'text-white bg-stone-900 ring-stone-900' : 'text-stone-600 bg-white ring-stone-200 hover:ring-stone-300'"
+                  @click="setDays(d)">{{ d }}{{ t('cc.dayShort') }}</button>
+        </div>
       </div>
     </header>
 
@@ -53,9 +64,11 @@
         <!-- Honesty line: a clean count used to leave no trace, so anything
              counted before the witness shipped can only be seen through the
              reconciliation it happened to produce. -->
-        <p v-if="h.byReco" class="text-[11px] opacity-55 mt-3 leading-relaxed">
+        <p class="text-[11px] opacity-55 mt-3 leading-relaxed">
           <Icon name="info" :size="11" class="inline -mt-px" />
-          {{ t('cc.floorNote').replace('{s}', String(h.bySession)).replace('{r}', String(h.byReco)) }}
+          {{ t('cc.srcSplit').replace('{s}', String(h.bySession || 0))
+               .replace('{p}', String(h.byPortal || 0)).replace('{d}', String(h.byDesk || 0)) }}
+          <template v-if="!h.bySession"> {{ t('cc.floorNote') }}</template>
         </p>
       </section>
 
@@ -166,6 +179,7 @@ const { warn } = useToast();
 const data = ref(null);
 const loading = ref(true);
 const days = ref(30);
+const source = ref("all");
 
 const h = computed(() => data.value?.headline || {});
 // A zone with nothing on its shelves has no counting work in it; listing the
@@ -193,7 +207,8 @@ function fmt(v) { return Number(v || 0).toLocaleString("en-US", { maximumFractio
 async function load() {
   loading.value = true;
   try {
-    data.value = await api("cycle_count.progress", { days: days.value });
+    data.value = await api("cycle_count.progress",
+                          { days: days.value, source: source.value });
   } catch (e) {
     warn(t("mv.loadFail"), String(e.message || e));
   } finally {
@@ -201,5 +216,6 @@ async function load() {
   }
 }
 function setDays(d) { days.value = d; load(); }
+function setSource(sc) { source.value = sc; load(); }
 onMounted(load);
 </script>

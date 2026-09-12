@@ -661,15 +661,21 @@ def _countable_bins():
     return [(w, held.get(w, (0, 0))[0], held.get(w, (0, 0))[1]) for w in whs]
 
 
-def _evidence(days):
+def _evidence(days, source="all"):
     """What proves a bin was counted, newest first per bin.
 
-    Two sources, deliberately merged. Session rows are the truth from now on
-    and include the clean counts nothing else records. Submitted Stock
-    Reconciliations are the only trace older counts left — and the only trace
-    of a count done from the Desk — so they stand in wherever no session
-    claims them. A reconciliation a session already points at is the SAME
-    count seen twice; the session wins and the copy is dropped."""
+    Three kinds of proof, and the board can be filtered to any of them:
+
+      session — a count filed through the portal since the witness shipped.
+                The only proof that survives a CLEAN count.
+      portal  — an older portal count, recognised by the comment
+                `submit_count` writes on the draft. That comment outlives
+                approval, so the team's first days with the tool are still
+                readable even though no session row existed yet.
+      desk    — everything else: a reconciliation posted from the Desk.
+
+    A reconciliation a session already points at is the SAME count seen
+    twice; the session wins and the copy is dropped."""
     out = {}
     people = {}
 
@@ -690,7 +696,7 @@ def _evidence(days):
                        "diffs": diffs}
 
     claimed = set()
-    if frappe.db.exists("DocType", SESSION_DT):
+    if frappe.db.exists("DocType", SESSION_DT) and source != "desk":
         # Guarded: the reconciliation half of the picture is worth showing on
         # its own, so a schema this read cannot satisfy costs the page its
         # session rows (visible as 0 in the source split) rather than the
@@ -719,22 +725,42 @@ def _evidence(days):
     # someone who never walked it. The ledger cannot tell the two apart (a
     # reconciliation's entries carry actual_qty = 0 either way), so the test
     # is whether any row actually changed a quantity.
-    for r in frappe.db.sql(
-            """SELECT sr.name, sr.owner, sr.posting_date AS d, sr.creation,
-                      sri.warehouse AS wh, COUNT(*) AS rows_n,
-                      COALESCE(SUM(sri.qty), 0) AS units
-               FROM `tabStock Reconciliation Item` sri
-               JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent
-               WHERE sr.docstatus = 1
-                 AND sr.posting_date >= DATE_SUB(CURDATE(), INTERVAL %s DAY)
-                 AND EXISTS (SELECT 1 FROM `tabStock Reconciliation Item` i
-                             WHERE i.parent = sr.name
-                               AND i.qty <> i.current_qty)
-               GROUP BY sr.name, sri.warehouse""", (days,), as_dict=True):
+    reco_rows = frappe.db.sql(
+        """SELECT sr.name, sr.owner, sr.posting_date AS d, sr.creation,
+                  sri.warehouse AS wh, COUNT(*) AS rows_n,
+                  COALESCE(SUM(sri.qty), 0) AS units
+           FROM `tabStock Reconciliation Item` sri
+           JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent
+           WHERE sr.docstatus = 1
+             AND sr.posting_date >= DATE_SUB(CURDATE(), INTERVAL %s DAY)
+             AND EXISTS (SELECT 1 FROM `tabStock Reconciliation Item` i
+                         WHERE i.parent = sr.name
+                           AND i.qty <> i.current_qty)
+           GROUP BY sr.name, sri.warehouse""", (days,), as_dict=True)
+
+    # Which of those came from the portal. `submit_count` comments the draft
+    # as it files it and that comment outlives approval, so it is the only
+    # thing that can tell a portal count from a Desk one after the fact.
+    portal = set()
+    rnames = list({r.name for r in reco_rows if r.name not in claimed})
+    if rnames:
+        ph = ", ".join(["%s"] * len(rnames))
+        portal = {x[0] for x in frappe.db.sql(
+            f"""SELECT DISTINCT reference_name FROM `tabComment`
+                WHERE reference_doctype = 'Stock Reconciliation'
+                  AND reference_name IN ({ph})
+                  AND content LIKE 'Portal cycle count%%'""", tuple(rnames))}
+
+    for r in reco_rows:
         if r.name in claimed:
             continue
+        src = "portal" if r.name in portal else "desk"
+        if source == "portal" and src != "portal":
+            continue
+        if source == "desk" and src != "desk":
+            continue
         credit(r.owner or "?", r.wh, int(r.rows_n or 0), int(r.rows_n or 0),
-               int(r.units or 0), str(r.creation)[:16], "reco")
+               int(r.units or 0), str(r.creation)[:16], src)
 
     for p in people.values():
         p["binCount"] = len(p["bins"])
@@ -743,13 +769,18 @@ def _evidence(days):
 
 
 @frappe.whitelist()
-def progress(days=30):
+def progress(days=30, source="all"):
     """Campaign control: how much of the warehouse has been counted, aisle by
-    aisle, and who is doing the counting."""
+    aisle, and who is doing the counting.
+
+    `source` narrows it to where the count came from — "portal" answers "how
+    far has the team got with the tool", which is a different question from
+    "how much of the warehouse is trustworthy"."""
     _control_gate()
     days = min(max(int(days or 30), 1), 180)
+    source = source if source in ("all", "portal", "desk") else "all"
     bins = _countable_bins()
-    seen, people = _evidence(days)
+    seen, people = _evidence(days, source)
 
     zones, uncounted = {}, []
     tot = {"bins": 0, "stocked": 0, "counted": 0, "countedStocked": 0,
@@ -830,8 +861,10 @@ def progress(days=30):
             # reconciliations, the coverage number is a FLOOR, not a fact:
             # a clean count left no reconciliation to find.
             "bySession": sum(1 for e in seen.values() if e["src"] == "session"),
-            "byReco": sum(1 for e in seen.values() if e["src"] == "reco"),
+            "byPortal": sum(1 for e in seen.values() if e["src"] == "portal"),
+            "byDesk": sum(1 for e in seen.values() if e["src"] == "desk"),
         },
+        "source": source,
         "zones": zrows,
         "people": prows,
         "uncounted": uncounted[:40],
