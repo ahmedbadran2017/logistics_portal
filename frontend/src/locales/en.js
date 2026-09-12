@@ -144,6 +144,12 @@ export default {
     copilot: "Copilot",
   },
   cfa: {
+    prevDay: "Previous day",
+    nextDay: "Next day",
+    today: "Today",
+    histTitle: "History",
+    histDays: "last {n} days · click a day to open it",
+    histD: "d",
     title: "Confirmation team activity",
     intro: "Who is on the phones right now, and how each agent's day actually ran — both trails (portal and Desk), 30-minute grain.",
     honesty: "An action here is a decision or an order edit, on either the portal or the Desk. A quiet stretch can be a long call, a WhatsApp queue, or a break — it is a question to ask, never a verdict on its own. The note box is where the answer gets recorded.",

@@ -1526,6 +1526,93 @@ def team_activity(day=None):
             "axis": axis, "floorNow": str(fnow)[11:16]}
 
 
+@frappe.whitelist()
+def team_history(days=14):
+    """The shape of the last fortnight: actions per day, and each agent's own
+    line inside it.
+
+    team_activity answers "how did today run". A date picker on top of it
+    still hands back one day at a time with nothing to compare it against,
+    which is not history — this is: the run of days, so a dip or a climb is
+    visible before anyone clicks into a single one.
+
+    Deliberately an aggregate. The day board pulls every event row because it
+    draws a 30-minute timeline; a fortnight of that is thousands of rows to
+    produce two numbers a day, so the counting happens in SQL. Day buckets use
+    the floor's clock, not the site's — the same seam the day board reads.
+    """
+    if not _is_any_cc_admin():
+        frappe.throw("Section admins only.", frappe.PermissionError)
+    from logistics_portal.api import clock
+    from logistics_portal.api.auth import resolve_role
+    from logistics_portal.api.confirmation import _AUTOMATION_USERS, _CO
+
+    days = min(max(int(days or 14), 2), 60)
+    today = clock.floor_today()[:10]
+    first = str(frappe.utils.add_days(today, -(days - 1)))[:10]
+    d0 = clock.day_bounds(first)[0]
+    d1 = clock.day_bounds(today)[1]
+    local = clock.sql_local("creation")
+
+    counts = {}   # user -> {day: actions}
+
+    def bump(owner, day_str, n):
+        if owner in _AUTOMATION_USERS:
+            return
+        counts.setdefault(owner, {})
+        counts[owner][day_str] = counts[owner].get(day_str, 0) + int(n or 0)
+
+    for r in frappe.db.sql(
+            f"""SELECT owner, {local} AS d, COUNT(*) AS n
+                FROM `tabComment`
+                WHERE reference_doctype IN ('Sales Order', 'Issue')
+                  AND creation >= %(d0)s AND creation < %(d1)s
+                  AND (content LIKE 'Confirmation: %%'
+                       OR content LIKE 'Rescue: %%' OR content LIKE 'CS: %%')
+                GROUP BY owner, d""",
+            {"d0": d0, "d1": d1}, as_dict=True):
+        bump(r.owner, str(r.d), r.n)
+
+    for r in frappe.db.sql(
+            f"""SELECT v.owner, {clock.sql_local("v.creation")} AS d,
+                       COUNT(*) AS n
+                FROM `tabVersion` v
+                JOIN `tabSales Order` so ON so.name = v.docname
+                WHERE v.ref_doctype = 'Sales Order' AND so.company = %(co)s
+                  AND v.creation >= %(d0)s AND v.creation < %(d1)s
+                GROUP BY v.owner, d""",
+            {"co": _CO, "d0": d0, "d1": d1}, as_dict=True):
+        bump(r.owner, str(r.d), r.n)
+
+    axis = [str(frappe.utils.add_days(first, i))[:10] for i in range(days)]
+    people, totals = [], {d: {"actions": 0, "people": 0} for d in axis}
+    for user, by_day in counts.items():
+        try:
+            role = resolve_role(user) or "none"
+        except Exception:
+            role = "none"
+        if role not in ("confirmation", "cs", "tracking"):
+            continue
+        by_day = {d: n for d, n in by_day.items() if d in totals}
+        if not by_day:
+            continue
+        for d, n in by_day.items():
+            totals[d]["actions"] += n
+            totals[d]["people"] += 1
+        people.append({
+            "user": user, "role": role,
+            "name": frappe.db.get_value("User", user, "full_name") or user,
+            "total": sum(by_day.values()), "byDay": by_day,
+        })
+    people.sort(key=lambda p: -p["total"])
+    return {
+        "days": axis, "today": today,
+        "totals": [{"day": d, "actions": totals[d]["actions"],
+                    "people": totals[d]["people"]} for d in axis],
+        "people": people,
+    }
+
+
 @frappe.whitelist(methods=["POST"])
 def team_note(user=None, day=None, text=None):
     """The section admin's margin note on an agent's day — twin of
