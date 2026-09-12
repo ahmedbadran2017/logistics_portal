@@ -681,13 +681,25 @@ const ROW_KIND = { ...ST_KIND, "Not Delivered": "nd", "Duplicated": "duplicated"
 // Is this order still ours to decide? The clickable history can land the
 // agent on a delivered, returned or cancelled order — the backend rejects a
 // decision there, so the buttons must not be offered in the first place.
+// A Not Delivered order splits by what the WAREHOUSE holds, not by the status
+// alone. With no parcel out there — which is the normal case, the status being
+// a verdict on the customer rather than a failed shipment — the question is the
+// ordinary confirmation one and it gets the ordinary buttons, ending in the
+// same Confirmed / Cancelled as any other order. Only a live parcel makes it
+// Rescue's problem, and only then does Redeliver / Reship mean anything.
+const ndHasParcel = computed(() => {
+  const st = active.value?.stage || "";
+  return !!st && st !== "Pending";
+});
+const isNd = computed(() => active.value?.sales_status === "Not Delivered");
 const inLane = computed(() => {
   const st = active.value?.sales_status;
+  if (st === "Not Delivered") return !ndHasParcel.value;
   return !!st && (st === "Pending" || !!ST_KIND[st]);
 });
 // Two more cards the workspace knows how to work — the reason the pin
 // button and the two tab buttons exist on Not Delivered and Duplicated.
-const isNdCard = computed(() => active.value?.sales_status === "Not Delivered");
+const isNdCard = computed(() => isNd.value && ndHasParcel.value);
 const isDupCard = computed(() => active.value?.sales_status === "Duplicated");
 const stChip = computed(() => {
   const st = active.value?.sales_status;

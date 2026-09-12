@@ -32,6 +32,13 @@ QUEUES = {
 # to look at their own decisions — to check one, to answer "what did I do with
 # this customer", to catch a mistake — so every terminal state is a tab too,
 # not a black hole the order falls into.
+# What this lane may still decide. Not Delivered joins the live queues: the
+# customer refused a delivery, so "does he still want it?" is a confirmation
+# question again, answered with the same verbs and ending in the same two
+# statuses as any other order. Deliberately NOT in QUEUES — that map drives
+# the tabs and the retry engine, and this pile belongs to Rescue's tab.
+_DECIDABLE = set(QUEUES.values()) | {"Not Delivered"}
+
 DONE_QUEUES = {
     "confirmed": "Confirmed",
     "cancelled": "Cancelled",
@@ -868,7 +875,7 @@ def act(order, action, note=None, _bulk=False):
     if so.company != _CO:
         # Every read in this lane is company-scoped; the write must be too.
         frappe.throw("Unknown order.")
-    if so.custom_sales_status not in QUEUES.values():
+    if so.custom_sales_status not in _DECIDABLE:
         # Reopening a decision the lane already took: allowed only while the
         # order hasn't moved on physically. Once it's picked or shipped, the
         # warehouse owns it and a status flip here would lie about reality.
@@ -886,6 +893,20 @@ def act(order, action, note=None, _bulk=False):
             frappe.throw("Can't reopen — the order is already on a pick list.")
     elif action == "reopen":
         frappe.throw("The order is already in the queue.")
+    if so.custom_sales_status == "Not Delivered":
+        # Decidable only while the order carries no parcel — which is what a
+        # Not Delivered IS here. Measured 2026-09-12: all 29 had no delivery
+        # note, no AWB and no pick list, because the status is a verdict on
+        # the CUSTOMER (never takes delivery), not a parcel that failed in
+        # transit. Should one ever arrive carrying a live parcel, it is a
+        # rescue case and this lane must keep its hands off it.
+        stage = frappe.db.get_value("Sales Order", order, "custom_logistics_status")
+        if stage and stage not in ("Pending", ""):
+            frappe.throw(f"Can't decide — the order is already {stage} in the "
+                         "warehouse. Route it through Rescue.")
+        if frappe.db.exists("Pick List Item",
+                            {"sales_order": order, "docstatus": ["<", 2]}):
+            frappe.throw("Can't decide — the order is already on a pick list.")
     note = (note or "").strip()
     if action == "cancel":
         if not note:
