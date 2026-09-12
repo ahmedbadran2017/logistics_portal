@@ -292,7 +292,11 @@ async function onScan(raw) {
   choices.value = [];
   current.value = res;
   qty.value = res.inZone;
-  target.value = res.suggestions?.[0]?.warehouse || summary.value?.targets?.[0] || "";
+  // Preselect only a shelf that already holds siblings of this item. With no
+  // suggestion the field stays empty — the old fallback pre-armed the green
+  // button toward the first shelf alphabetically, and a fast operator would
+  // scatter stock onto a shelf nobody chose.
+  target.value = res.suggestions?.[0]?.warehouse || "";
   scanner.value?.showSuccess(`${res.name} · ${res.inZone}`);
 }
 

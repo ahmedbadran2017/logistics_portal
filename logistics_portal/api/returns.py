@@ -427,6 +427,8 @@ def close_batch(batch):
         frappe.throw("This batch is already closed.")
     doc.submit()
     frappe.db.commit()
+    # Fresh pieces just entered the Return Zone — drop the priced snapshot.
+    frappe.cache().delete_value(_ZONE_CACHE_KEY)
     state = _batch_state(batch)
     state["salesReturns"] = len((doc.sales_returns_created or "").splitlines())
     return state
@@ -475,6 +477,32 @@ def _putaway_condition(col):
     return " AND ".join(parts), args
 
 
+_ZONE_CACHE_KEY = "lp_restock_zone_rows"
+
+
+def _zone_priced_rows():
+    """Every Return-Zone item with its sane-band average selling rate.
+
+    Per-item selling rate = the average line rate the item has actually sold
+    at, inside a SANE BAND. Guarding only the bottom (rate > 0) was half a
+    guard: three corrupt order lines carried rates of 60,000,240 /
+    26,250,248 / 11,341,566 MAD, and those three pieces alone priced the
+    Return Zone at 97.6M against a real ~88k (measured 2026-08-28)."""
+    return frappe.db.sql(
+        """SELECT b.item_code, b.actual_qty AS qty,
+                  it.custom_sku AS sku,
+                  COALESCE(NULLIF(it.item_name,''), b.item_code) AS name, it.image,
+                  COALESCE((SELECT AVG(soi.rate) FROM `tabSales Order Item` soi
+                            JOIN `tabSales Order` so2 ON so2.name = soi.parent
+                            WHERE soi.item_code = b.item_code
+                              AND so2.company = %s
+                              AND soi.rate > 0 AND soi.rate <= %s), 0) AS sell_rate
+           FROM `tabBin` b
+           LEFT JOIN `tabItem` it ON it.name = b.item_code
+           WHERE b.warehouse = %s AND b.actual_qty > 0""",
+        (_CO, _SANE_RATE, RETURN_ZONE), as_dict=True)
+
+
 @frappe.whitelist()
 def restock_summary(limit=500, q=""):
     """What's sitting in the Return Zone right now: totals + EVERY item (most
@@ -498,26 +526,21 @@ def restock_summary(limit=500, q=""):
     limit = min(max(int(limit or 500), 1), 1000)
     q = (q or "").strip().lower()
 
-    # Per-item selling rate = the average line rate the item has actually sold
-    # at, inside a SANE BAND. Guarding only the bottom (rate > 0) was half a
-    # guard: three corrupt order lines carried rates of 60,000,240 /
-    # 26,250,248 / 11,341,566 MAD, and those three pieces alone priced the
-    # Return Zone at 97.6M against a real ~88k (measured 2026-08-28).
-    rows = frappe.db.sql(
-        """SELECT b.item_code, b.actual_qty AS qty,
-                  it.custom_sku AS sku,
-                  COALESCE(NULLIF(it.item_name,''), b.item_code) AS name, it.image,
-                  COALESCE((SELECT AVG(soi.rate) FROM `tabSales Order Item` soi
-                            JOIN `tabSales Order` so2 ON so2.name = soi.parent
-                            WHERE soi.item_code = b.item_code
-                              AND so2.company = %s
-                              AND soi.rate > 0 AND soi.rate <= %s), 0) AS sell_rate
-           FROM `tabBin` b
-           LEFT JOIN `tabItem` it ON it.name = b.item_code
-           WHERE b.warehouse = %s AND b.actual_qty > 0""",
-        (_CO, _SANE_RATE, RETURN_ZONE), as_dict=True)
+    # The priced snapshot costs ~1.1s (a correlated AVG over the sales lines
+    # per zone item) and does not depend on `q` — the operator's search only
+    # narrows it in Python. Cache it briefly so typing in the search box and
+    # the reload after every move stop re-paying that price; both write paths
+    # into the zone (receiving close and restock_move) drop the key.
+    cached = frappe.cache().get_value(_ZONE_CACHE_KEY)
+    if cached is not None:
+        rows = [frappe._dict(r) for r in cached]
+    else:
+        rows = _zone_priced_rows()
+        frappe.cache().set_value(
+            _ZONE_CACHE_KEY, [dict(r) for r in rows], expires_in_sec=120)
 
     total_qty = sum(int(r.qty or 0) for r in rows)
+        
     for r in rows:
         r["est_value"] = round(float(r.sell_rate or 0) * int(r.qty or 0))
     total_value = sum(r["est_value"] for r in rows)
@@ -671,8 +694,9 @@ def restock_move(item_code, qty, target=None, disposition="restock"):
     se.insert(ignore_permissions=True)
     se.submit()
     frappe.db.commit()
-    # Stock moved — availability and OOS buckets changed.
-    for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+    # Stock moved — availability, OOS buckets and the zone snapshot changed.
+    for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation",
+              _ZONE_CACHE_KEY):
         frappe.cache().delete_value(k)
     return {"ok": True, "entry": se.name, "itemCode": item_code, "qty": qty,
             "target": target, "disposition": disposition,
