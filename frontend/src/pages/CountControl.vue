@@ -10,7 +10,7 @@
              got with the tool, which is a different question from how much of
              the warehouse is trustworthy. -->
         <div class="flex items-center gap-1.5">
-          <button v-for="sc in ['all', 'portal', 'desk']" :key="sc"
+          <button v-for="sc in ['portal', 'all']" :key="sc"
                   class="h-8 px-3 rounded-lg text-[12px] font-semibold ring-1 transition-colors"
                   :class="source === sc ? 'text-white bg-[var(--accent-600)] ring-[var(--accent-600)]' : 'text-stone-600 bg-white ring-stone-200 hover:ring-stone-300'"
                   @click="setSource(sc)">{{ t('cc.src_' + sc) }}</button>
@@ -23,6 +23,13 @@
         </div>
       </div>
     </header>
+
+    <!-- The campaign comes first: it is the question being asked now. The
+         coverage board underneath still answers the wider one — how much of
+         the warehouse is trustworthy, whoever counted it. -->
+    <CountCampaign />
+
+    <h2 class="text-[13px] font-semibold text-stone-900 pt-1">{{ t('cc.coverage') }}</h2>
 
     <div v-if="loading" class="space-y-3">
       <div class="h-[132px] rounded-2xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
@@ -169,6 +176,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
+import CountCampaign from "@/components/CountCampaign.vue";
 import { api } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
@@ -179,7 +187,9 @@ const { warn } = useToast();
 const data = ref(null);
 const loading = ref(true);
 const days = ref(30);
-const source = ref("all");
+// Portal by default: the Desk is closed to the floor team, so its counts are
+// a diagnostic, not the picture anyone is asking for.
+const source = ref("portal");
 
 const h = computed(() => data.value?.headline || {});
 // A zone with nothing on its shelves has no counting work in it; listing the

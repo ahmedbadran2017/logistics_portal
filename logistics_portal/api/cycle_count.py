@@ -594,7 +594,10 @@ def approve_count(name):
     frappe.db.commit()
     for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
         frappe.cache().delete_value(k)
-    return {"ok": True, "name": name,
+    # This approval may have been the last bin a campaign was waiting on.
+    from logistics_portal.api import campaign
+    closed = campaign.maybe_close()
+    return {"ok": True, "name": name, "campaignClosed": closed,
             "differenceAmount": round(float(doc.difference_amount or 0))}
 
 

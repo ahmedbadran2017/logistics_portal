@@ -68,6 +68,7 @@ INDEXES = [
     ("LP Label Job", ["status", "creation"], "lp_lbljob_idx"),
     # Count-control reads the window by date and rolls up by bin.
     ("LP Count Session", ["creation", "warehouse"], "lp_cntsess_idx"),
+    ("LP Count Campaign", ["status", "campaign_no"], "lp_camp_idx"),
     ("Version", ["owner", "ref_doctype", "creation"], "lp_version_owner_idx"),
     # The CC team-activity board slices ONE DAY of Sales Order versions with
     # no owner in hand (the owner set is what it is trying to discover). The

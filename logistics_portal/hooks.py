@@ -84,6 +84,7 @@ after_migrate = [
     "logistics_portal.api.scanlog.ensure_doctype",
     "logistics_portal.api.labelprint.ensure_doctype",
     "logistics_portal.api.cycle_count.ensure_doctype",
+    "logistics_portal.api.campaign.ensure_doctype",
     "logistics_portal.install.ensure_indexes",
     # One-time: seed the manifest station's month of history from the
     # Shipment child rows that always carried the who/when.
