@@ -66,11 +66,41 @@ def _save_registry(names):
 SESSION_DT = "LP Count Session"
 
 
+def _rename_lines_field():
+    """One-time: `lines` was a MariaDB reserved word.
+
+    Every raw query naming it unquoted died with a syntax error — the screen's
+    first load did exactly that. Quoting each use would work and leave the trap
+    armed for the next person, so the column is renamed instead, while the
+    table is new. Idempotent and never fatal: a migrate must not fail over it.
+    """
+    try:
+        fld = frappe.db.get_value(
+            "DocField", {"parent": SESSION_DT, "fieldname": "lines"}, "name")
+        has_new = frappe.db.sql(
+            """SELECT 1 FROM information_schema.COLUMNS
+               WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s
+                 AND COLUMN_NAME = 'line_count'""", ("tab" + SESSION_DT,))
+        if not has_new:
+            frappe.db.sql(
+                "ALTER TABLE `tab" + SESSION_DT + "` "
+                "CHANGE `lines` `line_count` int(11) NOT NULL DEFAULT 0")
+        if fld:
+            frappe.db.set_value("DocField", fld, "fieldname", "line_count",
+                                update_modified=False)
+        frappe.clear_cache(doctype=SESSION_DT)
+        frappe.db.commit()
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000],
+                         "cycle_count._rename_lines_field")
+
+
 def ensure_doctype():
     """Create the session witness on migrate. Custom doctype: lives in the DB,
     no schema files, safe to run every time."""
     try:
         if frappe.db.exists("DocType", SESSION_DT):
+            _rename_lines_field()
             return
         frappe.get_doc({
             "doctype": "DocType", "name": SESSION_DT, "module": "Core",
@@ -83,7 +113,7 @@ def ensure_doctype():
                  "in_standard_filter": 1},
                 {"fieldname": "counter", "fieldtype": "Data", "label": "Counter",
                  "in_standard_filter": 1},
-                {"fieldname": "lines", "fieldtype": "Int", "label": "Lines counted"},
+                {"fieldname": "line_count", "fieldtype": "Int", "label": "Lines counted"},
                 {"fieldname": "diff_lines", "fieldtype": "Int", "label": "Lines differing"},
                 {"fieldname": "units", "fieldtype": "Int", "label": "Units counted"},
                 {"fieldname": "moves", "fieldtype": "Int", "label": "Relocations"},
@@ -126,7 +156,7 @@ def _log_session(warehouse, lines, diff_lines, units, moves, draft):
         frappe.get_doc({
             "doctype": SESSION_DT, "warehouse": warehouse,
             "zone": _zone_of(warehouse), "counter": frappe.session.user,
-            "lines": int(lines or 0), "diff_lines": int(diff_lines or 0),
+            "line_count": int(lines or 0), "diff_lines": int(diff_lines or 0),
             "units": int(units or 0), "moves": int(moves or 0),
             "draft": draft or "",
         }).insert(ignore_permissions=True)
@@ -661,15 +691,25 @@ def _evidence(days):
 
     claimed = set()
     if frappe.db.exists("DocType", SESSION_DT):
-        for r in frappe.db.sql(
-                f"""SELECT warehouse, counter, lines, diff_lines, units,
+        # Guarded: the reconciliation half of the picture is worth showing on
+        # its own, so a schema this read cannot satisfy costs the page its
+        # session rows (visible as 0 in the source split) rather than the
+        # whole screen.
+        try:
+            sessions = frappe.db.sql(
+                f"""SELECT warehouse, counter, line_count, diff_lines, units,
                            draft, creation
                     FROM `tab{SESSION_DT}`
                     WHERE creation >= DATE_SUB(NOW(), INTERVAL %s DAY)""",
-                (days,), as_dict=True):
+                (days,), as_dict=True)
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:2000],
+                             "cycle_count._evidence sessions")
+            sessions = []
+        for r in sessions:
             if r.draft:
                 claimed.add(r.draft)
-            credit(r.counter or "?", r.warehouse, int(r.lines or 0),
+            credit(r.counter or "?", r.warehouse, int(r.line_count or 0),
                    int(r.diff_lines or 0), int(r.units or 0),
                    str(r.creation)[:16], "session")
 
@@ -757,12 +797,15 @@ def progress(days=30):
 
     daily = []
     if frappe.db.exists("DocType", SESSION_DT):
-        daily = [{"day": str(r[0]), "bins": int(r[1] or 0),
-                  "lines": int(r[2] or 0)} for r in frappe.db.sql(
-            f"""SELECT DATE(creation), COUNT(DISTINCT warehouse), SUM(lines)
-                FROM `tab{SESSION_DT}`
-                WHERE creation >= DATE_SUB(NOW(), INTERVAL %s DAY)
-                GROUP BY DATE(creation) ORDER BY DATE(creation)""", (days,))]
+        try:
+            daily = [{"day": str(r[0]), "bins": int(r[1] or 0),
+                      "lines": int(r[2] or 0)} for r in frappe.db.sql(
+                f"""SELECT DATE(creation), COUNT(DISTINCT warehouse), SUM(line_count)
+                    FROM `tab{SESSION_DT}`
+                    WHERE creation >= DATE_SUB(NOW(), INTERVAL %s DAY)
+                    GROUP BY DATE(creation) ORDER BY DATE(creation)""", (days,))]
+        except Exception:
+            daily = []
 
     return {
         "days": days,
