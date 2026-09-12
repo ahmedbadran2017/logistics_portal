@@ -32,6 +32,57 @@
       </div>
     </header>
 
+    <!-- Ghost-return repair (manager only): the 2026-09-09 double-posted
+         return waves left book copies in the zone with no cloth behind them.
+         Scan proves each one from the paper trail; apply makes ONE DRAFT
+         Stock Reconciliation the manager reviews and submits on the Desk. -->
+    <div v-if="isManager" class="bg-white rounded-2xl ring-1 ring-amber-200 p-4 space-y-3">
+      <div class="flex items-center gap-2 flex-wrap">
+        <Icon name="alert-triangle" :size="15" class="text-amber-600" />
+        <span class="text-[13px] font-semibold text-stone-900">{{ t('restock.ghostTitle') }}</span>
+        <span class="text-[11.5px] text-stone-500">{{ t('restock.ghostHint') }}</span>
+        <button class="ms-auto h-9 px-3.5 rounded-lg text-[12.5px] font-semibold text-amber-800 bg-amber-50 ring-1 ring-amber-300 hover:bg-amber-100 disabled:opacity-50"
+                :disabled="ghostBusy" @click="ghostScan">
+          {{ ghostBusy === 'scan' ? t('restock.ghostScanning') : t('restock.ghostScan') }}
+        </button>
+      </div>
+      <template v-if="ghost">
+        <div v-if="!ghost.rows.length" class="text-[12.5px] text-emerald-700">{{ t('restock.ghostClean') }}</div>
+        <template v-else>
+          <div class="flex items-center gap-2 flex-wrap text-[12.5px]">
+            <span class="font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200 rounded-lg px-2.5 py-1 tabular-nums">
+              {{ ghost.units }} {{ t('recv.units') }} · {{ ghost.items }} {{ t('consol.items') }}
+            </span>
+            <span class="text-stone-500">{{ t('restock.ghostOf') }} {{ ghost.zoneUnits }}</span>
+            <button v-if="!ghost.draft"
+                    class="ms-auto h-9 px-4 rounded-lg text-[12.5px] font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50"
+                    :disabled="ghostBusy" @click="ghostApply">
+              {{ ghostBusy === 'apply' ? t('restock.ghostApplying') : t('restock.ghostApply') }}
+            </button>
+            <span v-else class="ms-auto text-[12px] font-semibold text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 rounded-lg px-2.5 py-1 font-mono">
+              {{ t('restock.ghostDraft') }}: {{ ghost.draft }}
+            </span>
+          </div>
+          <div class="max-h-[300px] overflow-y-auto divide-y divide-stone-50 rounded-lg ring-1 ring-stone-100">
+            <div v-for="r in ghost.rows" :key="r.item" class="px-3 py-2">
+              <div class="flex items-center gap-2 text-[12px]">
+                <span class="font-mono font-medium text-stone-800 truncate">{{ r.sku || r.item }}</span>
+                <span class="text-stone-400 truncate flex-1 text-[11px]">{{ r.name }}</span>
+                <span class="tabular-nums text-stone-500">{{ r.zoneNow }}</span>
+                <span class="tabular-nums font-bold text-rose-600">−{{ r.ghost }}</span>
+                <span class="tabular-nums font-bold text-emerald-700">= {{ r.after }}</span>
+              </div>
+              <div class="mt-0.5 text-[10.5px] text-stone-400 font-mono truncate">
+                <template v-for="(c, i) in r.cases" :key="i">
+                  <span v-if="i">, </span>{{ c.dns.map(d => d.dn.replace('MAT-DN-2026-', '#')).join(' + ') }}
+                </template>
+              </div>
+            </div>
+          </div>
+        </template>
+      </template>
+    </div>
+
     <!-- Scanner -->
     <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4">
       <ScanInput ref="scanner" :placeholder="t('restock.scanPh')" @scan="onScan" />
@@ -218,9 +269,38 @@ import ScanInput from "@/components/ui/ScanInput.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
+import { useAuth } from "@/composables/useAuth";
 
 const { t } = useI18n();
 const { success, warn } = useToast();
+const { role } = useAuth();
+const isManager = computed(() => role.value === "manager");
+
+const ghost = ref(null);
+const ghostBusy = ref("");
+async function ghostScan() {
+  ghostBusy.value = "scan";
+  try {
+    ghost.value = await api("returns.ghost_scan");
+  } catch (e) {
+    warn(t("restock.loadFail"), String(e.message || e));
+  } finally {
+    ghostBusy.value = "";
+  }
+}
+async function ghostApply() {
+  if (ghostBusy.value) return;
+  ghostBusy.value = "apply";
+  try {
+    const res = await apiPost("returns.ghost_apply");
+    ghost.value = { ...ghost.value, draft: res.reco };
+    success(t("restock.ghostDone"), res.reco);
+  } catch (e) {
+    warn(t("restock.moveFail"), String(e.message || e));
+  } finally {
+    ghostBusy.value = "";
+  }
+}
 
 const scanner = ref(null);
 const zoneTrail = ref([]);

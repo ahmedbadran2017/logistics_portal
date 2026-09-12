@@ -65,7 +65,12 @@ doc_events = {
         "validate": "logistics_portal.api.orders.guard_cancelled_resurrect",
     },
     "Delivery Note": {
-        "validate": "logistics_portal.api.shipping.capture_packer",
+        "validate": [
+            "logistics_portal.api.shipping.capture_packer",
+            # A piece can only come back as many times as it went out — blocks
+            # the 2026-09-09 class of double-posted return waves at the root.
+            "logistics_portal.api.returns.guard_over_return",
+        ],
     },
 }
 

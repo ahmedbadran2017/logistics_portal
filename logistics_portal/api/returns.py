@@ -701,3 +701,211 @@ def restock_move(item_code, qty, target=None, disposition="restock"):
     return {"ok": True, "entry": se.name, "itemCode": item_code, "qty": qty,
             "target": target, "disposition": disposition,
             "remaining": max(0, available - qty)}
+
+
+# ---------------------------------------------------------------------------
+# Ghost-return repair — the 2026-09-09 double-posting event.
+#
+# The same wave of sales returns was created TWICE ~85 seconds apart (600
+# return DNs into the zone that day, duplicate pairs ~200 document numbers
+# apart, e.g. MAT-DN-2026-103507 / -103707). Each duplicated parcel put a
+# second BOOK copy of a physically-single piece into the Return Zone, so the
+# zone reads fatter than the shelf. The scan below proves each ghost from the
+# paper trail alone: per (original DN, item), returns exceeding what was ever
+# delivered — or the same original returned into the zone twice — capped at
+# what still sits in the zone today. `ghost_apply` turns the proven list into
+# ONE DRAFT Stock Reconciliation for the manager to inspect and submit; this
+# module never submits it.
+# ---------------------------------------------------------------------------
+
+def _ghost_scan_rows():
+    """[{item, zoneNow, ghost, cases:[...]}] — the provable double-returns
+    still inflating the Return Zone book."""
+    zone = {r.item_code: int(r.actual_qty) for r in frappe.db.sql(
+        "SELECT item_code, actual_qty FROM `tabBin` WHERE warehouse=%s AND actual_qty>0",
+        (RETURN_ZONE,), as_dict=True)}
+    if not zone:
+        return []
+    codes = list(zone)
+    ph = ", ".join(["%s"] * len(codes))
+    rets = frappe.db.sql(
+        f"""SELECT dn.name AS dn, dn.return_against AS orig, dn.posting_date AS d,
+                   dni.item_code AS item, -dni.qty AS q, dni.warehouse AS wh
+            FROM `tabDelivery Note Item` dni
+            JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+            WHERE dn.is_return = 1 AND dn.docstatus = 1
+              AND dni.item_code IN ({ph})""",
+        tuple(codes), as_dict=True)
+    origs = list({r.orig for r in rets if r.orig})
+    delivered = {}
+    if origs:
+        ph2 = ", ".join(["%s"] * len(origs))
+        for r in frappe.db.sql(
+                f"""SELECT parent, item_code, SUM(qty) FROM `tabDelivery Note Item`
+                    WHERE parent IN ({ph2}) GROUP BY parent, item_code""",
+                tuple(origs)):
+            delivered[(r[0], r[1])] = float(r[2] or 0)
+
+    grp = {}
+    for r in rets:
+        k = (r.orig or "NO_REF:" + r.dn, r.item)
+        g = grp.setdefault(k, {"q": 0.0, "zone_q": 0.0, "other_q": 0.0, "dns": []})
+        g["q"] += float(r.q or 0)
+        if r.wh == RETURN_ZONE:
+            g["zone_q"] += float(r.q or 0)
+        else:
+            g["other_q"] += float(r.q or 0)
+        g["dns"].append({"dn": r.dn, "wh": (r.wh or "").replace(" - JM", ""),
+                         "qty": float(r.q or 0), "date": str(r.d)})
+
+    ghost, cases = {}, {}
+    for (orig, item), g in grp.items():
+        del_q = delivered.get((orig, item))
+        # more came back than ever went out — the surplus is paper, not cloth
+        over = max(0.0, g["q"] - del_q) if del_q is not None else 0.0
+        # the same original returned into the zone AND somewhere else: one
+        # physical piece, two book copies — the overlap is the ghost
+        dbl = min(g["zone_q"], g["other_q"])
+        bad = min(max(over, dbl), g["zone_q"])
+        if bad > 0:
+            ghost[item] = ghost.get(item, 0) + bad
+            cases.setdefault(item, []).append(
+                {"orig": orig if not orig.startswith("NO_REF:") else "",
+                 "delivered": del_q, "returned": g["q"], "ghost": bad,
+                 "dns": g["dns"][:4]})
+
+    if not ghost:
+        return []
+    gcodes = list(ghost)
+    ph3 = ", ".join(["%s"] * len(gcodes))
+    names = {r[0]: {"sku": r[1] or "", "name": r[2] or r[0]} for r in frappe.db.sql(
+        f"""SELECT name, custom_sku, LEFT(COALESCE(NULLIF(item_name,''), name), 60)
+            FROM `tabItem` WHERE name IN ({ph3})""", tuple(gcodes))}
+    rows = []
+    for item, gq in ghost.items():
+        take = min(int(gq), zone.get(item, 0))
+        if take <= 0:
+            continue
+        rows.append({"item": item, **names.get(item, {"sku": "", "name": item}),
+                     "zoneNow": zone[item], "ghost": take,
+                     "after": zone[item] - take,
+                     "cases": sorted(cases[item], key=lambda c: -c["ghost"])[:3]})
+    rows.sort(key=lambda r: -r["ghost"])
+    return rows
+
+
+@frappe.whitelist()
+def ghost_scan():
+    """Preview: every provable ghost unit, with the duplicate DNs as evidence."""
+    from logistics_portal.api.permissions import require_portal_admin
+    require_portal_admin()
+    rows = _ghost_scan_rows()
+    existing = frappe.defaults.get_global_default("lp_ghost_reco") or ""
+    if existing and frappe.db.get_value("Stock Reconciliation", existing, "docstatus") != 0:
+        existing = ""  # submitted or cancelled — a new draft is allowed again
+    return {"rows": rows, "items": len(rows),
+            "units": sum(r["ghost"] for r in rows),
+            "zoneUnits": int(frappe.db.sql(
+                "SELECT COALESCE(SUM(actual_qty),0) FROM `tabBin` WHERE warehouse=%s AND actual_qty>0",
+                (RETURN_ZONE,))[0][0]),
+            "draft": existing}
+
+
+@frappe.whitelist()
+def ghost_apply():
+    """Materialise the scan into ONE DRAFT Stock Reconciliation on the Return
+    Zone (each ghost item set to zoneNow − ghost). Draft only — the manager
+    reviews and submits it on the Desk; running twice returns the same draft."""
+    from logistics_portal.api.permissions import require_portal_admin
+    require_portal_admin()
+    existing = frappe.defaults.get_global_default("lp_ghost_reco") or ""
+    if existing and frappe.db.get_value("Stock Reconciliation", existing, "docstatus") == 0:
+        return {"ok": True, "reco": existing, "existing": True}
+    rows = _ghost_scan_rows()
+    if not rows:
+        frappe.throw("Nothing to repair — no provable ghost units in the zone.")
+
+    company = frappe.db.get_value("Warehouse", RETURN_ZONE, "company") \
+        or frappe.defaults.get_global_default("company")
+    from logistics_portal.api.cycle_count import _batch_bundle
+    items, made = [], []
+    try:
+        for r in rows:
+            rate = float(frappe.db.get_value(
+                "Bin", {"warehouse": RETURN_ZONE, "item_code": r["item"]},
+                "valuation_rate") or 0) \
+                or float(frappe.db.get_value("Item", r["item"], "valuation_rate") or 0)
+            row = {"item_code": r["item"], "warehouse": RETURN_ZONE,
+                   "qty": r["after"], "valuation_rate": rate}
+            if not rate:
+                row["allow_zero_valuation_rate"] = 1
+            b = _batch_bundle(r["item"], RETURN_ZONE, r["after"], company)
+            if b:
+                made.append(b)
+                row["serial_and_batch_bundle"] = b
+            items.append(row)
+        doc = frappe.get_doc({
+            "doctype": "Stock Reconciliation",
+            "purpose": "Stock Reconciliation",
+            "posting_date": nowdate(), "posting_time": nowtime(),
+            "company": company,
+            "expense_account": frappe.db.get_value("Company", company, "stock_adjustment_account"),
+            "cost_center": frappe.db.get_value("Company", company, "cost_center"),
+            "items": items,
+        })
+        doc.flags.ignore_permissions = True
+        doc.insert(ignore_permissions=True)
+    except Exception:
+        for b in made:
+            try:
+                frappe.delete_doc("Serial and Batch Bundle", b,
+                                  force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        raise
+    doc.add_comment("Comment",
+                    "Ghost-return repair: removes the book copies double-posted "
+                    "on 2026-09-09 (duplicate return DNs against the same "
+                    f"original deliveries). {len(rows)} items, "
+                    f"{sum(r['ghost'] for r in rows)} units. Draft created by "
+                    f"{frappe.session.user} from the RestockZone repair panel.")
+    frappe.defaults.set_global_default("lp_ghost_reco", doc.name)
+    frappe.db.commit()
+    return {"ok": True, "reco": doc.name, "existing": False,
+            "items": len(rows), "units": sum(r["ghost"] for r in rows)}
+
+
+def guard_over_return(doc, method=None):
+    """A returned piece can only come back as many times as it went out.
+
+    The 2026-09-09 incident: the same return wave was posted twice, so every
+    parcel's stock re-entered the book twice while one piece of cloth came
+    back. ERPNext did not stop the second wave. This validate hook does:
+    for a return Delivery Note with a reference, the CUMULATIVE returned
+    quantity per item across every submitted return against that original —
+    plus this document — must not exceed what the original delivered."""
+    if not doc.get("is_return") or not doc.get("return_against") or doc.docstatus == 2:
+        return
+    orig = doc.return_against
+    delivered = {r[0]: float(r[1] or 0) for r in frappe.db.sql(
+        """SELECT item_code, SUM(qty) FROM `tabDelivery Note Item`
+           WHERE parent = %s GROUP BY item_code""", (orig,))}
+    already = {r[0]: float(r[1] or 0) for r in frappe.db.sql(
+        """SELECT dni.item_code, SUM(-dni.qty)
+           FROM `tabDelivery Note Item` dni
+           JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+           WHERE dn.is_return = 1 AND dn.docstatus = 1
+             AND dn.return_against = %s AND dn.name != %s
+           GROUP BY dni.item_code""", (orig, doc.name or ""))}
+    mine = {}
+    for it in doc.get("items") or []:
+        mine[it.item_code] = mine.get(it.item_code, 0) + abs(float(it.qty or 0))
+    for code, q in mine.items():
+        total = already.get(code, 0) + q
+        limit = delivered.get(code)
+        if limit is not None and total > limit + 0.001:
+            frappe.throw(
+                f"Over-return blocked: {orig} delivered {int(limit)} of {code} "
+                f"but {int(already.get(code, 0))} already returned and this "
+                f"document adds {int(q)}. A piece can only come back as many "
+                "times as it went out.")
