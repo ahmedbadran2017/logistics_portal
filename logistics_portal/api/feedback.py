@@ -203,6 +203,8 @@ class _RefDoc:
         self._so = None
         self._order = order
         self._name = name
+        self.doctype = "Sales Order"
+        self.name = order or ""
         if order and frappe.db.exists("Sales Order", order):
             self._so = frappe.get_doc("Sales Order", order)
 
@@ -221,6 +223,13 @@ class _RefDoc:
 
     def get(self, field, default=None):
         return self.get_formatted(field) or default
+
+    def __getattr__(self, field):
+        # Anything the sender reads as an attribute (ref_doc.name, ...)
+        # answers like the order would; never an AttributeError mid-send.
+        if field.startswith("_"):
+            raise AttributeError(field)
+        return self.get_formatted(field)
 
 
 def _send_template(cfg, phone, name, order):
@@ -275,6 +284,7 @@ def _asked_today():
 
 def run_ask():
     """Hourly: ask the customers whose parcel arrived about a day ago."""
+    got_lock = False
     try:
         cfg = get_settings()
         if not cfg.get("enabled") or not cfg.get("template") or not _has_wa():
@@ -286,11 +296,12 @@ def run_ask():
         room = int(cfg["dailyCap"]) - int(_asked_today())
         if room <= 0:
             return
-        # Two workers passing NOT EXISTS together would ask twice.
-        lock = frappe.cache()
-        if lock.get_value("lp_feedback_ask_running"):
+        # Two workers passing NOT EXISTS together would ask twice: one
+        # atomic SET NX decides who runs, and only that worker lets go.
+        cache = frappe.cache()
+        got_lock = bool(cache.set(cache.make_key("lp_feedback_ask_running"), "1", nx=True, ex=600))
+        if not got_lock:
             return
-        lock.set_value("lp_feedback_ask_running", "1", expires_in_sec=600)
         now = now_datetime()
         rows = frappe.db.sql(
             f"""SELECT so.name, so.customer_name, so.custom_delivered_at AS at,
@@ -309,7 +320,13 @@ def run_ask():
         if not rows:
             return
         cooldown = add_to_date(now, days=-int(cfg["phoneCooldownDays"]))
+        # Three rejections in a row is an outage (token, quality pause, Meta
+        # down), not three bad numbers: stop, and let the next hour retry
+        # the rest instead of branding the whole batch failed.
+        streak = 0
         for r in rows:
+            if streak >= 3:
+                break
             phone = _digits(r.phone)
             if not phone:
                 _record(r, phone, "failed", error="no phone")
@@ -326,12 +343,16 @@ def run_ask():
             err = None
             try:
                 wa_name, wamid = _send_template(cfg, phone, r.customer_name, r.name)
+                # Meta has the message: the row that proves it must survive
+                # whatever happens next, or the customer is asked again.
+                frappe.db.commit()
+                streak = 0
             except Exception as e:
                 # frappe_whatsapp throws when Meta rejects; keep the row so
                 # the order is not retried every hour, and show the reason.
+                frappe.db.rollback()
                 err = str(e)[:300]
-            # The record is written no matter what: a sent message with no
-            # row would be sent again next hour.
+                streak += 1
             try:
                 if err:
                     _record(r, phone, "failed", error=err)
@@ -344,10 +365,12 @@ def run_ask():
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "feedback.run_ask")
     finally:
-        try:
-            frappe.cache().delete_value("lp_feedback_ask_running")
-        except Exception:
-            pass
+        # Only the worker that took the lock may drop it.
+        if got_lock:
+            try:
+                frappe.cache().delete(frappe.cache().make_key("lp_feedback_ask_running"))
+            except Exception:
+                pass
 
 
 def _record(r, phone, status, wa_name=None, wamid=None, error=None):
@@ -425,8 +448,13 @@ def backfill_phone_keys(days=90):
 _TOKEN = re.compile(r"[^\w]+")
 
 
+# Harakat, shadda, tanween and tatweel are category Mn/Lm — `\w` treats them
+# as word breaks, which would split "مُشكلة" into two tokens.
+_MARKS = re.compile(r"[\u064B-\u0652\u0670\u0640]")
+
+
 def _tokens(s):
-    return [x for x in _TOKEN.split((s or "").strip().lower()) if x]
+    return [x for x in _TOKEN.split(_MARKS.sub("", (s or "").strip().lower())) if x]
 
 
 def _has_phrase(tokens, phrase):
@@ -488,14 +516,16 @@ def run_replies():
             # Anything ELSE we sent a phone after the question (a confirmation
             # for a new order, a reminder) makes a typed reply ambiguous: it is
             # then left to the CS inbox rather than guessed.
-            later_out = {}
+            outs = {}
             for to, at in frappe.db.sql(
-                    """SELECT `to`, MAX(creation) FROM `tabWhatsApp Message`
+                    """SELECT `to`, creation FROM `tabWhatsApp Message`
                        WHERE type = 'Outgoing' AND creation >= %s
                          AND (reference_doctype IS NULL OR reference_doctype <> 'Sales Order'
-                              OR reference_name NOT IN (SELECT sales_order FROM `tab{DT}` WHERE status = 'asked'))
-                       GROUP BY `to`""".replace("{DT}", DT), (oldest,)):
-                later_out[_digits(to)] = at
+                              OR reference_name IS NULL
+                              OR reference_name NOT IN (SELECT sales_order FROM `tab{DT}`
+                                                        WHERE status = 'asked' AND sales_order IS NOT NULL))
+                    """.replace("{DT}", DT), (oldest,)):
+                outs.setdefault(_digits(to), []).append(at)
             done = set()
             for m in msgs:
                 row = by_wamid.get(m.reply_to_message_id)
@@ -509,9 +539,9 @@ def run_replies():
                     key = _digits(m["from"])
                     cands = [r for r in by_phone.get(key, []) if r.asked_at <= m.creation]
                     row = cands[-1] if cands else None
-                    if row and (m.creation - row.asked_at).total_seconds() > 48 * 3600:
+                    if row and (m.creation - row.asked_at).total_seconds() > int(cfg["replyWindowH"]) * 3600:
                         continue
-                    if row and later_out.get(key) and row.asked_at < later_out[key] < m.creation:
+                    if row and any(row.asked_at < at < m.creation for at in outs.get(key, [])):
                         continue
                 if not row or row.name in done:
                     continue

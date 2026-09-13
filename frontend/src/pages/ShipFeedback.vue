@@ -144,6 +144,11 @@
     </template>
 
     <!-- Settings: the lead configures the question, the answers and the follow-ups. -->
+    <div v-if="settingsError" class="rounded-xl bg-rose-50 ring-1 ring-rose-200 px-4 py-3 text-[12px] text-rose-800 flex items-center gap-3 flex-wrap">
+      <span class="font-semibold">{{ t('dfb.settingsFail') }}</span>
+      <span class="font-mono text-[11px] text-rose-700/80 break-words">{{ settingsError }}</span>
+      <button class="ms-auto h-8 px-3 rounded-md text-[11.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="loadSettings">{{ t('common.retry') }}</button>
+    </div>
     <section v-if="s" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
       <button class="w-full px-4 py-3 flex items-center gap-2 text-start" :aria-expanded="showSet" @click="showSet = !showSet">
         <Icon name="settings" :size="14" class="text-stone-400" />
@@ -219,7 +224,8 @@ import { useAuth } from "@/composables/useAuth";
 
 const { t } = useI18n();
 const { success, warn } = useToast();
-const { user } = useAuth();
+const { user, fullName } = useAuth();
+let seq = 0;
 const d = ref(null);
 const s = ref(null);
 const days = ref(14);
@@ -243,23 +249,33 @@ function pct(v) { return v == null ? "—" : v + "%"; }
 function barH(n) { return Math.max(0, (90 * (n || 0)) / maxDay.value) + "px"; }
 
 async function load() {
+  const my = ++seq;
   if (!d.value) loading.value = true;
-  try { d.value = await api("feedback.board", { days: days.value }); loadError.value = ""; }
-  catch (e) { loadError.value = String(e?.message || e); }
+  try {
+    const r = await api("feedback.board", { days: days.value });
+    // A slow 7-day answer must not land under the 30-day label.
+    if (my !== seq) return;
+    d.value = r; loadError.value = "";
+  } catch (e) {
+    if (my !== seq) return;
+    loadError.value = String(e?.message || e);
+  }
   loading.value = false;
 }
+const settingsError = ref("");
 async function loadSettings() {
   try {
     s.value = await api("feedback.settings");
     posWords.value = (s.value.positiveWords || []).join(", ");
     negWords.value = (s.value.negativeWords || []).join(", ");
-  } catch { s.value = null; }
+    settingsError.value = "";
+  } catch (e) { s.value = null; settingsError.value = String(e?.message || e); }
 }
 function setDays(n) { days.value = n; load(); }
 async function handled(r) {
   try {
     await apiPost("feedback.mark_handled", { name: r.name });
-    r.handled = 1; r.handled_by = user.value?.name || user.value?.email || "";
+    r.handled = 1; r.handled_by = fullName.value || user.value || "";
     load();
   } catch (e) { warn(t("dfb.saveFail"), String(e.message || e)); }
 }

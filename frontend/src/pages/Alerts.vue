@@ -4,7 +4,7 @@
       <!-- Title + action -->
       <div class="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 class="text-[22px] font-semibold text-stone-900 tracking-[-0.01em]">Alerts</h1>
+          <h1 class="text-[22px] font-semibold text-stone-900 tracking-[-0.01em]">{{ t('nav.alerts') }}</h1>
           <p class="text-[13px] text-stone-500 mt-0.5">{{ t('px.alr.sub') }}</p>
         </div>
         <button
@@ -138,12 +138,12 @@ const sev = (a) => SEV[a.sev] || SEV.yellow;
 
 const filter = ref("all");
 
-const filters = [
-  { key: "all", label: "All" },
-  { key: "critical", label: "Critical" },
-  { key: "warning", label: "Warning" },
-  { key: "info", label: "Info" },
-];
+const filters = computed(() => [
+  { key: "all", label: t("px.alr.all") },
+  { key: "critical", label: t("px.alr.critical") },
+  { key: "warning", label: t("px.alr.warning") },
+  { key: "info", label: t("px.alr.info") },
+]);
 
 const items = computed(() =>
   AUDIT.value.filter((a) => filter.value === "all" || SEV_GROUP[a.sev] === filter.value)
@@ -157,10 +157,10 @@ const counts = computed(() => ({
 const unread = computed(() => AUDIT.value.filter((a) => !a.read).length);
 
 const kpis = computed(() => [
-  { label: "Unread", icon: "bell", tone: "text-stone-500 bg-stone-100", value: unread.value },
-  { label: "Critical", icon: "alert-circle", tone: "text-rose-600 bg-rose-50", value: counts.value.critical },
-  { label: "Warning", icon: "alert-circle", tone: "text-amber-600 bg-amber-50", value: counts.value.warning },
-  { label: "Info", icon: "sparkles", tone: "text-violet-600 bg-violet-50", value: counts.value.info },
+  { label: t("px.alr.unread"), icon: "bell", tone: "text-stone-500 bg-stone-100", value: unread.value },
+  { label: t("px.alr.critical"), icon: "alert-circle", tone: "text-rose-600 bg-rose-50", value: counts.value.critical },
+  { label: t("px.alr.warning"), icon: "alert-circle", tone: "text-amber-600 bg-amber-50", value: counts.value.warning },
+  { label: t("px.alr.info"), icon: "sparkles", tone: "text-violet-600 bg-violet-50", value: counts.value.info },
 ]);
 
 async function markAll() {

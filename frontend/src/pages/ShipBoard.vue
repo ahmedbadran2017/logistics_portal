@@ -6,7 +6,8 @@
         <p class="text-[12.5px] text-stone-500 mt-0.5">{{ t('oclk.intro') }}</p>
       </div>
       <div class="flex items-center gap-2 text-[11.5px] text-stone-400 tabular-nums" dir="ltr">
-        <span class="w-1.5 h-1.5 rounded-full" :class="refreshing ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'" />{{ d?.now }}
+        <span class="w-1.5 h-1.5 rounded-full" :class="loadError ? 'bg-rose-500' : refreshing ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'" />{{ d?.now }}
+        <span v-if="loadError && d" class="text-rose-600">{{ t('oclk.staleWarn') }}</span>
       </div>
     </header>
 
@@ -63,8 +64,7 @@
 
     <section v-else-if="d && d.rows.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
       <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
-        <span class="text-[12px] font-semibold text-stone-900">{{ t('oclk.v_' + view) }}</span>
-        <span v-if="loadError" class="text-[10.5px] text-rose-600">{{ t('oclk.staleWarn') }}</span>
+        <span class="text-[12px] font-semibold text-stone-900">{{ t('oclk.v_' + (d.view || view)) }}</span>
         <span class="ms-auto text-[11px] text-stone-400 tabular-nums" dir="ltr">
           <template v-if="d.rows.length < d.total">{{ d.rows.length }} / {{ d.total }}</template>
           <template v-else>{{ d.total }}</template>
@@ -91,9 +91,10 @@
       </div>
     </section>
 
-    <div v-else-if="d" class="rounded-2xl bg-white ring-1 ring-stone-200/70 p-10 text-center">
-      <Icon name="check-circle" :size="24" class="mx-auto text-emerald-400" />
-      <div class="text-[14px] font-semibold text-stone-700 mt-2">{{ t('oclk.clear') }}</div>
+    <div v-else-if="d" class="rounded-2xl bg-white ring-1 p-10 text-center" :class="loadError ? 'ring-rose-200' : 'ring-stone-200/70'">
+      <Icon :name="loadError ? 'alert-triangle' : 'check-circle'" :size="24" class="mx-auto" :class="loadError ? 'text-rose-400' : 'text-emerald-400'" />
+      <div class="text-[14px] font-semibold text-stone-700 mt-2">{{ loadError ? t('oclk.staleWarn') : t('oclk.clear') }}</div>
+      <button v-if="loadError" class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
     </div>
   </div>
 </template>

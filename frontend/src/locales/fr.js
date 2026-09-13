@@ -1383,6 +1383,7 @@ export default {
       print: "Imprimer l'étiquette",
     },
     alr: {
+      all: "Tout", critical: "Critique", warning: "Avertissement", info: "Info", unread: "Non lues",
       sub: "Alertes par règles & analyses quotidiennes de l'atelier",
       markRead: "Tout marquer comme lu",
       caughtUp: "Vous êtes à jour",
@@ -1540,6 +1541,7 @@ export default {
     never: "jamais travaillé ici",
   },
   dfb: {
+    settingsFail: "Impossible de charger les paramètres du retour",
     saveFail: "Enregistrement impossible", failedTitle: "Envois récents refusés par Meta", ticketHint: "Ouvert dans la file service client",
     needTemplate: "Choisissez d'abord un modèle approuvé — l'interrupteur reste inactif jusque-là.",
     title: "Retour après livraison",
@@ -1575,6 +1577,7 @@ export default {
     badPhone: "Le numéro doit avoir au moins neuf chiffres.",
   },
   oclk: {
+    blkNoneCause: "Aucune commande bloquée pour cette cause.",
     saveFail: "Enregistrement impossible", staleWarn: "dernier chargement réussi — l'actualisation a échoué",
     kChase: "À relancer", kChaseSub: "chez le transporteur depuis trop longtemps",
     v_to_pick: "Sans liste de prélèvement", v_late_carrier: "Promesse transporteur dépassée", v_chase: "À relancer",

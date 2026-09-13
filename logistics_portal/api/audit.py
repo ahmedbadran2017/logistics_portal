@@ -245,12 +245,13 @@ def recent_alerts():
             i18n = None
             # Portal-emitted alerts carry their three renderings as JSON; the
             # page shows the reader's language, the desk sees plain English.
-            if body[:1] == "{":
+            if "<!--lp-i18n " in body:
                 try:
-                    packed = _json.loads(body)
+                    head, tail = body.split("<!--lp-i18n ", 1)
+                    packed = _json.loads(tail.rsplit("-->", 1)[0].strip())
                     if isinstance(packed, dict) and isinstance(packed.get("lp"), dict):
                         i18n = packed["lp"]
-                        body = (i18n.get("en") or {}).get("b") or ""
+                        body = head.strip() or (i18n.get("en") or {}).get("b") or ""
                         sev = {"critical": "red", "warning": "orange"}.get(packed.get("sev"), sev)
                 except Exception:
                     pass

@@ -64,6 +64,22 @@ _TERMINAL_BAD = ("Return", "Returned", "Not Delivered", "Failed Attempt", "Deliv
 # Settings
 # ---------------------------------------------------------------------------
 
+def _norm_waves(waves):
+    """Zero-padded times, earliest cut-off first — wave_for relies on
+    waves[0] being the first wave of the day, whatever was saved."""
+    out = []
+    for i, w in enumerate(waves or []):
+        if not isinstance(w, dict):
+            continue
+        ch, cm = _hhmm(w.get("cutoff"), (None, None))
+        oh, om = _hhmm(w.get("out"), (None, None))
+        if ch is None or oh is None:
+            continue
+        out.append({"id": str(w.get("id") or f"w{i + 1}")[:8],
+                    "cutoff": "%02d:%02d" % (ch, cm), "out": "%02d:%02d" % (oh, om)})
+    return sorted(out, key=lambda w: w["cutoff"]) or json.loads(json.dumps(_DEFAULTS["waves"]))
+
+
 def get_settings():
     raw = frappe.db.get_default(_SETTINGS_KEY)
     out = json.loads(json.dumps(_DEFAULTS))
@@ -74,6 +90,7 @@ def get_settings():
                 out.update(saved)
         except Exception:
             pass
+    out["waves"] = _norm_waves(out.get("waves"))
     return out
 
 
@@ -126,14 +143,10 @@ def _clean_settings(cur, payload):
     a stringy day list can never take the board down for everyone."""
     from logistics_portal.api.city import canon_city
     if "waves" in payload and isinstance(payload["waves"], list):
-        waves = []
-        for i, w in enumerate(payload["waves"]):
-            if not isinstance(w, dict) or not _hhmm_ok(w.get("cutoff")) or not _hhmm_ok(w.get("out")):
-                continue
-            waves.append({"id": str(w.get("id") or f"w{i + 1}")[:8],
-                          "cutoff": str(w["cutoff"])[:5], "out": str(w["out"])[:5]})
+        waves = [w for w in payload["waves"]
+                 if isinstance(w, dict) and _hhmm_ok(w.get("cutoff")) and _hhmm_ok(w.get("out"))]
         if waves:
-            cur["waves"] = sorted(waves, key=lambda w: w["cutoff"])
+            cur["waves"] = _norm_waves(waves)
     if "restDays" in payload and isinstance(payload["restDays"], list):
         days = set()
         for d in payload["restDays"]:
@@ -614,7 +627,10 @@ def _emit(kind, params, severity="warning", cooldown_h=4, order=None):
             return s
     i18n = {lang: {"t": fmt(t), "b": fmt(b)} for lang, (t, b) in texts.items()}
     title, detail = i18n["en"]["t"], i18n["en"]["b"]
-    body = json.dumps({"lp": i18n, "sev": severity, "kind": kind}, ensure_ascii=False)
+    # email_content is HTML: the Desk shows the English line and never the
+    # comment; the Alerts page reads the comment for the other languages.
+    packed = json.dumps({"lp": i18n, "sev": severity, "kind": kind}, ensure_ascii=False)
+    body = detail + "\n<!--lp-i18n " + packed.replace("--", "- -") + " -->"
     try:
         if frappe.db.exists("Notification Log", {"subject": title, "read": 0}):
             return

@@ -5,8 +5,9 @@
         <h1 class="text-[20px] font-bold text-stone-900 tracking-tight">{{ t('oclk.blkTitle') }}</h1>
         <p class="text-[12.5px] text-stone-500 mt-0.5 max-w-[720px]">{{ t('oclk.blkIntro') }}</p>
       </div>
-      <div v-if="d" class="text-[11.5px] text-stone-400 tabular-nums" dir="ltr">
-        {{ d.total }} / {{ d.inHouse }} <span dir="auto">{{ t('oclk.blkOf') }}</span>
+      <div v-if="d" class="text-[11.5px] tabular-nums flex items-center gap-2" :class="loadError ? 'text-rose-600' : 'text-stone-400'" dir="ltr">
+        <span v-if="loadError" dir="auto">{{ t('oclk.staleWarn') }}</span>
+        <span>{{ d.total }} / {{ d.inHouse }} <span dir="auto">{{ t('oclk.blkOf') }}</span></span>
       </div>
     </header>
 
@@ -37,7 +38,6 @@
     <section v-else-if="rows.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
       <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
         <span class="text-[12px] font-semibold text-stone-900">{{ why ? t('oclk.w_' + why) : t('oclk.blkAll') }}</span>
-        <span v-if="loadError" class="text-[10.5px] text-rose-600">{{ t('oclk.staleWarn') }}</span>
         <span class="ms-auto text-[11px] text-stone-400 tabular-nums" dir="ltr">
           <template v-if="truncated">{{ rows.length }} / {{ why ? d.groups[why] : d.total }}</template>
           <template v-else>{{ rows.length }}</template>
@@ -70,9 +70,12 @@
 
     <Pager v-if="rows.length > pageSize || page > 1" v-model:page="page" v-model:pageSize="pageSize" :total="rows.length" />
 
-    <div v-if="d && !rows.length && !(loadError && !d)" class="rounded-2xl bg-white ring-1 ring-stone-200/70 p-10 text-center">
-      <Icon name="check-circle" :size="24" class="mx-auto text-emerald-400" />
-      <div class="text-[14px] font-semibold text-stone-700 mt-2">{{ t('oclk.blkClear') }}</div>
+    <div v-if="d && !rows.length" class="rounded-2xl bg-white ring-1 p-10 text-center" :class="loadError ? 'ring-rose-200' : 'ring-stone-200/70'">
+      <Icon :name="loadError ? 'alert-triangle' : why ? 'filter' : 'check-circle'" :size="24" class="mx-auto" :class="loadError ? 'text-rose-400' : why ? 'text-stone-300' : 'text-emerald-400'" />
+      <div class="text-[14px] font-semibold text-stone-700 mt-2">
+        {{ loadError ? t('oclk.staleWarn') : why ? t('oclk.blkNoneCause') : t('oclk.blkClear') }}
+      </div>
+      <button v-if="loadError" class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
     </div>
   </div>
 </template>
@@ -118,6 +121,10 @@ const rows = computed(() => {
 const truncated = computed(() => !!d.value && (d.value.rows || []).length < d.value.total);
 const paged = computed(() => rows.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value));
 watch(why, () => { page.value = 1; });
+// A refresh that shrinks the list must not strand the reader on a page past the end.
+watch(() => rows.value.length, (n) => {
+  page.value = Math.min(page.value, Math.max(1, Math.ceil(n / pageSize.value)));
+});
 
 // Each door lands on the row, not on the top of a long list: the pipeline
 // and the pick lists seed their search from `q`, the manifest screen has an

@@ -132,8 +132,8 @@ function toggleRest(i) {
 // Same canonical form the board uses to look a city up: accents folded,
 // upper-case, single spaces — so "Béni Mellal" and "BENI MELLAL" are one key.
 function addCity() {
-  const key = newCity.value.normalize("NFD").replace(/[̀-ͯ]/g, "")
-    .toUpperCase().replace(/\s+/g, " ").trim();
+  const key = newCity.value.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ").toUpperCase().trim();
   if (!key) return;
   if (!(key in s.value.cityDays)) s.value.cityDays[key] = s.value.defaultCityDays || 5;
   newCity.value = "";
@@ -168,6 +168,7 @@ async function save() {
       },
     });
     Object.assign(s.value, r.settings);
+    admins.value = (r.settings.admins || []).join(", ");
     success(t("oclk.saved"), "");
   } catch (e) { warn(t("oclk.saveFail"), String(e.message || e)); }
   busy.value = false;

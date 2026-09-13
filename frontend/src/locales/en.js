@@ -1383,6 +1383,7 @@ export default {
       print: "Print label",
     },
     alr: {
+      all: "All", critical: "Critical", warning: "Warning", info: "Info", unread: "Unread",
       sub: "Rule-based alerts & daily insights across the floor",
       markRead: "Mark all read",
       caughtUp: "You're all caught up",
@@ -1539,6 +1540,7 @@ export default {
     never: "never worked here",
   },
   dfb: {
+    settingsFail: "Couldn't load the feedback settings",
     saveFail: "Couldn't save", failedTitle: "Recent sends Meta rejected", ticketHint: "Opened in the customer-service lane",
     needTemplate: "Pick an approved template first — the switch stays off until then.",
     title: "Delivery feedback",
@@ -1574,6 +1576,7 @@ export default {
     badPhone: "The phone needs at least nine digits.",
   },
   oclk: {
+    blkNoneCause: "No order is blocked on this cause.",
     saveFail: "Couldn't save", staleWarn: "showing the last good load — refresh failed",
     kChase: "Chase list", kChaseSub: "with the carrier far too long",
     v_to_pick: "No pick list yet", v_late_carrier: "Past the carrier promise", v_chase: "Chase list",
