@@ -490,12 +490,18 @@ def _shape(r, cfg, now):
         "late": bool(due and late_min > 0 and stage not in ("delivered", "failed")),
         "ageH": int((now - conf).total_seconds() / 3600) if conf else 0,
         # The carrier's last word, for the leg where it is the only news.
-        "lastEvent": frappe.utils.strip_html(r.ev_text or "")[:90] if r.ev_text else "",
+        "lastEvent": _clean_text(r.ev_text)[:90] if r.ev_text else "",
         "lastEventAt": str(clock.to_floor(r.ev_at))[:16] if r.ev_at else "",
         "eventAgeH": int((now - clock.to_floor(r.ev_at)).total_seconds() / 3600) if r.ev_at else None,
         "verdict": _event_kind(r.ev_text),
         "trackUrl": r.track_url or "",
     }
+
+
+def _clean_text(text):
+    """The carrier writes HTML entities into its comments ('Call &amp; SMS')."""
+    import html as _html
+    return _html.unescape(frappe.utils.strip_html(text or "")).strip()
 
 
 def _event_kind(text):
@@ -1020,7 +1026,7 @@ def journey(order):
     }
     like = " OR ".join(["content LIKE %s"] * len(_CARRIER_EVENT_LIKE))
     events = [{"at": str(clock.to_floor(c.creation))[:16],
-               "text": frappe.utils.strip_html(c.content or "")[:160],
+               "text": _clean_text(c.content)[:160],
                "team": bool((c.content or "").startswith(("Tracking:", "Rescue:")))}
               for c in frappe.db.sql(
                   f"""SELECT content, creation FROM `tabComment`

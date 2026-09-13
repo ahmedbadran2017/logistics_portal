@@ -2004,6 +2004,12 @@ export default {
     saveFail: "Échec de l'enregistrement",
   },
   rs: {
+    headRescuable: "un appel peut sauver", legendTitle: "Ce que font les boutons",
+    lg_redeliver: "Client joint, il veut toujours le colis — le transporteur réessaie.",
+    lg_reship: "Un nouveau colis par préparation et expédition ; l'ancien revient.",
+    lg_dna: "Sans réponse — la tentative est comptée et le colis revient plus tard.",
+    lg_return: "Le renvoyer à l'entrepôt ; un motif est demandé.",
+    lg_cancel: "Commande morte ; le colis revient et la commande est annulée avec un motif.",
     reason_rescuable: "Un appel peut sauver", reason_cancelled: "Annulé par le client", reason_all: "Tout",
     lastWord: "Le dernier mot du transporteur sur ce colis",
     legend: "Relivrer = client joint, le transporteur réessaie · Réexpédier = nouveau colis · Sans réponse = rappeler plus tard · Retour = le renvoyer",

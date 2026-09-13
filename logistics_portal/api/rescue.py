@@ -65,6 +65,12 @@ def _cancelled_cond():
     return "(" + " OR ".join(f"{ev} LIKE '{_sql_like(p)}'" for p in _CANCELLED_LIKE) + ")"
 
 
+def _clean(text):
+    """The carrier writes HTML entities into its comments ('Call &amp; SMS')."""
+    import html as _html
+    return _html.unescape(frappe.utils.strip_html(text or "")).strip()
+
+
 def _verdict(text):
     t = (text or "")
     if any(t.startswith(p.rstrip("%")) for p in _CANCELLED_LIKE):
@@ -362,7 +368,7 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
             "awb": r.awb or "", "track": r.track or "",
             "phone": (r.phone or "").strip(), "city": (r.city or "").strip().title(),
             "ageD": int(r.age_d or 0), "attempts": int(r.attempts or 0),
-            "lastEvent": frappe.utils.strip_html(getattr(r, "last_event", "") or "")[:90],
+            "lastEvent": _clean(getattr(r, "last_event", "") or "")[:90],
             "lastEventAt": str(getattr(r, "last_event_at", "") or "")[:16],
             "verdict": _verdict(getattr(r, "last_event", "") or ""),
             "nextCall": str(r.next_call)[:16] if r.next_call else "",
@@ -757,7 +763,7 @@ def dashboard():
             "dn": r.dn, "order": r.so_name or "", "customer": r.customer or "",
             "phone": (r.phone or "").strip(), "track": r.track or "",
             "ageD": int(r.age_d or 0), "attempts": int(r.attempts or 0),
-            "lastEvent": frappe.utils.strip_html(getattr(r, "last_event", "") or "")[:90],
+            "lastEvent": _clean(getattr(r, "last_event", "") or "")[:90],
             "lastEventAt": str(getattr(r, "last_event_at", "") or "")[:16],
             "verdict": _verdict(getattr(r, "last_event", "") or ""),
             "value": float(r.total or 0),

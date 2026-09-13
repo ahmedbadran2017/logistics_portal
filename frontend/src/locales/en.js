@@ -2003,6 +2003,12 @@ export default {
     saveFail: "Couldn't save",
   },
   rs: {
+    headRescuable: "a call can save", legendTitle: "What the buttons do",
+    lg_redeliver: "You reached the customer and they still want it — the carrier tries again.",
+    lg_reship: "A new parcel through pick and ship; the old one comes back.",
+    lg_dna: "No answer — the attempt is counted and the parcel comes back up later.",
+    lg_return: "Send it back to the warehouse; a reason is asked.",
+    lg_cancel: "The order is dead; the parcel comes back and the order is cancelled with a reason.",
     reason_rescuable: "A call can save", reason_cancelled: "Cancelled by the customer", reason_all: "All",
     lastWord: "The carrier's last word on this parcel",
     legend: "Redeliver = customer reached, the carrier tries again · Reship = new parcel · No answer = retry later · Return = send it back",

@@ -1,27 +1,31 @@
 <template>
   <div class="p-5 sm:p-6 space-y-5 max-w-[1200px] mx-auto">
-    <!-- hero -->
-    <header class="rs-hero rounded-2xl p-5 sm:p-6">
+    <!-- hero: this portal's identity, my day, and the queue that matters -->
+    <header :class="IS_SHIP ? 'sh-hero' : 'rs-hero'" class="rounded-2xl p-5 sm:p-6">
       <div class="flex items-center justify-between gap-4 flex-wrap">
-        <div class="flex items-center gap-3.5">
-          <span class="rs-hero-icon"><Icon name="route" :size="22" /></span>
-          <div>
-            <h1 class="text-[21px] font-bold text-stone-900 tracking-tight leading-none">{{ t('rs.title') }}</h1>
-            <p class="text-[12.5px] text-stone-500 mt-1.5">{{ t('rs.intro') }}</p>
+        <div class="flex items-center gap-3.5 min-w-0">
+          <span :class="IS_SHIP ? 'sh-hero-icon' : 'rs-hero-icon'" style="background: linear-gradient(135deg, rgb(244 63 94), rgb(225 29 72)); box-shadow: 0 6px 16px -6px rgb(244 63 94 / .55)"><Icon name="route" :size="22" /></span>
+          <div class="min-w-0">
+            <h1 class="text-[21px] font-bold text-stone-900 tracking-tight leading-none">{{ IS_SHIP ? t('nav.failedDeliveries') : t('rs.title') }}</h1>
+            <p class="text-[12.5px] text-stone-500 mt-1.5 max-w-[560px]">{{ t('rs.intro') }}</p>
           </div>
         </div>
-        <div v-if="data" class="flex items-stretch gap-2">
-          <div class="rs-stat">
-            <span class="rs-stat-n text-emerald-600">{{ data.mine.redeliver + data.mine.reship }}</span>
-            <span class="rs-stat-l"><Icon name="refresh-cw" :size="10" class="inline -mt-px me-0.5" />{{ t('rs.statSaved') }}</span>
+        <div v-if="data" class="flex items-stretch gap-2 flex-wrap">
+          <div v-if="data.counts.rescuable != null" :class="IS_SHIP ? 'sh-stat' : 'rs-stat'" :title="t('rs.reason_rescuable')">
+            <span :class="IS_SHIP ? 'sh-stat-n' : 'rs-stat-n'" class="text-rose-600">{{ data.counts.rescuable }}</span>
+            <span :class="IS_SHIP ? 'sh-stat-l' : 'rs-stat-l'"><Icon name="phone" :size="10" class="inline -mt-px me-0.5" />{{ t('rs.headRescuable') }}</span>
           </div>
-          <div class="rs-stat">
-            <span class="rs-stat-n text-amber-600">{{ data.mine.dna }}</span>
-            <span class="rs-stat-l"><Icon name="phone-off" :size="10" class="inline -mt-px me-0.5" />{{ t('cf.actDna') }}</span>
+          <div :class="IS_SHIP ? 'sh-stat' : 'rs-stat'">
+            <span :class="IS_SHIP ? 'sh-stat-n' : 'rs-stat-n'" class="text-emerald-600">{{ data.mine.redeliver + data.mine.reship }}</span>
+            <span :class="IS_SHIP ? 'sh-stat-l' : 'rs-stat-l'"><Icon name="refresh-cw" :size="10" class="inline -mt-px me-0.5" />{{ t('rs.statSaved') }}</span>
           </div>
-          <div class="rs-stat">
-            <span class="rs-stat-n text-rose-500">{{ data.mine.returnreq + data.mine.cancel }}</span>
-            <span class="rs-stat-l"><Icon name="rotate-ccw" :size="10" class="inline -mt-px me-0.5" />{{ t('rs.statLost') }}</span>
+          <div :class="IS_SHIP ? 'sh-stat' : 'rs-stat'">
+            <span :class="IS_SHIP ? 'sh-stat-n' : 'rs-stat-n'" class="text-amber-600">{{ data.mine.dna }}</span>
+            <span :class="IS_SHIP ? 'sh-stat-l' : 'rs-stat-l'"><Icon name="phone-off" :size="10" class="inline -mt-px me-0.5" />{{ t('cf.actDna') }}</span>
+          </div>
+          <div :class="IS_SHIP ? 'sh-stat' : 'rs-stat'">
+            <span :class="IS_SHIP ? 'sh-stat-n' : 'rs-stat-n'" class="text-rose-500">{{ data.mine.returnreq + data.mine.cancel }}</span>
+            <span :class="IS_SHIP ? 'sh-stat-l' : 'rs-stat-l'"><Icon name="rotate-ccw" :size="10" class="inline -mt-px me-0.5" />{{ t('rs.statLost') }}</span>
           </div>
         </div>
       </div>
@@ -65,7 +69,20 @@
         {{ t('rs.reason_' + (k || 'all')) }}
         <span class="tabular-nums ms-1" :class="verdictF === k ? 'text-white/80' : 'text-stone-400'">{{ k ? (data.counts[k] ?? '–') : (data.counts[tab] ?? '–') }}</span>
       </button>
-      <span class="text-[11px] text-stone-400 ms-auto hidden lg:inline">{{ t('rs.legend') }}</span>
+      <button class="lp-tap ms-auto h-8 px-2.5 rounded-full text-[11.5px] font-semibold ring-1 inline-flex items-center gap-1.5"
+              :class="showLegend ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200'" :aria-expanded="showLegend" @click="showLegend = !showLegend">
+        <Icon name="info" :size="13" />{{ t('rs.legendTitle') }}
+      </button>
+    </div>
+    <!-- what each decision does, in the words of the outcome -->
+    <div v-if="showLegend" class="rs-card rounded-2xl p-3 grid sm:grid-cols-2 lg:grid-cols-5 gap-2">
+      <div v-for="l in LEGEND" :key="l.key" class="flex items-start gap-2.5 rounded-xl px-3 py-2.5" :class="l.tint">
+        <span class="w-8 h-8 rounded-lg inline-flex items-center justify-center flex-shrink-0 bg-white/70"><Icon :name="l.icon" :size="15" /></span>
+        <div class="min-w-0">
+          <div class="text-[12px] font-bold">{{ t(l.label) }}</div>
+          <div class="text-[11px] opacity-80 leading-snug">{{ t(l.hint) }}</div>
+        </div>
+      </div>
     </div>
 
     <!-- floating bulk bar: appears only once something is selected -->
@@ -105,78 +122,72 @@
       <div v-for="r in rows" :key="r.id"
            class="rs-card rounded-2xl p-4"
            :class="r.due ? 'rs-card-due' : ''">
-        <div class="flex items-center gap-3.5 flex-wrap">
-          <input v-if="canBulk" type="checkbox" class="accent-sky-600 w-4 h-4 shrink-0"
+        <div class="flex items-start gap-3.5">
+          <input v-if="canBulk" type="checkbox" class="accent-sky-600 w-4 h-4 shrink-0 mt-3"
                  :checked="selected.has(r.id)" @change="toggleOne(r.id)" />
           <span class="rs-avatar" :class="r.due ? 'rs-avatar-due' : ''">{{ initial(r.customer) }}</span>
           <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-[13.5px] font-bold text-stone-900 truncate max-w-[220px]">{{ r.customer || '—' }}</span>
-              <span class="font-mono text-[11px] text-stone-400">{{ r.order || r.dn }}</span>
+            <!-- who, which parcel, where, how long -->
+            <div class="flex items-center gap-x-2.5 gap-y-1 flex-wrap">
+              <span class="text-[14px] font-bold text-stone-900 truncate max-w-[240px]" dir="auto">{{ r.customer || '—' }}</span>
+              <span class="font-mono text-[11px] text-stone-400" dir="ltr">{{ r.order || r.dn }}</span>
               <span class="rs-track" :class="trackClass(r.track)">{{ t('track.' + trackKey(r.track), r.track) }}</span>
               <span v-if="r.due" class="rs-due-badge">{{ t('cf.due') }}</span>
-              <span v-else-if="r.slaBreached && tab !== 'backlog'" class="rs-due-badge">{{ t('rs.slaLate') }}</span>
+              <span class="ms-auto inline-flex items-center gap-1 text-[11.5px] font-semibold tabular-nums rounded-full px-2 py-0.5"
+                    :class="r.slaBreached && tab !== 'backlog' ? 'text-rose-700 bg-rose-50 ring-1 ring-rose-200' : 'text-stone-500 bg-stone-100'"
+                    :title="r.slaBreached ? t('rs.slaLate') : ''" dir="ltr"><Icon name="clock" :size="11" />{{ r.ageD }}{{ t('cf.days') }}</span>
             </div>
             <div class="flex items-center gap-2.5 text-[11.5px] text-stone-500 tabular-nums mt-1 flex-wrap">
               <span class="font-semibold text-stone-800">{{ fmtMAD(r.total) }} <span class="text-stone-400 font-normal">MAD</span></span>
-              <span v-if="r.awb" class="font-mono text-[10.5px]">{{ r.awb }}</span>
-              <span v-if="r.city" class="inline-flex items-center gap-1"><Icon name="map-pin" :size="11" class="text-stone-300" />{{ r.city }}</span>
-              <span class="inline-flex items-center gap-1" :class="ageColor(r.ageD)"><Icon name="clock" :size="11" />{{ r.ageD }}{{ t('cf.days') }}</span>
+              <span v-if="r.awb" class="font-mono text-[10.5px]" dir="ltr">{{ r.awb }}</span>
+              <span v-if="r.city" class="inline-flex items-center gap-1" dir="auto"><Icon name="map-pin" :size="11" class="text-stone-300" />{{ r.city }}</span>
               <span v-if="r.attempts" class="inline-flex items-center gap-1 text-amber-600 font-medium"><Icon name="phone-off" :size="11" />×{{ r.attempts }}</span>
-              <span v-if="r.nextCall" class="text-stone-400">→ {{ r.nextCall.slice(5) }}</span>
+              <span v-if="r.nextCall" class="text-stone-400" dir="ltr">→ {{ r.nextCall.slice(5) }}</span>
             </div>
-            <div v-if="r.lastEvent" class="flex items-center gap-2 mt-1.5 flex-wrap">
-              <span class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1" :class="VERDICT_CLS[r.verdict] || VERDICT_CLS.other">{{ t('rs.v_' + (r.verdict || 'other')) }}</span>
-              <span class="text-[11.5px] text-stone-600 truncate max-w-[420px]" :title="t('rs.lastWord')">{{ r.lastEvent }}</span>
-              <span v-if="r.lastEventAt" class="text-[10.5px] text-stone-400 tabular-nums" dir="ltr">{{ r.lastEventAt.slice(5) }}</span>
+            <!-- the carrier's last word: the fact the call starts from -->
+            <div v-if="r.lastEvent" class="mt-2 flex items-center gap-2 flex-wrap rounded-xl px-2.5 py-1.5" :class="VERDICT_BG[r.verdict] || VERDICT_BG.other">
+              <span class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 bg-white/70" :class="VERDICT_CLS[r.verdict] || VERDICT_CLS.other">{{ t('rs.v_' + (r.verdict || 'other')) }}</span>
+              <span class="text-[12px] text-stone-700 truncate max-w-[520px]" :title="t('rs.lastWord')" dir="auto">{{ r.lastEvent }}</span>
+              <span v-if="r.lastEventAt" class="text-[10.5px] text-stone-400 tabular-nums ms-auto" dir="ltr">{{ r.lastEventAt.slice(5) }}</span>
             </div>
-          </div>
-          <!-- contact -->
-          <div class="flex items-center gap-1.5">
-            <a v-if="r.phone" :href="'tel:' + r.phone" :title="r.phone" class="rs-contact rs-tel">
-              <Icon name="phone" :size="15" />
-            </a>
-            <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" title="WhatsApp" class="rs-contact rs-wa">
-              <Icon name="message-circle" :size="15" />
-            </a>
-            <!-- What's IN the box + fix the contact that failed the delivery —
-                 the agent used to call about a parcel they couldn't see into,
-                 with no way to correct the phone that caused the failure. -->
-            <button v-if="r.order" class="rs-contact text-stone-500" :title="t('cf.fullOrder')"
-                    @click="openDetail(r)"><Icon :name="detailFor === r.id ? 'chevron-up' : 'chevron-down'" :size="15" /></button>
-            <button v-if="r.order" class="rs-contact text-amber-600" :title="t('cf.editContact')"
-                    @click="openEdit(r)"><Icon name="edit" :size="15" /></button>
-          </div>
-          <!-- decisions -->
-          <div class="flex items-center gap-1.5 flex-wrap">
-            <!-- Not Delivered carries no parcel — the status is a verdict on
-                 the customer, not a shipment that failed — so Redeliver and
-                 Reship have nothing to act on and the question is the plain
-                 confirmation one: does he still want it? -->
-            <button v-if="isNdTab" class="rs-act rs-act-save" :disabled="busy === r.id"
-                    @click="confirmNd(r)">
-              <Icon name="check" :size="14" class="inline -mt-px me-1" />{{ t('cf.actConfirm') }}
-            </button>
-            <button v-if="isNdTab" class="rs-act rs-act-soft text-sky-700" :disabled="busy === r.id"
-                    :title="t('cf.actFollowup')" @click="followNd(r)">
-              <Icon name="clock" :size="15" />
-            </button>
-            <template v-else>
-              <button class="rs-act rs-act-save" :disabled="busy === r.id" :title="t('rs.actRedeliverHint')"
-                      @click="act(r, 'redeliver')">
-                <Icon name="refresh-cw" :size="14" class="inline -mt-px me-1" />{{ t('rs.actRedeliver') }}
+
+            <!-- the decisions, by name, and the ways to reach the customer -->
+            <div class="mt-3 flex items-center gap-1.5 flex-wrap">
+              <template v-if="isNdTab">
+                <button class="rs-act rs-act-save" :disabled="busy === r.id" @click="confirmNd(r)">
+                  <Icon name="check" :size="14" class="inline -mt-px me-1" />{{ t('cf.actConfirm') }}
+                </button>
+                <button class="rs-act rs-act-lbl text-sky-700" :disabled="busy === r.id" :title="t('cf.actFollowup')" @click="followNd(r)">
+                  <Icon name="clock" :size="14" /><span class="hidden md:inline">{{ t('cf.actFollowup') }}</span>
+                </button>
+              </template>
+              <template v-else>
+                <button class="rs-act rs-act-save" :disabled="busy === r.id" :title="t('rs.actRedeliverHint')" @click="act(r, 'redeliver')">
+                  <Icon name="refresh-cw" :size="14" class="inline -mt-px me-1" />{{ t('rs.actRedeliver') }}
+                </button>
+                <button class="rs-act rs-act-lbl text-violet-700" :disabled="busy === r.id" :title="t('rs.actReshipHint')" @click="act(r, 'reship')">
+                  <Icon name="send" :size="14" /><span class="hidden md:inline">{{ t('rs.actReship') }}</span>
+                </button>
+              </template>
+              <button class="rs-act rs-act-lbl text-amber-700" :disabled="busy === r.id" :title="t('cf.actDna')" @click="act(r, 'dna')">
+                <Icon name="phone-off" :size="14" /><span class="hidden md:inline">{{ t('cf.actDna') }}</span>
               </button>
-              <button class="rs-act rs-act-soft text-violet-700" :disabled="busy === r.id" :title="t('rs.actReshipHint')"
-                      @click="act(r, 'reship')"><Icon name="send" :size="15" /></button>
-            </template>
-            <button class="rs-act rs-act-soft text-amber-700" :disabled="busy === r.id" :title="t('cf.actDna')"
-                    @click="act(r, 'dna')"><Icon name="phone-off" :size="15" /></button>
-            <button v-if="!isNdTab" class="rs-act rs-act-soft text-rose-600" :disabled="busy === r.id" :title="t('rs.actReturn')"
-                    :class="reasonFor === r.id && reasonAction === 'returnreq' ? 'ring-2' : ''"
-                    @click="openReason(r, 'returnreq')"><Icon name="rotate-ccw" :size="15" /></button>
-            <button class="rs-act rs-act-soft text-stone-500" :disabled="busy === r.id" :title="t('rs.actCancel')"
-                    :class="reasonFor === r.id && reasonAction === 'cancel' ? 'ring-2' : ''"
-                    @click="openReason(r, 'cancel')"><Icon name="circle-x" :size="15" /></button>
+              <button v-if="!isNdTab" class="rs-act rs-act-lbl text-rose-600" :disabled="busy === r.id" :title="t('rs.actReturnHint')"
+                      :class="reasonFor === r.id && reasonAction === 'returnreq' ? 'ring-2' : ''" @click="openReason(r, 'returnreq')">
+                <Icon name="rotate-ccw" :size="14" /><span class="hidden md:inline">{{ t('rs.actReturn') }}</span>
+              </button>
+              <button class="rs-act rs-act-lbl text-stone-500" :disabled="busy === r.id" :title="t('rs.actCancel')"
+                      :class="reasonFor === r.id && reasonAction === 'cancel' ? 'ring-2' : ''" @click="openReason(r, 'cancel')">
+                <Icon name="circle-x" :size="14" /><span class="hidden md:inline">{{ t('rs.actCancel') }}</span>
+              </button>
+              <span class="ms-auto inline-flex items-center gap-1.5">
+                <a v-if="r.phone" :href="'tel:' + r.phone" :title="r.phone" class="rs-contact rs-tel"><Icon name="phone" :size="15" /></a>
+                <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" rel="noopener" title="WhatsApp" class="rs-contact rs-wa"><Icon name="message-circle" :size="15" /></a>
+                <button v-if="r.order" class="rs-contact text-stone-500" :title="t('cf.fullOrder')" @click="openDetail(r)">
+                  <Icon :name="detailFor === r.id ? 'chevron-up' : 'chevron-down'" :size="15" /></button>
+                <button v-if="r.order" class="rs-contact text-amber-600" :title="t('cf.editContact')" @click="openEdit(r)"><Icon name="edit" :size="15" /></button>
+              </span>
+            </div>
           </div>
         </div>
 
@@ -256,12 +267,25 @@
 <script setup>
 import { computed, onMounted, ref, onUnmounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
+import { IS_SHIP } from "@/lib/portal";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
 
 const { t } = useI18n();
 const { success, warn } = useToast();
+const showLegend = ref(false);
+const VERDICT_BG = {
+  cancelled: "bg-rose-50/70", unreachable: "bg-amber-50/70", appointment: "bg-emerald-50/70",
+  moving: "bg-sky-50/70", returned: "bg-stone-100/70", other: "bg-stone-100/70",
+};
+const LEGEND = [
+  { key: "redeliver", icon: "refresh-cw", label: "rs.actRedeliver", hint: "rs.lg_redeliver", tint: "bg-emerald-50 text-emerald-800" },
+  { key: "reship", icon: "send", label: "rs.actReship", hint: "rs.lg_reship", tint: "bg-violet-50 text-violet-800" },
+  { key: "dna", icon: "phone-off", label: "cf.actDna", hint: "rs.lg_dna", tint: "bg-amber-50 text-amber-800" },
+  { key: "return", icon: "rotate-ccw", label: "rs.actReturn", hint: "rs.lg_return", tint: "bg-rose-50 text-rose-800" },
+  { key: "cancel", icon: "circle-x", label: "rs.actCancel", hint: "rs.lg_cancel", tint: "bg-stone-100 text-stone-700" },
+];
 
 // The carrier's last word splits the exceptions: a call can save a parcel
 // the customer did not cancel; the rest is a return to confirm.
@@ -584,6 +608,12 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
   transition: all .15s ease; white-space: nowrap;
 }
 .rs-act:disabled { opacity: .5; }
+.rs-act-lbl {
+  display: inline-flex; align-items: center; gap: 6px; padding: 0 12px;
+  background: rgb(var(--card)); box-shadow: inset 0 0 0 1px rgb(var(--border));
+  --tw-ring-color: currentColor;
+}
+.rs-act-lbl:hover { box-shadow: inset 0 0 0 1px currentColor; }
 .rs-act-save {
   padding: 0 16px; color: white;
   background: linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105));
