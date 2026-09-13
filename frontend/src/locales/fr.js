@@ -1581,6 +1581,9 @@ export default {
     badPhone: "Le numéro doit avoir au moins neuf chiffres.",
   },
   oclk: {
+    byEvent: "Le transporteur dit", byCity: "Par ville", track: "Ouvrir le suivi transporteur", call: "Appeler le client", wa: "WhatsApp au client",
+    ev_hub: "au hub", ev_ofd: "en livraison", ev_unreachable: "client injoignable", ev_appointment: "rendez-vous pris",
+    ev_cancelled: "client a annulé", ev_label: "étiquette seule", ev_delivered: "livré", ev_other: "note transporteur", ev_none: "sans nouvelles",
     myDay: "Ma journée", teamToday: "L'équipe aujourd'hui", teamQuiet: "Rien d'enregistré par l'équipe aujourd'hui.",
     day_chases: "relances", day_rescues: "sauvetages", day_cities: "villes corrigées", day_feedback: "réclamations traitées", day_notes: "notes",
     tunerHint: "Mesuré : jours ouvrés de la remise à la porte, 75e percentile, et fréquence à laquelle la promesse actuelle a été tenue",

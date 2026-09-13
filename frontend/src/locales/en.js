@@ -1580,6 +1580,9 @@ export default {
     badPhone: "The phone needs at least nine digits.",
   },
   oclk: {
+    byEvent: "Carrier says", byCity: "By city", track: "Open the carrier tracking", call: "Call the customer", wa: "WhatsApp the customer",
+    ev_hub: "at a hub", ev_ofd: "out for delivery", ev_unreachable: "customer unreachable", ev_appointment: "appointment set",
+    ev_cancelled: "customer cancelled", ev_label: "label only", ev_delivered: "delivered", ev_other: "carrier note", ev_none: "no news",
     myDay: "My day", teamToday: "Team today", teamQuiet: "Nothing logged by the team yet today.",
     day_chases: "chases", day_rescues: "rescues", day_cities: "cities fixed", day_feedback: "complaints handled", day_notes: "notes",
     tunerHint: "Measured: working days from handover to the door, 75th percentile, and how often the current promise was kept",

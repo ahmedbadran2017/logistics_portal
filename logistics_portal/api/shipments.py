@@ -292,6 +292,8 @@ SELECT so.name, so.customer_name AS customer, so.grand_total AS value,
        cf.t AS confirmed_at, pl.t AS picklist_at, dn.t AS dn_at,
        sh.t AS handed_at, dn.awb AS awb, trk.st AS track,
        lab.t AS labeled_at, hub.t AS hub_at,
+       ev.content AS ev_text, ev.creation AS ev_at,
+       so.custom_tracking_url AS track_url,
        so.custom_delivered_at AS delivered_at
 FROM `tabSales Order` so
 LEFT JOIN `tabAddress` addr
@@ -332,6 +334,20 @@ LEFT JOIN (SELECT reference_name, MIN(creation) t FROM `tabComment`
                   OR content LIKE 'Out for delivery%%'
                   OR content LIKE 'Package Delivered%%')
            GROUP BY reference_name) hub ON hub.reference_name = so.name
+LEFT JOIN (SELECT c.reference_name, c.content, c.creation
+           FROM `tabComment` c
+           JOIN (SELECT reference_name, MAX(creation) t FROM `tabComment`
+                 WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
+                   AND creation >= DATE_SUB(NOW(), INTERVAL %(vdays)s DAY)
+                   AND (content LIKE 'Newly created%%' OR content LIKE 'Shipped to%%'
+                        OR content LIKE 'The parcel%%' OR content LIKE 'Out for%%'
+                        OR content LIKE 'Package%%' OR content LIKE 'The driver%%'
+                        OR content LIKE 'Customer unreachable%%' OR content LIKE 'Customer cancelled%%'
+                        OR content LIKE 'The customer has cancelled%%' OR content LIKE 'Cancelled on site%%'
+                        OR content LIKE 'Justyol has requested%%')
+                 GROUP BY reference_name) m
+             ON m.reference_name = c.reference_name AND m.t = c.creation
+           WHERE c.reference_doctype = 'Sales Order') ev ON ev.reference_name = so.name
 """
 
 _BOARD_WHERE = """
@@ -473,7 +489,37 @@ def _shape(r, cfg, now):
         "lateMin": late_min,
         "late": bool(due and late_min > 0 and stage not in ("delivered", "failed")),
         "ageH": int((now - conf).total_seconds() / 3600) if conf else 0,
+        # The carrier's last word, for the leg where it is the only news.
+        "lastEvent": frappe.utils.strip_html(r.ev_text or "")[:90] if r.ev_text else "",
+        "lastEventAt": str(clock.to_floor(r.ev_at))[:16] if r.ev_at else "",
+        "eventAgeH": int((now - clock.to_floor(r.ev_at)).total_seconds() / 3600) if r.ev_at else None,
+        "verdict": _event_kind(r.ev_text),
+        "trackUrl": r.track_url or "",
     }
+
+
+def _event_kind(text):
+    """The carrier's last event, as one of a handful of situations the
+    chase call starts from. Same vocabulary as the rescue lane."""
+    t = (text or "")
+    if not t:
+        return ""
+    if t.startswith(("Customer cancelled", "The customer has cancelled", "Cancelled on site",
+                     "Cancellation Reason", "Justyol has requested")):
+        return "cancelled"
+    if t.startswith("Customer unreachable"):
+        return "unreachable"
+    if t.startswith("The driver"):
+        return "appointment"
+    if t.startswith("Out for"):
+        return "ofd"
+    if t.startswith(("The parcel", "Shipped to")):
+        return "hub"
+    if t.startswith("Package"):
+        return "delivered"
+    if t.startswith("Newly created"):
+        return "label"
+    return "other"
 
 
 @frappe.whitelist()
@@ -532,8 +578,23 @@ def board(view="live", days=30, limit=300):
     # Most urgent first: whoever is furthest past their promise, then whoever
     # is closest to it. A board sorted by date buries exactly the wrong rows.
     sel.sort(key=lambda r: (-r["lateMin"] if r["late"] else 10 ** 6 - r["lateMin"]))
+    facets = None
+    if view in ("late_carrier", "chase", "carrier"):
+        from logistics_portal.api.city import canon_city
+        cities, events = {}, {}
+        for r in sel:
+            ck = canon_city(r["city"]) or "—"
+            c = cities.setdefault(ck, {"city": ck, "n": 0, "oldestH": 0})
+            c["n"] += 1
+            c["oldestH"] = max(c["oldestH"], r["lateMin"] // 60)
+            ek = r.get("verdict") or "none"
+            e = events.setdefault(ek, {"kind": ek, "n": 0, "oldestH": 0})
+            e["n"] += 1
+            e["oldestH"] = max(e["oldestH"], (r.get("eventAgeH") or 0))
+        facets = {"cities": sorted(cities.values(), key=lambda x: -x["n"])[:10],
+                  "events": sorted(events.values(), key=lambda x: -x["n"])}
     return {"view": view, "counts": counts, "rows": sel[:limit],
-            "total": len(sel), "waves": cfg.get("waves"),
+            "total": len(sel), "waves": cfg.get("waves"), "facets": facets,
             "nextWave": _next_wave(in_house, cfg, now),
             "waveBuckets": _wave_buckets(in_house),
             "now": str(now)[:16]}

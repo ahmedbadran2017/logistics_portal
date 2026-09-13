@@ -151,12 +151,38 @@
         <button v-if="waveFilter" class="lp-tap text-[11px] font-semibold text-teal-700 bg-teal-50 ring-1 ring-teal-200 rounded-full px-2 py-0.5 inline-flex items-center gap-1" @click="waveFilter = ''">
           {{ t('oclk.waveFilter') }} {{ waveFilter.slice(5) }}<Icon name="x" :size="11" />
         </button>
+        <button v-if="cityFilter" class="lp-tap text-[11px] font-semibold text-sky-700 bg-sky-50 ring-1 ring-sky-200 rounded-full px-2 py-0.5 inline-flex items-center gap-1" @click="cityFilter = ''">
+          {{ cityFilter }}<Icon name="x" :size="11" />
+        </button>
+        <button v-if="eventFilter" class="lp-tap text-[11px] font-semibold text-stone-700 bg-stone-100 ring-1 ring-stone-200 rounded-full px-2 py-0.5 inline-flex items-center gap-1" @click="eventFilter = ''">
+          {{ t('oclk.ev_' + eventFilter) }}<Icon name="x" :size="11" />
+        </button>
         <span class="text-[10.5px] text-stone-400 hidden md:inline">{{ t('oclk.keysHint') }}</span>
         <span class="text-[11px] text-stone-400 tabular-nums ms-auto" dir="ltr">
           <template v-if="d.rows.length < d.total">{{ d.rows.length }} / {{ d.total }}</template>
           <template v-else>{{ d.total }}</template>
         </span>
       </div>
+      <!-- where the pile is: one hub can be one call to the carrier, not sixty -->
+      <div v-if="d.facets" class="sh-card rounded-2xl p-3 flex flex-wrap gap-x-5 gap-y-2">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-[10.5px] font-bold uppercase tracking-wide text-stone-400 me-1">{{ t('oclk.byEvent') }}</span>
+          <button v-for="e in d.facets.events" :key="e.kind" class="lp-tap h-7 px-2 rounded-full text-[11px] font-semibold ring-1 inline-flex items-center gap-1"
+                  :class="eventFilter === e.kind ? 'bg-stone-900 text-white ring-stone-900' : (EV_CLS[e.kind] || EV_CLS.none)" :aria-pressed="eventFilter === e.kind"
+                  @click="eventFilter = eventFilter === e.kind ? '' : e.kind">
+            {{ t('oclk.ev_' + e.kind) }} <b class="tabular-nums">{{ e.n }}</b>
+          </button>
+        </div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-[10.5px] font-bold uppercase tracking-wide text-stone-400 me-1">{{ t('oclk.byCity') }}</span>
+          <button v-for="c in d.facets.cities" :key="c.city" class="lp-tap h-7 px-2 rounded-full text-[11px] font-semibold ring-1 inline-flex items-center gap-1"
+                  :class="cityFilter === c.city ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-700 ring-stone-200 hover:ring-stone-300'" :aria-pressed="cityFilter === c.city"
+                  @click="cityFilter = cityFilter === c.city ? '' : c.city" :title="'+' + c.oldestH + t('oclk.hShort')">
+            <span dir="auto">{{ c.city }}</span> <b class="tabular-nums">{{ c.n }}</b>
+          </button>
+        </div>
+      </div>
+
       <div v-for="g in groups" :key="g.key" class="space-y-1.5">
         <div class="flex items-center gap-2 px-1">
           <span class="text-[10.5px] font-bold uppercase tracking-wide" :class="g.late ? 'text-rose-600' : 'text-stone-500'">{{ t('oclk.dueGroup') }} · {{ groupLabel(g.key) }}</span>
@@ -181,6 +207,16 @@
           <span class="text-[13px] font-extrabold tabular-nums w-[64px] text-end flex-shrink-0" dir="ltr"
                 :class="r.late ? 'text-rose-600' : 'text-emerald-600'" :title="r.late ? t('oclk.pastPromise') : t('oclk.timeLeft')">{{ remain(r) }}</span>
           </RouterLink>
+          <span v-if="r.stage === 'with_carrier' && r.lastEvent" class="hidden xl:inline-flex items-center gap-1.5 max-w-[300px] min-w-0">
+            <span class="text-[10px] font-bold rounded-full px-1.5 py-0.5 ring-1 flex-shrink-0" :class="EV_CLS[r.verdict] || EV_CLS.none">{{ t('oclk.ev_' + (r.verdict || 'none')) }}</span>
+            <span class="text-[11px] text-stone-500 truncate" :title="r.lastEvent">{{ r.lastEvent }}</span>
+            <span v-if="r.eventAgeH != null" class="text-[10.5px] tabular-nums flex-shrink-0" :class="r.eventAgeH >= 48 ? 'text-rose-600 font-semibold' : 'text-stone-400'" dir="ltr">{{ ageTxt(r.eventAgeH) }}</span>
+          </span>
+          <span v-if="r.stage === 'with_carrier'" class="inline-flex items-center gap-1 flex-shrink-0">
+            <a v-if="r.trackUrl" :href="r.trackUrl" target="_blank" rel="noopener" class="lp-tap w-8 h-8 rounded-lg inline-flex items-center justify-center text-sky-600 bg-sky-50 ring-1 ring-sky-200 hover:bg-sky-100" :title="t('oclk.track')" @click.stop><Icon name="external-link" :size="13" /></a>
+            <a v-if="r.phone" :href="'tel:' + r.phone" class="lp-tap w-8 h-8 rounded-lg inline-flex items-center justify-center text-stone-600 bg-white ring-1 ring-stone-200 hover:ring-emerald-300 hover:text-emerald-700" :title="t('oclk.call')" @click.stop><Icon name="phone" :size="13" /></a>
+            <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" rel="noopener" class="lp-tap w-8 h-8 rounded-lg inline-flex items-center justify-center text-emerald-600 bg-white ring-1 ring-stone-200 hover:bg-emerald-50" :title="t('oclk.wa')" @click.stop><Icon name="message-circle" :size="13" /></a>
+          </span>
           <button v-if="view === 'chase'" class="lp-tap h-9 px-3 rounded-xl text-[12px] font-bold text-white flex-shrink-0 disabled:opacity-50"
                   style="background: linear-gradient(135deg, rgb(249 115 22), rgb(234 88 12)); box-shadow: 0 4px 12px -4px rgb(249 115 22 / .45)"
                   :disabled="chasing.has(r.order)" :title="t('oclk.chasedHint')" @click.stop="markChased(r)">
@@ -211,7 +247,21 @@ import { useToast } from "@/composables/useToast";
 const { t } = useI18n();
 const { success, warn } = useToast();
 const waveFilter = ref("");
+const cityFilter = ref("");
+const eventFilter = ref("");
 const chasing = ref(new Set());
+const EV_CLS = {
+  hub: "bg-sky-50 text-sky-700 ring-sky-200", ofd: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  unreachable: "bg-amber-50 text-amber-700 ring-amber-200", appointment: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  cancelled: "bg-rose-50 text-rose-700 ring-rose-200", label: "bg-violet-50 text-violet-700 ring-violet-200",
+  delivered: "bg-emerald-50 text-emerald-700 ring-emerald-200", other: "bg-stone-100 text-stone-600 ring-stone-200",
+  none: "bg-stone-100 text-stone-500 ring-stone-200",
+};
+function waLink(phone) {
+  const p = String(phone || "").replace(/[^0-9]/g, "");
+  return "https://wa.me/" + (p.startsWith("212") ? p : "212" + p.replace(/^0/, ""));
+}
+function ageTxt(h) { return h >= 48 ? Math.floor(h / 24) + t("oclk.dShort") : h + t("oclk.hShort"); }
 const day = ref(null);
 const showTeam = ref(false);
 const DAY_KINDS = [
@@ -293,6 +343,8 @@ const groups = computed(() => {
   const by = new Map();
   for (const r of d.value?.rows || []) {
     if (waveFilter.value && r.dueAt !== waveFilter.value) continue;
+    if (cityFilter.value && canonCity(r.city) !== cityFilter.value) continue;
+    if (eventFilter.value && (r.verdict || "none") !== eventFilter.value) continue;
     const key = r.dueAt || "—";
     if (!by.has(key.slice(0, 10))) by.set(key.slice(0, 10), { key: key.slice(0, 10), rows: [], late: false });
     const g = by.get(key.slice(0, 10));
@@ -304,6 +356,10 @@ const groups = computed(() => {
 });
 
 function parse(s) { return new Date(String(s).replace(" ", "T")).getTime(); }
+// The server's canonical city, mirrored: accents folded, non-alphanumerics to one space, upper.
+function canonCity(s) {
+  return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").toUpperCase().trim() || "—";
+}
 function dash(frac, r = 26) {
   const c = 2 * Math.PI * r;
   return `${Math.max(0, Math.min(1, frac)) * c} ${c}`;
@@ -355,7 +411,7 @@ async function load() {
   loading.value = false; refreshing.value = false;
 }
 function setView(v) {
-  view.value = v;
+  view.value = v; cityFilter.value = ""; eventFilter.value = "";
   const stale = readStale("ship.board." + v);
   if (stale) accept(stale);
   load();
