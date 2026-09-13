@@ -13,6 +13,10 @@ website_route_rules = [
     # The contact center is its own portal surface (same SPA bundle, its own
     # base, shell, and nav) — fully separated from logistics.
     {"from_route": "/confirmation/<path:app_path>", "to_route": "confirmation"},
+    # The shipment-tracking team is its own surface too: they watch the clock
+    # from confirmation to the door, and nothing on the floor's screens is
+    # their work.
+    {"from_route": "/shipments/<path:app_path>", "to_route": "shipments"},
 ]
 
 # ---------------------------------------------------------------------------

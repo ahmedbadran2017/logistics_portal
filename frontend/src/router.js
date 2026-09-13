@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuth } from "@/composables/useAuth";
 import { homeRouteFor } from "@/lib/roles";
-import { PORTAL_BASE, IS_CC, portalOf } from "@/lib/portal";
+import { PORTAL_BASE, IS_CC, IS_SHIP, portalOf } from "@/lib/portal";
 
 const AppLayout = () => import("@/components/layout/AppLayout.vue");
 const LaneShell = () => import("@/components/layout/LaneShell.vue");
@@ -98,6 +98,9 @@ const routes = [
       // The full tail behind one of the velocity board's stuck cards.
       { path: "stuck/:key", name: "StuckOrders", component: () => import("@/pages/StuckOrders.vue") },
       { path: "shipments", name: "Shipments", component: () => import("@/pages/Shipments.vue") },
+      // The tracking portal's own screens (served under the /shipments base).
+      { path: "board", name: "ShipBoard", component: () => import("@/pages/ShipBoard.vue") },
+      { path: "ship-settings", name: "ShipSettings", component: () => import("@/pages/ShipSettings.vue") },
       { path: "audit", name: "Audit", component: () => import("@/pages/Audit.vue") },
 
       // Manager — overview
@@ -170,13 +173,14 @@ router.beforeEach(async (to, from, next) => {
   // managers may use both portals. Hard navigation on purpose — the history
   // base differs, so an in-router redirect can't cross it.
   if (isLoggedIn.value && role.value) {
+    // Three surfaces now, so the fence is a table rather than a pair of ifs:
+    // each side names its base, and anyone standing on the wrong one is sent
+    // home. Managers ("both") are never moved.
     const side = portalOf(role.value);
-    if (side === "cc" && !IS_CC) {
-      window.location.replace("/confirmation/home");
-      return;
-    }
-    if (side === "floor" && IS_CC) {
-      window.location.replace("/logistics/home");
+    const here = IS_CC ? "cc" : IS_SHIP ? "ship" : "floor";
+    const BASE = { cc: "/confirmation", ship: "/shipments", floor: "/logistics" };
+    if (side !== "both" && side !== here) {
+      window.location.replace(BASE[side] + "/home");
       return;
     }
   }

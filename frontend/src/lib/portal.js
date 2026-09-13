@@ -9,15 +9,21 @@
  * identically under either base, and the router guard keeps each role on its
  * own side (managers may enter both).
  */
-export const PORTAL_BASE = window.location.pathname.startsWith("/confirmation")
-  ? "/confirmation"
+const _P = window.location.pathname;
+export const PORTAL_BASE = _P.startsWith("/confirmation") ? "/confirmation"
+  : _P.startsWith("/shipments") ? "/shipments"
   : "/logistics";
 
 export const IS_CC = PORTAL_BASE === "/confirmation";
+export const IS_SHIP = PORTAL_BASE === "/shipments";
 
-/** The portal a role belongs to ("cc" | "floor" | "both"). */
+/** The portal a role belongs to ("cc" | "ship" | "floor" | "both"). */
 export function portalOf(role) {
-  if (role === "confirmation" || role === "cs" || role === "tracking") return "cc";
+  // Tracking moved out of the contact centre on 2026-09-13: watching an
+  // order's clock from confirmation to the door is its own job, with its own
+  // cut-offs and its own settings, and it was borrowing the CC's shell.
+  if (role === "tracking") return "ship";
+  if (role === "confirmation" || role === "cs") return "cc";
   if (role === "manager") return "both";
   return "floor";
 }

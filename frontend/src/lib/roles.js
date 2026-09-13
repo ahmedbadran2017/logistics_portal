@@ -260,15 +260,21 @@ export const ROLE_CONFIG = {
     ],
   },
   tracking: {
-    // Landing = their own dashboard (same rule as confirmation).
-    home: "MyTrackingDashboard",
+    // Their own portal since 2026-09-13 (/shipments): the clock from
+    // confirmation to the door, with its own cut-offs and settings. The board
+    // is the landing screen because it IS the job — everything else is a
+    // detour off it.
+    home: "ShipBoard",
     nav: [
       {
-        section: "nav.contactSection",
+        section: "nav.shipSection",
         items: [
-          { to: "Rescue", label: "nav.rescue", icon: "route" },
+          { to: "ShipBoard", label: "nav.shipBoard", icon: "gauge" },
           { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
+          { to: "Rescue", label: "nav.rescue", icon: "route" },
           { to: "Stranded", label: "nav.stranded", icon: "package-x" },
+          { to: "CityCheck", label: "nav.cityCheck", icon: "map-pin" },
+          { to: "ShipSettings", label: "nav.settings", icon: "settings" },
         ],
       },
       {
