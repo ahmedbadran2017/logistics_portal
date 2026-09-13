@@ -1538,6 +1538,8 @@ export default {
     never: "never worked here",
   },
   dfb: {
+    saveFail: "Couldn't save", failedTitle: "Recent sends Meta rejected", ticketHint: "Opened in the customer-service lane",
+    needTemplate: "Pick an approved template first — the switch stays off until then.",
     title: "Delivery feedback",
     intro: "One WhatsApp question the day after the parcel arrives. A happy customer gets a thank-you; an unhappy one becomes a ticket with their words attached, so a human calls.",
     notReady: "The WhatsApp module or the feedback table is not installed on this site yet.",
@@ -1561,6 +1563,12 @@ export default {
     testPh: "06XXXXXXXX", testSend: "Send me a test", testSent: "Test message sent", testFail: "Test send failed",
   },
   oclk: {
+    saveFail: "Couldn't save", staleWarn: "showing the last good load — refresh failed",
+    kChase: "Chase list", kChaseSub: "with the carrier far too long",
+    v_to_pick: "No pick list yet", v_late_carrier: "Past the carrier promise", v_chase: "Chase list",
+    onTime: "on time", pastPromise: "past its promise by", timeLeft: "time left before the promise", ageHint: "time since confirmation",
+    addCity: "Add city", addCityPh: "City name as the carrier writes it", removeCity: "Remove",
+    admins: "Tracking leads", adminsHint: "Emails allowed to change these settings and the feedback engine, besides managers.",
     title: "Order clock",
     intro: "Every confirmed order, from the moment it was confirmed to the customer's door — and which ones are about to miss their promise.",
     waves: "Today's waves", wavesHint: "what each van has to carry",

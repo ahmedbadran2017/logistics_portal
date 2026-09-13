@@ -29,8 +29,8 @@ _CO = "Justyol Morocco"
 
 def _gate():
     from logistics_portal.api.auth import resolve_role
-    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
-        frappe.throw("Only a dispatcher or manager can fix shipping cities.",
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager", "tracking"):
+        frappe.throw("Only a dispatcher, tracking agent or manager can fix shipping cities.",
                      frappe.PermissionError)
 
 

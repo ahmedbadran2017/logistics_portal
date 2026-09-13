@@ -1362,6 +1362,7 @@ const updatedAgo = computed(() => {
 let refreshTimer = null;
 onMounted(() => {
   const qStage = String(route.query.stage || "");
+  if (route.query.q) q.value = String(route.query.q);
   const valid = qStage === "attention" || stages.some((s) => s.key === qStage);
   load(valid ? qStage : "to_pick");
   timer = setInterval(() => { tick.value++; }, 30000);

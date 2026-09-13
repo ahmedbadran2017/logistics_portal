@@ -5,8 +5,8 @@
         <h1 class="text-[20px] font-bold text-stone-900 tracking-tight">{{ t('oclk.blkTitle') }}</h1>
         <p class="text-[12.5px] text-stone-500 mt-0.5 max-w-[720px]">{{ t('oclk.blkIntro') }}</p>
       </div>
-      <div v-if="d" class="text-[11.5px] text-stone-400 tabular-nums">
-        {{ d.total }} / {{ d.inHouse }} {{ t('oclk.blkOf') }}
+      <div v-if="d" class="text-[11.5px] text-stone-400 tabular-nums" dir="ltr">
+        {{ d.total }} / {{ d.inHouse }} <span dir="auto">{{ t('oclk.blkOf') }}</span>
       </div>
     </header>
 
@@ -14,7 +14,8 @@
     <section v-if="d" class="grid grid-cols-2 md:grid-cols-5 gap-2.5">
       <button v-for="k in causes" :key="k.key"
               class="rounded-xl bg-white ring-1 p-3.5 text-start transition-shadow hover:shadow-sm"
-              :class="why === k.key ? 'ring-stone-900' : 'ring-stone-200/70'"
+              :class="why === k.key ? 'ring-2 ring-[var(--accent-600)]' : 'ring-stone-200/70'"
+              :aria-pressed="why === k.key"
               @click="why = why === k.key ? '' : k.key">
         <div class="text-[24px] font-extrabold tabular-nums leading-none"
              :class="k.n ? k.cls : 'text-emerald-600'">{{ k.n }}</div>
@@ -23,36 +24,46 @@
       </button>
     </section>
 
-    <div v-if="loading" class="space-y-2">
+    <div v-if="!d && loading" class="space-y-2">
       <div v-for="n in 6" :key="n" class="h-[52px] rounded-xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
+    </div>
+
+    <div v-else-if="loadError && !d" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
+      <div class="text-[14px] font-semibold text-rose-700">{{ t('common.loadFail') }}</div>
+      <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
+      <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
     </div>
 
     <section v-else-if="rows.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
       <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
         <span class="text-[12px] font-semibold text-stone-900">{{ why ? t('oclk.w_' + why) : t('oclk.blkAll') }}</span>
-        <span class="ms-auto text-[11px] text-stone-400 tabular-nums">{{ rows.length }}</span>
+        <span v-if="loadError" class="text-[10.5px] text-rose-600">{{ t('oclk.staleWarn') }}</span>
+        <span class="ms-auto text-[11px] text-stone-400 tabular-nums" dir="ltr">
+          <template v-if="truncated">{{ rows.length }} / {{ why ? d.groups[why] : d.total }}</template>
+          <template v-else>{{ rows.length }}</template>
+        </span>
       </div>
       <div class="divide-y divide-stone-50 max-h-[620px] overflow-y-auto">
         <div v-for="r in rows" :key="r.order" class="px-4 py-2.5 flex items-center gap-3 hover:bg-stone-50 transition-colors">
           <span class="w-1 h-8 rounded-full flex-shrink-0" :class="r.late ? 'bg-rose-500' : 'bg-stone-200'" />
-          <RouterLink :to="{ name: 'OrderDetail', params: { name: r.order } }" class="min-w-0 w-[168px] flex-shrink-0">
-            <div class="font-mono text-[12px] font-semibold text-stone-900 truncate">{{ r.order }}</div>
+          <RouterLink :to="{ name: 'OrderDetail', params: { name: r.order } }" class="lp-tap min-w-0 flex-1 basis-[120px] py-1">
+            <div class="font-mono text-[12px] font-semibold text-stone-900 truncate" dir="ltr">{{ r.order }}</div>
             <div class="text-[10.5px] text-stone-400 truncate" dir="auto">{{ r.customer }}</div>
           </RouterLink>
-          <span class="text-[10px] font-bold rounded-full px-2 py-0.5 flex-shrink-0" :class="STAGE_CLS[r.stage]">
+          <span class="text-[10px] font-bold rounded-full px-2 py-0.5 flex-shrink-0 whitespace-nowrap hidden sm:inline" :class="STAGE_CLS[r.stage]">
             {{ t('oclk.s_' + r.stage) }}
           </span>
-          <span class="text-[11px] text-stone-400 truncate flex-1 hidden sm:block" dir="auto">{{ r.city || '—' }}</span>
+          <span class="text-[11px] text-stone-400 truncate flex-1 hidden md:block" dir="auto">{{ r.city || '—' }}</span>
           <!-- The blockers, each one a door to the screen that clears it. -->
           <div class="flex items-center gap-1 flex-wrap justify-end">
             <RouterLink v-for="w in r.why" :key="w" :to="fixLink(w, r)"
-                        class="text-[10.5px] font-semibold rounded-md px-1.5 py-0.5 ring-1 inline-flex items-center gap-1 hover:bg-white"
-                        :class="WHY_CLS[w]">
+                        class="lp-tap text-[10.5px] font-semibold rounded-md px-1.5 py-1 ring-1 inline-flex items-center gap-1 hover:bg-white"
+                        :class="WHY_CLS[w]" :title="t('oclk.wh_' + w)">
               <Icon :name="WHY_ICON[w]" :size="11" />{{ t('oclk.w_' + w) }}
             </RouterLink>
           </div>
-          <span class="text-[12px] font-bold tabular-nums w-[64px] text-end flex-shrink-0"
-                :class="r.late ? 'text-rose-600' : 'text-stone-400'">{{ age(r) }}</span>
+          <span class="text-[12px] font-bold tabular-nums w-[48px] text-end flex-shrink-0" dir="ltr"
+                :class="r.late ? 'text-rose-600' : 'text-stone-400'" :title="t('oclk.ageHint')">{{ age(r) }}</span>
         </div>
       </div>
     </section>
@@ -73,6 +84,7 @@ import { useI18n } from "@/composables/useI18n";
 const { t } = useI18n();
 const d = ref(null);
 const loading = ref(true);
+const loadError = ref("");
 const why = ref("");
 
 const ORDER = ["oos", "shelf", "city", "no_awb", "stuck_pick"];
@@ -96,13 +108,17 @@ const rows = computed(() => {
   const all = d.value?.rows || [];
   return why.value ? all.filter((r) => r.why.includes(why.value)) : all;
 });
+// The cards count every hit; the list is capped server-side.
+const truncated = computed(() => !!d.value && (d.value.rows || []).length < d.value.total);
 
-// The city screen and the pipeline both accept a search; hand them the order
-// so the person lands on the row, not on the top of a long list.
+// Each door lands on the row, not on the top of a long list: the pipeline
+// and the pick lists seed their search from `q`, the manifest screen has an
+// orphans view, and the count screen opens straight on the short bin.
 function fixLink(w, r) {
   const name = d.value?.fix?.[w] || "ShipBoard";
-  if (w === "city") return { name, query: { q: r.city || r.order } };
   if (w === "oos" || w === "stuck_pick") return { name, query: { q: r.order } };
+  if (w === "no_awb") return { name, query: { orphans: 1 } };
+  if (w === "shelf" && r.shelfBin) return { name, query: { bin: r.shelfBin } };
   return { name };
 }
 function age(r) {
@@ -111,8 +127,9 @@ function age(r) {
 }
 
 async function load() {
-  loading.value = true;
-  try { d.value = await api("shipments.blocked"); } catch { d.value = null; }
+  if (!d.value) loading.value = true;
+  try { d.value = await api("shipments.blocked"); loadError.value = ""; }
+  catch (e) { loadError.value = String(e?.message || e); }
   loading.value = false;
 }
 onMounted(load);

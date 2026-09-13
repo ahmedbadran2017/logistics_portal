@@ -51,10 +51,13 @@ _DEFAULTS = {
     "defaultCityDays": 5,
     # A parcel with the carrier this long is not late, it is lost.
     "chaseDays": 5,
+    # Section leads: emails that may change these settings and run the
+    # feedback engine without a manager role (same pattern as the CS lane).
+    "admins": [],
 }
 
 _TERMINAL_OK = ("Delivered",)
-_TERMINAL_BAD = ("Returned", "Not Delivered", "Failed Attempt", "Delivery Exception")
+_TERMINAL_BAD = ("Return", "Returned", "Not Delivered", "Failed Attempt", "Delivery Exception")
 
 
 # ---------------------------------------------------------------------------
@@ -83,23 +86,83 @@ def _gate():
     return role
 
 
-def _admin_gate():
+def _is_lead():
+    """A manager, or a tracking-portal user named in the section's admins list.
+    Being on the team is not being its lead."""
     from logistics_portal.api.auth import resolve_role
     from logistics_portal.api.permissions import is_ops_admin
-    if resolve_role(frappe.session.user) != "tracking" and not is_ops_admin():
+    if is_ops_admin():
+        return True
+    if resolve_role(frappe.session.user) not in ("tracking", "cs", "dispatcher"):
+        return False
+    return frappe.session.user in (get_settings().get("admins") or [])
+
+
+def _admin_gate():
+    if not _is_lead():
         frappe.throw("Tracking leads only.", frappe.PermissionError)
 
 
 @frappe.whitelist()
 def settings():
     _gate()
+    from logistics_portal.api.permissions import is_ops_admin
     s = get_settings()
-    s["isAdmin"] = True
-    try:
-        _admin_gate()
-    except Exception:
-        s["isAdmin"] = False
+    s["isAdmin"] = _is_lead()
+    s["isOpsAdmin"] = bool(is_ops_admin())
     return s
+
+
+def _hhmm_ok(v):
+    try:
+        h, m = str(v).split(":")[:2]
+        return 0 <= int(h) < 24 and 0 <= int(m) < 60
+    except Exception:
+        return False
+
+
+def _clean_settings(cur, payload):
+    """Every field the board reads is coerced here, so a blank number box or
+    a stringy day list can never take the board down for everyone."""
+    from logistics_portal.api.city import canon_city
+    if "waves" in payload and isinstance(payload["waves"], list):
+        waves = []
+        for i, w in enumerate(payload["waves"]):
+            if not isinstance(w, dict) or not _hhmm_ok(w.get("cutoff")) or not _hhmm_ok(w.get("out")):
+                continue
+            waves.append({"id": str(w.get("id") or f"w{i + 1}")[:8],
+                          "cutoff": str(w["cutoff"])[:5], "out": str(w["out"])[:5]})
+        if waves:
+            cur["waves"] = sorted(waves, key=lambda w: w["cutoff"])
+    if "restDays" in payload and isinstance(payload["restDays"], list):
+        days = set()
+        for d in payload["restDays"]:
+            try:
+                d = int(d)
+            except Exception:
+                continue
+            if 0 <= d <= 6:
+                days.add(d)
+        if len(days) < 7:
+            cur["restDays"] = sorted(days)
+    if "cityDays" in payload and isinstance(payload["cityDays"], dict):
+        cd = {}
+        for k, v in payload["cityDays"].items():
+            try:
+                n = int(v)
+            except Exception:
+                continue
+            key = canon_city(str(k))
+            if key and 1 <= n <= 20:
+                cd[key] = n
+        cur["cityDays"] = cd
+    for k, lo, hi in (("defaultCityDays", 1, 20), ("chaseDays", 1, 30)):
+        if k in payload:
+            try:
+                cur[k] = min(max(int(payload[k]), lo), hi)
+            except Exception:
+                pass
+    return cur
 
 
 @frappe.whitelist(methods=["POST"])
@@ -107,10 +170,15 @@ def save_settings(payload=None):
     _admin_gate()
     if isinstance(payload, str):
         payload = json.loads(payload or "{}")
-    cur = get_settings()
-    for k in ("waves", "restDays", "cityDays", "defaultCityDays", "chaseDays"):
-        if isinstance(payload, dict) and k in payload:
-            cur[k] = payload[k]
+    if not isinstance(payload, dict):
+        frappe.throw("Bad payload.")
+    cur = _clean_settings(get_settings(), payload)
+    # Only a manager may decide who the leads are.
+    if "admins" in payload and isinstance(payload["admins"], list):
+        from logistics_portal.api.permissions import is_ops_admin
+        if not is_ops_admin():
+            frappe.throw("Only a manager can change the leads list.", frappe.PermissionError)
+        cur["admins"] = [str(u).strip().lower() for u in payload["admins"] if str(u).strip()][:30]
     frappe.db.set_default(_SETTINGS_KEY, json.dumps(cur))
     frappe.db.commit()
     return {"ok": True, "settings": cur}
@@ -151,6 +219,13 @@ def wave_for(confirmed_at, cfg=None):
         return None, None
     day = confirmed_at.date()
     mins = confirmed_at.hour * 60 + confirmed_at.minute
+    if day.weekday() in rest:
+        # Confirmed on a day nothing ships: no cut-off applies, it is simply
+        # promised to the first wave of the next working day.
+        w = waves[0]
+        oh, om = _hhmm(w.get("out"))
+        d = _next_working(day, rest)
+        return w.get("id"), frappe.utils.get_datetime("%s %02d:%02d:00" % (d, oh, om))
     for w in waves:
         ch, cm = _hhmm(w.get("cutoff"))
         if mins <= ch * 60 + cm:
@@ -173,8 +248,12 @@ def carrier_due(handed_at, city, cfg=None):
     if not handed_at:
         return None
     from logistics_portal.api.city import canon_city
-    days = int((cfg.get("cityDays") or {}).get(
-        canon_city(city), cfg.get("defaultCityDays") or 5))
+    try:
+        days = int((cfg.get("cityDays") or {}).get(
+            canon_city(city), cfg.get("defaultCityDays") or 5))
+    except Exception:
+        days = 5
+    days = min(max(days, 1), 30)
     rest = set(cfg.get("restDays") or [])
     d = handed_at.date()
     added, guard = 0, 0
@@ -199,8 +278,9 @@ FROM `tabSales Order` so
 LEFT JOIN `tabAddress` addr
        ON addr.name = COALESCE(NULLIF(so.shipping_address_name, ''), so.customer_address)
 LEFT JOIN (SELECT docname, MIN(creation) t FROM `tabVersion`
-           WHERE ref_doctype = 'Sales Order' AND data LIKE '%%Confirmed%%'
-             AND creation >= DATE_SUB(NOW(), INTERVAL 60 DAY)
+           WHERE ref_doctype = 'Sales Order'
+             AND data LIKE '%%"custom_sales_status",%%,"Confirmed"]%%'
+             AND creation >= DATE_SUB(NOW(), INTERVAL %(vdays)s DAY)
            GROUP BY docname) cf ON cf.docname = so.name
 LEFT JOIN (SELECT pli.sales_order so_name, MIN(p.creation) t
            FROM `tabPick List Item` pli JOIN `tabPick List` p ON p.name = pli.parent
@@ -213,6 +293,7 @@ LEFT JOIN (SELECT dni.against_sales_order so_name, MIN(d.creation) t,
 LEFT JOIN (SELECT dni2.against_sales_order so_name, MIN(s.creation) t
            FROM `tabShipment Delivery Note` sdn JOIN `tabShipment` s ON s.name = sdn.parent
            JOIN `tabDelivery Note Item` dni2 ON dni2.parent = sdn.delivery_note
+           WHERE s.docstatus = 1
            GROUP BY dni2.against_sales_order) sh ON sh.so_name = so.name
 LEFT JOIN (SELECT dni3.against_sales_order so_name,
                   MAX(d3.custom_track_shipment_status) st
@@ -226,7 +307,27 @@ WHERE so.company = %(co)s AND so.docstatus = 1
 
 
 def _rows(days=30):
-    return frappe.db.sql(_BOARD_SQL, {"co": _CO, "days": days}, as_dict=True)
+    """The raw clock rows, shared for a minute.
+
+    Measured on prod: 1.2s for 8,027 rows, and the board, the wave strip, the
+    blocked screen and the alert cron each ran it in full. Rows are cached
+    RAW (before shaping) so every caller still sees the current minute's
+    clock; shaping 8k rows in Python is ~100ms and needs today's `now`.
+    """
+    days = int(days)
+    key = f"lp_ship_rows:{days}"
+    try:
+        cached = frappe.cache().get_value(key)
+        if cached is not None:
+            return cached
+    except Exception:
+        pass
+    rows = frappe.db.sql(_BOARD_SQL, {"co": _CO, "days": days, "vdays": days + 30}, as_dict=True)
+    try:
+        frappe.cache().set_value(key, rows, expires_in_sec=60)
+    except Exception:
+        pass
+    return rows
 
 
 def _shape(r, cfg, now):
@@ -302,7 +403,13 @@ def board(view="live", days=30, limit=300):
     }
 
     if view == "late":
-        sel = [r for r in live if r["late"]]
+        sel = [r for r in in_house if r["late"]]
+    elif view == "to_pick":
+        sel = [r for r in in_house if r["stage"] == "to_pick"]
+    elif view == "late_carrier":
+        sel = [r for r in carrier if r["late"]]
+    elif view == "chase":
+        sel = [r for r in carrier if r["lateMin"] > chase_h * 60]
     elif view == "carrier":
         sel = carrier
     elif view == "wave":
@@ -324,6 +431,7 @@ def wave_board(days=7):
     from logistics_portal.api import clock
     cfg = get_settings()
     now = clock.floor_now()
+    days = min(max(int(days or 7), 1), 90)
     rows = [_shape(r, cfg, now) for r in _rows(days)]
     in_house = [r for r in rows if r["stage"] in ("to_pick", "picking", "to_hand_over")]
     buckets = {}
@@ -355,7 +463,7 @@ def wave_board(days=7):
 def _blockers(rows):
     """Annotate in-house rows with their blockers. One pass, shared lookups."""
     from logistics_portal.api.city import canon_city, _accepted_cities, _has_arabic
-    from logistics_portal.api.picking import _available_totals
+    from logistics_portal.api.picking import availability
     from logistics_portal.api.short_shelf import active as short_active
 
     if not rows:
@@ -368,11 +476,15 @@ def _blockers(rows):
                 WHERE parent IN ({ph})""", tuple(names), as_dict=True):
         lines.setdefault(l.parent, []).append((l.item_code, float(l.qty or 0)))
     codes = list({c for ls in lines.values() for c, _ in ls})
-    free = _available_totals(codes) if codes else {}
+    # The one availability contract (reservations decide who, totals decide
+    # how many) — a private total here would disagree with the pick board.
+    _t, _s, free = availability(codes) if codes else ({}, {}, lambda o, c: 0.0)
+    short = {}
     try:
-        short = {it for (it, wh) in short_active().keys()}
+        for (it, wh) in short_active().keys():
+            short.setdefault(it, wh)
     except Exception:
-        short = set()
+        pass
     accepted = set()
     try:
         accepted = {canon_city(c) for c in _accepted_cities()}
@@ -384,17 +496,21 @@ def _blockers(rows):
         # Stock: a line the pool cannot cover. The order will sit in to_pick
         # forever, and the board's red will be blamed on the floor.
         if r["stage"] == "to_pick":
-            for code, need in lines.get(r["order"], []):
-                if float(free.get(code, 0)) < need:
-                    why.append("oos")
-                    break
-            for code, _ in lines.get(r["order"], []):
+            need = {}
+            for code, q in lines.get(r["order"], []):
+                need[code] = need.get(code, 0) + q
+            if any(float(free(r["order"], code)) < q for code, q in need.items()):
+                why.append("oos")
+            for code in need:
                 if code in short:
                     why.append("shelf")
+                    r["shelfBin"] = short[code]
                     break
-        # City: the label will be refused, so the parcel closes and then stalls.
+        # City: the label will be refused, so the parcel closes and then
+        # stalls. A parcel that already carries a label has been accepted.
         city = r.get("city") or ""
-        if not city or _has_arabic(city) or (accepted and canon_city(city) not in accepted):
+        if not r.get("awb") and (not city or _has_arabic(city)
+                                 or (accepted and canon_city(city) not in accepted)):
             why.append("city")
         # Paperwork: a closed parcel with no label cannot be handed over.
         if r["stage"] == "to_hand_over" and not r.get("awb"):
@@ -451,9 +567,18 @@ def _tracking_users():
     return users
 
 
-def _emit(title, detail, severity="warning"):
+def _emit(title, detail, severity="warning", cooldown_h=4):
+    """One row per standing problem. The title must be STABLE — counts go in
+    the body — or the unread check never matches and every tick writes a
+    fresh row. Once read, the same title waits `cooldown_h` before it may
+    page again, so a fact the team already saw is not re-announced every
+    fifteen minutes."""
     try:
         if frappe.db.exists("Notification Log", {"subject": title, "read": 0}):
+            return
+        if frappe.db.exists("Notification Log", {
+                "subject": title,
+                "creation": (">=", frappe.utils.add_to_date(now_datetime(), hours=-cooldown_h))}):
             return
         for user in _tracking_users() or []:
             frappe.get_doc({
@@ -474,6 +599,9 @@ def run_alerts():
         from logistics_portal.api import clock
         cfg = get_settings()
         now = clock.floor_now()
+        # Nobody is paged at 3am or on a rest day: the van is not leaving.
+        if now.weekday() in set(cfg.get("restDays") or []) or not (7 <= now.hour < 21):
+            return
         rows = [_shape(r, cfg, now) for r in _rows(30)]
         in_house = [r for r in rows if r["stage"] in ("to_pick", "picking", "to_hand_over")]
         carrier = [r for r in rows if r["stage"] == "with_carrier"]
@@ -490,24 +618,27 @@ def run_alerts():
                 soon[r["dueAt"]] += 1
         for due, n in soon.items():
             if n >= 5:
-                _emit(f"{n} orders may miss the {due[11:]} wave",
-                      f"Confirmed, promised to the {due} wave, and still without a "
-                      f"pick list with under 90 minutes to go.", "critical")
+                _emit(f"Orders may miss the {due[11:]} wave",
+                      f"{n} orders confirmed and promised to the {due} wave are still "
+                      f"without a pick list with under 90 minutes to go.", "critical",
+                      cooldown_h=1)
 
         # 2) Past their wave and still in the building.
         late = [r for r in in_house if r["late"]]
         if len(late) >= 20:
             oldest = max(late, key=lambda r: r["lateMin"])
-            _emit(f"{len(late)} orders past their wave, still in the building",
-                  f"Oldest is {oldest['order']}, {oldest['lateMin'] // 60}h past "
-                  f"its {oldest['dueAt'][11:]} wave.", "critical")
+            _emit("Orders past their wave, still in the building",
+                  f"{len(late)} orders. Oldest is {oldest['order']}, "
+                  f"{oldest['lateMin'] // 60}h past its {oldest['dueAt'][11:]} wave.",
+                  "critical")
 
         # 3) Parcels the carrier has had too long to still call in transit.
         chase_h = int(cfg.get("chaseDays") or 5) * 24 * 60
         chase = [r for r in carrier if r["lateMin"] > chase_h]
         if len(chase) >= 10:
-            _emit(f"{len(chase)} parcels past the chase line with the carrier",
-                  f"Moving for more than {cfg.get('chaseDays')} days beyond the city "
-                  "promise — not late, lost. Chase them with the carrier.", "warning")
+            _emit("Parcels past the chase line with the carrier",
+                  f"{len(chase)} parcels moving for more than {cfg.get('chaseDays')} days "
+                  "beyond the city promise — not late, lost. Chase them with the carrier.",
+                  "warning", cooldown_h=12)
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "shipments.run_alerts")

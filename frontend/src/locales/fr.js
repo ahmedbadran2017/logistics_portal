@@ -1539,6 +1539,8 @@ export default {
     never: "jamais travaillé ici",
   },
   dfb: {
+    saveFail: "Enregistrement impossible", failedTitle: "Envois récents refusés par Meta", ticketHint: "Ouvert dans la file service client",
+    needTemplate: "Choisissez d'abord un modèle approuvé — l'interrupteur reste inactif jusque-là.",
     title: "Retour après livraison",
     intro: "Une question WhatsApp le lendemain de l'arrivée du colis. Un client satisfait reçoit un remerciement ; un client mécontent devient un ticket avec ses mots, pour qu'un humain l'appelle.",
     notReady: "Le module WhatsApp ou la table des retours n'est pas encore installé sur ce site.",
@@ -1562,6 +1564,12 @@ export default {
     testPh: "06XXXXXXXX", testSend: "M'envoyer un test", testSent: "Message test envoyé", testFail: "Échec de l'envoi test",
   },
   oclk: {
+    saveFail: "Enregistrement impossible", staleWarn: "dernier chargement réussi — l'actualisation a échoué",
+    kChase: "À relancer", kChaseSub: "chez le transporteur depuis trop longtemps",
+    v_to_pick: "Sans liste de prélèvement", v_late_carrier: "Promesse transporteur dépassée", v_chase: "À relancer",
+    onTime: "à l'heure", pastPromise: "dépasse sa promesse de", timeLeft: "temps restant avant la promesse", ageHint: "temps depuis la confirmation",
+    addCity: "Ajouter", addCityPh: "Nom de la ville tel que le transporteur l'écrit", removeCity: "Retirer",
+    admins: "Responsables suivi", adminsHint: "E-mails autorisés à modifier ces paramètres et le moteur de retours, en plus des managers.",
     title: "Horloge des commandes",
     intro: "Chaque commande confirmée, de la confirmation à la porte du client — et celles qui vont manquer leur promesse.",
     waves: "Départs du jour", wavesHint: "ce que chaque camion doit emporter",

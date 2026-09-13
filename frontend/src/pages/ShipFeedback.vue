@@ -6,122 +6,146 @@
         <p class="text-[12.5px] text-stone-500 mt-0.5 max-w-[720px]">{{ t('dfb.intro') }}</p>
       </div>
       <div class="flex items-center gap-1 rounded-lg bg-stone-100 p-0.5">
-        <button v-for="n in [7, 14, 30]" :key="n" class="h-7 px-2.5 rounded-md text-[11.5px] font-semibold"
+        <button v-for="n in [7, 14, 30]" :key="n" class="h-8 px-2.5 rounded-md text-[11.5px] font-semibold" :aria-pressed="days === n"
                 :class="days === n ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500'" @click="setDays(n)">{{ n }}{{ t('oclk.dShort') }}</button>
       </div>
     </header>
 
-    <!-- State banner: this engine ships off, and says so instead of showing zeros. -->
-    <div v-if="d && !d.ready" class="rounded-xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-[12.5px] text-amber-800 flex items-center gap-2">
-      <Icon name="alert-triangle" :size="15" />{{ t('dfb.notReady') }}
-    </div>
-    <div v-else-if="d && !d.enabled" class="rounded-xl bg-stone-100 ring-1 ring-stone-200 px-4 py-3 text-[12.5px] text-stone-600 flex items-center gap-2">
-      <Icon name="circle-pause" :size="15" class="text-stone-400" />{{ t('dfb.disabled') }}
+    <div v-if="!d && loading" class="space-y-2.5">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5"><div v-for="n in 4" :key="n" class="h-[74px] rounded-xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" /></div>
+      <div class="h-[140px] rounded-xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
     </div>
 
-    <section v-if="d && d.ready" class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-      <div class="rounded-xl bg-white ring-1 ring-stone-200/70 p-3.5">
-        <div class="text-[24px] font-extrabold tabular-nums leading-none text-stone-900">{{ d.sent }}</div>
-        <div class="text-[11px] font-semibold text-stone-600 mt-1">{{ t('dfb.kSent') }}</div>
-        <div class="text-[10.5px] text-stone-400">{{ t('dfb.kSentSub').replace('{n}', days) }}</div>
-      </div>
-      <div class="rounded-xl bg-white ring-1 ring-stone-200/70 p-3.5">
-        <div class="text-[24px] font-extrabold tabular-nums leading-none text-stone-900">{{ pct(d.responseRate) }}</div>
-        <div class="text-[11px] font-semibold text-stone-600 mt-1">{{ t('dfb.kResp') }}</div>
-        <div class="text-[10.5px] text-stone-400">{{ t('dfb.kRespSub') }}</div>
-      </div>
-      <div class="rounded-xl bg-white ring-1 ring-stone-200/70 p-3.5">
-        <div class="text-[24px] font-extrabold tabular-nums leading-none" :class="satCls">{{ pct(d.satisfaction) }}</div>
-        <div class="text-[11px] font-semibold text-stone-600 mt-1">{{ t('dfb.kSat') }}</div>
-        <div class="text-[10.5px] text-stone-400">{{ t('dfb.kSatSub') }}</div>
-      </div>
-      <div class="rounded-xl bg-white ring-1 ring-stone-200/70 p-3.5">
-        <div class="text-[24px] font-extrabold tabular-nums leading-none" :class="d.openNegatives ? 'text-rose-600' : 'text-emerald-600'">{{ d.openNegatives }}</div>
-        <div class="text-[11px] font-semibold text-stone-600 mt-1">{{ t('dfb.kOpen') }}</div>
-        <div class="text-[10.5px] text-stone-400">{{ t('dfb.kOpenSub') }}</div>
-      </div>
-    </section>
+    <div v-else-if="loadError && !d" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
+      <div class="text-[14px] font-semibold text-rose-700">{{ t('common.loadFail') }}</div>
+      <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
+      <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
+    </div>
 
-    <!-- Daily bars: how many were asked, and how the answers split. -->
-    <section v-if="d && d.series && d.series.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
-      <div class="text-[12px] font-semibold text-stone-900 mb-3">{{ t('dfb.daily') }}</div>
-      <div class="flex items-end gap-1 h-[90px]">
-        <div v-for="s in d.series" :key="s.d" class="flex-1 flex flex-col justify-end items-stretch gap-px min-w-[6px]" :title="s.d + ' · ' + s.sent">
-          <div class="bg-rose-400 rounded-t-sm" :style="{ height: barH(s.neg) }" />
-          <div class="bg-emerald-400" :style="{ height: barH(s.pos) }" />
-          <div class="bg-stone-200 rounded-b-sm" :style="{ height: barH(s.sent - s.pos - s.neg) }" />
+    <template v-else-if="d">
+      <!-- State banner: this engine ships off, and says so instead of showing zeros. -->
+      <div v-if="!d.ready" class="rounded-xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-[12.5px] text-amber-800 flex items-center gap-2">
+        <Icon name="alert-triangle" :size="15" />{{ t('dfb.notReady') }}
+      </div>
+      <div v-else-if="!d.enabled" class="rounded-xl bg-stone-100 ring-1 ring-stone-200 px-4 py-3 text-[12.5px] text-stone-600 flex items-center gap-2">
+        <Icon name="circle-pause" :size="15" class="text-stone-400" />{{ t('dfb.disabled') }}
+      </div>
+      <!-- Meta's rejections, in its words: "Asked 0" must never be a mystery. -->
+      <div v-if="d.failedRecent && d.failedRecent.length" class="rounded-xl bg-rose-50 ring-1 ring-rose-200 px-4 py-3 text-[12px] text-rose-800 space-y-1">
+        <div class="font-semibold flex items-center gap-2"><Icon name="alert-triangle" :size="14" />{{ t('dfb.failedTitle') }}</div>
+        <div v-for="f in d.failedRecent" :key="f.sales_order" class="flex items-start gap-2 font-mono text-[11px]" dir="ltr">
+          <span class="flex-shrink-0">{{ f.sales_order }}</span><span class="text-rose-700/80 break-words">{{ f.error }}</span>
         </div>
       </div>
-      <div class="flex items-center gap-3 mt-2 text-[10.5px] text-stone-400">
-        <span class="inline-flex items-center gap-1"><i class="w-2 h-2 rounded-sm bg-emerald-400 inline-block" />{{ t('dfb.pos') }}</span>
-        <span class="inline-flex items-center gap-1"><i class="w-2 h-2 rounded-sm bg-rose-400 inline-block" />{{ t('dfb.neg') }}</span>
-        <span class="inline-flex items-center gap-1"><i class="w-2 h-2 rounded-sm bg-stone-200 inline-block" />{{ t('dfb.silent') }}</span>
-      </div>
-    </section>
 
-    <div class="grid md:grid-cols-[1fr_340px] gap-4 items-start">
-      <!-- The queue for a human: every unhappy reply, unhandled first. -->
-      <section v-if="d && d.ready" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
-        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
-          <Icon name="thumbs-down" :size="14" class="text-rose-500" />
-          <span class="text-[12px] font-semibold text-stone-900">{{ t('dfb.negTitle') }}</span>
-          <span class="ms-auto text-[11px] text-stone-400 tabular-nums">{{ d.negatives.length }}</span>
+      <section v-if="d.ready" class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+        <div class="rounded-xl bg-white ring-1 ring-stone-200/70 p-3.5">
+          <div class="text-[24px] font-extrabold tabular-nums leading-none text-stone-900">{{ d.sent }}</div>
+          <div class="text-[11px] font-semibold text-stone-600 mt-1">{{ t('dfb.kSent') }}</div>
+          <div class="text-[10.5px] text-stone-400">{{ t('dfb.kSentSub').replace('{n}', days) }}</div>
         </div>
-        <div v-if="d.negatives.length" class="divide-y divide-stone-50 max-h-[520px] overflow-y-auto">
-          <div v-for="r in d.negatives" :key="r.name" class="px-4 py-2.5 flex items-start gap-3" :class="r.handled ? 'opacity-60' : ''">
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2 flex-wrap">
-                <RouterLink :to="{ name: 'OrderDetail', params: { name: r.sales_order } }" class="font-mono text-[12px] font-semibold text-stone-900 hover:underline">{{ r.sales_order }}</RouterLink>
-                <span class="text-[11px] text-stone-500 truncate" dir="auto">{{ r.customer_name }}</span>
-                <span class="text-[10.5px] text-stone-400" dir="auto">{{ r.city }}</span>
-                <span class="text-[10.5px] text-stone-400 tabular-nums ms-auto">{{ r.replied_at }}</span>
-              </div>
-              <div class="text-[12px] text-stone-700 mt-1" dir="auto">"{{ r.reply }}"</div>
-              <div class="flex items-center gap-2 mt-1.5 flex-wrap">
-                <a :href="'tel:+' + r.phone" class="text-[10.5px] font-semibold text-stone-600 inline-flex items-center gap-1 rounded-md ring-1 ring-stone-200 px-1.5 py-0.5 hover:bg-stone-50"><Icon name="phone" :size="11" />+{{ r.phone }}</a>
-                <RouterLink v-if="r.ticket" :to="{ name: 'Tickets', query: { q: r.ticket } }" class="text-[10.5px] font-semibold text-violet-700 inline-flex items-center gap-1 rounded-md ring-1 ring-violet-200 bg-violet-50 px-1.5 py-0.5"><Icon name="ticket" :size="11" />{{ r.ticket }}</RouterLink>
-                <span v-if="r.handled" class="text-[10.5px] text-stone-400">{{ t('dfb.handledBy') }} {{ r.handled_by }}</span>
-                <button v-else class="ms-auto h-7 px-2.5 rounded-md text-[11px] font-semibold text-white bg-stone-900 hover:bg-stone-800" @click="handled(r)">{{ t('dfb.markHandled') }}</button>
-              </div>
-            </div>
-          </div>
+        <div class="rounded-xl bg-white ring-1 ring-stone-200/70 p-3.5">
+          <div class="text-[24px] font-extrabold tabular-nums leading-none text-stone-900">{{ pct(d.responseRate) }}</div>
+          <div class="text-[11px] font-semibold text-stone-600 mt-1">{{ t('dfb.kResp') }}</div>
+          <div class="text-[10.5px] text-stone-400">{{ t('dfb.kRespSub') }}</div>
         </div>
-        <div v-else class="p-8 text-center">
-          <Icon name="check-circle" :size="22" class="mx-auto text-emerald-400" />
-          <div class="text-[13px] font-semibold text-stone-700 mt-2">{{ t('dfb.negEmpty') }}</div>
+        <div class="rounded-xl bg-white ring-1 ring-stone-200/70 p-3.5">
+          <div class="text-[24px] font-extrabold tabular-nums leading-none" :class="satCls">{{ pct(d.satisfaction) }}</div>
+          <div class="text-[11px] font-semibold text-stone-600 mt-1">{{ t('dfb.kSat') }}</div>
+          <div class="text-[10.5px] text-stone-400">{{ t('dfb.kSatSub') }}</div>
+        </div>
+        <div class="rounded-xl bg-white ring-1 ring-stone-200/70 p-3.5">
+          <div class="text-[24px] font-extrabold tabular-nums leading-none" :class="d.openNegatives ? 'text-rose-600' : 'text-emerald-600'">{{ d.openNegatives }}</div>
+          <div class="text-[11px] font-semibold text-stone-600 mt-1">{{ t('dfb.kOpen') }}</div>
+          <div class="text-[10.5px] text-stone-400">{{ t('dfb.kOpenSub') }}</div>
         </div>
       </section>
 
-      <div class="space-y-4">
-        <!-- Cities where the door goes wrong most: a carrier conversation, not a warehouse one. -->
-        <section v-if="d && d.cities && d.cities.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
-          <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold text-stone-900">{{ t('dfb.cities') }}</div>
-          <div class="divide-y divide-stone-50">
-            <div v-for="c in d.cities" :key="c.city" class="px-4 py-2 flex items-center gap-2 text-[11.5px]">
-              <span class="flex-1 truncate text-stone-700" dir="auto">{{ c.city }}</span>
-              <span class="tabular-nums text-stone-400 w-[34px] text-end">{{ c.n }}</span>
-              <span class="tabular-nums font-bold w-[46px] text-end" :class="c.neg / c.n > 0.3 ? 'text-rose-600' : 'text-emerald-600'">{{ Math.round(100 * c.pos / c.n) }}%</span>
+      <!-- Daily bars: how many were asked, and how the answers split. -->
+      <section v-if="d.series && d.series.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+        <div class="text-[12px] font-semibold text-stone-900 mb-3">{{ t('dfb.daily') }}</div>
+        <div class="flex items-end gap-1 h-[90px]" dir="ltr">
+          <div v-for="s in d.series" :key="s.d" class="flex-1 flex flex-col justify-end items-stretch gap-px min-w-[6px]" role="img"
+               :title="s.d + ' · ' + s.sent" :aria-label="s.d + ': ' + s.pos + ' ' + t('dfb.pos') + ', ' + s.neg + ' ' + t('dfb.neg') + ', ' + (s.sent - s.pos - s.neg) + ' ' + t('dfb.silent')">
+            <div class="bg-rose-400 rounded-t-sm" :style="{ height: barH(s.neg) }" />
+            <div class="bg-emerald-400" :style="{ height: barH(s.pos) }" />
+            <div class="bg-stone-200 rounded-b-sm" :style="{ height: barH(s.sent - s.pos - s.neg) }" />
+          </div>
+        </div>
+        <div class="flex items-center gap-3 mt-2 text-[10.5px] text-stone-400">
+          <span class="inline-flex items-center gap-1"><i class="w-2 h-2 rounded-sm bg-emerald-400 inline-block" />{{ t('dfb.pos') }}</span>
+          <span class="inline-flex items-center gap-1"><i class="w-2 h-2 rounded-sm bg-rose-400 inline-block" />{{ t('dfb.neg') }}</span>
+          <span class="inline-flex items-center gap-1"><i class="w-2 h-2 rounded-sm bg-stone-200 inline-block" />{{ t('dfb.silent') }}</span>
+        </div>
+      </section>
+
+      <div class="grid md:grid-cols-[1fr_340px] gap-4 items-start">
+        <!-- The queue for a human: every unhappy reply, unhandled first. -->
+        <section v-if="d.ready" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+          <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
+            <Icon name="thumbs-down" :size="14" class="text-rose-500" />
+            <span class="text-[12px] font-semibold text-stone-900">{{ t('dfb.negTitle') }}</span>
+            <span v-if="loadError" class="text-[10.5px] text-rose-600">{{ t('oclk.staleWarn') }}</span>
+            <span class="ms-auto text-[11px] text-stone-400 tabular-nums">{{ d.negatives.length }}</span>
+          </div>
+          <div v-if="d.negatives.length" class="divide-y divide-stone-50 max-h-[520px] overflow-y-auto">
+            <div v-for="r in d.negatives" :key="r.name" class="px-4 py-2.5 flex items-start gap-3" :class="r.handled ? 'opacity-60' : ''">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <RouterLink :to="{ name: 'OrderDetail', params: { name: r.sales_order } }" class="font-mono text-[12px] font-semibold text-stone-900 hover:underline" dir="ltr">{{ r.sales_order }}</RouterLink>
+                  <span class="text-[11px] text-stone-500 truncate" dir="auto">{{ r.customer_name }}</span>
+                  <span class="text-[10.5px] text-stone-400" dir="auto">{{ r.city }}</span>
+                  <span class="text-[10.5px] text-stone-400 tabular-nums ms-auto" dir="ltr">{{ r.replied_at }}</span>
+                </div>
+                <div class="text-[12px] text-stone-700 mt-1" dir="auto">"{{ r.reply }}"</div>
+                <div class="flex items-center gap-2 mt-1.5 flex-wrap">
+                  <a :href="'tel:+' + r.phone" dir="ltr" class="lp-tap text-[10.5px] font-semibold text-stone-600 inline-flex items-center gap-1 rounded-md ring-1 ring-stone-200 px-1.5 py-1 hover:bg-stone-50"><Icon name="phone" :size="11" />+{{ r.phone }}</a>
+                  <!-- The ticket lives in the CS lane; this team sees its number, the CS team works it. -->
+                  <span v-if="r.ticket" class="text-[10.5px] font-semibold text-violet-700 inline-flex items-center gap-1 rounded-md ring-1 ring-violet-200 bg-violet-50 px-1.5 py-1" dir="ltr" :title="t('dfb.ticketHint')"><Icon name="ticket" :size="11" />{{ r.ticket }}</span>
+                  <span v-if="r.handled" class="text-[10.5px] text-stone-400">{{ t('dfb.handledBy') }} {{ r.handled_by }}</span>
+                  <button v-else class="ms-auto h-8 px-2.5 rounded-md text-[11px] font-semibold text-white bg-stone-900 hover:bg-stone-800" @click="handled(r)">{{ t('dfb.markHandled') }}</button>
+                </div>
+              </div>
             </div>
+          </div>
+          <div v-else class="p-8 text-center">
+            <Icon name="check-circle" :size="22" class="mx-auto text-emerald-400" />
+            <div class="text-[13px] font-semibold text-stone-700 mt-2">{{ t('dfb.negEmpty') }}</div>
           </div>
         </section>
 
-        <section v-if="d && d.recent && d.recent.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
-          <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold text-stone-900">{{ t('dfb.recent') }}</div>
-          <div class="divide-y divide-stone-50 max-h-[320px] overflow-y-auto">
-            <div v-for="(r, i) in d.recent" :key="i" class="px-4 py-2 flex items-center gap-2 text-[11.5px]">
-              <Icon :name="r.status === 'positive' ? 'thumbs-up' : 'thumbs-down'" :size="12" :class="r.status === 'positive' ? 'text-emerald-500' : 'text-rose-500'" class="flex-shrink-0" />
-              <span class="font-mono text-stone-700 flex-shrink-0">{{ r.sales_order }}</span>
-              <span class="text-stone-500 truncate flex-1" dir="auto">{{ r.reply }}</span>
-              <span class="text-stone-400 tabular-nums flex-shrink-0">{{ r.replied_at.slice(5) }}</span>
+        <div class="space-y-4">
+          <!-- Cities where the door goes wrong most: a carrier conversation, not a warehouse one. -->
+          <section v-if="d.cities && d.cities.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+            <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold text-stone-900">{{ t('dfb.cities') }}</div>
+            <div class="divide-y divide-stone-50">
+              <div v-for="c in d.cities" :key="c.city" class="px-4 py-2 flex items-center gap-2 text-[11.5px]">
+                <span class="flex-1 truncate text-stone-700" dir="auto">{{ c.city }}</span>
+                <span class="tabular-nums text-stone-400 w-[34px] text-end" dir="ltr">{{ c.n }}</span>
+                <span class="tabular-nums font-bold w-[46px] text-end" dir="ltr" :class="c.neg / c.n > 0.3 ? 'text-rose-600' : 'text-emerald-600'">{{ Math.round(100 * c.pos / c.n) }}%</span>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+
+          <section v-if="d.recent && d.recent.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+            <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold text-stone-900">{{ t('dfb.recent') }}</div>
+            <div class="divide-y divide-stone-50 max-h-[320px] overflow-y-auto">
+              <div v-for="(r, i) in d.recent" :key="i" class="px-4 py-2 flex items-center gap-2 text-[11.5px]">
+                <Icon :name="r.status === 'positive' ? 'thumbs-up' : 'thumbs-down'" :size="12" :class="r.status === 'positive' ? 'text-emerald-500' : 'text-rose-500'" class="flex-shrink-0" />
+                <span class="sr-only">{{ r.status === 'positive' ? t('dfb.pos') : t('dfb.neg') }}</span>
+                <span class="font-mono text-stone-700 flex-shrink-0" dir="ltr">{{ r.sales_order }}</span>
+                <span class="text-stone-500 truncate flex-1" dir="auto">{{ r.reply }}</span>
+                <span class="text-stone-400 tabular-nums flex-shrink-0" dir="ltr">{{ r.replied_at.slice(5) }}</span>
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
-    </div>
+    </template>
 
     <!-- Settings: the lead configures the question, the answers and the follow-ups. -->
     <section v-if="s" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
-      <button class="w-full px-4 py-3 flex items-center gap-2 text-start" @click="showSet = !showSet">
+      <button class="w-full px-4 py-3 flex items-center gap-2 text-start" :aria-expanded="showSet" @click="showSet = !showSet">
         <Icon name="settings" :size="14" class="text-stone-400" />
         <span class="text-[12.5px] font-semibold text-stone-900">{{ t('dfb.setTitle') }}</span>
         <span class="text-[10.5px] font-bold rounded-full px-2 py-0.5 ms-1" :class="s.enabled ? 'text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200' : 'text-stone-500 bg-stone-100'">{{ s.enabled ? t('dfb.on') : t('dfb.off') }}</span>
@@ -141,17 +165,17 @@
           </label>
           <div class="grid grid-cols-2 gap-2">
             <label class="text-[11.5px] text-stone-600"><span class="font-semibold block mb-1">{{ t('dfb.delayH') }}</span>
-              <input v-model.number="s.delayHours" type="number" min="1" max="72" :disabled="!s.isAdmin" class="w-full h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums" /></label>
+              <input v-model.number="s.delayHours" type="number" min="1" max="72" :disabled="!s.isAdmin" dir="ltr" class="w-full h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums" /></label>
             <label class="text-[11.5px] text-stone-600"><span class="font-semibold block mb-1">{{ t('dfb.maxAge') }}</span>
-              <input v-model.number="s.maxAgeDays" type="number" min="1" max="14" :disabled="!s.isAdmin" class="w-full h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums" /></label>
+              <input v-model.number="s.maxAgeDays" type="number" min="1" max="14" :disabled="!s.isAdmin" dir="ltr" class="w-full h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums" /></label>
             <label class="text-[11.5px] text-stone-600"><span class="font-semibold block mb-1">{{ t('dfb.winStart') }}</span>
-              <input v-model="s.windowStart" type="time" :disabled="!s.isAdmin" class="w-full h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums" /></label>
+              <input v-model="s.windowStart" type="time" :disabled="!s.isAdmin" dir="ltr" class="w-full h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums" /></label>
             <label class="text-[11.5px] text-stone-600"><span class="font-semibold block mb-1">{{ t('dfb.winEnd') }}</span>
-              <input v-model="s.windowEnd" type="time" :disabled="!s.isAdmin" class="w-full h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums" /></label>
+              <input v-model="s.windowEnd" type="time" :disabled="!s.isAdmin" dir="ltr" class="w-full h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums" /></label>
             <label class="text-[11.5px] text-stone-600"><span class="font-semibold block mb-1">{{ t('dfb.cap') }}</span>
-              <input v-model.number="s.dailyCap" type="number" min="1" max="5000" :disabled="!s.isAdmin" class="w-full h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums" /></label>
+              <input v-model.number="s.dailyCap" type="number" min="1" max="5000" :disabled="!s.isAdmin" dir="ltr" class="w-full h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums" /></label>
             <label class="text-[11.5px] text-stone-600"><span class="font-semibold block mb-1">{{ t('dfb.cooldown') }}</span>
-              <input v-model.number="s.phoneCooldownDays" type="number" min="1" max="180" :disabled="!s.isAdmin" class="w-full h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums" /></label>
+              <input v-model.number="s.phoneCooldownDays" type="number" min="1" max="180" :disabled="!s.isAdmin" dir="ltr" class="w-full h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums" /></label>
           </div>
         </div>
 
@@ -166,15 +190,18 @@
             <textarea v-model="s.sorryText" rows="3" :disabled="!s.isAdmin" dir="auto" class="w-full px-2 py-1.5 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px]" /></label>
         </div>
 
-        <div v-if="s.isAdmin" class="flex items-center gap-3 flex-wrap">
-          <label class="inline-flex items-center gap-2 text-[12px] font-semibold text-stone-800">
-            <input v-model="s.enabled" type="checkbox" :disabled="!s.template" class="w-4 h-4" />{{ t('dfb.enable') }}
-          </label>
-          <button class="h-9 px-4 rounded-lg text-[12.5px] font-bold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-50" :disabled="busy" @click="save">{{ busy ? t('oclk.saving') : t('common.save') }}</button>
-          <span class="ms-auto inline-flex items-center gap-1.5">
-            <input v-model="testPhone" :placeholder="t('dfb.testPh')" class="h-9 w-[160px] px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums" />
-            <button class="h-9 px-3 rounded-lg text-[12px] font-semibold text-stone-800 ring-1 ring-stone-300 hover:bg-stone-50 disabled:opacity-50" :disabled="!s.template || !testPhone || busy" @click="testSend">{{ t('dfb.testSend') }}</button>
-          </span>
+        <div v-if="s.isAdmin" class="space-y-2">
+          <div class="flex items-center gap-3 flex-wrap">
+            <label class="inline-flex items-center gap-2 text-[12px] font-semibold text-stone-800" :class="!s.template ? 'opacity-60' : ''">
+              <input v-model="s.enabled" type="checkbox" :disabled="!s.template" class="w-4 h-4" />{{ t('dfb.enable') }}
+            </label>
+            <button class="h-9 px-4 rounded-lg text-[12.5px] font-bold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-50" :disabled="busy" @click="save">{{ busy ? t('oclk.saving') : t('common.save') }}</button>
+            <span class="ms-auto inline-flex items-center gap-1.5">
+              <input v-model="testPhone" :placeholder="t('dfb.testPh')" dir="ltr" inputmode="tel" class="h-9 w-[160px] px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums" />
+              <button class="h-9 px-3 rounded-lg text-[12px] font-semibold text-stone-800 ring-1 ring-stone-300 hover:bg-stone-50 disabled:opacity-50" :disabled="!s.template || !testPhone || busy" @click="testSend">{{ t('dfb.testSend') }}</button>
+            </span>
+          </div>
+          <p v-if="!s.template" class="text-[11px] text-amber-700">{{ t('dfb.needTemplate') }}</p>
         </div>
         <p v-else class="text-[11.5px] text-stone-400">{{ t('oclk.readOnly') }}</p>
       </div>
@@ -188,12 +215,16 @@ import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
+import { useAuth } from "@/composables/useAuth";
 
 const { t } = useI18n();
 const { success, warn } = useToast();
+const { user } = useAuth();
 const d = ref(null);
 const s = ref(null);
 const days = ref(14);
+const loading = ref(true);
+const loadError = ref("");
 const busy = ref(false);
 const showSet = ref(false);
 const testPhone = ref("");
@@ -212,7 +243,10 @@ function pct(v) { return v == null ? "—" : v + "%"; }
 function barH(n) { return Math.max(0, (90 * (n || 0)) / maxDay.value) + "px"; }
 
 async function load() {
-  try { d.value = await api("feedback.board", { days: days.value }); } catch { d.value = null; }
+  if (!d.value) loading.value = true;
+  try { d.value = await api("feedback.board", { days: days.value }); loadError.value = ""; }
+  catch (e) { loadError.value = String(e?.message || e); }
+  loading.value = false;
 }
 async function loadSettings() {
   try {
@@ -223,8 +257,11 @@ async function loadSettings() {
 }
 function setDays(n) { days.value = n; load(); }
 async function handled(r) {
-  try { await apiPost("feedback.mark_handled", { name: r.name }); r.handled = 1; load(); }
-  catch (e) { warn(t("mv.loadFail"), String(e.message || e)); }
+  try {
+    await apiPost("feedback.mark_handled", { name: r.name });
+    r.handled = 1; r.handled_by = user.value?.name || user.value?.email || "";
+    load();
+  } catch (e) { warn(t("dfb.saveFail"), String(e.message || e)); }
 }
 async function save() {
   busy.value = true;
@@ -236,7 +273,7 @@ async function save() {
     Object.assign(s.value, r.settings);
     success(t("oclk.saved"), "");
     load();
-  } catch (e) { warn(t("mv.loadFail"), String(e.message || e)); }
+  } catch (e) { warn(t("dfb.saveFail"), String(e.message || e)); }
   busy.value = false;
 }
 async function testSend() {

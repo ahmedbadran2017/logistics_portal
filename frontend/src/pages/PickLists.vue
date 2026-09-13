@@ -540,6 +540,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from "vue";
+import { useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import PlLife from "@/components/ui/PlLife.vue";
 import SuggestBatchesModal from "@/components/SuggestBatchesModal.vue";
@@ -729,7 +730,11 @@ async function load(keepPage = false) {
   }
   loading.value = false;
 }
-onMounted(load);
+const route = useRoute();
+onMounted(() => {
+  if (route.query.q) q.value = String(route.query.q);
+  load();
+});
 function onSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(() => load(), 350); }
 function setFilter(k) {
   filter.value = k;
