@@ -492,8 +492,10 @@ def _shape(r, cfg, now):
         # The carrier's last word, for the leg where it is the only news.
         "lastEvent": _clean_text(r.ev_text)[:90] if r.ev_text else "",
         "lastEventAt": str(clock.to_floor(r.ev_at))[:16] if r.ev_at else "",
-        "eventAgeH": int((now - clock.to_floor(r.ev_at)).total_seconds() / 3600) if r.ev_at else None,
-        "verdict": _event_kind(r.ev_text),
+        # With no event, the age that matters is how long since we handed it.
+        "eventAgeH": int((now - clock.to_floor(r.ev_at)).total_seconds() / 3600) if r.ev_at
+                     else (int((now - handed).total_seconds() / 3600) if handed else None),
+        "verdict": _event_kind(r.ev_text, track, stage),
         "trackUrl": r.track_url or "",
     }
 
@@ -504,12 +506,21 @@ def _clean_text(text):
     return _html.unescape(frappe.utils.strip_html(text or "")).strip()
 
 
-def _event_kind(text):
+def _event_kind(text, track="", stage=""):
     """The carrier's last event, as one of a handful of situations the
-    chase call starts from. Same vocabulary as the rescue lane."""
+    chase call starts from. Same vocabulary as the rescue lane.
+
+    Measured 2026-09-13: 824 of 1,000 parcels 'with the carrier' had no
+    carrier comment at all, and 636 of those were still 'Pending' — the
+    label exists, the manifest was written, and the carrier never scanned
+    the parcel. That is not 'no news'; it is the loudest news there is.
+    """
     t = (text or "")
     if not t:
-        return ""
+        if stage != "with_carrier":
+            return ""
+        return {"Pending": "noscan", "In Transit": "hub", "Out For Delivery": "ofd",
+                "Picked up": "hub", "Picked Up": "hub"}.get(track or "", "none")
     if t.startswith(("Customer cancelled", "The customer has cancelled", "Cancelled on site",
                      "Cancellation Reason", "Justyol has requested")):
         return "cancelled"
@@ -854,6 +865,14 @@ _ALERTS = {
         "ar": ("أوردرات فوّتت موجتها ولسه جوه المخزن",
                "{n} أوردر. أقدمهم {order}، عدّى موجة {due} بـ {h} ساعة."),
     },
+    "no_scan": {
+        "en": ("Parcels manifested but never scanned by the carrier",
+               "{n} parcels were handed over more than two days ago and the carrier has no scan for them. Either they never left the building or the handover was lost — check the sort wall, then the carrier."),
+        "fr": ("Colis manifestés mais jamais scannés par le transporteur",
+               "{n} colis remis il y a plus de deux jours sans aucun scan du transporteur. Soit ils n'ont jamais quitté l'entrepôt, soit la remise a été perdue — vérifiez le mur de tri, puis le transporteur."),
+        "ar": ("طرود اتسجلت في المانيفست والكارير عمره ما سكنها",
+               "{n} طرد اتسلّم للكارير من أكتر من يومين ومافيش ولا سكان. يا اتسابت في المخزن يا التسليم ضاع — راجع حيطة الفرز، وبعدين الكارير."),
+    },
     "chase": {
         "en": ("Parcels past the chase line with the carrier",
                "{n} parcels moving for more than {days} days beyond the city promise — not late, lost. Chase them with the carrier."),
@@ -941,7 +960,12 @@ def run_alerts():
                                  "h": oldest["lateMin"] // 60, "due": oldest["dueAt"][11:]},
                   "critical", order=oldest["order"])
 
-        # 3) Parcels the carrier has had too long to still call in transit.
+        # 3) Manifested two days ago, and the carrier has never scanned it.
+        noscan = [r for r in carrier if r.get("verdict") == "noscan" and (r.get("eventAgeH") or 0) >= 48]
+        if len(noscan) >= 10:
+            _emit("no_scan", {"n": len(noscan)}, "critical", cooldown_h=12)
+
+        # 4) Parcels the carrier has had too long to still call in transit.
         chase_h = int(cfg.get("chaseDays") or 5) * 24 * 60
         chase = [r for r in carrier if r["lateMin"] > chase_h]
         if len(chase) >= 10:

@@ -207,9 +207,10 @@
           <span class="text-[13px] font-extrabold tabular-nums w-[64px] text-end flex-shrink-0" dir="ltr"
                 :class="r.late ? 'text-rose-600' : 'text-emerald-600'" :title="r.late ? t('oclk.pastPromise') : t('oclk.timeLeft')">{{ remain(r) }}</span>
           </RouterLink>
-          <span v-if="r.stage === 'with_carrier' && r.lastEvent" class="hidden xl:inline-flex items-center gap-1.5 max-w-[300px] min-w-0">
+          <span v-if="r.stage === 'with_carrier'" class="hidden xl:inline-flex items-center gap-1.5 max-w-[300px] min-w-0">
             <span class="text-[10px] font-bold rounded-full px-1.5 py-0.5 ring-1 flex-shrink-0" :class="EV_CLS[r.verdict] || EV_CLS.none">{{ t('oclk.ev_' + (r.verdict || 'none')) }}</span>
-            <span class="text-[11px] text-stone-500 truncate" :title="r.lastEvent">{{ r.lastEvent }}</span>
+            <span v-if="r.lastEvent" class="text-[11px] text-stone-500 truncate" :title="r.lastEvent">{{ r.lastEvent }}</span>
+            <span v-else class="text-[11px] text-stone-400 truncate">{{ t('oclk.sinceHandover') }}</span>
             <span v-if="r.eventAgeH != null" class="text-[10.5px] tabular-nums flex-shrink-0" :class="r.eventAgeH >= 48 ? 'text-rose-600 font-semibold' : 'text-stone-400'" dir="ltr">{{ ageTxt(r.eventAgeH) }}</span>
           </span>
           <span v-if="r.stage === 'with_carrier'" class="inline-flex items-center gap-1 flex-shrink-0">
@@ -251,6 +252,7 @@ const cityFilter = ref("");
 const eventFilter = ref("");
 const chasing = ref(new Set());
 const EV_CLS = {
+  noscan: "bg-rose-50 text-rose-700 ring-rose-200",
   hub: "bg-sky-50 text-sky-700 ring-sky-200", ofd: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   unreachable: "bg-amber-50 text-amber-700 ring-amber-200", appointment: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   cancelled: "bg-rose-50 text-rose-700 ring-rose-200", label: "bg-violet-50 text-violet-700 ring-violet-200",

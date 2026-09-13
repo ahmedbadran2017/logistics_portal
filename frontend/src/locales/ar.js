@@ -1580,6 +1580,7 @@ export default {
     badPhone: "الرقم لازم يكون 9 أرقام على الأقل.",
   },
   oclk: {
+    ev_noscan: "الكارير عمره ما سكنه", sinceHandover: "من التسليم",
     byEvent: "الكارير بيقول", byCity: "حسب المدينة", track: "افتح تتبع الكارير", call: "كلّم العميل", wa: "واتساب للعميل",
     ev_hub: "في الهاب", ev_ofd: "خارج للتوصيل", ev_unreachable: "العميل مش بيرد", ev_appointment: "في معاد",
     ev_cancelled: "العميل لغى", ev_label: "لابل بس", ev_delivered: "اتسلّم", ev_other: "ملاحظة كارير", ev_none: "مافيش أخبار",

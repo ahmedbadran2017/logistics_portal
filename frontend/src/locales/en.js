@@ -1580,6 +1580,7 @@ export default {
     badPhone: "The phone needs at least nine digits.",
   },
   oclk: {
+    ev_noscan: "never scanned by the carrier", sinceHandover: "since handover",
     byEvent: "Carrier says", byCity: "By city", track: "Open the carrier tracking", call: "Call the customer", wa: "WhatsApp the customer",
     ev_hub: "at a hub", ev_ofd: "out for delivery", ev_unreachable: "customer unreachable", ev_appointment: "appointment set",
     ev_cancelled: "customer cancelled", ev_label: "label only", ev_delivered: "delivered", ev_other: "carrier note", ev_none: "no news",

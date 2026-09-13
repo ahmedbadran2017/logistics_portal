@@ -1581,6 +1581,7 @@ export default {
     badPhone: "Le numéro doit avoir au moins neuf chiffres.",
   },
   oclk: {
+    ev_noscan: "jamais scanné par le transporteur", sinceHandover: "depuis la remise",
     byEvent: "Le transporteur dit", byCity: "Par ville", track: "Ouvrir le suivi transporteur", call: "Appeler le client", wa: "WhatsApp au client",
     ev_hub: "au hub", ev_ofd: "en livraison", ev_unreachable: "client injoignable", ev_appointment: "rendez-vous pris",
     ev_cancelled: "client a annulé", ev_label: "étiquette seule", ev_delivered: "livré", ev_other: "note transporteur", ev_none: "sans nouvelles",
