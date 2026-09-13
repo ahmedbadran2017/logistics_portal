@@ -1,11 +1,16 @@
 <template>
-  <div class="max-w-[880px] mx-auto px-4 py-6 space-y-4">
-    <header>
-      <h1 class="text-[20px] font-bold text-stone-900 tracking-tight">{{ t('oclk.setTitle') }}</h1>
-      <p class="text-[12.5px] text-stone-500 mt-0.5 max-w-[600px]">{{ t('oclk.setIntro') }}</p>
+  <div class="p-5 sm:p-6 space-y-5 max-w-[920px] mx-auto">
+    <header class="sh-hero rounded-2xl p-5 sm:p-6">
+      <div class="flex items-center gap-3.5 min-w-0">
+        <span class="sh-hero-icon" style="background: linear-gradient(135deg, rgb(120 113 108), rgb(87 83 78)); box-shadow: 0 6px 16px -6px rgb(87 83 78 / .5)"><Icon name="settings" :size="22" /></span>
+        <div class="min-w-0">
+          <h1 class="text-[21px] font-bold text-stone-900 tracking-tight leading-none">{{ t('oclk.setTitle') }}</h1>
+          <p class="text-[12.5px] text-stone-500 mt-1.5 max-w-[620px]">{{ t('oclk.setIntro') }}</p>
+        </div>
+      </div>
     </header>
 
-    <div v-if="loading" class="h-[300px] rounded-2xl bg-stone-100 ring-1 ring-stone-200/60 animate-pulse" />
+    <div v-if="loading" class="h-[300px] rounded-2xl sh-shimmer" />
 
     <div v-else-if="loadError" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
       <div class="text-[14px] font-semibold text-rose-700">{{ t('common.loadFail') }}</div>
@@ -15,7 +20,7 @@
 
     <template v-else-if="s">
       <!-- Waves: the promise the warehouse is held to -->
-      <section class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 space-y-3">
+      <section class="sh-card rounded-2xl p-4 space-y-3">
         <div class="flex items-center gap-2">
           <Icon name="truck" :size="15" class="text-stone-400" />
           <span class="text-[13px] font-semibold text-stone-900">{{ t('oclk.setWaves') }}</span>
@@ -35,7 +40,7 @@
       </section>
 
       <!-- Rest days -->
-      <section class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 space-y-2.5">
+      <section class="sh-card rounded-2xl p-4 space-y-2.5">
         <span class="text-[13px] font-semibold text-stone-900">{{ t('oclk.setRest') }}</span>
         <p class="text-[11.5px] text-stone-500">{{ t('oclk.setRestHint') }}</p>
         <div class="flex flex-wrap gap-1.5">
@@ -47,7 +52,7 @@
       </section>
 
       <!-- Per-city promise -->
-      <section class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+      <section class="sh-card rounded-2xl overflow-hidden">
         <div class="px-4 py-3 border-b border-stone-100">
           <span class="text-[13px] font-semibold text-stone-900">{{ t('oclk.setCities') }}</span>
           <p class="text-[11.5px] text-stone-500 mt-0.5">{{ t('oclk.setCitiesHint') }}</p>
@@ -79,7 +84,7 @@
         </div>
       </section>
 
-      <section class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 flex items-center gap-3 flex-wrap">
+      <section class="sh-card rounded-2xl p-4 flex items-center gap-3 flex-wrap">
         <span class="text-[13px] font-semibold text-stone-900">{{ t('oclk.setChase') }}</span>
         <input v-model.number="s.chaseDays" type="number" min="1" max="30" :disabled="!s.isAdmin" dir="ltr"
                class="w-16 h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums text-center" />
@@ -95,7 +100,7 @@
       </section>
 
       <div v-if="s.isAdmin" class="flex items-center gap-2">
-        <button class="h-10 px-5 rounded-xl text-[13px] font-bold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-50"
+        <button class="h-10 px-5 rounded-xl text-[13px] font-bold text-white disabled:opacity-50" style="background: linear-gradient(135deg, rgb(20 184 166), rgb(13 148 136)); box-shadow: 0 4px 12px -4px rgb(20 184 166 / .45)"
                 :disabled="busy" @click="save">{{ busy ? t('oclk.saving') : t('common.save') }}</button>
         <span class="text-[11.5px] text-stone-400">{{ t('oclk.saveHint') }}</span>
       </div>

@@ -367,20 +367,32 @@ def _shape(r, cfg, now):
 
     wave_id, wave_due = (None, None)
     due, late_min = None, 0
+    kept = None
     if stage in ("to_pick", "picking", "to_hand_over"):
         wave_id, wave_due = wave_for(conf, cfg)
         due = wave_due
     elif stage == "with_carrier":
         due = carrier_due(handed, r.city, cfg)
+    elif stage == "delivered" and handed and r.delivered_at:
+        # The promise, judged after the fact: did the door come in time?
+        d = carrier_due(handed, r.city, cfg)
+        kept = bool(d and clock.to_floor(r.delivered_at) <= d)
     if due:
         late_min = int((now - due).total_seconds() / 60)
 
+    picked = clock.to_floor(r.picklist_at) if r.picklist_at else None
+    closed = clock.to_floor(r.dn_at) if r.dn_at else None
+    delivered = clock.to_floor(r.delivered_at) if r.delivered_at else None
     return {
         "order": r.name, "customer": r.customer or "", "city": (r.city or "").strip(),
         "phone": r.phone or "", "value": round(float(r.value or 0)),
         "stage": stage, "owner": owner, "awb": r.awb or "", "track": track,
         "confirmedAt": str(conf)[:16] if conf else "",
+        "pickedAt": str(picked)[:16] if picked else "",
+        "closedAt": str(closed)[:16] if closed else "",
         "handedAt": str(handed)[:16] if handed else "",
+        "deliveredAt": str(delivered)[:16] if delivered else "",
+        "kept": kept,
         "wave": wave_id, "dueAt": str(due)[:16] if due else "",
         "lateMin": late_min,
         "late": bool(due and late_min > 0 and stage not in ("delivered", "failed")),
@@ -404,7 +416,11 @@ def board(view="live", days=30, limit=300):
     carrier = [r for r in live if r["stage"] == "with_carrier"]
 
     chase_h = int(cfg.get("chaseDays") or 5) * 24
+    week = str(frappe.utils.add_days(now, -7))[:16]
+    judged = [r for r in rows if r["stage"] == "delivered" and r["kept"] is not None
+              and r["deliveredAt"] >= week]
     counts = {
+        "kept7d": {"n": len(judged), "ok": sum(1 for r in judged if r["kept"])},
         "live": len(live),
         "inHouse": len(in_house),
         "lateInHouse": sum(1 for r in in_house if r["late"]),
@@ -434,7 +450,35 @@ def board(view="live", days=30, limit=300):
     sel.sort(key=lambda r: (-r["lateMin"] if r["late"] else 10 ** 6 - r["lateMin"]))
     return {"view": view, "counts": counts, "rows": sel[:limit],
             "total": len(sel), "waves": cfg.get("waves"),
+            "nextWave": _next_wave(in_house, cfg, now),
             "now": str(now)[:16]}
+
+
+def _next_wave(in_house, cfg, now):
+    """The wave about to leave, and how ready the building is for it."""
+    waves = cfg.get("waves") or _DEFAULTS["waves"]
+    rest = set(cfg.get("restDays") or [])
+    day = _next_working(now.date(), rest)
+    due = None
+    for w in waves:
+        oh, om = _hhmm(w.get("out"))
+        cand = frappe.utils.get_datetime("%s %02d:%02d:00" % (day, oh, om))
+        if cand > now:
+            due, wid = cand, w.get("id")
+            break
+    if due is None:
+        w = waves[0]
+        oh, om = _hhmm(w.get("out"))
+        d = _next_working(frappe.utils.add_days(day, 1), rest)
+        due, wid = frappe.utils.get_datetime("%s %02d:%02d:00" % (d, oh, om)), w.get("id")
+    key = str(due)[:16]
+    mine = [r for r in in_house if r["dueAt"] == key]
+    return {"id": wid, "dueAt": key,
+            "minutes": int((due - now).total_seconds() / 60),
+            "n": len(mine),
+            "ready": sum(1 for r in mine if r["stage"] == "to_hand_over"),
+            "picking": sum(1 for r in mine if r["stage"] == "picking"),
+            "toPick": sum(1 for r in mine if r["stage"] == "to_pick")}
 
 
 @frappe.whitelist()
@@ -451,13 +495,18 @@ def wave_board(days=7):
     for r in in_house:
         key = r["dueAt"][:16] or "—"
         b = buckets.setdefault(key, {"dueAt": key, "wave": r["wave"], "n": 0,
-                                     "late": 0, "toPick": 0, "value": 0})
+                                     "late": 0, "toPick": 0, "picking": 0,
+                                     "ready": 0, "value": 0})
         b["n"] += 1
         b["value"] += r["value"]
         if r["late"]:
             b["late"] += 1
         if r["stage"] == "to_pick":
             b["toPick"] += 1
+        elif r["stage"] == "picking":
+            b["picking"] += 1
+        else:
+            b["ready"] += 1
     out = sorted(buckets.values(), key=lambda b: b["dueAt"])
     return {"waves": out, "now": str(now)[:16], "config": cfg.get("waves")}
 
@@ -512,8 +561,10 @@ def _blockers(rows):
             need = {}
             for code, q in lines.get(r["order"], []):
                 need[code] = need.get(code, 0) + q
-            if any(float(free(r["order"], code)) < q for code, q in need.items()):
+            short_codes = [code for code, q in need.items() if float(free(r["order"], code)) < q]
+            if short_codes:
                 why.append("oos")
+                r["shortItems"] = short_codes[:3]
             for code in need:
                 if code in short:
                     why.append("shelf")
@@ -531,6 +582,7 @@ def _blockers(rows):
         # Picking that never closes: the list exists, the parcel does not.
         if r["stage"] == "picking" and r["ageH"] >= 24:
             why.append("stuck_pick")
+            r["pickH"] = r["ageH"]
         r["why"] = list(dict.fromkeys(why))
 
 
