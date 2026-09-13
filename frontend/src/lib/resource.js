@@ -12,6 +12,18 @@ function csrf() {
   return window.csrf_token || (window.frappe_boot && window.frappe_boot.csrf_token) || "";
 }
 
+import { useI18n } from "@/composables/useI18n";
+
+// A server that only knows "en" for every account cannot speak the portal's
+// language, so it throws a key ("lp:leadsOnly") and the key is rendered here
+// in whatever the reader has chosen.
+function translateServer(msg) {
+  const m = /^lp:([A-Za-z0-9_]+)$/.exec(msg || "");
+  if (!m) return msg;
+  const { t } = useI18n();
+  return t("srv." + m[1], msg);
+}
+
 /** Build an Error carrying the server's human message (Frappe packs it into
  *  `_server_messages` / `exception`), falling back to "method → status". */
 async function serverError(method, res) {
@@ -27,7 +39,7 @@ async function serverError(method, res) {
       msg = String(body.exception).split(/Error:|Exception:/).pop().trim() || msg;
     }
   } catch (_) { /* keep the generic message */ }
-  return new Error(msg);
+  return new Error(translateServer(msg));
 }
 
 /** View-as (manager only): when armed, every request carries `as_user` so the

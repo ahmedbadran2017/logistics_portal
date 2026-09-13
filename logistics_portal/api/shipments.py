@@ -82,7 +82,7 @@ def _gate():
     from logistics_portal.api.auth import resolve_role
     role = resolve_role(frappe.session.user)
     if role not in ("tracking", "manager", "cs", "dispatcher"):
-        frappe.throw("Shipment tracking team only.", frappe.PermissionError)
+        frappe.throw("lp:shipTeamOnly", frappe.PermissionError)
     return role
 
 
@@ -100,7 +100,7 @@ def _is_lead():
 
 def _admin_gate():
     if not _is_lead():
-        frappe.throw("Tracking leads only.", frappe.PermissionError)
+        frappe.throw("lp:leadsOnly", frappe.PermissionError)
 
 
 @frappe.whitelist()
@@ -171,13 +171,13 @@ def save_settings(payload=None):
     if isinstance(payload, str):
         payload = json.loads(payload or "{}")
     if not isinstance(payload, dict):
-        frappe.throw("Bad payload.")
+        frappe.throw("lp:badPayload")
     cur = _clean_settings(get_settings(), payload)
     # Only a manager may decide who the leads are.
     if "admins" in payload and isinstance(payload["admins"], list):
         from logistics_portal.api.permissions import is_ops_admin
         if not is_ops_admin():
-            frappe.throw("Only a manager can change the leads list.", frappe.PermissionError)
+            frappe.throw("lp:managerOnly", frappe.PermissionError)
         cur["admins"] = [str(u).strip().lower() for u in payload["admins"] if str(u).strip()][:30]
     frappe.db.set_default(_SETTINGS_KEY, json.dumps(cur))
     frappe.db.commit()
@@ -544,7 +544,7 @@ def blocked(days=30):
             groups[w] = groups.get(w, 0) + 1
     hit.sort(key=lambda r: (-len(r["why"]), -r["lateMin"]))
     return {"total": len(hit), "inHouse": len(rows), "groups": groups,
-            "fix": _FIX, "rows": hit[:400], "now": str(now)[:16]}
+            "fix": _FIX, "rows": hit[:2000], "now": str(now)[:16]}
 
 
 # ---------------------------------------------------------------------------
@@ -567,12 +567,54 @@ def _tracking_users():
     return users
 
 
-def _emit(title, detail, severity="warning", cooldown_h=4):
-    """One row per standing problem. The title must be STABLE — counts go in
-    the body — or the unread check never matches and every tick writes a
-    fresh row. Once read, the same title waits `cooldown_h` before it may
-    page again, so a fact the team already saw is not re-announced every
-    fifteen minutes."""
+# The portal's language is chosen in the portal, not on the ERPNext user (every
+# account here is "en"), so an alert carries all three renderings and the
+# Alerts page shows the one the reader is using. English is also the stored
+# subject, which keeps the unread check stable.
+_ALERTS = {
+    "wave_risk": {
+        "en": ("Orders may miss the {due} wave",
+               "{n} orders confirmed and promised to the {due} wave are still without a pick list with under 90 minutes to go."),
+        "fr": ("Des commandes risquent de manquer le départ de {due}",
+               "{n} commandes confirmées et promises au départ de {due} n'ont toujours pas de liste de prélèvement à moins de 90 minutes."),
+        "ar": ("أوردرات ممكن تفوّت موجة {due}",
+               "{n} أوردر مؤكد وموعود بموجة {due} لسه من غير pick list وباقي أقل من 90 دقيقة."),
+    },
+    "late_house": {
+        "en": ("Orders past their wave, still in the building",
+               "{n} orders. Oldest is {order}, {h}h past its {due} wave."),
+        "fr": ("Commandes ayant manqué leur départ, encore chez nous",
+               "{n} commandes. La plus ancienne est {order}, {h} h après son départ de {due}."),
+        "ar": ("أوردرات فوّتت موجتها ولسه جوه المخزن",
+               "{n} أوردر. أقدمهم {order}، عدّى موجة {due} بـ {h} ساعة."),
+    },
+    "chase": {
+        "en": ("Parcels past the chase line with the carrier",
+               "{n} parcels moving for more than {days} days beyond the city promise — not late, lost. Chase them with the carrier."),
+        "fr": ("Colis au-delà de la ligne de relance chez le transporteur",
+               "{n} colis en mouvement depuis plus de {days} jours au-delà de la promesse de la ville — pas en retard, perdus. Relancez le transporteur."),
+        "ar": ("طرود عدّت خط المطاردة عند الكارير",
+               "{n} طرد ماشي أكتر من {days} يوم بعد وعد المدينة — مش متأخر، ضايع. طارده مع الكارير."),
+    },
+}
+
+
+def _emit(kind, params, severity="warning", cooldown_h=4, order=None):
+    """One row per standing problem. The stored subject is the English title
+    without counts, so the unread check matches tick after tick; the three
+    renderings ride in the body as JSON for the Alerts page. Once read, the
+    same problem waits `cooldown_h` before it may page again."""
+    texts = _ALERTS.get(kind) or {}
+    if not texts:
+        return
+    def fmt(s):
+        try:
+            return s.format(**params)
+        except Exception:
+            return s
+    i18n = {lang: {"t": fmt(t), "b": fmt(b)} for lang, (t, b) in texts.items()}
+    title, detail = i18n["en"]["t"], i18n["en"]["b"]
+    body = json.dumps({"lp": i18n, "sev": severity, "kind": kind}, ensure_ascii=False)
     try:
         if frappe.db.exists("Notification Log", {"subject": title, "read": 0}):
             return
@@ -583,13 +625,15 @@ def _emit(title, detail, severity="warning", cooldown_h=4):
         for user in _tracking_users() or []:
             frappe.get_doc({
                 "doctype": "Notification Log", "subject": title,
-                "email_content": detail, "type": "Alert",
-                "document_type": "Sales Order", "for_user": user,
+                "email_content": body, "type": "Alert",
+                "document_type": "Sales Order", "document_name": order,
+                "for_user": user,
             }).insert(ignore_permissions=True)
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "shipments._emit")
     frappe.publish_realtime("logistics_alert", {
-        "severity": severity, "title": title, "detail": detail, "audience": "tracking"})
+        "severity": severity, "title": title, "detail": detail, "i18n": i18n,
+        "audience": "tracking"})
 
 
 def run_alerts():
@@ -618,27 +662,20 @@ def run_alerts():
                 soon[r["dueAt"]] += 1
         for due, n in soon.items():
             if n >= 5:
-                _emit(f"Orders may miss the {due[11:]} wave",
-                      f"{n} orders confirmed and promised to the {due} wave are still "
-                      f"without a pick list with under 90 minutes to go.", "critical",
-                      cooldown_h=1)
+                _emit("wave_risk", {"n": n, "due": due[11:]}, "critical", cooldown_h=1)
 
         # 2) Past their wave and still in the building.
         late = [r for r in in_house if r["late"]]
         if len(late) >= 20:
             oldest = max(late, key=lambda r: r["lateMin"])
-            _emit("Orders past their wave, still in the building",
-                  f"{len(late)} orders. Oldest is {oldest['order']}, "
-                  f"{oldest['lateMin'] // 60}h past its {oldest['dueAt'][11:]} wave.",
-                  "critical")
+            _emit("late_house", {"n": len(late), "order": oldest["order"],
+                                 "h": oldest["lateMin"] // 60, "due": oldest["dueAt"][11:]},
+                  "critical", order=oldest["order"])
 
         # 3) Parcels the carrier has had too long to still call in transit.
         chase_h = int(cfg.get("chaseDays") or 5) * 24 * 60
         chase = [r for r in carrier if r["lateMin"] > chase_h]
         if len(chase) >= 10:
-            _emit("Parcels past the chase line with the carrier",
-                  f"{len(chase)} parcels moving for more than {cfg.get('chaseDays')} days "
-                  "beyond the city promise — not late, lost. Chase them with the carrier.",
-                  "warning", cooldown_h=12)
+            _emit("chase", {"n": len(chase), "days": cfg.get("chaseDays")}, "warning", cooldown_h=12)
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "shipments.run_alerts")

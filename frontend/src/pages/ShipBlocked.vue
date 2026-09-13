@@ -43,8 +43,8 @@
           <template v-else>{{ rows.length }}</template>
         </span>
       </div>
-      <div class="divide-y divide-stone-50 max-h-[620px] overflow-y-auto">
-        <div v-for="r in rows" :key="r.order" class="px-4 py-2.5 flex items-center gap-3 hover:bg-stone-50 transition-colors">
+      <div class="divide-y divide-stone-50">
+        <div v-for="r in paged" :key="r.order" class="px-4 py-2.5 flex items-center gap-3 hover:bg-stone-50 transition-colors">
           <span class="w-1 h-8 rounded-full flex-shrink-0" :class="r.late ? 'bg-rose-500' : 'bg-stone-200'" />
           <RouterLink :to="{ name: 'OrderDetail', params: { name: r.order } }" class="lp-tap min-w-0 flex-1 basis-[120px] py-1">
             <div class="font-mono text-[12px] font-semibold text-stone-900 truncate" dir="ltr">{{ r.order }}</div>
@@ -68,7 +68,9 @@
       </div>
     </section>
 
-    <div v-else-if="d" class="rounded-2xl bg-white ring-1 ring-stone-200/70 p-10 text-center">
+    <Pager v-if="rows.length > pageSize || page > 1" v-model:page="page" v-model:pageSize="pageSize" :total="rows.length" />
+
+    <div v-if="d && !rows.length && !(loadError && !d)" class="rounded-2xl bg-white ring-1 ring-stone-200/70 p-10 text-center">
       <Icon name="check-circle" :size="24" class="mx-auto text-emerald-400" />
       <div class="text-[14px] font-semibold text-stone-700 mt-2">{{ t('oclk.blkClear') }}</div>
     </div>
@@ -76,8 +78,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import Icon from "@/components/ui/Icon.vue";
+import Pager from "@/components/ui/Pager.vue";
 import { api } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 
@@ -86,6 +89,8 @@ const d = ref(null);
 const loading = ref(true);
 const loadError = ref("");
 const why = ref("");
+const page = ref(1);
+const pageSize = ref(50);
 
 const ORDER = ["oos", "shelf", "city", "no_awb", "stuck_pick"];
 const STAGE_CLS = {
@@ -108,8 +113,11 @@ const rows = computed(() => {
   const all = d.value?.rows || [];
   return why.value ? all.filter((r) => r.why.includes(why.value)) : all;
 });
-// The cards count every hit; the list is capped server-side.
+// The cards count every hit; the list is capped server-side far above
+// anything the floor has produced (2,000) and paged here.
 const truncated = computed(() => !!d.value && (d.value.rows || []).length < d.value.total);
+const paged = computed(() => rows.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value));
+watch(why, () => { page.value = 1; });
 
 // Each door lands on the row, not on the top of a long list: the pipeline
 // and the pick lists seed their search from `q`, the manifest screen has an

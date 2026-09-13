@@ -61,6 +61,10 @@ doc_events = {
         "before_submit": "logistics_portal.api.picking.enforce_picker_on_submit",
         "on_update": "logistics_portal.api.picking.sync_pick_progress",
     },
+    "WhatsApp Message": {
+        # Indexed phone key for conversation lookups (feedback replies).
+        "after_insert": "logistics_portal.api.feedback.stamp_phone_key",
+    },
     "Sales Order": {
         "on_update": "logistics_portal.api.orders.stamp_stage_timestamps",
         # A cancelled order stays cancelled unless a human reopens it —
@@ -90,6 +94,7 @@ after_migrate = [
     "logistics_portal.api.cycle_count.ensure_doctype",
     "logistics_portal.api.campaign.ensure_doctype",
     "logistics_portal.api.feedback.ensure_doctype",
+    "logistics_portal.api.feedback.backfill_phone_keys",
     "logistics_portal.install.ensure_indexes",
     # One-time: seed the manifest station's month of history from the
     # Shipment child rows that always carried the who/when.

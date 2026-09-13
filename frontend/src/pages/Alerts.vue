@@ -77,10 +77,10 @@
               <Icon :name="sev(a).icon" :size="16" class="mt-0.5 flex-shrink-0" :class="sev(a).ic" />
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2">
-                  <span class="text-[12.5px] font-semibold text-stone-900 truncate flex-1 min-w-0">{{ a.title }}</span>
+                  <span class="text-[12.5px] font-semibold text-stone-900 truncate flex-1 min-w-0" dir="auto">{{ ttl(a) }}</span>
                   <span class="text-[10.5px] text-stone-400 tabular-nums flex-shrink-0">{{ a.t }}</span>
                 </div>
-                <p class="text-[12px] text-stone-600 mt-0.5 leading-snug text-pretty">{{ a.body }}</p>
+                <p class="text-[12px] text-stone-600 mt-0.5 leading-snug text-pretty" dir="auto">{{ bdy(a) }}</p>
                 <button
                   v-if="a.action"
                   class="mt-2 inline-flex items-center gap-1 text-[11.5px] font-semibold text-[var(--accent-700)] hover:text-[var(--accent-800)]"
@@ -110,9 +110,12 @@ import Icon from "@/components/ui/Icon.vue";
 
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
 const router = useRouter();
+// Portal-emitted alerts carry en/fr/ar; everything else is shown as stored.
+const ttl = (a) => a.i18n?.[locale.value]?.t || a.i18n?.en?.t || a.title;
+const bdy = (a) => a.i18n?.[locale.value]?.b || a.i18n?.en?.b || a.body;
 
 // Live-or-demo alert feed: `audit.recent_alerts` returns the same shape as AUDIT.
 const AUDIT = ref([]);

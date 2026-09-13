@@ -236,10 +236,24 @@ def recent_alerts():
             order_by="creation desc",
             limit=30,
         )
+        import json as _json
         out = []
         for r in rows:
             title = r.subject or ""
             sev = "red" if ("breach" in title.lower() or "sla" in title.lower()) else "yellow"
+            body = r.email_content or ""
+            i18n = None
+            # Portal-emitted alerts carry their three renderings as JSON; the
+            # page shows the reader's language, the desk sees plain English.
+            if body[:1] == "{":
+                try:
+                    packed = _json.loads(body)
+                    if isinstance(packed, dict) and isinstance(packed.get("lp"), dict):
+                        i18n = packed["lp"]
+                        body = (i18n.get("en") or {}).get("b") or ""
+                        sev = {"critical": "red", "warning": "orange"}.get(packed.get("sev"), sev)
+                except Exception:
+                    pass
             out.append({
                 "id": r.name,
                 "read": bool(r.read),
@@ -247,7 +261,8 @@ def recent_alerts():
                 "kind": "alert",
                 "t": pretty_date(r.creation),
                 "title": title,
-                "body": r.email_content or "",
+                "body": body,
+                "i18n": i18n,
                 "action": None,
                 "order": r.document_name if r.document_type == "Sales Order" else None,
             })

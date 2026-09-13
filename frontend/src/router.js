@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from "vue-router";
 import { useAuth } from "@/composables/useAuth";
 import { homeRouteFor } from "@/lib/roles";
 import { PORTAL_BASE, IS_CC, IS_SHIP, portalOf } from "@/lib/portal";
+import { useToast } from "@/composables/useToast";
+import { useI18n } from "@/composables/useI18n";
 
 const AppLayout = () => import("@/components/layout/AppLayout.vue");
 const LaneShell = () => import("@/components/layout/LaneShell.vue");
@@ -192,7 +194,9 @@ router.beforeEach(async (to, from, next) => {
   } else if (to.meta.guest && isLoggedIn.value) {
     next({ name: "Home2" });
   } else if (isLoggedIn.value && to.name && hiddenPages.value.includes(to.name)) {
-    // A page the manager hid for this user — deep links bounce home too.
+    // A page the manager hid for this user — deep links bounce home too,
+    // and say so, or a link that "does nothing" gets reported as a bug.
+    try { useToast().warn(useI18n().t("nav.hiddenBounce"), ""); } catch (_) { /* never block navigation */ }
     next({ name: homeRouteFor(role.value, hiddenPages.value, IS_CC) });
   } else {
     next();

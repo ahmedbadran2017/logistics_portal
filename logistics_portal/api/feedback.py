@@ -360,6 +360,63 @@ def _record(r, phone, status, wa_name=None, wamid=None, error=None):
 
 
 # ---------------------------------------------------------------------------
+# Phone key: an indexed way to find a conversation
+# ---------------------------------------------------------------------------
+
+def _phone_key(s):
+    d = re.sub(r"[^0-9]", "", s or "")
+    return d[-9:] if len(d) >= 9 else ""
+
+
+def stamp_phone_key(doc, method=None):
+    """doc_events hook on WhatsApp Message: the counterpart's last nine digits."""
+    try:
+        if not frappe.db.has_column("WhatsApp Message", "custom_lp_phone_key"):
+            return
+        key = _phone_key(doc.get("from") if doc.get("type") == "Incoming" else doc.get("to"))
+        if key and doc.get("custom_lp_phone_key") != key:
+            frappe.db.set_value("WhatsApp Message", doc.name, "custom_lp_phone_key", key,
+                                update_modified=False)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:1000], "feedback.stamp_phone_key")
+
+
+def backfill_phone_keys(days=90):
+    """after_migrate, idempotent: key the recent history once, then index it.
+    Older rows stay unkeyed — nothing looks further back than the reply
+    window, and the CS inbox reads seven days."""
+    try:
+        if not _has_wa():
+            return
+        from logistics_portal.install import ensure_cs_fields
+        ensure_cs_fields()
+        if not frappe.db.has_column("WhatsApp Message", "custom_lp_phone_key"):
+            return
+        since = add_to_date(now_datetime(), days=-int(days))
+        # In day-sized bites so the migrate never holds one long lock.
+        for back in range(int(days), -1, -1):
+            lo = add_to_date(now_datetime(), days=-back - 1)
+            hi = add_to_date(now_datetime(), days=-back)
+            if hi < since:
+                continue
+            frappe.db.sql(
+                """UPDATE `tabWhatsApp Message`
+                   SET custom_lp_phone_key = RIGHT(REGEXP_REPLACE(
+                         CASE WHEN type = 'Incoming' THEN `from` ELSE `to` END, '[^0-9]', ''), 9)
+                   WHERE creation >= %s AND creation < %s
+                     AND (custom_lp_phone_key IS NULL OR custom_lp_phone_key = '')""",
+                (lo, hi))
+            frappe.db.commit()
+        try:
+            frappe.db.sql("ALTER TABLE `tabWhatsApp Message` ADD INDEX `lp_wa_phone_key` (`custom_lp_phone_key`)")
+            frappe.db.commit()
+        except Exception:
+            pass
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "feedback.backfill_phone_keys")
+
+
+# ---------------------------------------------------------------------------
 # Reading the answer
 # ---------------------------------------------------------------------------
 
@@ -425,7 +482,7 @@ def run_replies():
                     WHERE type = 'Incoming' AND creation >= %s
                       AND content_type IN ('button', 'interactive', 'text')
                       AND COALESCE(custom_lp_handled, 0) = 0
-                      AND RIGHT(REGEXP_REPLACE(`from`, '[^0-9]', ''), 9) IN ({ph})
+                      AND custom_lp_phone_key IN ({ph})
                     ORDER BY creation""",
                 tuple([oldest] + [p[-9:] for p in phones]), as_dict=True)
             # Anything ELSE we sent a phone after the question (a confirmation
@@ -593,7 +650,7 @@ def board(days=14):
 def mark_handled(name):
     _gate()
     if not frappe.db.exists(DT, name):
-        frappe.throw("Unknown feedback row.")
+        frappe.throw("lp:unknownRow")
     frappe.db.set_value(DT, name, {"handled": 1, "handled_by": frappe.session.user},
                         update_modified=False)
     frappe.db.commit()
@@ -607,10 +664,10 @@ def test_send(phone):
     _admin_gate()
     cfg = get_settings()
     if not cfg.get("template"):
-        frappe.throw("Pick a template first.")
+        frappe.throw("lp:pickTemplate")
     p = _digits(phone)
     if not p:
-        frappe.throw("Phone must have at least nine digits.")
+        frappe.throw("lp:badPhone")
     name, wamid = _send_template(cfg, p, "Test", None)
     frappe.db.commit()
     return {"ok": True, "message": name, "wamid": wamid}

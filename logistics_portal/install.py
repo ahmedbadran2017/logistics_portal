@@ -156,6 +156,10 @@ _ISSUE_FIELDS = [
 _WA_FIELDS = [
     {"fieldname": "custom_lp_handled", "label": "LP Handled", "fieldtype": "Check",
      "default": "0", "read_only": 1, "no_copy": 1, "hidden": 1},
+    # The last nine digits of `from`/`to`, stamped on insert so a lookup by
+    # phone can use an index instead of REGEXP_REPLACE over the table.
+    {"fieldname": "custom_lp_phone_key", "label": "LP Phone Key", "fieldtype": "Data",
+     "length": 12, "read_only": 1, "no_copy": 1, "hidden": 1},
 ]
 
 
