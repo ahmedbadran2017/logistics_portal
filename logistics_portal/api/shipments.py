@@ -353,7 +353,7 @@ def _rows(days=30):
     days = int(days)
     key = f"lp_ship_rows:{days}"
     try:
-        cached = frappe.cache().get_value(key)
+        cached = frappe.cache().get_value(key, expires=True)
         if cached is not None:
             return cached
     except Exception:
@@ -378,7 +378,7 @@ def _shaped(days, cfg, now):
     """
     key = f"lp_ship_shaped:{int(days)}:{str(now)[:16]}"
     try:
-        cached = frappe.cache().get_value(key)
+        cached = frappe.cache().get_value(key, expires=True)
         if cached is not None:
             return cached
     except Exception:
@@ -723,7 +723,7 @@ def blocked(days=30):
     # answer is shared for the minute like the clock itself.
     key = f"lp_ship_blocked:{days}:{str(now)[:16]}"
     try:
-        cached = frappe.cache().get_value(key)
+        cached = frappe.cache().get_value(key, expires=True)
         if cached is not None:
             return cached
     except Exception:

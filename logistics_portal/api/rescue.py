@@ -261,7 +261,7 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
         ck = f"lp_rescue_verdict:{tab}:{days}"
         split = None
         try:
-            split = frappe.cache().get_value(ck)
+            split = frappe.cache().get_value(ck, expires=True)
         except Exception:
             pass
         if not split:

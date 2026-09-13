@@ -72,8 +72,7 @@
     </section>
 
     <!-- lenses: each one IS the list behind its number -->
-    <div v-if="d" class="sticky top-[41px] z-10 -mx-2 px-2 py-1.5 rounded-xl flex items-center gap-3 flex-wrap"
-         style="background: rgb(var(--bg) / 0.92); backdrop-filter: blur(6px)">
+    <div v-if="d" class="py-1 flex items-center gap-3 flex-wrap">
       <div class="sh-seg overflow-x-auto flex-shrink min-w-0" style="scrollbar-width: none">
         <button v-for="l in lenses" :key="l.view" class="sh-seg-btn" :class="view === l.view ? 'sh-seg-on' : ''"
                 :aria-pressed="view === l.view" @click="setView(l.view)">
@@ -160,7 +159,7 @@
       </div>
       <div v-for="g in groups" :key="g.key" class="space-y-1.5">
         <div class="flex items-center gap-2 px-1">
-          <span class="text-[10.5px] font-bold uppercase tracking-wide" :class="g.late ? 'text-rose-600' : 'text-stone-500'">{{ t('oclk.dueGroup') }} · {{ dayLabel(g.key) }} {{ g.key.slice(5, 10) }}</span>
+          <span class="text-[10.5px] font-bold uppercase tracking-wide" :class="g.late ? 'text-rose-600' : 'text-stone-500'">{{ t('oclk.dueGroup') }} · {{ groupLabel(g.key) }}</span>
           <span class="text-[10.5px] text-stone-400 tabular-nums">{{ g.rows.length }}</span>
           <span class="flex-1 h-px bg-stone-200/70" />
         </div>
@@ -317,6 +316,11 @@ function dayLabel(s) {
   const tmr = new Date(parse(now.slice(0, 10) + " 12:00") + 86400000).toISOString().slice(0, 10);
   if (day === tmr) return t("oclk.tomorrow");
   return day.slice(5);
+}
+// "Today" / "Tomorrow" carry the date beside them; any other day is the date alone.
+function groupLabel(key) {
+  const l = dayLabel(key);
+  return l === key.slice(5, 10) ? l : `${l} · ${key.slice(5, 10)}`;
 }
 function reached(r) { return REACHED[r.stage] ?? 0; }
 function stepTitle(r) {
