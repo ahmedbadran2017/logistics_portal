@@ -967,3 +967,110 @@ def journey(order):
                         AND comment_type = 'Comment' AND ({like})
                       ORDER BY creation""", tuple([order] + list(_CARRIER_EVENT_LIKE)), as_dict=True)]
     return {"found": True, "row": r, "docs": docs, "events": events, "now": str(now)[:16]}
+
+
+# ---------------------------------------------------------------------------
+# My day: what each person on this team actually did today, from the trail
+# their actions already leave on the orders. No new bookkeeping — a chase, a
+# rescue decision, a city fix, a handled complaint and a note each write a
+# comment with a fixed prefix and the session user as owner.
+# ---------------------------------------------------------------------------
+
+_DAY_KINDS = {
+    "chases": "Tracking: chased%",
+    "rescues": "Rescue: %",
+    "cities": "Shipping city set to%",
+    "feedback": "Tracking: feedback handled%",
+    "notes": "Note —%",
+}
+
+
+@frappe.whitelist()
+def my_day():
+    _gate()
+    from logistics_portal.api import clock
+    lo, hi = clock.day_bounds(clock.floor_now().date())
+    sums = ", ".join(f"SUM(content LIKE %({k})s) AS {k}" for k in _DAY_KINDS)
+    anyof = " OR ".join(f"content LIKE %({k})s" for k in _DAY_KINDS)
+    params = dict(_DAY_KINDS, lo=lo, hi=hi)
+    rows = frappe.db.sql(
+        f"""SELECT owner, {sums} FROM `tabComment`
+            WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
+              AND creation >= %(lo)s AND creation < %(hi)s AND ({anyof})
+            GROUP BY owner""", params, as_dict=True)
+    users = [r.owner for r in rows]
+    names = {}
+    if users:
+        names = dict(frappe.db.sql("SELECT name, full_name FROM `tabUser` WHERE name IN %s", (users,)))
+    team = []
+    for r in rows:
+        counts = {k: int(r.get(k) or 0) for k in _DAY_KINDS}
+        counts["total"] = sum(counts.values())
+        team.append({"user": r.owner, "name": names.get(r.owner) or r.owner.split("@")[0], **counts})
+    team.sort(key=lambda x: -x["total"])
+    me = next((x for x in team if x["user"] == frappe.session.user), None) or \
+        {"user": frappe.session.user, **{k: 0 for k in _DAY_KINDS}, "total": 0}
+    totals = {k: sum(x[k] for x in team) for k in list(_DAY_KINDS) + ["total"]}
+    return {"today": str(lo)[:10], "me": me, "team": team[:12], "totals": totals}
+
+
+# ---------------------------------------------------------------------------
+# City promise tuner: what the carrier has actually been doing per city over
+# the last weeks, next to the promise the settings hold. Cities drift; the
+# promise was seeded once. A lead accepts a suggestion in one click.
+# ---------------------------------------------------------------------------
+
+def _working_days_between(a, b, rest):
+    """Calendar days from a to b that the carrier works — the same count the
+    promise itself is made in (carrier_due skips the rest days)."""
+    d, n, guard = a.date(), 0, 0
+    end = b.date()
+    while d < end and guard < 60:
+        d = frappe.utils.add_days(d, 1)
+        guard += 1
+        if d.weekday() not in rest:
+            n += 1
+    return n
+
+
+@frappe.whitelist()
+def city_promises(weeks=4):
+    _gate()
+    from logistics_portal.api import clock
+    from logistics_portal.api.city import canon_city
+    weeks = min(max(int(weeks or 4), 1), 8)
+    cfg = get_settings()
+    now = clock.floor_now()
+    rest = set(cfg.get("restDays") or [])
+    since = str(frappe.utils.add_days(now, -weeks * 7))[:16]
+    rows = _shaped(weeks * 7 + 14, cfg, now)
+    per = {}
+    for r in rows:
+        if r["stage"] != "delivered" or not r["handedAt"] or not r["deliveredAt"] or r["deliveredAt"] < since:
+            continue
+        key = canon_city(r["city"])
+        if not key:
+            continue
+        h = frappe.utils.get_datetime(r["handedAt"] + ":00")
+        d = frappe.utils.get_datetime(r["deliveredAt"] + ":00")
+        per.setdefault(key, {"days": [], "kept": 0})
+        per[key]["days"].append(_working_days_between(h, d, rest))
+        if r["kept"]:
+            per[key]["kept"] += 1
+    city_days = cfg.get("cityDays") or {}
+    default = int(cfg.get("defaultCityDays") or 5)
+    out = []
+    for key, v in per.items():
+        n = len(v["days"])
+        if n < 15:
+            continue
+        ds = sorted(v["days"])
+        p75 = ds[min(n - 1, int(round(0.75 * (n - 1))))]
+        suggested = max(1, min(20, int(p75) or 1))
+        current = int(city_days.get(key, default))
+        out.append({"city": key, "n": n, "p75": p75, "median": ds[n // 2],
+                    "keptPct": round(100.0 * v["kept"] / n),
+                    "current": current, "configured": key in city_days,
+                    "suggested": suggested, "delta": suggested - current})
+    out.sort(key=lambda x: -x["n"])
+    return {"weeks": weeks, "cities": out, "default": default}

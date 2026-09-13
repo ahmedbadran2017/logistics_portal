@@ -1580,6 +1580,11 @@ export default {
     badPhone: "The phone needs at least nine digits.",
   },
   oclk: {
+    myDay: "My day", teamToday: "Team today", teamQuiet: "Nothing logged by the team yet today.",
+    day_chases: "chases", day_rescues: "rescues", day_cities: "cities fixed", day_feedback: "complaints handled", day_notes: "notes",
+    tunerHint: "Measured: working days from handover to the door, 75th percentile, and how often the current promise was kept",
+    measuredHint: "what the carrier actually did here lately", keptShort: "kept", wShort: "w",
+    accept: "Use the measured promise", acceptAll: "Accept all suggestions", suggestAdd: "Busy cities without their own promise",
     failedLens: "Failed deliveries", toRescue: "Delivery exceptions and failed attempts are worked in Rescue",
     chased: "Chased", chasedHint: "You called the carrier about this parcel — it leaves the list for the snooze window",
     chasedDone: "Marked as chased", waveFilter: "Only this wave", keysHint: "keys 1–5 switch lens, Esc clears",

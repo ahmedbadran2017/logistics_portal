@@ -1581,6 +1581,11 @@ export default {
     badPhone: "Le numéro doit avoir au moins neuf chiffres.",
   },
   oclk: {
+    myDay: "Ma journée", teamToday: "L'équipe aujourd'hui", teamQuiet: "Rien d'enregistré par l'équipe aujourd'hui.",
+    day_chases: "relances", day_rescues: "sauvetages", day_cities: "villes corrigées", day_feedback: "réclamations traitées", day_notes: "notes",
+    tunerHint: "Mesuré : jours ouvrés de la remise à la porte, 75e percentile, et fréquence à laquelle la promesse actuelle a été tenue",
+    measuredHint: "ce que le transporteur a réellement fait ici récemment", keptShort: "tenu", wShort: "sem",
+    accept: "Utiliser la promesse mesurée", acceptAll: "Accepter toutes les suggestions", suggestAdd: "Villes actives sans promesse propre",
     failedLens: "Livraisons échouées", toRescue: "Les exceptions et tentatives échouées se traitent dans Rescue",
     chased: "Relancé", chasedHint: "Vous avez relancé le transporteur — le colis quitte la liste le temps du délai",
     chasedDone: "Marqué relancé", waveFilter: "Ce départ seulement", keysHint: "touches 1–5 : vue, Échap : effacer",

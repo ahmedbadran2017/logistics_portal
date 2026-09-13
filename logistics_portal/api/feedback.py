@@ -683,6 +683,15 @@ def mark_handled(name):
         frappe.throw("lp:unknownRow")
     frappe.db.set_value(DT, name, {"handled": 1, "handled_by": frappe.session.user},
                         update_modified=False)
+    # The order carries the mark, like every other action of this team, so
+    # the day strip can count it without a second ledger.
+    try:
+        so = frappe.db.get_value(DT, name, "sales_order")
+        if so and frappe.db.exists("Sales Order", so):
+            frappe.get_doc("Sales Order", so).add_comment(
+                "Comment", f"Tracking: feedback handled · by {frappe.session.user}")
+    except Exception:
+        pass
     frappe.db.commit()
     return {"ok": True}
 

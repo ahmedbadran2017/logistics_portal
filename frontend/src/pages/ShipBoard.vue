@@ -48,6 +48,29 @@
       </div>
     </header>
 
+    <!-- my day: what I did, what the team did — from the trail the actions leave -->
+    <section v-if="day" class="sh-card rounded-2xl px-4 py-3 flex items-center gap-3 flex-wrap">
+      <span class="text-[11px] font-bold uppercase tracking-wide text-teal-700">{{ t('oclk.myDay') }}</span>
+      <span v-for="k in DAY_KINDS" :key="k.key" class="inline-flex items-center gap-1.5 text-[12px]" :title="t('oclk.day_' + k.key)">
+        <Icon :name="k.icon" :size="13" class="text-stone-400" />
+        <b class="tabular-nums" :class="day.me[k.key] ? 'text-stone-900' : 'text-stone-300'">{{ day.me[k.key] }}</b>
+        <span class="text-stone-500 hidden sm:inline">{{ t('oclk.day_' + k.key) }}</span>
+      </span>
+      <button class="ms-auto lp-tap inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-stone-600 hover:text-stone-900" :aria-expanded="showTeam" @click="showTeam = !showTeam">
+        {{ t('oclk.teamToday') }} <b class="tabular-nums text-stone-900">{{ day.totals.total }}</b>
+        <Icon :name="showTeam ? 'chevron-up' : 'chevron-down'" :size="13" />
+      </button>
+      <div v-if="showTeam" class="basis-full grid sm:grid-cols-2 lg:grid-cols-3 gap-1.5 pt-1">
+        <div v-for="m in day.team" :key="m.user" class="flex items-center gap-2 rounded-xl px-3 py-2 bg-stone-50 text-[11.5px]" :class="m.user === day.me.user ? 'ring-1 ring-teal-200' : ''">
+          <span class="font-semibold text-stone-800 truncate flex-1" dir="auto">{{ m.name }}</span>
+          <span v-for="k in DAY_KINDS" :key="k.key" class="inline-flex items-center gap-0.5 tabular-nums" :class="m[k.key] ? 'text-stone-700' : 'text-stone-300'" :title="t('oclk.day_' + k.key)">
+            <Icon :name="k.icon" :size="11" />{{ m[k.key] }}
+          </span>
+        </div>
+        <div v-if="!day.team.length" class="text-[11.5px] text-stone-400 px-1">{{ t('oclk.teamQuiet') }}</div>
+      </div>
+    </section>
+
     <!-- lenses: each one IS the list behind its number -->
     <div v-if="d" class="sticky top-[41px] z-10 -mx-2 px-2 py-1.5 rounded-xl flex items-center gap-3 flex-wrap"
          style="background: rgb(var(--bg) / 0.92); backdrop-filter: blur(6px)">
@@ -190,6 +213,15 @@ const { t } = useI18n();
 const { success, warn } = useToast();
 const waveFilter = ref("");
 const chasing = ref(new Set());
+const day = ref(null);
+const showTeam = ref(false);
+const DAY_KINDS = [
+  { key: "chases", icon: "phone" }, { key: "rescues", icon: "route" }, { key: "cities", icon: "map-pin" },
+  { key: "feedback", icon: "message-circle" }, { key: "notes", icon: "clipboard-check" },
+];
+async function loadDay() {
+  try { day.value = await api("shipments.my_day"); } catch (_) { /* the strip is a bonus, never an error */ }
+}
 const d = ref(null);
 const waves = ref(null);
 const loading = ref(true);
@@ -337,7 +369,7 @@ async function markChased(r) {
   try {
     await apiPost("shipments.chase", { order: r.order });
     if (d.value) { d.value.rows = d.value.rows.filter((x) => x.order !== r.order); d.value.total -= 1; d.value.counts.chase = Math.max(0, d.value.counts.chase - 1); }
-    success(t("oclk.chasedDone"), r.order);
+    success(t("oclk.chasedDone"), r.order); loadDay();
   } catch (e) { warn(t("oclk.saveFail"), String(e?.message || e)); }
   chasing.value.delete(r.order);
 }
@@ -351,10 +383,10 @@ function onKey(e) {
 onMounted(() => {
   const stale = readStale("ship.board." + view.value);
   if (stale) { accept(stale); loading.value = false; }
-  load();
+  load(); loadDay();
   window.addEventListener("keydown", onKey);
 });
-const tick = setInterval(() => { if (document.visibilityState === "visible") load(); }, 120000);
+const tick = setInterval(() => { if (document.visibilityState === "visible") { load(); loadDay(); } }, 120000);
 const clockTick = setInterval(() => { nowTick.value = Date.now(); }, 30000);
 onUnmounted(() => { clearInterval(tick); clearInterval(clockTick); window.removeEventListener("keydown", onKey); });
 </script>

@@ -53,13 +53,27 @@
 
       <!-- Per-city promise -->
       <section class="sh-card rounded-2xl overflow-hidden">
-        <div class="px-4 py-3 border-b border-stone-100">
-          <span class="text-[13px] font-semibold text-stone-900">{{ t('oclk.setCities') }}</span>
-          <p class="text-[11.5px] text-stone-500 mt-0.5">{{ t('oclk.setCitiesHint') }}</p>
+        <div class="px-4 py-3 border-b border-stone-100 flex items-start gap-3 flex-wrap">
+          <div class="min-w-0 flex-1">
+            <span class="text-[13px] font-semibold text-stone-900">{{ t('oclk.setCities') }}</span>
+            <p class="text-[11.5px] text-stone-500 mt-0.5">{{ t('oclk.setCitiesHint') }}</p>
+            <p v-if="tuner" class="text-[11px] text-teal-700 mt-1">{{ t('oclk.tunerHint') }} · {{ tuner.weeks }}{{ t('oclk.wShort') }}</p>
+          </div>
+          <button v-if="s.isAdmin && tuner && suggestions.length" class="h-9 px-3 rounded-xl text-[12px] font-bold text-white"
+                  style="background: linear-gradient(135deg, rgb(20 184 166), rgb(13 148 136)); box-shadow: 0 4px 12px -4px rgb(20 184 166 / .45)" @click="acceptAll">
+            {{ t('oclk.acceptAll') }} ({{ suggestions.length }})
+          </button>
         </div>
         <div class="divide-y divide-stone-50 max-h-[300px] overflow-y-auto">
           <div v-for="c in cityList" :key="c" class="px-4 py-2 flex items-center gap-3">
             <span class="text-[12px] text-stone-700 flex-1 truncate" dir="auto">{{ c }}</span>
+            <!-- what the carrier actually did here lately, next to what we promise -->
+            <span v-if="measured[c]" class="text-[10.5px] tabular-nums text-stone-400 hidden sm:inline-flex items-center gap-1" dir="ltr" :title="t('oclk.measuredHint')">
+              p75 <b :class="measured[c].suggested !== (s.cityDays[c] || 0) ? 'text-amber-600' : 'text-stone-600'">{{ measured[c].p75 }}{{ t('oclk.dShort') }}</b>
+              · n {{ measured[c].n }} · <span :class="measured[c].keptPct >= 75 ? 'text-emerald-600' : 'text-rose-600'">{{ measured[c].keptPct }}% {{ t('oclk.keptShort') }}</span>
+            </span>
+            <button v-if="s.isAdmin && measured[c] && measured[c].suggested !== s.cityDays[c]" class="lp-tap h-8 px-2 rounded-lg text-[11px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200 hover:bg-amber-100"
+                    :title="t('oclk.accept')" @click="s.cityDays[c] = measured[c].suggested">→ {{ measured[c].suggested }}</button>
             <input v-model.number="s.cityDays[c]" type="number" min="1" max="20" :disabled="!s.isAdmin" dir="ltr"
                    class="w-16 h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums text-center" />
             <span class="text-[11px] text-stone-400 w-[40px]">{{ t('oclk.days') }}</span>
@@ -73,6 +87,16 @@
                    class="w-16 h-9 px-2 rounded-lg bg-white ring-1 ring-stone-200 text-[12px] tabular-nums text-center" />
             <span class="text-[11px] text-stone-400 w-[40px]">{{ t('oclk.days') }}</span>
             <span v-if="s.isAdmin" class="w-[14px]" />
+          </div>
+        </div>
+        <!-- Busy cities the promise list has never heard of — measured, one click to add. -->
+        <div v-if="s.isAdmin && unlisted.length" class="px-4 py-2.5 border-t border-stone-100">
+          <div class="text-[10.5px] font-bold uppercase tracking-wide text-stone-400 mb-1.5">{{ t('oclk.suggestAdd') }}</div>
+          <div class="flex flex-wrap gap-1.5">
+            <button v-for="m in unlisted" :key="m.city" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-stone-700 bg-stone-50 ring-1 ring-stone-200 hover:bg-white inline-flex items-center gap-1.5"
+                    @click="s.cityDays[m.city] = m.suggested" dir="auto">
+              {{ m.city }} <span class="tabular-nums text-stone-400" dir="ltr">n {{ m.n }} · p75 {{ m.p75 }}{{ t('oclk.dShort') }}</span> <b class="text-teal-700" dir="ltr">→ {{ m.suggested }}</b>
+            </button>
           </div>
         </div>
         <!-- A carrier city the list does not know yet gets its own promise here. -->
@@ -134,6 +158,15 @@ const admins = ref("");
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 
 const cityList = computed(() => Object.keys(s.value?.cityDays || {}).sort());
+const tuner = ref(null);
+const measured = computed(() => Object.fromEntries((tuner.value?.cities || []).map((m) => [m.city, m])));
+// Cities whose configured promise differs from what the carrier has been keeping.
+const suggestions = computed(() => (tuner.value?.cities || []).filter((m) => (m.city in (s.value?.cityDays || {})) && m.suggested !== s.value.cityDays[m.city]));
+const unlisted = computed(() => (tuner.value?.cities || []).filter((m) => !(m.city in (s.value?.cityDays || {})) && m.n >= 30).slice(0, 12));
+function acceptAll() { for (const m of suggestions.value) s.value.cityDays[m.city] = m.suggested; }
+async function loadTuner() {
+  try { tuner.value = await api("shipments.city_promises", { weeks: 4 }); } catch (_) { tuner.value = null; }
+}
 
 function toggleRest(i) {
   if (!s.value?.isAdmin) return;
@@ -163,7 +196,7 @@ function cleanDays(map) {
 
 async function load() {
   loading.value = true;
-  try { s.value = await api("shipments.settings"); admins.value = (s.value.admins || []).join(", "); loadError.value = ""; }
+  try { s.value = await api("shipments.settings"); admins.value = (s.value.admins || []).join(", "); loadError.value = ""; loadTuner(); }
   catch (e) { s.value = null; loadError.value = String(e?.message || e); }
   loading.value = false;
 }
