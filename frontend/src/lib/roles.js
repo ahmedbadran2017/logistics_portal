@@ -271,6 +271,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "ShipBoard", label: "nav.shipBoard", icon: "gauge" },
           { to: "ShipBlocked", label: "nav.shipBlocked", icon: "package-x" },
+          { to: "ShipFeedback", label: "nav.shipFeedback", icon: "message-circle" },
           { to: "Alerts", label: "nav.alerts", icon: "bell" },
           { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
           { to: "Rescue", label: "nav.rescue", icon: "route" },

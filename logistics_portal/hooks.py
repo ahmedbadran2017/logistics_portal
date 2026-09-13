@@ -89,6 +89,7 @@ after_migrate = [
     "logistics_portal.api.labelprint.ensure_doctype",
     "logistics_portal.api.cycle_count.ensure_doctype",
     "logistics_portal.api.campaign.ensure_doctype",
+    "logistics_portal.api.feedback.ensure_doctype",
     "logistics_portal.install.ensure_indexes",
     # One-time: seed the manifest station's month of history from the
     # Shipment child rows that always carried the who/when.
@@ -125,6 +126,9 @@ scheduler_events = {
             # Tracking portal: page the team about the wave that is about to
             # leave orders behind, and the parcels the carrier has lost.
             "logistics_portal.api.shipments.run_alerts",
+            # Post-delivery feedback: read the replies to the question we
+            # asked, thank or ticket, expire the silent ones.
+            "logistics_portal.api.feedback.run_replies",
         ],
         # Audit rule engine: scan recent docs against thresholds every 10 minutes.
         "*/10 * * * *": [
@@ -151,6 +155,9 @@ scheduler_events = {
         "logistics_portal.api.audit.generate_daily_digest",
     ],
     "hourly_long": [
+        # Post-delivery feedback: ask yesterday's deliveries how it went
+        # (no-op until a tracking lead enables it with a template).
+        "logistics_portal.api.feedback.run_ask",
         # Catalog Hub Phase A: whole-catalog status reconcile via Shopify Bulk
         # Operations. One async export diffed against Next; writes only what
         # drifted. Whole-catalog so zero-stock ACTIVE products (oversell taps)
