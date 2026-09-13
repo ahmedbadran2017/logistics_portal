@@ -34,6 +34,45 @@ _STALE_DAYS = 7
 # Everything the working queues track, for the older-than-window backlog.
 _BACKLOG_TRACKS = ("Delivery Exception", "Failed Attempt") + _STALE_TRACKS
 
+# The carrier's last word on the parcel, written by its webhook as a comment
+# on the order. Measured 2026-09-13 on the 30-day exceptions queue: of ~1,000
+# untriaged parcels, 570 said "customer cancelled", 91 "return requested",
+# 171 "customer unreachable", 129 "out for delivery" — a rescue call can
+# only save the last two kinds, and the queue showed none of this.
+_CARRIER_LIKE = ("Newly created%", "Shipped to%", "The parcel%", "Out for%", "Package%",
+                 "The driver%", "Customer unreachable%", "Customer cancelled%",
+                 "The customer has cancelled%", "Cancelled on site%", "Cancellation Reason%",
+                 "Justyol has requested%", "%eturned%")
+_CANCELLED_LIKE = ("Customer cancelled%", "The customer has cancelled%", "Cancelled on site%",
+                   "Cancellation Reason%", "Justyol has requested%")
+
+
+def _last_event_sql(col="content"):
+    ors = " OR ".join(f"c.content LIKE '{p}'" for p in _CARRIER_LIKE)
+    return (f"(SELECT c.{col} FROM `tabComment` c WHERE c.reference_doctype = 'Sales Order' "
+            f"AND c.reference_name = so.name AND c.comment_type = 'Comment' AND ({ors}) "
+            f"ORDER BY c.creation DESC LIMIT 1)")
+
+
+def _cancelled_cond():
+    ev = _last_event_sql()
+    return "(" + " OR ".join(f"{ev} LIKE '{p}'" for p in _CANCELLED_LIKE) + ")"
+
+
+def _verdict(text):
+    t = (text or "")
+    if any(t.startswith(p.rstrip("%")) for p in _CANCELLED_LIKE):
+        return "cancelled"
+    if t.startswith("Customer unreachable"):
+        return "unreachable"
+    if t.startswith("The driver"):
+        return "appointment"
+    if t.startswith(("Out for", "The parcel", "Shipped to")):
+        return "moving"
+    if "eturned" in t:
+        return "returned"
+    return "other" if t else ""
+
 
 def _gate():
     from logistics_portal.api.auth import resolve_role
@@ -138,6 +177,8 @@ _DN_SELECT = """
            so.custom_shipping_city AS city,
            COALESCE(so.custom_call_attempts, 0) AS attempts,
            so.custom_next_call_at AS next_call,
+           """ + _last_event_sql("content") + """ AS last_event,
+           """ + _last_event_sql("creation") + """ AS last_event_at,
            DATEDIFF(CURDATE(), dn.posting_date) AS age_d,
            TIMESTAMPDIFF(HOUR, dn.creation, NOW()) AS age_h
     FROM `tabDelivery Note` dn
@@ -152,8 +193,20 @@ _DN_SELECT = """
 # the filtered page.
 
 
-def _dn_where(tab, vals):
+_RETURNED = ("NOT EXISTS (SELECT 1 FROM `tabDelivery Note` r WHERE r.is_return = 1 "
+             "AND r.return_against = dn.name AND r.docstatus = 1)")
+
+
+def _dn_where(tab, vals, reason=""):
     vals["co"] = _CO
+    extra = []
+    # A parcel that is already back in the building needs no rescue call;
+    # 679 of the 30-day exceptions had a submitted return note behind them.
+    extra.append(_RETURNED)
+    if reason == "cancelled":
+        extra.append(_cancelled_cond())
+    elif reason == "rescuable":
+        extra.append("NOT " + _cancelled_cond())
     if tab == "backlog":
         # The pile OLDER than the working window — 17k untriaged parcels were
         # invisible when every queue clipped at `days`. Worked by bulk triage.
@@ -162,7 +215,7 @@ def _dn_where(tab, vals):
             "dn.docstatus = 1", "dn.company = %(co)s",
             "COALESCE(dn.custom_exception_action,'') = ''",
             "dn.custom_track_shipment_status IN %(backtracks)s",
-            "dn.posting_date < DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"])
+            "dn.posting_date < DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"] + extra)
     conds = ["dn.docstatus = 1", "dn.company = %(co)s",
              "COALESCE(dn.custom_exception_action,'') = ''",
              "dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"]
@@ -174,15 +227,17 @@ def _dn_where(tab, vals):
         conds.append("dn.posting_date <= DATE_SUB(CURDATE(), INTERVAL %(staledays)s DAY)")
         vals["tracks"] = _STALE_TRACKS
         vals["staledays"] = _STALE_DAYS
-    return " AND ".join(conds)
+    return " AND ".join(conds + extra)
 
 
 @frappe.whitelist()
-def board(tab="exceptions", days=30, q="", limit=30, offset=0):
-    """The four rescue queues + counts + my day, one call."""
+def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
+    """The four rescue queues + counts + my day, one call. `reason` narrows
+    the parcel queues by the carrier's last word: rescuable | cancelled."""
     _gate()
     if tab not in TABS:
         tab = "exceptions"
+    reason = reason if reason in ("rescuable", "cancelled") else ""
     days = min(max(int(days or 30), 1), 90)
     limit = min(max(int(limit or 30), 1), 100)
     offset = max(int(offset or 0), 0)
@@ -194,6 +249,28 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
         counts[t] = int(frappe.db.sql(
             f"SELECT COUNT(*) FROM `tabDelivery Note` dn WHERE {_dn_where(t, v)}",
             v)[0][0])
+    # The split that decides whether a call can save anything, for the two
+    # queues a call is made from. Cached: it is a correlated read per parcel.
+    if tab in ("exceptions", "failed"):
+        ck = f"lp_rescue_verdict:{tab}:{days}"
+        split = None
+        try:
+            split = frappe.cache().get_value(ck)
+        except Exception:
+            pass
+        if not split:
+            v = dict(vals)
+            canc = int(frappe.db.sql(
+                f"SELECT COUNT(*) FROM `tabDelivery Note` dn LEFT JOIN `tabSales Order` so ON so.name = "
+                f"(SELECT MIN(dni.against_sales_order) FROM `tabDelivery Note Item` dni WHERE dni.parent = dn.name) "
+                f"WHERE {_dn_where(tab, v, 'cancelled')}", v)[0][0])
+            split = {"cancelled": canc, "rescuable": max(0, counts[tab] - canc)}
+            try:
+                frappe.cache().set_value(ck, split, expires_in_sec=120)
+            except Exception:
+                pass
+        counts["cancelled"] = split["cancelled"]
+        counts["rescuable"] = split["rescuable"]
     counts["notdelivered"] = int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabSales Order`
            WHERE docstatus = 1 AND company = %(co)s
@@ -228,15 +305,22 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
                 ORDER BY COALESCE(so.custom_next_call_at, so.creation)
                 LIMIT %(limit)s OFFSET %(offset)s""", {**vals, "now": _site_now()}, as_dict=True)
     else:
-        where = _dn_where(tab, vals)
+        where = _dn_where(tab, vals, reason)
         if q and str(q).strip():
             vals["q"] = f"%{str(q).strip()}%"
             where += """ AND (dn.name LIKE %(q)s OR dn.customer_name LIKE %(q)s
                          OR dn.custom_awb LIKE %(q)s)"""
+        # The verdict condition reads the order, so the count needs the join.
+        so_join = ("LEFT JOIN `tabSales Order` so ON so.name = (SELECT MIN(dni.against_sales_order) "
+                   "FROM `tabDelivery Note Item` dni WHERE dni.parent = dn.name)") if reason else ""
         total = frappe.db.sql(
-            f"SELECT COUNT(*) FROM `tabDelivery Note` dn WHERE {where}", vals)[0][0]
+            f"SELECT COUNT(*) FROM `tabDelivery Note` dn {so_join} WHERE {where}", vals)[0][0]
+        # Newest failures first for the queues a call can still save: the
+        # carrier holds a parcel about two weeks before sending it back, so
+        # a fresh exception is worth a call and a month-old one is a return.
+        order_by = "dn.posting_date DESC" if tab in ("exceptions", "failed") else "dn.posting_date"
         rows = frappe.db.sql(
-            _DN_SELECT + f" WHERE {where} ORDER BY dn.posting_date"
+            _DN_SELECT + f" WHERE {where} ORDER BY {order_by}"
                          " LIMIT %(limit)s OFFSET %(offset)s", vals, as_dict=True)
 
     # The floor's today (api/clock) — the site date rolls at 22:00 Morocco
@@ -269,6 +353,9 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0):
             "awb": r.awb or "", "track": r.track or "",
             "phone": (r.phone or "").strip(), "city": (r.city or "").strip().title(),
             "ageD": int(r.age_d or 0), "attempts": int(r.attempts or 0),
+            "lastEvent": frappe.utils.strip_html(getattr(r, "last_event", "") or "")[:90],
+            "lastEventAt": str(getattr(r, "last_event_at", "") or "")[:16],
+            "verdict": _verdict(getattr(r, "last_event", "") or ""),
             "nextCall": str(r.next_call)[:16] if r.next_call else "",
             "due": bool(r.next_call and str(r.next_call) <= now),
             # Triage SLA in HOURS: the old day-grain math (age_d * 24) needed
@@ -661,6 +748,9 @@ def dashboard():
             "dn": r.dn, "order": r.so_name or "", "customer": r.customer or "",
             "phone": (r.phone or "").strip(), "track": r.track or "",
             "ageD": int(r.age_d or 0), "attempts": int(r.attempts or 0),
+            "lastEvent": frappe.utils.strip_html(getattr(r, "last_event", "") or "")[:90],
+            "lastEventAt": str(getattr(r, "last_event_at", "") or "")[:16],
+            "verdict": _verdict(getattr(r, "last_event", "") or ""),
             "value": float(r.total or 0),
         } for r in oldest],
         "serverNow": str(now_datetime())[:19],

@@ -2000,6 +2000,10 @@ export default {
     saveFail: "تعذّر الحفظ",
   },
   rs: {
+    reason_rescuable: "مكالمة ممكن تنقذه", reason_cancelled: "العميل لغى", reason_all: "الكل",
+    lastWord: "آخر كلمة من الكارير عن الطرد دا",
+    legend: "Redeliver = العميل اتوصلنا له والكارير يحاول تاني · Reship = طرد جديد · No answer = نرجع نكلمه · Return = يرجّعه",
+    v_cancelled: "العميل لغى", v_unreachable: "مش بيرد", v_appointment: "في معاد", v_moving: "لسه ماشي", v_returned: "راجع", v_other: "ملاحظة كارير",
     title: "الإنقاذ",
     intro: "الطرد خرج والتوصيل بيفشل — اتصل بالعميل وأنقذ البيعة.",
     searchPh: "طرد، AWB، عميل…",

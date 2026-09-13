@@ -44,12 +44,12 @@
           </span>
         </button>
       </div>
-      <label v-if="tab === 'backlog' && rows.length"
+      <label v-if="canBulk && rows.length"
              class="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl text-[12px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200/80 cursor-pointer whitespace-nowrap ms-auto">
         <input type="checkbox" :checked="selected.size === rows.length" class="accent-sky-600 w-3.5 h-3.5" @change="toggleAll" />
         {{ t('rs.selectPage') }}
       </label>
-      <div class="relative" :class="tab === 'backlog' && rows.length ? '' : 'ms-auto'">
+      <div class="relative" :class="canBulk && rows.length ? '' : 'ms-auto'">
         <Icon name="search" :size="13" class="absolute start-3 top-1/2 -translate-y-1/2 text-stone-400" />
         <input v-model="q" :placeholder="t('rs.searchPh')" @input="debouncedLoad"
                class="h-10 w-[240px] ps-9 pe-3 text-[12.5px] bg-white rounded-xl ring-1 ring-stone-200/80 focus:ring-2 outline-none transition-shadow"
@@ -57,8 +57,19 @@
       </div>
     </div>
 
+    <!-- the carrier's verdict: what a call can still save, and what is already a return -->
+    <div v-if="hasVerdict && data" class="flex items-center gap-2 flex-wrap px-1">
+      <button v-for="k in ['rescuable', 'cancelled', '']" :key="k" class="lp-tap h-8 px-3 rounded-full text-[11.5px] font-semibold ring-1 transition-colors"
+              :class="reason === k ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200 hover:ring-stone-300'"
+              :aria-pressed="reason === k" @click="setReason(k)">
+        {{ t('rs.reason_' + (k || 'all')) }}
+        <span class="tabular-nums ms-1" :class="reason === k ? 'text-white/80' : 'text-stone-400'">{{ k ? (data.counts[k] ?? '–') : (data.counts[tab] ?? '–') }}</span>
+      </button>
+      <span class="text-[11px] text-stone-400 ms-auto hidden lg:inline">{{ t('rs.legend') }}</span>
+    </div>
+
     <!-- floating bulk bar: appears only once something is selected -->
-    <div v-if="tab === 'backlog' && !loading && selected.size"
+    <div v-if="canBulk && !loading && selected.size"
          class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2.5 flex-wrap bg-white rounded-2xl shadow-floating ring-1 ring-stone-200/80 px-4 py-2.5 max-w-[94vw]">
       <span class="text-[12.5px] font-bold text-stone-800 tabular-nums whitespace-nowrap">{{ selected.size }} {{ t('rs.selectedN') }}</span>
       <button class="text-[11.5px] font-semibold text-stone-400 hover:text-stone-700" @click="selected = new Set()">{{ t('common.close') }}</button>
@@ -95,7 +106,7 @@
            class="rs-card rounded-2xl p-4"
            :class="r.due ? 'rs-card-due' : ''">
         <div class="flex items-center gap-3.5 flex-wrap">
-          <input v-if="tab === 'backlog'" type="checkbox" class="accent-sky-600 w-4 h-4 shrink-0"
+          <input v-if="canBulk" type="checkbox" class="accent-sky-600 w-4 h-4 shrink-0"
                  :checked="selected.has(r.id)" @change="toggleOne(r.id)" />
           <span class="rs-avatar" :class="r.due ? 'rs-avatar-due' : ''">{{ initial(r.customer) }}</span>
           <div class="min-w-0 flex-1">
@@ -113,6 +124,11 @@
               <span class="inline-flex items-center gap-1" :class="ageColor(r.ageD)"><Icon name="clock" :size="11" />{{ r.ageD }}{{ t('cf.days') }}</span>
               <span v-if="r.attempts" class="inline-flex items-center gap-1 text-amber-600 font-medium"><Icon name="phone-off" :size="11" />×{{ r.attempts }}</span>
               <span v-if="r.nextCall" class="text-stone-400">→ {{ r.nextCall.slice(5) }}</span>
+            </div>
+            <div v-if="r.lastEvent" class="flex items-center gap-2 mt-1.5 flex-wrap">
+              <span class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1" :class="VERDICT_CLS[r.verdict] || VERDICT_CLS.other">{{ t('rs.v_' + (r.verdict || 'other')) }}</span>
+              <span class="text-[11.5px] text-stone-600 truncate max-w-[420px]" :title="t('rs.lastWord')">{{ r.lastEvent }}</span>
+              <span v-if="r.lastEventAt" class="text-[10.5px] text-stone-400 tabular-nums" dir="ltr">{{ r.lastEventAt.slice(5) }}</span>
             </div>
           </div>
           <!-- contact -->
@@ -247,6 +263,17 @@ import { useToast } from "@/composables/useToast";
 const { t } = useI18n();
 const { success, warn } = useToast();
 
+// The carrier's last word splits the exceptions: a call can save a parcel
+// the customer did not cancel; the rest is a return to confirm.
+const reason = ref("rescuable");
+const hasVerdict = computed(() => tab.value === "exceptions" || tab.value === "failed");
+const canBulk = computed(() => tab.value === "backlog" || (hasVerdict.value && reason.value === "cancelled"));
+const VERDICT_CLS = {
+  cancelled: "text-rose-700 bg-rose-50 ring-rose-200", unreachable: "text-amber-700 bg-amber-50 ring-amber-200",
+  appointment: "text-emerald-700 bg-emerald-50 ring-emerald-200", moving: "text-sky-700 bg-sky-50 ring-sky-200",
+  returned: "text-stone-600 bg-stone-100 ring-stone-200", other: "text-stone-600 bg-stone-100 ring-stone-200",
+};
+function setReason(r) { reason.value = r; page.value = 1; load(); }
 const TABS = [
   { key: "exceptions", label: "rs.tabExceptions", icon: "alert-triangle", onColor: "bg-rose-100 text-rose-700" },
   { key: "failed", label: "rs.tabFailed", icon: "alert-circle", onColor: "bg-amber-100 text-amber-700" },
@@ -312,6 +339,7 @@ async function load() {
     const res = await api("rescue.board", {
       tab: tab.value, q: q.value, limit: pageSize,
       offset: (page.value - 1) * pageSize,
+      reason: hasVerdict.value ? reason.value || undefined : undefined,
     });
     data.value = res;
     rows.value = res.rows || [];

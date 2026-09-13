@@ -2001,6 +2001,10 @@ export default {
     saveFail: "Échec de l'enregistrement",
   },
   rs: {
+    reason_rescuable: "Un appel peut sauver", reason_cancelled: "Annulé par le client", reason_all: "Tout",
+    lastWord: "Le dernier mot du transporteur sur ce colis",
+    legend: "Relivrer = client joint, le transporteur réessaie · Réexpédier = nouveau colis · Sans réponse = rappeler plus tard · Retour = le renvoyer",
+    v_cancelled: "client a annulé", v_unreachable: "injoignable", v_appointment: "rendez-vous pris", v_moving: "en mouvement", v_returned: "en retour", v_other: "note transporteur",
     title: "Sauvetage",
     intro: "Le colis est dehors et la livraison échoue — appelez le client, sauvez la vente.",
     searchPh: "Colis, AWB, client…",
