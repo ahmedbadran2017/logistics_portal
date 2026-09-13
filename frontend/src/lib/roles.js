@@ -260,7 +260,7 @@ export const ROLE_CONFIG = {
     ],
   },
   tracking: {
-    // Their own portal since 2026-09-13 (/shipments): the clock from
+    // Their own portal since 2026-09-13 (/tracking): the clock from
     // confirmation to the door, with its own cut-offs and settings. The board
     // is the landing screen because it IS the job — everything else is a
     // detour off it.

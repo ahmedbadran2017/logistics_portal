@@ -11,11 +11,11 @@
  */
 const _P = window.location.pathname;
 export const PORTAL_BASE = _P.startsWith("/confirmation") ? "/confirmation"
-  : _P.startsWith("/shipments") ? "/shipments"
+  : _P.startsWith("/tracking") ? "/tracking"
   : "/logistics";
 
 export const IS_CC = PORTAL_BASE === "/confirmation";
-export const IS_SHIP = PORTAL_BASE === "/shipments";
+export const IS_SHIP = PORTAL_BASE === "/tracking";
 
 /** The portal a role belongs to ("cc" | "ship" | "floor" | "both"). */
 export function portalOf(role) {

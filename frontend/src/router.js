@@ -100,7 +100,7 @@ const routes = [
       // The full tail behind one of the velocity board's stuck cards.
       { path: "stuck/:key", name: "StuckOrders", component: () => import("@/pages/StuckOrders.vue") },
       { path: "shipments", name: "Shipments", component: () => import("@/pages/Shipments.vue") },
-      // The tracking portal's own screens (served under the /shipments base).
+      // The tracking portal's own screens (served under the /tracking base).
       { path: "board", name: "ShipBoard", component: () => import("@/pages/ShipBoard.vue") },
       { path: "ship-settings", name: "ShipSettings", component: () => import("@/pages/ShipSettings.vue") },
       { path: "blocked", name: "ShipBlocked", component: () => import("@/pages/ShipBlocked.vue") },
@@ -182,7 +182,7 @@ router.beforeEach(async (to, from, next) => {
     // home. Managers ("both") are never moved.
     const side = portalOf(role.value);
     const here = IS_CC ? "cc" : IS_SHIP ? "ship" : "floor";
-    const BASE = { cc: "/confirmation", ship: "/shipments", floor: "/logistics" };
+    const BASE = { cc: "/confirmation", ship: "/tracking", floor: "/logistics" };
     if (side !== "both" && side !== here) {
       window.location.replace(BASE[side] + "/home");
       return;
