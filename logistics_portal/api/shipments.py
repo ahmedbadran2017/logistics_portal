@@ -1094,6 +1094,14 @@ def journey(order):
                         AND comment_type = 'Comment' AND (content LIKE 'Shipped to destination hub%%'
                         OR content LIKE 'The parcel is present on Hub%%' OR content LIKE 'Out for delivery%%'
                         OR content LIKE 'Package Delivered%%')""", order)[0]
+    # The carrier's last word, so the order page reads it like the board does.
+    ev = frappe.db.sql("""SELECT content, creation FROM `tabComment` WHERE reference_doctype = 'Sales Order' AND reference_name = %s
+                          AND comment_type = 'Comment' AND (content LIKE 'Newly created%%' OR content LIKE 'Shipped to%%'
+                          OR content LIKE 'The parcel%%' OR content LIKE 'Out for%%' OR content LIKE 'Package%%' OR content LIKE 'The driver%%'
+                          OR content LIKE 'Customer unreachable%%' OR content LIKE 'Customer cancelled%%' OR content LIKE 'The customer has cancelled%%'
+                          OR content LIKE 'Cancelled on site%%' OR content LIKE 'Justyol has requested%%')
+                          ORDER BY creation DESC LIMIT 1""", (order,))
+    raw.ev_text, raw.ev_at = (ev[0][0], ev[0][1]) if ev else (None, None)
     cfg = get_settings()
     now = clock.floor_now()
     r = _shape(raw, cfg, now)
