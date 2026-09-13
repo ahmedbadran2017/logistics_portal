@@ -222,6 +222,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
+import { readStale, writeStale } from "@/lib/swr";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
 import { useAuth } from "@/composables/useAuth";
@@ -266,6 +267,7 @@ async function load() {
     const r = await api("feedback.board", { days: days.value });
     if (my !== seq) return;
     d.value = r; loadError.value = "";
+    writeStale("ship.feedback." + days.value, r);
   } catch (e) {
     if (my !== seq) return;
     loadError.value = String(e?.message || e);
@@ -307,7 +309,11 @@ async function testSend() {
   catch (e) { warn(t("dfb.testFail"), String(e.message || e)); }
   busy.value = false;
 }
-onMounted(() => { load(); loadSettings(); });
+onMounted(() => {
+  const stale = readStale("ship.feedback." + days.value);
+  if (stale) { d.value = stale; loading.value = false; }
+  load(); loadSettings();
+});
 const tick = setInterval(() => { if (document.visibilityState === "visible") load(); }, 180000);
 onUnmounted(() => clearInterval(tick));
 </script>

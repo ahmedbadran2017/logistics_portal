@@ -1579,6 +1579,9 @@ export default {
     badPhone: "Le numéro doit avoir au moins neuf chiffres.",
   },
   oclk: {
+    chased: "Relancé", chasedHint: "Vous avez relancé le transporteur — le colis quitte la liste le temps du délai",
+    chasedDone: "Marqué relancé", waveFilter: "Ce départ seulement", keysHint: "touches 1–5 : vue, Échap : effacer",
+    setSnooze: "Pause après relance (h)", setSnoozeHint: "Un colis marqué relancé reste hors de la liste pendant ce délai.",
     nextWave: "Prochain départ", leavesIn: "part dans", leftAgo: "restant", readyOf: "prêtes", ofN: "sur",
     keptRate: "Promesse tenue", keptSub: "livrées à temps, 7 jours", noJudged: "aucune livraison jugée encore",
     missedWaves: "Départs manqués", missedHint: "camions partis sans ces commandes",

@@ -91,6 +91,13 @@
         <span class="text-[11.5px] text-stone-500 flex-1 min-w-[220px]">{{ t('oclk.setChaseHint') }}</span>
       </section>
 
+      <section class="sh-card rounded-2xl p-4 flex items-center gap-3 flex-wrap">
+        <span class="text-[13px] font-semibold text-stone-900">{{ t('oclk.setSnooze') }}</span>
+        <input v-model.number="s.chaseSnoozeH" type="number" min="1" max="168" :disabled="!s.isAdmin" dir="ltr"
+               class="w-16 h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums text-center" />
+        <span class="text-[11.5px] text-stone-500 flex-1 min-w-[220px]">{{ t('oclk.setSnoozeHint') }}</span>
+      </section>
+
       <!-- Who may change all of this: managers always, plus the leads named here. -->
       <section v-if="s.isOpsAdmin" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 space-y-2">
         <span class="text-[13px] font-semibold text-stone-900">{{ t('oclk.admins') }}</span>
@@ -169,6 +176,7 @@ async function save() {
         cityDays: cleanDays(s.value.cityDays),
         defaultCityDays: parseInt(s.value.defaultCityDays, 10) || 5,
         chaseDays: parseInt(s.value.chaseDays, 10) || 5,
+        chaseSnoozeH: parseInt(s.value.chaseSnoozeH, 10) || 24,
         ...(s.value.isOpsAdmin ? { admins: admins.value.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean) } : {}),
       },
     });

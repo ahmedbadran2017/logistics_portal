@@ -83,8 +83,9 @@
         </div>
       </div>
 
-      <div v-for="w in upcoming" :key="w.dueAt" class="sh-card rounded-2xl p-4 min-w-[230px] flex-shrink-0"
-           :class="nw && w.dueAt === nw.dueAt ? 'sh-card-next' : ''">
+      <button v-for="w in upcoming" :key="w.dueAt" class="sh-card rounded-2xl p-4 min-w-[230px] flex-shrink-0 text-start"
+              :class="[nw && w.dueAt === nw.dueAt ? 'sh-card-next' : '', waveFilter === w.dueAt ? 'ring-2 ring-stone-900' : '']"
+              :aria-pressed="waveFilter === w.dueAt" :title="t('oclk.waveFilter')" @click="toggleWave(w.dueAt)">
         <div class="flex items-center justify-between gap-2">
           <div>
             <div class="text-[11px] font-bold uppercase tracking-wide" :class="nw && w.dueAt === nw.dueAt ? 'text-teal-700' : 'text-stone-500'">{{ dayLabel(w.dueAt) }}</div>
@@ -106,7 +107,7 @@
           <span class="text-amber-600 font-semibold">{{ w.picking }}</span>
           <span class="text-rose-600 font-semibold">{{ w.toPick }} {{ t('oclk.noList') }}</span>
         </div>
-      </div>
+      </button>
     </section>
 
     <!-- the list -->
@@ -120,8 +121,12 @@
     </div>
 
     <section v-else-if="d && d.rows.length" class="space-y-4">
-      <div class="flex items-center gap-2 px-1">
+      <div class="flex items-center gap-2 px-1 flex-wrap">
         <span class="text-[13px] font-bold text-stone-900">{{ t('oclk.v_' + (d.view || view)) }}</span>
+        <button v-if="waveFilter" class="lp-tap text-[11px] font-semibold text-teal-700 bg-teal-50 ring-1 ring-teal-200 rounded-full px-2 py-0.5 inline-flex items-center gap-1" @click="waveFilter = ''">
+          {{ t('oclk.waveFilter') }} {{ waveFilter.slice(5) }}<Icon name="x" :size="11" />
+        </button>
+        <span class="text-[10.5px] text-stone-400 hidden md:inline">{{ t('oclk.keysHint') }}</span>
         <span class="text-[11px] text-stone-400 tabular-nums ms-auto" dir="ltr">
           <template v-if="d.rows.length < d.total">{{ d.rows.length }} / {{ d.total }}</template>
           <template v-else>{{ d.total }}</template>
@@ -133,8 +138,8 @@
           <span class="text-[10.5px] text-stone-400 tabular-nums">{{ g.rows.length }}</span>
           <span class="flex-1 h-px bg-stone-200/70" />
         </div>
-        <RouterLink v-for="r in g.rows" :key="r.order" :to="{ name: 'OrderDetail', params: { name: r.order } }"
-                    class="sh-card lp-tap rounded-2xl px-4 py-3 flex items-center gap-4">
+        <div v-for="r in g.rows" :key="r.order" class="sh-card rounded-2xl px-4 py-3 flex items-center gap-4">
+          <RouterLink :to="{ name: 'OrderDetail', params: { name: r.order } }" class="lp-tap contents">
           <div class="min-w-0 flex-1 basis-[150px]">
             <div class="font-mono text-[12.5px] font-bold text-stone-900 truncate" dir="ltr">{{ r.order }}</div>
             <div class="text-[11px] text-stone-400 truncate" dir="auto">{{ r.customer }}<span v-if="r.city" class="text-stone-300"> · </span><span dir="auto">{{ r.city }}</span></div>
@@ -150,7 +155,13 @@
           <span class="text-[11px] text-stone-400 tabular-nums w-[46px] text-end hidden lg:block" dir="ltr">{{ r.dueAt.slice(11) }}</span>
           <span class="text-[13px] font-extrabold tabular-nums w-[64px] text-end flex-shrink-0" dir="ltr"
                 :class="r.late ? 'text-rose-600' : 'text-emerald-600'" :title="r.late ? t('oclk.pastPromise') : t('oclk.timeLeft')">{{ remain(r) }}</span>
-        </RouterLink>
+          </RouterLink>
+          <button v-if="view === 'chase'" class="lp-tap h-9 px-3 rounded-xl text-[12px] font-bold text-white flex-shrink-0 disabled:opacity-50"
+                  style="background: linear-gradient(135deg, rgb(249 115 22), rgb(234 88 12)); box-shadow: 0 4px 12px -4px rgb(249 115 22 / .45)"
+                  :disabled="chasing.has(r.order)" :title="t('oclk.chasedHint')" @click.stop="markChased(r)">
+            <Icon name="phone" :size="13" class="inline -mt-px me-1" />{{ t('oclk.chased') }}
+          </button>
+        </div>
       </div>
     </section>
 
@@ -167,10 +178,15 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
-import { api } from "@/lib/resource";
+import { api, apiPost } from "@/lib/resource";
+import { readStale, writeStale } from "@/lib/swr";
 import { useI18n } from "@/composables/useI18n";
+import { useToast } from "@/composables/useToast";
 
 const { t } = useI18n();
+const { success, warn } = useToast();
+const waveFilter = ref("");
+const chasing = ref(new Set());
 const d = ref(null);
 const waves = ref(null);
 const loading = ref(true);
@@ -242,6 +258,7 @@ const upcoming = computed(() => {
 const groups = computed(() => {
   const by = new Map();
   for (const r of d.value?.rows || []) {
+    if (waveFilter.value && r.dueAt !== waveFilter.value) continue;
     const key = r.dueAt || "—";
     if (!by.has(key.slice(0, 10))) by.set(key.slice(0, 10), { key: key.slice(0, 10), rows: [], late: false });
     const g = by.get(key.slice(0, 10));
@@ -279,23 +296,62 @@ function remain(r) {
   return (r.late ? "+" : "") + txt;
 }
 
+function accept(b) {
+  d.value = b;
+  waves.value = { waves: b.waveBuckets || [], now: b.now };
+  if (b?.now) offsetMs = parse(b.now) - Date.now();
+}
 async function load() {
   const my = ++seq;
   if (!d.value) loading.value = true; else refreshing.value = true;
   try {
-    const [b, w] = await Promise.all([api("shipments.board", { view: view.value }), api("shipments.wave_board")]);
+    const b = await api("shipments.board", { view: view.value });
     if (my !== seq) return;
-    d.value = b; waves.value = w; loadError.value = "";
-    if (b?.now) offsetMs = parse(b.now) - Date.now();
+    accept(b); loadError.value = "";
+    writeStale("ship.board." + view.value, b);
   } catch (e) {
     if (my !== seq) return;
     loadError.value = String(e?.message || e);
   }
   loading.value = false; refreshing.value = false;
 }
-function setView(v) { view.value = v; load(); }
-onMounted(load);
+function setView(v) {
+  view.value = v;
+  const stale = readStale("ship.board." + v);
+  if (stale) accept(stale);
+  load();
+}
+// A wave card narrows the list to that van's load (the in-house lens).
+function toggleWave(dueAt) {
+  if (waveFilter.value === dueAt) { waveFilter.value = ""; return; }
+  waveFilter.value = dueAt;
+  if (view.value !== "wave") setView("wave");
+}
+// Mark a parcel as chased: it leaves the list for the snooze window.
+async function markChased(r) {
+  if (chasing.value.has(r.order)) return;
+  chasing.value.add(r.order);
+  try {
+    await apiPost("shipments.chase", { order: r.order });
+    if (d.value) { d.value.rows = d.value.rows.filter((x) => x.order !== r.order); d.value.total -= 1; d.value.counts.chase = Math.max(0, d.value.counts.chase - 1); }
+    success(t("oclk.chasedDone"), r.order);
+  } catch (e) { warn(t("oclk.saveFail"), String(e?.message || e)); }
+  chasing.value.delete(r.order);
+}
+// 1-5 jump between lenses; Escape clears the wave filter.
+function onKey(e) {
+  if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+  const i = parseInt(e.key, 10);
+  if (i >= 1 && i <= lenses.value.length) { waveFilter.value = ""; setView(lenses.value[i - 1].view); }
+  if (e.key === "Escape") waveFilter.value = "";
+}
+onMounted(() => {
+  const stale = readStale("ship.board." + view.value);
+  if (stale) { accept(stale); loading.value = false; }
+  load();
+  window.addEventListener("keydown", onKey);
+});
 const tick = setInterval(() => { if (document.visibilityState === "visible") load(); }, 120000);
 const clockTick = setInterval(() => { nowTick.value = Date.now(); }, 30000);
-onUnmounted(() => { clearInterval(tick); clearInterval(clockTick); });
+onUnmounted(() => { clearInterval(tick); clearInterval(clockTick); window.removeEventListener("keydown", onKey); });
 </script>

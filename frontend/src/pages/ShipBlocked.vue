@@ -117,6 +117,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import Pager from "@/components/ui/Pager.vue";
 import { api } from "@/lib/resource";
+import { readStale, writeStale } from "@/lib/swr";
 import { useI18n } from "@/composables/useI18n";
 
 const { t } = useI18n();
@@ -167,11 +168,15 @@ function age(r) {
 
 async function load() {
   if (!d.value) loading.value = true;
-  try { d.value = await api("shipments.blocked"); loadError.value = ""; }
+  try { d.value = await api("shipments.blocked"); loadError.value = ""; writeStale("ship.blocked", d.value); }
   catch (e) { loadError.value = String(e?.message || e); }
   loading.value = false;
 }
-onMounted(load);
+onMounted(() => {
+  const stale = readStale("ship.blocked");
+  if (stale) { d.value = stale; loading.value = false; }
+  load();
+});
 const tick = setInterval(() => { if (document.visibilityState === "visible") load(); }, 180000);
 onUnmounted(() => clearInterval(tick));
 </script>

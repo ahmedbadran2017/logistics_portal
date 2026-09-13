@@ -1578,6 +1578,9 @@ export default {
     badPhone: "The phone needs at least nine digits.",
   },
   oclk: {
+    chased: "Chased", chasedHint: "You called the carrier about this parcel — it leaves the list for the snooze window",
+    chasedDone: "Marked as chased", waveFilter: "Only this wave", keysHint: "keys 1–5 switch lens, Esc clears",
+    setSnooze: "Chase snooze (h)", setSnoozeHint: "A parcel marked as chased stays off the chase list this long.",
     nextWave: "Next wave", leavesIn: "leaves in", leftAgo: "left", readyOf: "ready", ofN: "of",
     keptRate: "Promise kept", keptSub: "delivered on time, 7 days", noJudged: "no deliveries judged yet",
     missedWaves: "Missed waves", missedHint: "vans that left without these orders",

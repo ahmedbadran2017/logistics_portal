@@ -51,6 +51,8 @@ _DEFAULTS = {
     "defaultCityDays": 5,
     # A parcel with the carrier this long is not late, it is lost.
     "chaseDays": 5,
+    # Once chased, a parcel leaves the chase list for this many hours.
+    "chaseSnoozeH": 24,
     # Section leads: emails that may change these settings and run the
     # feedback engine without a manager role (same pattern as the CS lane).
     "admins": [],
@@ -169,7 +171,7 @@ def _clean_settings(cur, payload):
             if key and 1 <= n <= 20:
                 cd[key] = n
         cur["cityDays"] = cd
-    for k, lo, hi in (("defaultCityDays", 1, 20), ("chaseDays", 1, 30)):
+    for k, lo, hi in (("defaultCityDays", 1, 20), ("chaseDays", 1, 30), ("chaseSnoozeH", 1, 168)):
         if k in payload:
             try:
                 cur[k] = min(max(int(payload[k]), lo), hi)
@@ -343,6 +345,28 @@ def _rows(days=30):
     return rows
 
 
+def _shaped(days, cfg, now):
+    """Every row shaped for this minute, shared by every screen and the cron.
+
+    The raw rows are already cached; shaping them was the other second, and
+    the board, the wave strip, the blocked screen and the alert job each did
+    it again. One minute of staleness on a clock that moves in hours is free.
+    """
+    key = f"lp_ship_shaped:{int(days)}:{str(now)[:16]}"
+    try:
+        cached = frappe.cache().get_value(key)
+        if cached is not None:
+            return cached
+    except Exception:
+        pass
+    rows = [_shape(r, cfg, now) for r in _rows(days)]
+    try:
+        frappe.cache().set_value(key, rows, expires_in_sec=120)
+    except Exception:
+        pass
+    return rows
+
+
 def _shape(r, cfg, now):
     """One order's clock: where it is, who owns it, and what it owes."""
     from logistics_portal.api import clock
@@ -410,11 +434,18 @@ def board(view="live", days=30, limit=300):
     days = min(max(int(days or 30), 1), 90)
     limit = min(max(int(limit or 300), 1), 1000)
 
-    rows = [_shape(r, cfg, now) for r in _rows(days)]
+    rows = _shaped(days, cfg, now)
     live = [r for r in rows if r["stage"] not in ("delivered", "failed")]
     in_house = [r for r in live if r["stage"] in ("to_pick", "picking", "to_hand_over")]
     carrier = [r for r in live if r["stage"] == "with_carrier"]
 
+    # A parcel the team already chased today leaves the chase list until the
+    # snooze runs out; the mark lives on the order as a comment.
+    chased = _chased_at([r["order"] for r in carrier])
+    snooze_h = int(cfg.get("chaseSnoozeH") or 24)
+    for r in carrier:
+        r["chasedAt"] = chased.get(r["order"], "")
+        r["snoozed"] = bool(r["chasedAt"] and (now - clock.to_floor(chased[r["order"]])).total_seconds() < snooze_h * 3600)
     chase_h = int(cfg.get("chaseDays") or 5) * 24
     week = str(frappe.utils.add_days(now, -7))[:16]
     judged = [r for r in rows if r["stage"] == "delivered" and r["kept"] is not None
@@ -428,7 +459,7 @@ def board(view="live", days=30, limit=300):
         "carrier": len(carrier),
         "lateCarrier": sum(1 for r in carrier if r["late"]),
         "chase": sum(1 for r in carrier
-                     if r["handedAt"] and r["ageH"] and r["lateMin"] > chase_h * 60),
+                     if r["handedAt"] and r["ageH"] and r["lateMin"] > chase_h * 60 and not r["snoozed"]),
     }
 
     if view == "late":
@@ -438,7 +469,7 @@ def board(view="live", days=30, limit=300):
     elif view == "late_carrier":
         sel = [r for r in carrier if r["late"]]
     elif view == "chase":
-        sel = [r for r in carrier if r["lateMin"] > chase_h * 60]
+        sel = [r for r in carrier if r["lateMin"] > chase_h * 60 and not r["snoozed"]]
     elif view == "carrier":
         sel = carrier
     elif view == "wave":
@@ -451,7 +482,59 @@ def board(view="live", days=30, limit=300):
     return {"view": view, "counts": counts, "rows": sel[:limit],
             "total": len(sel), "waves": cfg.get("waves"),
             "nextWave": _next_wave(in_house, cfg, now),
+            "waveBuckets": _wave_buckets(in_house),
             "now": str(now)[:16]}
+
+
+def _chased_at(orders):
+    """Last 'Tracking: chased' mark per order, from the order's comment trail."""
+    if not orders:
+        return {}
+    ph = ", ".join(["%s"] * len(orders))
+    out = {}
+    for name, at in frappe.db.sql(
+            f"""SELECT reference_name, MAX(creation) FROM `tabComment`
+                WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
+                  AND creation >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+                  AND content LIKE 'Tracking: chased%%' AND reference_name IN ({ph})
+                GROUP BY reference_name""", tuple(orders)):
+        out[name] = at
+    return out
+
+
+@frappe.whitelist(methods=["POST"])
+def chase(order, note=None):
+    """The team called the carrier about this parcel: leave a mark on the
+    order and take it off the chase list for the snooze window."""
+    _gate()
+    if not frappe.db.exists("Sales Order", {"name": order, "company": _CO}):
+        frappe.throw("lp:unknownRow")
+    note = (note or "").strip()[:140]
+    doc = frappe.get_doc("Sales Order", order)
+    doc.add_comment("Comment", "Tracking: chased carrier" + (f" — {note}" if note else "")
+                    + f" · by {frappe.session.user}")
+    frappe.db.commit()
+    return {"ok": True}
+
+
+def _wave_buckets(in_house):
+    buckets = {}
+    for r in in_house:
+        key = r["dueAt"][:16] or "—"
+        b = buckets.setdefault(key, {"dueAt": key, "wave": r["wave"], "n": 0,
+                                     "late": 0, "toPick": 0, "picking": 0,
+                                     "ready": 0, "value": 0})
+        b["n"] += 1
+        b["value"] += r["value"]
+        if r["late"]:
+            b["late"] += 1
+        if r["stage"] == "to_pick":
+            b["toPick"] += 1
+        elif r["stage"] == "picking":
+            b["picking"] += 1
+        else:
+            b["ready"] += 1
+    return sorted(buckets.values(), key=lambda b: b["dueAt"])
 
 
 def _next_wave(in_house, cfg, now):
@@ -489,26 +572,9 @@ def wave_board(days=7):
     cfg = get_settings()
     now = clock.floor_now()
     days = min(max(int(days or 7), 1), 90)
-    rows = [_shape(r, cfg, now) for r in _rows(days)]
+    rows = _shaped(days, cfg, now)
     in_house = [r for r in rows if r["stage"] in ("to_pick", "picking", "to_hand_over")]
-    buckets = {}
-    for r in in_house:
-        key = r["dueAt"][:16] or "—"
-        b = buckets.setdefault(key, {"dueAt": key, "wave": r["wave"], "n": 0,
-                                     "late": 0, "toPick": 0, "picking": 0,
-                                     "ready": 0, "value": 0})
-        b["n"] += 1
-        b["value"] += r["value"]
-        if r["late"]:
-            b["late"] += 1
-        if r["stage"] == "to_pick":
-            b["toPick"] += 1
-        elif r["stage"] == "picking":
-            b["picking"] += 1
-        else:
-            b["ready"] += 1
-    out = sorted(buckets.values(), key=lambda b: b["dueAt"])
-    return {"waves": out, "now": str(now)[:16], "config": cfg.get("waves")}
+    return {"waves": _wave_buckets(in_house), "now": str(now)[:16], "config": cfg.get("waves")}
 
 
 # ---------------------------------------------------------------------------
@@ -599,8 +665,18 @@ def blocked(days=30):
     from logistics_portal.api import clock
     cfg = get_settings()
     now = clock.floor_now()
-    rows = [_shape(r, cfg, now) for r in _rows(min(max(int(days or 30), 1), 90))]
-    rows = [r for r in rows if r["stage"] in ("to_pick", "picking", "to_hand_over")]
+    days = min(max(int(days or 30), 1), 90)
+    # The stock and city lookups behind the blockers cost seconds; the
+    # answer is shared for the minute like the clock itself.
+    key = f"lp_ship_blocked:{days}:{str(now)[:16]}"
+    try:
+        cached = frappe.cache().get_value(key)
+        if cached is not None:
+            return cached
+    except Exception:
+        cached = None
+    rows = [dict(r) for r in _shaped(days, cfg, now)
+            if r["stage"] in ("to_pick", "picking", "to_hand_over")]
     _blockers(rows)
     hit = [r for r in rows if r["why"]]
     groups = {}
@@ -608,8 +684,13 @@ def blocked(days=30):
         for w in r["why"]:
             groups[w] = groups.get(w, 0) + 1
     hit.sort(key=lambda r: (-len(r["why"]), -r["lateMin"]))
-    return {"total": len(hit), "inHouse": len(rows), "groups": groups,
-            "fix": _FIX, "rows": hit[:2000], "now": str(now)[:16]}
+    out = {"total": len(hit), "inHouse": len(rows), "groups": groups,
+           "fix": _FIX, "rows": hit[:2000], "now": str(now)[:16]}
+    try:
+        frappe.cache().set_value(key, out, expires_in_sec=120)
+    except Exception:
+        pass
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -714,7 +795,7 @@ def run_alerts():
         # Nobody is paged at 3am or on a rest day: the van is not leaving.
         if now.weekday() in set(cfg.get("restDays") or []) or not (7 <= now.hour < 21):
             return
-        rows = [_shape(r, cfg, now) for r in _rows(30)]
+        rows = _shaped(30, cfg, now)
         in_house = [r for r in rows if r["stage"] in ("to_pick", "picking", "to_hand_over")]
         carrier = [r for r in rows if r["stage"] == "with_carrier"]
 
