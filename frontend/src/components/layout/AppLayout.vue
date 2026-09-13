@@ -166,7 +166,7 @@ import OfflineBanner from "@/components/ui/OfflineBanner.vue";
 import Icon from "@/components/ui/Icon.vue";
 import { useRoute } from "vue-router";
 import { useAuth } from "@/composables/useAuth";
-import { PORTAL_BASE } from "@/lib/portal";
+import { PORTAL_BASE, SURFACE } from "@/lib/portal";
 import { useI18n } from "@/composables/useI18n";
 import { isMobileRole, navItemsFor } from "@/lib/roles";
 import { api } from "@/lib/resource";
@@ -179,7 +179,7 @@ const { t } = useI18n();
 // The bar fits five thumbs. A role with more pages gets four + a More
 // sheet — nothing is unreachable on a PDA any more (the shipper could not
 // open Manifest, the picker could not reach Pick Lists).
-const allNav = computed(() => navItemsFor(role.value, hiddenPages.value));
+const allNav = computed(() => navItemsFor(role.value, hiddenPages.value, SURFACE));
 const mobileNav = computed(() =>
   allNav.value.length > 5 ? allNav.value.slice(0, 4) : allNav.value);
 const moreNav = computed(() =>

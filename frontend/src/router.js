@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuth } from "@/composables/useAuth";
 import { homeRouteFor } from "@/lib/roles";
-import { PORTAL_BASE, IS_CC, IS_SHIP, portalOf } from "@/lib/portal";
+import { PORTAL_BASE, IS_CC, IS_SHIP, SURFACE, portalOf } from "@/lib/portal";
 import { useToast } from "@/composables/useToast";
 import { useI18n } from "@/composables/useI18n";
 
@@ -153,7 +153,7 @@ const routes = [
 
 function roleRedirect(to, from, next) {
   const { role, hiddenPages } = useAuth();
-  next({ name: homeRouteFor(role.value, hiddenPages.value, IS_CC) });
+  next({ name: homeRouteFor(role.value, hiddenPages.value, SURFACE) });
 }
 
 const router = createRouter({
@@ -197,7 +197,7 @@ router.beforeEach(async (to, from, next) => {
     // A page the manager hid for this user — deep links bounce home too,
     // and say so, or a link that "does nothing" gets reported as a bug.
     try { useToast().warn(useI18n().t("nav.hiddenBounce"), ""); } catch (_) { /* never block navigation */ }
-    next({ name: homeRouteFor(role.value, hiddenPages.value, IS_CC) });
+    next({ name: homeRouteFor(role.value, hiddenPages.value, SURFACE) });
   } else {
     next();
   }

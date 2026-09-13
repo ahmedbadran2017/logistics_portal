@@ -64,6 +64,8 @@ export default {
     contactSection: "Centre de contact",
     shipSection: "Suivi des expéditions",
     shipBoard: "Horloge des commandes",
+    shipPortal: "Suivi des expéditions",
+    shipboard: "Horloge des commandes", shipblocked: "Bloquées", shipfeedback: "Retours", shipsettings: "Paramètres",
     shipBlocked: "Bloquées",
     shipFeedback: "Retours",
     hiddenBounce: "Cette page est masquée pour votre compte — retour à l'accueil.",

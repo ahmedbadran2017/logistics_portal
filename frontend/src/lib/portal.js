@@ -16,6 +16,8 @@ export const PORTAL_BASE = _P.startsWith("/confirmation") ? "/confirmation"
 
 export const IS_CC = PORTAL_BASE === "/confirmation";
 export const IS_SHIP = PORTAL_BASE === "/tracking";
+// Which shell the nav/home helpers should build for: "cc" | "ship" | false (floor).
+export const SURFACE = IS_CC ? "cc" : IS_SHIP ? "ship" : false;
 
 /** The portal a role belongs to ("cc" | "ship" | "floor" | "both"). */
 export function portalOf(role) {

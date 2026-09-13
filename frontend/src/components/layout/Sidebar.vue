@@ -6,7 +6,7 @@
         <img :src="logoSrc" alt="Justyol" class="block h-3.5 flex-shrink-0" />
         <span class="h-3.5 w-px bg-stone-200 flex-shrink-0" />
         <span class="text-[9.5px] font-semibold text-stone-400 tracking-[0.14em] uppercase">
-          {{ IS_CC ? t("nav.ccPortal", "Contact Center") : t("nav.logistics", "Logistics") }}
+          {{ IS_CC ? t("nav.ccPortal", "Contact Center") : IS_SHIP ? t("nav.shipPortal", "Shipment Tracking") : t("nav.logistics", "Logistics") }}
         </span>
       </div>
     </div>
@@ -220,7 +220,7 @@ import { useAuth } from "@/composables/useAuth";
 import { useI18n } from "@/composables/useI18n";
 import { api } from "@/lib/resource";
 import { navFor } from "@/lib/roles";
-import { IS_CC, PORTAL_BASE } from "@/lib/portal";
+import { IS_CC, IS_SHIP, SURFACE, PORTAL_BASE } from "@/lib/portal";
 
 defineEmits(["open-search"]);
 
@@ -246,7 +246,7 @@ function pickMember(m) { menuOpen.value = false; setViewAs(m); }
 const route = useRoute();
 const menuOpen = ref(false);
 
-const nav = computed(() => navFor(role.value, hiddenPages.value, IS_CC));
+const nav = computed(() => navFor(role.value, hiddenPages.value, SURFACE));
 
 // Folded sections, remembered per browser. localStorage on purpose (not
 // session): which parts of the menu a person keeps open is a workstation

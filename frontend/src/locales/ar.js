@@ -64,6 +64,8 @@ export default {
     contactSection: "مركز الاتصال",
     shipSection: "متابعة الشحنات",
     shipBoard: "ساعة الأوردر",
+    shipPortal: "متابعة الشحنات",
+    shipboard: "ساعة الأوردر", shipblocked: "العالقين", shipfeedback: "الآراء", shipsettings: "الإعدادات",
     shipBlocked: "العالقين",
     shipFeedback: "الآراء",
     hiddenBounce: "الصفحة دي مخفية لحسابك — رجّعناك للرئيسية.",

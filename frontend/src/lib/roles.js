@@ -371,8 +371,49 @@ const CC_MANAGER = {
   ],
 };
 
-function configFor(role, cc) {
-  if (cc) {
+// The tracking portal (/tracking): the tracking role's config is its nav; a
+// manager entering it gets this shell — the clock, the blocked screen, the
+// feedback loop, and the after-shipping tools — never the floor's menu.
+const SHIP_MANAGER = {
+  home: "ShipBoard",
+  nav: [
+    {
+      section: "nav.shipSection",
+      items: [
+        { to: "ShipBoard", label: "nav.shipBoard", icon: "gauge" },
+        { to: "ShipBlocked", label: "nav.shipBlocked", icon: "package-x" },
+        { to: "ShipFeedback", label: "nav.shipFeedback", icon: "message-circle" },
+        { to: "Alerts", label: "nav.alerts", icon: "bell" },
+      ],
+    },
+    {
+      section: "nav.operations",
+      items: [
+        { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
+        { to: "Rescue", label: "nav.rescue", icon: "route" },
+        { to: "Stranded", label: "nav.stranded", icon: "package-x" },
+        { to: "CityCheck", label: "nav.cityCheck", icon: "map-pin" },
+        { to: "CityMatrix", label: "nav.cityMatrix", icon: "layout-grid" },
+      ],
+    },
+    {
+      section: "nav.team",
+      items: [
+        { to: "Team", label: "nav.team", icon: "users" },
+        { to: "ShipSettings", label: "nav.settings", icon: "settings" },
+        { href: "/hrms", label: "nav.attendance", icon: "clock" },
+      ],
+    },
+  ],
+};
+
+// `surface`: "cc" (or true, the old boolean) | "ship" | false for the floor.
+function configFor(role, surface) {
+  if (surface === "ship") {
+    if (role === "manager") return SHIP_MANAGER;
+    return ROLE_CONFIG[role] || ROLE_CONFIG.tracking;
+  }
+  if (surface) {
     if (role === "manager") return CC_MANAGER;
     return ROLE_CONFIG[role] || ROLE_CONFIG.confirmation;
   }

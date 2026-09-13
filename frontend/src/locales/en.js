@@ -65,6 +65,8 @@ export default {
     contactSection: "Contact Center",
     shipSection: "Shipment tracking",
     shipBoard: "Order clock",
+    shipPortal: "Shipment Tracking",
+    shipboard: "Order clock", shipblocked: "Blocked", shipfeedback: "Feedback", shipsettings: "Settings",
     shipBlocked: "Blocked",
     shipFeedback: "Feedback",
     hiddenBounce: "That page is hidden for your account — sent you home.",

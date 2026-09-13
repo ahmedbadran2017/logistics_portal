@@ -71,6 +71,7 @@
 
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
+import { SURFACE } from "@/lib/portal";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { useAuth } from "@/composables/useAuth";
@@ -91,7 +92,7 @@ const inputEl = ref(null);
 
 
 const pages = computed(() => {
-  const items = navItemsFor(role.value, hiddenPages.value);
+  const items = navItemsFor(role.value, hiddenPages.value, SURFACE);
   const present = new Set(items.map((i) => i.to));
   const h = new Set(hiddenPages.value || []);
   // Lane sub-views (dashboard / reports / settings …) are in-page tabs now, not
