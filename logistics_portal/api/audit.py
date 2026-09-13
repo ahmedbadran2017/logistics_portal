@@ -47,8 +47,18 @@ def _emit(alert):
     from logistics_portal.api.auth import SEED_ROLES
 
     try:
-        if frappe.db.exists("Notification Log",
-                            {"subject": alert["title"], "read": 0}):
+        # Titles carry the live count ("2020 · Open SLA breaches"), which
+        # changes every tick, so an exact-subject check never matched and a
+        # standing breach wrote a new row every ten minutes (four in one
+        # night, observed 2026-09-13). Dedup on the title without its
+        # number, and once read, wait four hours before saying it again.
+        import re as _re
+        stable = _re.sub(r"^\d+\s*·\s*", "", alert["title"] or "").strip()
+        if stable and frappe.db.sql(
+                """SELECT 1 FROM `tabNotification Log`
+                   WHERE type = 'Alert' AND subject LIKE %s
+                     AND (`read` = 0 OR creation >= DATE_SUB(NOW(), INTERVAL 4 HOUR)) LIMIT 1""",
+                ("%" + stable,)):
             return
         managers = [u for u, r in SEED_ROLES.items() if r == "manager"] or [frappe.session.user]
         for user in managers:
