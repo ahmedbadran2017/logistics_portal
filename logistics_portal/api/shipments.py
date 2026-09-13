@@ -339,3 +339,175 @@ def wave_board(days=7):
             b["toPick"] += 1
     out = sorted(buckets.values(), key=lambda b: b["dueAt"])
     return {"waves": out, "now": str(now)[:16], "config": cfg.get("waves")}
+
+
+# ---------------------------------------------------------------------------
+# Blocked: orders that cannot move, and the one thing each is waiting on.
+#
+# The board says an order is late; this says WHY, in the words of the fix.
+# A short shelf, a city the carrier cannot read, a label that never came back
+# — each already has a screen that repairs it, so every row here carries the
+# door to that screen. The list is computed over the live in-house set only:
+# a parcel with the carrier is not blocked, it is on its way or it is lost,
+# and both of those are the board's job.
+# ---------------------------------------------------------------------------
+
+def _blockers(rows):
+    """Annotate in-house rows with their blockers. One pass, shared lookups."""
+    from logistics_portal.api.city import canon_city, _accepted_cities, _has_arabic
+    from logistics_portal.api.picking import _available_totals
+    from logistics_portal.api.short_shelf import active as short_active
+
+    if not rows:
+        return
+    names = [r["order"] for r in rows]
+    ph = ", ".join(["%s"] * len(names))
+    lines = {}
+    for l in frappe.db.sql(
+            f"""SELECT parent, item_code, qty FROM `tabSales Order Item`
+                WHERE parent IN ({ph})""", tuple(names), as_dict=True):
+        lines.setdefault(l.parent, []).append((l.item_code, float(l.qty or 0)))
+    codes = list({c for ls in lines.values() for c, _ in ls})
+    free = _available_totals(codes) if codes else {}
+    try:
+        short = {it for (it, wh) in short_active().keys()}
+    except Exception:
+        short = set()
+    accepted = set()
+    try:
+        accepted = {canon_city(c) for c in _accepted_cities()}
+    except Exception:
+        pass
+
+    for r in rows:
+        why = []
+        # Stock: a line the pool cannot cover. The order will sit in to_pick
+        # forever, and the board's red will be blamed on the floor.
+        if r["stage"] == "to_pick":
+            for code, need in lines.get(r["order"], []):
+                if float(free.get(code, 0)) < need:
+                    why.append("oos")
+                    break
+            for code, _ in lines.get(r["order"], []):
+                if code in short:
+                    why.append("shelf")
+                    break
+        # City: the label will be refused, so the parcel closes and then stalls.
+        city = r.get("city") or ""
+        if not city or _has_arabic(city) or (accepted and canon_city(city) not in accepted):
+            why.append("city")
+        # Paperwork: a closed parcel with no label cannot be handed over.
+        if r["stage"] == "to_hand_over" and not r.get("awb"):
+            why.append("no_awb")
+        # Picking that never closes: the list exists, the parcel does not.
+        if r["stage"] == "picking" and r["ageH"] >= 24:
+            why.append("stuck_pick")
+        r["why"] = list(dict.fromkeys(why))
+
+
+_FIX = {
+    "oos": "Pipeline", "shelf": "CycleCount", "city": "CityCheck",
+    "no_awb": "Shipments", "stuck_pick": "PickLists",
+}
+
+
+@frappe.whitelist()
+def blocked(days=30):
+    """Every in-house order that cannot move, grouped by what it is waiting on."""
+    _gate()
+    from logistics_portal.api import clock
+    cfg = get_settings()
+    now = clock.floor_now()
+    rows = [_shape(r, cfg, now) for r in _rows(min(max(int(days or 30), 1), 90))]
+    rows = [r for r in rows if r["stage"] in ("to_pick", "picking", "to_hand_over")]
+    _blockers(rows)
+    hit = [r for r in rows if r["why"]]
+    groups = {}
+    for r in hit:
+        for w in r["why"]:
+            groups[w] = groups.get(w, 0) + 1
+    hit.sort(key=lambda r: (-len(r["why"]), -r["lateMin"]))
+    return {"total": len(hit), "inHouse": len(rows), "groups": groups,
+            "fix": _FIX, "rows": hit[:400], "now": str(now)[:16]}
+
+
+# ---------------------------------------------------------------------------
+# Alerts: the portal that pages you before the van leaves.
+#
+# Same log and the same toast as the audit engine, but addressed to the
+# tracking team rather than the managers, because a wave about to leave
+# thirty orders behind is their phone call to make. Runs on the 15-minute
+# cron; each title is written once while it is still unread, so a standing
+# problem is one row and not one row per tick.
+# ---------------------------------------------------------------------------
+
+def _tracking_users():
+    from logistics_portal.api.auth import SEED_ROLES
+    users = [u for u, r in SEED_ROLES.items() if r == "tracking"]
+    for u in frappe.db.sql("""SELECT name FROM `tabUser`
+                              WHERE enabled = 1 AND custom_logistics_role = 'tracking'"""):
+        if u[0] not in users:
+            users.append(u[0])
+    return users
+
+
+def _emit(title, detail, severity="warning"):
+    try:
+        if frappe.db.exists("Notification Log", {"subject": title, "read": 0}):
+            return
+        for user in _tracking_users() or []:
+            frappe.get_doc({
+                "doctype": "Notification Log", "subject": title,
+                "email_content": detail, "type": "Alert",
+                "document_type": "Sales Order", "for_user": user,
+            }).insert(ignore_permissions=True)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "shipments._emit")
+    frappe.publish_realtime("logistics_alert", {
+        "severity": severity, "title": title, "detail": detail, "audience": "tracking"})
+
+
+def run_alerts():
+    """Scheduled: warn about the wave that is about to leave orders behind,
+    the orders already left behind, and parcels the carrier has lost."""
+    try:
+        from logistics_portal.api import clock
+        cfg = get_settings()
+        now = clock.floor_now()
+        rows = [_shape(r, cfg, now) for r in _rows(30)]
+        in_house = [r for r in rows if r["stage"] in ("to_pick", "picking", "to_hand_over")]
+        carrier = [r for r in rows if r["stage"] == "with_carrier"]
+
+        # 1) The next wave, ninety minutes out, still carrying unstarted orders.
+        soon = {}
+        for r in in_house:
+            if not r["dueAt"] or r["late"]:
+                continue
+            due = frappe.utils.get_datetime(r["dueAt"] + ":00")
+            mins = (due - now).total_seconds() / 60
+            if 0 < mins <= 90 and r["stage"] == "to_pick":
+                soon.setdefault(r["dueAt"], 0)
+                soon[r["dueAt"]] += 1
+        for due, n in soon.items():
+            if n >= 5:
+                _emit(f"{n} orders may miss the {due[11:]} wave",
+                      f"Confirmed, promised to the {due} wave, and still without a "
+                      f"pick list with under 90 minutes to go.", "critical")
+
+        # 2) Past their wave and still in the building.
+        late = [r for r in in_house if r["late"]]
+        if len(late) >= 20:
+            oldest = max(late, key=lambda r: r["lateMin"])
+            _emit(f"{len(late)} orders past their wave, still in the building",
+                  f"Oldest is {oldest['order']}, {oldest['lateMin'] // 60}h past "
+                  f"its {oldest['dueAt'][11:]} wave.", "critical")
+
+        # 3) Parcels the carrier has had too long to still call in transit.
+        chase_h = int(cfg.get("chaseDays") or 5) * 24 * 60
+        chase = [r for r in carrier if r["lateMin"] > chase_h]
+        if len(chase) >= 10:
+            _emit(f"{len(chase)} parcels past the chase line with the carrier",
+                  f"Moving for more than {cfg.get('chaseDays')} days beyond the city "
+                  "promise — not late, lost. Chase them with the carrier.", "warning")
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "shipments.run_alerts")

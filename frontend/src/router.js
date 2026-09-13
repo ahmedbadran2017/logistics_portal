@@ -101,6 +101,7 @@ const routes = [
       // The tracking portal's own screens (served under the /shipments base).
       { path: "board", name: "ShipBoard", component: () => import("@/pages/ShipBoard.vue") },
       { path: "ship-settings", name: "ShipSettings", component: () => import("@/pages/ShipSettings.vue") },
+      { path: "blocked", name: "ShipBlocked", component: () => import("@/pages/ShipBlocked.vue") },
       { path: "audit", name: "Audit", component: () => import("@/pages/Audit.vue") },
 
       // Manager — overview

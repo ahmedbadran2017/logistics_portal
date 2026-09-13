@@ -122,6 +122,9 @@ scheduler_events = {
             # — sort_scan correctly refuses to flip a label-less parcel, and
             # nothing came back for it once the AWB landed.
             "logistics_portal.api.picking.claim_late_labels",
+            # Tracking portal: page the team about the wave that is about to
+            # leave orders behind, and the parcels the carrier has lost.
+            "logistics_portal.api.shipments.run_alerts",
         ],
         # Audit rule engine: scan recent docs against thresholds every 10 minutes.
         "*/10 * * * *": [
