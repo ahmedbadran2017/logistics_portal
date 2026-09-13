@@ -22,6 +22,7 @@ Two facts from production shaped every decision here (measured 2026-09-13):
   the board and the first thing that turns red.
 """
 import json
+import re
 
 import frappe
 from frappe.utils import now_datetime
@@ -1121,7 +1122,33 @@ def journey(order):
                       WHERE reference_doctype = 'Sales Order' AND reference_name = %s
                         AND comment_type = 'Comment' AND ({like})
                       ORDER BY creation""", tuple([order] + list(_CARRIER_EVENT_LIKE)), as_dict=True)]
-    return {"found": True, "row": r, "docs": docs, "events": events, "now": str(now)[:16]}
+    # One log, newest first: the order's own milestones, every carrier scan,
+    # every note the team left — each with a kind the page can draw.
+    timeline = []
+    def add(at, kind, text="", who=""):
+        if at:
+            timeline.append({"at": at, "kind": kind, "text": text, "who": who})
+    add(r["confirmedAt"], "confirmed")
+    add(r["pickedAt"], "picklist")
+    add(r["closedAt"], "closed")
+    if raw.handed_at:
+        add(str(clock.to_floor(raw.handed_at))[:16], "manifest")
+    if raw.delivered_at and not any(e["text"].startswith("Package Delivered") for e in events):
+        add(r["deliveredAt"], "delivered")
+    for e in events:
+        text = e["text"]
+        who = ""
+        if e["team"]:
+            kind = "mark" if text.startswith("Tracking:") else "rescue"
+            m = re.search(r"· by (\S+)$", text)
+            who = m.group(1).split("@")[0] if m else ""
+            text = re.sub(r"\s*· by \S+$", "", text).split(":", 1)[-1].strip()
+        else:
+            kind = _event_kind(text) or "other"
+        add(e["at"], kind, text, who)
+    timeline.sort(key=lambda e: e["at"], reverse=True)
+    return {"found": True, "row": r, "docs": docs, "events": events, "timeline": timeline,
+            "now": str(now)[:16]}
 
 
 # ---------------------------------------------------------------------------

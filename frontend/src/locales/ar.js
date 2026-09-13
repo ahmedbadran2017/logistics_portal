@@ -999,6 +999,11 @@ export default {
     noOrder: "مفيش أوردر محتاج القطعة دي", unknown: "قطعة غير معروفة",
   },
   od: {
+    latest: "الأحدث",
+    tl_confirmed: "الأوردر اتأكد", tl_picklist: "الـ pick list اتعملت", tl_closed: "الطرد اتقفل", tl_manifest: "على مانيفست الكارير",
+    tl_label: "اللابل اتعمل عند الكارير", tl_hub: "في هاب الكارير", tl_ofd: "خارج للتوصيل", tl_appointment: "في معاد مع العميل",
+    tl_unreachable: "العميل مش بيرد", tl_cancelled: "اتلغى", tl_returned: "رجع", tl_delivered: "اتسلّم",
+    tl_mark: "فريق المتابعة", tl_rescue: "قرار ريسكيو", tl_other: "ملاحظة كارير",
     journey: "ساعة الطرد", journeyPromise: "موعود", journeyEvents: "أحداث الكارير وملاحظات الفريق",
     placed: "أُنشئ", printAwb: "طباعة البوليصة", openErp: "فتح في ERPNext",
     lineItems: "الأصناف", product: "المنتج", bin: "الموقع", qty: "الكمية", unit: "سعر الوحدة", total: "الإجمالي",

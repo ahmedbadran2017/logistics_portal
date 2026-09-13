@@ -999,6 +999,11 @@ export default {
     noOrder: "No order needs this item", unknown: "Unknown item",
   },
   od: {
+    latest: "latest",
+    tl_confirmed: "Order confirmed", tl_picklist: "Pick list created", tl_closed: "Parcel closed", tl_manifest: "On the carrier manifest",
+    tl_label: "Label created at the carrier", tl_hub: "At a carrier hub", tl_ofd: "Out for delivery", tl_appointment: "Appointment set with the customer",
+    tl_unreachable: "Customer unreachable", tl_cancelled: "Cancelled", tl_returned: "Returned", tl_delivered: "Delivered",
+    tl_mark: "Tracking team", tl_rescue: "Rescue decision", tl_other: "Carrier note",
     journey: "Parcel clock", journeyPromise: "Promised", journeyEvents: "Carrier events and team notes",
     placed: "Placed", printAwb: "Print AWB label", openErp: "Open in ERPNext",
     lineItems: "Line items", product: "Product", bin: "Bin", qty: "Qty", unit: "Unit", total: "Total",

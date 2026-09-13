@@ -249,12 +249,24 @@
             <span>{{ t('od.journeyPromise') }} <b dir="ltr">{{ journey.row.dueAt.slice(5) }}</b></span>
             <span class="ms-auto font-bold tabular-nums" dir="ltr">{{ jRemain }}</span>
           </div>
-          <div v-if="journey.events.length" class="mt-3">
-            <div class="text-[11px] font-semibold text-stone-500 mb-1.5">{{ t('od.journeyEvents') }}</div>
-            <ol class="space-y-1">
-              <li v-for="(e, i) in journey.events" :key="i" class="flex items-start gap-2 text-[11.5px]">
-                <span class="tabular-nums text-stone-400 flex-shrink-0 w-[78px]" dir="ltr">{{ e.at.slice(5) }}</span>
-                <span :class="e.team ? 'text-teal-700 font-semibold' : 'text-stone-700'" dir="auto">{{ e.text }}</span>
+          <!-- the shipping log: milestones, carrier scans and team notes, newest first -->
+          <div v-if="journey.timeline && journey.timeline.length" class="mt-4">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-[11px] font-bold uppercase tracking-wide text-stone-400">{{ t('od.journeyEvents') }}</div>
+              <span class="text-[10.5px] text-stone-400 tabular-nums">{{ journey.timeline.length }}</span>
+            </div>
+            <ol class="relative ms-3 border-s-2 border-stone-200/80">
+              <li v-for="(e, i) in journey.timeline" :key="i" class="ms-5 pb-4 last:pb-0 relative">
+                <span class="absolute top-0 w-7 h-7 rounded-full grid place-items-center ring-4 ring-white" style="inset-inline-start: -35px" :class="TL[e.kind]?.cls || TL.other.cls">
+                  <Icon :name="TL[e.kind]?.icon || 'info'" :size="13" />
+                </span>
+                <div class="flex items-center gap-2 flex-wrap min-h-[28px]">
+                  <span class="text-[12.5px] font-semibold" :class="i === 0 ? 'text-stone-900' : 'text-stone-700'">{{ t('od.tl_' + e.kind, e.kind) }}</span>
+                  <span v-if="i === 0" class="text-[10px] font-bold uppercase tracking-wide rounded-full px-1.5 py-0.5 bg-teal-50 text-teal-700 ring-1 ring-teal-200">{{ t('od.latest') }}</span>
+                  <span v-if="e.who" class="text-[10.5px] text-stone-500 inline-flex items-center gap-1"><Icon name="user" :size="10" />{{ e.who }}</span>
+                  <span class="ms-auto text-[10.5px] text-stone-400 tabular-nums" dir="ltr">{{ e.at.slice(5) }}</span>
+                </div>
+                <div v-if="e.text && !SAME_AS_TITLE.has(e.kind)" class="text-[11.5px] text-stone-500 mt-0.5 leading-snug" dir="auto">{{ e.text }}</div>
               </li>
             </ol>
           </div>
@@ -485,6 +497,26 @@ const JSTEPS = [
   { key: "door", label: "stDoor", at: "deliveredAt" },
 ];
 const JREACHED = { to_pick: 0, picking: 1, to_hand_over: 2, with_carrier: 3, delivered: 4, failed: 3 };
+// Every kind of thing that can happen to a parcel, with its own face.
+const TL = {
+  confirmed: { icon: "check", cls: "bg-stone-100 text-stone-600" },
+  picklist: { icon: "clipboard-check", cls: "bg-amber-50 text-amber-600" },
+  closed: { icon: "package", cls: "bg-violet-50 text-violet-600" },
+  manifest: { icon: "send", cls: "bg-sky-50 text-sky-600" },
+  label: { icon: "tag", cls: "bg-violet-50 text-violet-600" },
+  hub: { icon: "warehouse", cls: "bg-sky-50 text-sky-600" },
+  ofd: { icon: "truck", cls: "bg-emerald-50 text-emerald-600" },
+  appointment: { icon: "clock", cls: "bg-emerald-50 text-emerald-600" },
+  unreachable: { icon: "phone-off", cls: "bg-amber-50 text-amber-600" },
+  cancelled: { icon: "circle-x", cls: "bg-rose-50 text-rose-600" },
+  returned: { icon: "rotate-ccw", cls: "bg-rose-50 text-rose-600" },
+  delivered: { icon: "check-circle", cls: "bg-emerald-100 text-emerald-700" },
+  mark: { icon: "user", cls: "bg-teal-50 text-teal-700" },
+  rescue: { icon: "route", cls: "bg-teal-50 text-teal-700" },
+  other: { icon: "info", cls: "bg-stone-100 text-stone-500" },
+};
+// Milestones read from documents carry no text of their own.
+const SAME_AS_TITLE = new Set(["confirmed", "picklist", "closed", "manifest"]);
 const JSTAGE_CLS = {
   to_pick: "bg-rose-50 text-rose-700", picking: "bg-amber-50 text-amber-700", to_hand_over: "bg-violet-50 text-violet-700",
   with_carrier: "bg-sky-50 text-sky-700", delivered: "bg-emerald-50 text-emerald-700", failed: "bg-rose-100 text-rose-800",
