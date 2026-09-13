@@ -3,9 +3,10 @@
        so it's safe to mount globally above the router-view. Sticky so the tabs
        stay put while the lane's content scrolls. The first tab (the lane's
        working queue) carries a live depth badge — from Reports or Settings the
-       agent had no idea the queue was growing behind them. -->
+       agent had no idea the queue was growing behind them. The tracking
+       portal has its own sidebar for the same pages, so no lane bar there. -->
   <div
-    v-if="lane && tabs.length"
+    v-if="!IS_SHIP && lane && tabs.length"
     class="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-stone-200/70 px-3 lg:px-6"
   >
     <div class="flex items-center gap-0.5 overflow-x-auto" style="scrollbar-width:none">
@@ -38,6 +39,7 @@ import { api } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useAuth } from "@/composables/useAuth";
 import { laneForRoute, LANE_ADMIN_KEY } from "@/lib/laneTabs";
+import { IS_SHIP } from "@/lib/portal";
 
 const route = useRoute();
 const { t } = useI18n();

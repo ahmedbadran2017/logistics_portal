@@ -73,7 +73,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "SkuLookup", label: "nav.skuLookup", icon: "search" },
           { to: "ShelfLabels", label: "nav.shelfLabels", icon: "printer" },
-          { to: "PrintStation", label: "nav.printStation", icon: "radio" },
+          { to: "PrintStation", label: "nav.printStation", icon: "printer" },
           { to: "Weights", label: "nav.weights", icon: "scale" },
           { to: "CatalogHub", label: "nav.catalogHub", icon: "refresh-cw" },
           { to: "BatchRepair", label: "nav.batchRepair", icon: "unlock" },
@@ -158,7 +158,7 @@ export const ROLE_CONFIG = {
         section: "nav.operations",
         items: [
           { to: "Queue", label: "nav.queue", icon: "list-checks" },
-          { to: "CycleCount", label: "nav.count", icon: "calculator" },
+          { to: "CycleCount", label: "nav.count", icon: "list-checks" },
           { to: "Manifest", label: "nav.manifest", icon: "package-check" },
           { to: "PackStation", label: "nav.pack", icon: "tag" },
           { to: "PickLists", label: "nav.picklists", icon: "package" },
@@ -191,7 +191,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "PackStation", label: "nav.pack", icon: "tag" },
           { to: "Queue", label: "nav.queue", icon: "list-checks" },
-          { to: "CycleCount", label: "nav.count", icon: "calculator" },
+          { to: "CycleCount", label: "nav.count", icon: "list-checks" },
           { to: "LabelQueue", label: "nav.label", icon: "printer" },
           { to: "Manifest", label: "nav.manifest", icon: "package-check" },
           { to: "Shipments", label: "nav.shipments", icon: "truck" },

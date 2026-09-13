@@ -32,13 +32,14 @@
     </header>
 
     <!-- queues + search — one sticky toolbar, tabs scroll in one line -->
-    <div class="sticky top-[41px] z-10 -mx-2 px-2 py-1.5 rounded-xl flex items-center gap-3 flex-wrap lg:flex-nowrap"
+    <div class="sticky z-10 -mx-2 px-2 py-1.5 rounded-xl flex items-center gap-3 flex-wrap lg:flex-nowrap" :class="IS_SHIP ? 'top-0' : 'top-[41px]'"
          style="background: rgb(var(--bg) / 0.92); backdrop-filter: blur(6px)">
       <div class="rs-seg overflow-x-auto flex-shrink min-w-0" style="scrollbar-width: none">
         <button
           v-for="tb in TABS" :key="tb.key"
           class="rs-seg-btn"
           :class="tab === tb.key ? 'rs-seg-on' : ''"
+          :aria-pressed="tab === tb.key"
           @click="tab = tb.key; page = 1; load()"
         >
           <Icon :name="tb.icon" :size="14" />
@@ -50,14 +51,14 @@
       </div>
       <label v-if="canBulk && rows.length"
              class="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl text-[12px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200/80 cursor-pointer whitespace-nowrap ms-auto">
-        <input type="checkbox" :checked="selected.size === rows.length" class="accent-sky-600 w-3.5 h-3.5" @change="toggleAll" />
+        <input type="checkbox" :checked="selected.size === rows.length" class="w-3.5 h-3.5" :class="IS_SHIP ? 'accent-teal-600' : 'accent-sky-600'" @change="toggleAll" />
         {{ t('rs.selectPage') }}
       </label>
       <div class="relative" :class="canBulk && rows.length ? '' : 'ms-auto'">
         <Icon name="search" :size="13" class="absolute start-3 top-1/2 -translate-y-1/2 text-stone-400" />
         <input v-model="q" :placeholder="t('rs.searchPh')" @input="debouncedLoad"
                class="h-10 w-[240px] ps-9 pe-3 text-[12.5px] bg-white rounded-xl ring-1 ring-stone-200/80 focus:ring-2 outline-none transition-shadow"
-               style="--tw-ring-color: rgb(125 211 252)" />
+               :style="{ '--tw-ring-color': IS_SHIP ? 'rgb(94 234 212)' : 'rgb(125 211 252)' }" />
       </div>
     </div>
 
@@ -111,7 +112,7 @@
     <div v-else-if="loadError" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
       <div class="text-[14px] font-semibold text-rose-700">{{ t('cf.loadFail') }}</div>
       <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
-      <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
+      <button class="mt-3 h-9 px-4 rounded-xl text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
     </div>
     <div v-else-if="!rows.length" class="rs-empty rounded-2xl p-12 text-center">
       <span class="inline-flex w-14 h-14 rounded-2xl items-center justify-center bg-emerald-50 text-emerald-500 mb-3"><Icon name="check-circle" :size="26" /></span>
@@ -123,9 +124,9 @@
            class="rs-card rounded-2xl p-4"
            :class="r.due ? 'rs-card-due' : ''">
         <div class="flex items-start gap-3.5">
-          <input v-if="canBulk" type="checkbox" class="accent-sky-600 w-4 h-4 shrink-0 mt-3"
-                 :checked="selected.has(r.id)" @change="toggleOne(r.id)" />
-          <span class="rs-avatar" :class="r.due ? 'rs-avatar-due' : ''">{{ initial(r.customer) }}</span>
+          <input v-if="canBulk" type="checkbox" class="w-4 h-4 shrink-0 mt-3" :class="IS_SHIP ? 'accent-teal-600' : 'accent-sky-600'"
+                 :checked="selected.has(r.id)" :aria-label="t('oclk.selectOne') + ' ' + (r.order || r.dn)" @change="toggleOne(r.id)" />
+          <span class="rs-avatar" :class="[r.due ? 'rs-avatar-due' : '', IS_SHIP ? 'rs-avatar-ship' : '']">{{ initial(r.customer) }}</span>
           <div class="min-w-0 flex-1">
             <!-- who, which parcel, where, how long -->
             <div class="flex items-center gap-x-2.5 gap-y-1 flex-wrap">
@@ -182,8 +183,8 @@
                 <Icon name="circle-x" :size="14" /><span class="hidden md:inline">{{ t('rs.actCancel') }}</span>
               </button>
               <span class="ms-auto inline-flex items-center gap-1.5">
-                <a v-if="r.phone" :href="'tel:' + r.phone" :title="r.phone" class="rs-contact rs-tel"><Icon name="phone" :size="15" /></a>
-                <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" rel="noopener" title="WhatsApp" class="rs-contact rs-wa"><Icon name="message-circle" :size="15" /></a>
+                <a v-if="r.phone" :href="'tel:' + r.phone" :title="r.phone" :aria-label="t('oclk.call')" class="lp-tap rs-contact rs-tel"><Icon name="phone" :size="15" /></a>
+                <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" rel="noopener" title="WhatsApp" aria-label="WhatsApp" class="lp-tap rs-contact rs-wa"><Icon name="message-circle" :size="15" /></a>
                 <button v-if="r.order" class="rs-contact text-stone-500" :title="t('cf.fullOrder')" @click="openDetail(r)">
                   <Icon :name="detailFor === r.id ? 'chevron-up' : 'chevron-down'" :size="15" /></button>
                 <button v-if="r.order" class="rs-contact text-amber-600" :title="t('cf.editContact')" @click="openEdit(r)"><Icon name="edit" :size="15" /></button>
@@ -259,7 +260,7 @@
       </span>
       <div class="flex items-center gap-1">
         <button :title="t('common.back')" class="pg-btn" :disabled="page <= 1" @click="page--; load()"><Icon name="chevron-left" :size="13" class="flip-rtl" /></button>
-        <button class="pg-btn" :disabled="page * pageSize >= total" @click="page++; load()"><Icon name="chevron-right" :size="13" class="flip-rtl" /></button>
+        <button :title="t('common.next')" class="pg-btn" :disabled="page * pageSize >= total" @click="page++; load()"><Icon name="chevron-right" :size="13" class="flip-rtl" /></button>
       </div>
     </div>
   </div>
@@ -576,6 +577,11 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
   background: linear-gradient(135deg, rgb(240 249 255), rgb(224 242 254));
   box-shadow: inset 0 0 0 1px rgb(186 230 253);
 }
+.rs-avatar-ship {
+  color: rgb(15 118 110);
+  background: linear-gradient(135deg, rgb(240 253 250), rgb(204 251 241));
+  box-shadow: inset 0 0 0 1px rgb(153 246 228);
+}
 .rs-avatar-due {
   color: rgb(180 83 9);
   background: linear-gradient(135deg, rgb(255 251 235), rgb(254 243 199));
@@ -594,7 +600,7 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
 @keyframes rs-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 
 .rs-contact {
-  width: 38px; height: 38px; border-radius: 12px;
+  width: 36px; height: 36px; border-radius: 12px;
   display: inline-flex; align-items: center; justify-content: center;
   background: rgb(var(--card)); box-shadow: inset 0 0 0 1px rgb(var(--border));
   transition: all .15s ease;
@@ -605,7 +611,7 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
 .rs-wa { color: rgb(22 163 74); }
 .rs-wa:hover { box-shadow: inset 0 0 0 1px rgb(134 239 172); background: rgb(240 253 244); }
 .rs-act {
-  height: 38px; border-radius: 12px; font-size: 12.5px; font-weight: 700;
+  height: 36px; border-radius: 12px; font-size: 12.5px; font-weight: 700;
   transition: all .15s ease; white-space: nowrap;
 }
 .rs-act:disabled { opacity: .5; }
@@ -654,6 +660,6 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
 /* Agents tap these all day — meet the 44px touch minimum on touch screens
    (same convention as ReasonSelect). */
 @media (pointer: coarse) {
-  .rs-act { min-width: 44px; min-height: 44px; }
+  .rs-act, .rs-contact, .pg-btn { min-width: 44px; min-height: 44px; }
 }
 </style>

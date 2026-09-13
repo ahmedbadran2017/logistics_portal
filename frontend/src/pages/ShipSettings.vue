@@ -15,7 +15,7 @@
     <div v-else-if="loadError" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
       <div class="text-[14px] font-semibold text-rose-700">{{ t('common.loadFail') }}</div>
       <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
-      <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
+      <button class="mt-3 h-9 px-4 rounded-xl text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
     </div>
 
     <template v-else-if="s">
@@ -65,29 +65,30 @@
           </button>
         </div>
         <div class="divide-y divide-stone-50 max-h-[300px] overflow-y-auto">
-          <div v-for="c in cityList" :key="c" class="px-4 py-2 flex items-center gap-3">
+          <div v-for="c in cityList" :key="c" class="px-4 py-1.5 flex items-center gap-3">
             <span class="text-[12px] text-stone-700 flex-1 truncate" dir="auto">{{ c }}</span>
             <!-- what the carrier actually did here lately, next to what we promise -->
             <span v-if="measured[c]" class="text-[10.5px] tabular-nums text-stone-400 hidden sm:inline-flex items-center gap-1" dir="ltr" :title="t('oclk.measuredHint')">
               p75 <b :class="measured[c].suggested !== (s.cityDays[c] || 0) ? 'text-amber-600' : 'text-stone-600'">{{ measured[c].p75 }}{{ t('oclk.dShort') }}</b>
               · n {{ measured[c].n }} · <span :class="measured[c].keptPct >= 75 ? 'text-emerald-600' : 'text-rose-600'">{{ measured[c].keptPct }}% {{ t('oclk.keptShort') }}</span>
             </span>
-            <button v-if="s.isAdmin && measured[c] && measured[c].suggested !== s.cityDays[c]" class="lp-tap h-8 px-2 rounded-lg text-[11px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200 hover:bg-amber-100"
-                    :title="t('oclk.accept')" @click="s.cityDays[c] = measured[c].suggested">→ {{ measured[c].suggested }}</button>
-            <input v-model.number="s.cityDays[c]" type="number" min="1" max="20" :disabled="!s.isAdmin" dir="ltr"
-                   class="w-16 h-9 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums text-center" />
+            <button v-if="s.isAdmin && measured[c] && measured[c].suggested !== s.cityDays[c]" class="lp-tap h-8 px-2 rounded-lg text-[11px] font-bold text-amber-700 bg-amber-50 ring-1 ring-amber-200 hover:bg-amber-100 inline-flex items-center gap-1"
+                    :title="t('oclk.accept') + ' — p75 ' + measured[c].p75 + t('oclk.dShort') + ' · n ' + measured[c].n" @click="s.cityDays[c] = measured[c].suggested"><Icon name="arrow-right" :size="11" class="flip-rtl" />{{ measured[c].suggested }}</button>
+            <input v-model.number="s.cityDays[c]" type="number" min="1" max="20" :disabled="!s.isAdmin" dir="ltr" :aria-label="c"
+                   class="w-16 h-8 px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums text-center" />
             <span class="text-[11px] text-stone-400 w-[40px]">{{ t('oclk.days') }}</span>
-            <button v-if="s.isAdmin" class="lp-tap text-stone-300 hover:text-rose-600" :title="t('oclk.removeCity')" @click="delete s.cityDays[c]">
+            <button v-if="s.isAdmin" class="lp-tap text-stone-300 hover:text-rose-600" :title="t('oclk.removeCity')" :aria-label="t('oclk.removeCity') + ' ' + c" @click="delete s.cityDays[c]">
               <Icon name="x" :size="14" />
             </button>
           </div>
-          <div class="px-4 py-2 flex items-center gap-3 bg-stone-50/60">
-            <span class="text-[12px] font-semibold text-stone-700 flex-1">{{ t('oclk.otherCities') }}</span>
-            <input v-model.number="s.defaultCityDays" type="number" min="1" max="20" :disabled="!s.isAdmin" dir="ltr"
-                   class="w-16 h-9 px-2 rounded-lg bg-white ring-1 ring-stone-200 text-[12px] tabular-nums text-center" />
-            <span class="text-[11px] text-stone-400 w-[40px]">{{ t('oclk.days') }}</span>
-            <span v-if="s.isAdmin" class="w-[14px]" />
-          </div>
+        </div>
+        <!-- the default sits outside the scroller: it must never scroll out of sight -->
+        <div class="px-4 py-2 flex items-center gap-3 bg-stone-50/60 border-t border-stone-100">
+          <span class="text-[12px] font-semibold text-stone-700 flex-1">{{ t('oclk.otherCities') }}</span>
+          <input v-model.number="s.defaultCityDays" type="number" min="1" max="20" :disabled="!s.isAdmin" dir="ltr" :aria-label="t('oclk.otherCities')"
+                 class="w-16 h-8 px-2 rounded-lg bg-white ring-1 ring-stone-200 text-[12px] tabular-nums text-center" />
+          <span class="text-[11px] text-stone-400 w-[40px]">{{ t('oclk.days') }}</span>
+          <span v-if="s.isAdmin" class="w-[14px]" />
         </div>
         <!-- Busy cities the promise list has never heard of — measured, one click to add. -->
         <div v-if="s.isAdmin && unlisted.length" class="px-4 py-2.5 border-t border-stone-100">
@@ -95,7 +96,7 @@
           <div class="flex flex-wrap gap-1.5">
             <button v-for="m in unlisted" :key="m.city" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-stone-700 bg-stone-50 ring-1 ring-stone-200 hover:bg-white inline-flex items-center gap-1.5"
                     @click="s.cityDays[m.city] = m.suggested" dir="auto">
-              {{ m.city }} <span class="tabular-nums text-stone-400" dir="ltr">n {{ m.n }} · p75 {{ m.p75 }}{{ t('oclk.dShort') }}</span> <b class="text-teal-700" dir="ltr">→ {{ m.suggested }}</b>
+              {{ m.city }} <span class="tabular-nums text-stone-400" dir="ltr">n {{ m.n }} · p75 {{ m.p75 }}{{ t('oclk.dShort') }}</span> <b class="text-teal-700 inline-flex items-center gap-0.5" dir="ltr"><Icon name="arrow-right" :size="10" class="flip-rtl" />{{ m.suggested }}</b>
             </button>
           </div>
         </div>
@@ -123,16 +124,17 @@
       </section>
 
       <!-- Who may change all of this: managers always, plus the leads named here. -->
-      <section v-if="s.isOpsAdmin" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 space-y-2">
+      <section v-if="s.isOpsAdmin" class="sh-card rounded-2xl p-4 space-y-2">
         <span class="text-[13px] font-semibold text-stone-900">{{ t('oclk.admins') }}</span>
         <p class="text-[11.5px] text-stone-500">{{ t('oclk.adminsHint') }}</p>
         <textarea v-model="admins" rows="2" dir="ltr" placeholder="lead@justyol.com, other@justyol.com"
                   class="w-full px-2 py-1.5 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] font-mono" />
       </section>
 
-      <div v-if="s.isAdmin" class="flex items-center gap-2">
-        <button class="h-10 px-5 rounded-xl text-[13px] font-bold text-white disabled:opacity-50" style="background: linear-gradient(135deg, rgb(20 184 166), rgb(13 148 136)); box-shadow: 0 4px 12px -4px rgb(20 184 166 / .45)"
-                :disabled="busy" @click="save">{{ busy ? t('oclk.saving') : t('common.save') }}</button>
+      <div v-if="s.isAdmin" class="flex items-center gap-2 flex-wrap">
+        <button class="h-9 px-5 rounded-xl text-[13px] font-bold text-white disabled:opacity-50" style="background: linear-gradient(135deg, rgb(20 184 166), rgb(13 148 136)); box-shadow: 0 4px 12px -4px rgb(20 184 166 / .45)"
+                :disabled="busy || !dirty" @click="save">{{ busy ? t('oclk.saving') : t('common.save') }}</button>
+        <span v-if="dirty" class="text-[11px] font-semibold text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-full px-2 py-0.5">{{ t('oclk.unsaved') }}</span>
         <span class="text-[11.5px] text-stone-400">{{ t('oclk.saveHint') }}</span>
       </div>
       <p v-else class="text-[11.5px] text-stone-400">{{ t('oclk.readOnly') }}</p>
@@ -141,7 +143,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { onBeforeRouteLeave } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -194,9 +197,28 @@ function cleanDays(map) {
   return out;
 }
 
+// What would be sent on Save, as a string — the snapshot taken after load/save
+// is compared to it so the button knows when there is nothing to save, and a
+// sidebar click cannot silently throw away an accepted suggestion.
+function payload() {
+  return JSON.stringify({
+    waves: s.value.waves, restDays: [...(s.value.restDays || [])].sort(),
+    cityDays: cleanDays(s.value.cityDays),
+    defaultCityDays: parseInt(s.value.defaultCityDays, 10) || 5,
+    chaseDays: parseInt(s.value.chaseDays, 10) || 5,
+    chaseSnoozeH: parseInt(s.value.chaseSnoozeH, 10) || 24,
+    admins: admins.value,
+  });
+}
+const snap = ref("");
+const dirty = computed(() => !!s.value && !!s.value.isAdmin && payload() !== snap.value);
+onBeforeRouteLeave(() => !dirty.value || window.confirm(t("oclk.leaveUnsaved")));
+function beforeUnload(e) { if (dirty.value) { e.preventDefault(); e.returnValue = ""; } }
+onUnmounted(() => window.removeEventListener("beforeunload", beforeUnload));
+
 async function load() {
   loading.value = true;
-  try { s.value = await api("shipments.settings"); admins.value = (s.value.admins || []).join(", "); loadError.value = ""; loadTuner(); }
+  try { s.value = await api("shipments.settings"); admins.value = (s.value.admins || []).join(", "); snap.value = payload(); loadError.value = ""; loadTuner(); }
   catch (e) { s.value = null; loadError.value = String(e?.message || e); }
   loading.value = false;
 }
@@ -215,9 +237,10 @@ async function save() {
     });
     Object.assign(s.value, r.settings);
     admins.value = (r.settings.admins || []).join(", ");
+    snap.value = payload();
     success(t("oclk.saved"), "");
   } catch (e) { warn(t("oclk.saveFail"), String(e.message || e)); }
   busy.value = false;
 }
-onMounted(load);
+onMounted(() => { load(); window.addEventListener("beforeunload", beforeUnload); });
 </script>

@@ -36,7 +36,7 @@
             <span class="sh-stat-n" :class="d.openNegatives ? 'text-rose-600' : 'text-emerald-600'">{{ d.openNegatives }}</span>
             <span class="sh-stat-l">{{ t('dfb.kOpen') }}</span>
           </div>
-          <div v-if="loadError" class="sh-stat" style="box-shadow: inset 0 0 0 1px rgb(254 205 211)">
+          <div v-if="loadError" class="sh-stat" style="box-shadow: inset 0 0 0 1px rgb(244 63 94 / .5)">
             <span class="sh-stat-n text-rose-600"><Icon name="alert-triangle" :size="18" /></span>
             <span class="sh-stat-l text-rose-600">{{ t('oclk.staleWarn') }}</span>
           </div>
@@ -52,7 +52,7 @@
     <div v-else-if="loadError && !d" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
       <div class="text-[14px] font-semibold text-rose-700">{{ t('common.loadFail') }}</div>
       <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
-      <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
+      <button class="mt-3 h-9 px-4 rounded-xl text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
     </div>
 
     <template v-else-if="d">
@@ -90,7 +90,7 @@
               <a :href="'tel:+' + r.phone" dir="ltr" class="lp-tap h-9 px-3 rounded-xl text-[12px] font-semibold text-stone-700 inline-flex items-center gap-1.5 bg-white ring-1 ring-stone-200 hover:ring-emerald-300 hover:text-emerald-700 transition-colors"><Icon name="phone" :size="13" />+{{ r.phone }}</a>
               <span v-if="r.ticket" class="h-9 px-3 rounded-xl text-[12px] font-semibold text-violet-700 inline-flex items-center gap-1.5 bg-violet-50 ring-1 ring-violet-200" dir="ltr" :title="t('dfb.ticketHint')"><Icon name="ticket" :size="13" />{{ r.ticket }}</span>
               <span v-if="r.handled" class="text-[11px] text-stone-400 inline-flex items-center gap-1"><Icon name="check" :size="12" />{{ t('dfb.handledBy') }} {{ r.handled_by }}</span>
-              <button v-else class="ms-auto h-9 px-3.5 rounded-xl text-[12px] font-bold text-white" style="background: linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105)); box-shadow: 0 4px 12px -4px rgb(16 185 129 / .4)" @click="handled(r)">
+              <button v-else class="ms-auto h-9 px-3.5 rounded-xl text-[12px] font-bold text-white disabled:opacity-50" style="background: linear-gradient(135deg, rgb(16 185 129), rgb(5 150 105)); box-shadow: 0 4px 12px -4px rgb(16 185 129 / .4)" :disabled="handling.has(r.name)" @click="handled(r)">
                 <Icon name="check" :size="13" class="inline -mt-px me-1" />{{ t('dfb.markHandled') }}
               </button>
             </div>
@@ -283,12 +283,16 @@ async function loadSettings() {
   } catch (e) { s.value = null; settingsError.value = String(e?.message || e); }
 }
 function setDays(n) { days.value = n; load(); }
+const handling = ref(new Set());
 async function handled(r) {
+  if (handling.value.has(r.name)) return;
+  handling.value = new Set([...handling.value, r.name]);
   try {
     await apiPost("feedback.mark_handled", { name: r.name });
     r.handled = 1; r.handled_by = fullName.value || user.value || "";
     load();
   } catch (e) { warn(t("dfb.saveFail"), String(e.message || e)); }
+  const h = new Set(handling.value); h.delete(r.name); handling.value = h;
 }
 async function save() {
   busy.value = true;

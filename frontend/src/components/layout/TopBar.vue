@@ -64,7 +64,8 @@
     <button
       type="button"
       class="w-8 h-8 rounded-md text-stone-500 hover:bg-stone-100 hover:text-stone-900 flex items-center justify-center"
-      :title="theme === 'dark' ? 'Light' : 'Dark'"
+      :title="theme === 'dark' ? t('common.themeLight') : t('common.themeDark')"
+      :aria-label="theme === 'dark' ? t('common.themeLight') : t('common.themeDark')"
       @click="toggle"
     >
       <Icon :name="theme === 'dark' ? 'sun' : 'moon'" :size="16" />
@@ -79,14 +80,14 @@ import Icon from "@/components/ui/Icon.vue";
 import { useAuth } from "@/composables/useAuth";
 import { useI18n } from "@/composables/useI18n";
 import { useTheme } from "@/composables/useTheme";
-import { homeRouteFor } from "@/lib/roles";
+import { homeRouteFor, navItemsFor } from "@/lib/roles";
 import { IS_CC, SURFACE } from "@/lib/portal";
 
 defineProps({ unread: { type: Number, default: 0 } });
 defineEmits(["toggle-menu", "open-notif"]);
 
 const route = useRoute();
-const { role } = useAuth();
+const { role, hiddenPages } = useAuth();
 const { t, locale, setLocale } = useI18n();
 const { theme, toggle } = useTheme();
 
@@ -96,11 +97,13 @@ const langs = [
   { v: "ar", l: "ع" },
 ];
 
-// Current page label from route meta/name, falling back to the role home.
+// Current page label: the sidebar's own label for this route, so the bar and
+// the sidebar never disagree; a lowercase nav alias for pages outside the nav.
 const pageLabel = computed(() => {
   const name = route.name || homeRouteFor(role.value, undefined, SURFACE);
-  const key = `nav.${String(name).toLowerCase()}`;
-  return t(key, String(name));
+  const item = navItemsFor(role.value, hiddenPages.value, SURFACE).find((i) => i.to === name);
+  if (item) return t(item.label);
+  return t(`nav.${String(name).toLowerCase()}`, String(name));
 });
 
 // Live clock (HH:MM:SS)

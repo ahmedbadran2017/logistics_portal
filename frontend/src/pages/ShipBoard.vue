@@ -89,49 +89,49 @@
 
     <!-- waves: the vans, in order. Missed ones fold into one red card. -->
     <section v-if="waves" class="flex gap-3 overflow-x-auto pb-1" style="scrollbar-width: thin">
-      <div v-if="missed.n" class="sh-card sh-card-hot rounded-2xl p-4 min-w-[220px] flex-shrink-0 cursor-pointer" @click="showMissed = !showMissed">
-        <div class="flex items-center gap-2">
+      <button v-if="missed.n" type="button" class="sh-card sh-card-hot rounded-2xl p-4 min-w-[220px] flex-shrink-0 text-start" :aria-expanded="showMissed" @click="showMissed = !showMissed">
+        <span class="flex items-center gap-2">
           <span class="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 inline-flex items-center justify-center"><Icon name="alert-triangle" :size="15" /></span>
-          <div>
-            <div class="text-[11px] font-bold text-rose-600 uppercase tracking-wide">{{ t('oclk.missedWaves') }}</div>
-            <div class="text-[10.5px] text-stone-400">{{ t('oclk.missedHint') }}</div>
-          </div>
-        </div>
-        <div class="mt-3 flex items-end gap-2">
+          <span class="block">
+            <span class="block text-[11px] font-bold text-rose-600 uppercase tracking-wide">{{ t('oclk.missedWaves') }}</span>
+            <span class="block text-[10.5px] text-stone-400">{{ t('oclk.missedHint') }}</span>
+          </span>
+        </span>
+        <span class="mt-3 flex items-end gap-2">
           <span class="text-[30px] font-extrabold tabular-nums leading-none text-rose-600">{{ missed.n }}</span>
           <span class="text-[11px] text-stone-500 mb-1">/ {{ missed.waves }} <Icon :name="showMissed ? 'chevron-up' : 'chevron-down'" :size="12" class="inline" /></span>
-        </div>
-        <div v-if="showMissed" class="mt-2 space-y-1 text-[11px] tabular-nums" dir="ltr">
-          <div v-for="w in missed.list" :key="w.dueAt" class="flex justify-between text-stone-600">
+        </span>
+        <span v-if="showMissed" class="block mt-2 space-y-1 text-[11px] tabular-nums" dir="ltr">
+          <span v-for="w in missed.list" :key="w.dueAt" class="flex justify-between text-stone-600">
             <span>{{ w.dueAt.slice(5) }}</span><span class="font-semibold text-rose-600">{{ w.n }}</span>
-          </div>
-        </div>
-      </div>
+          </span>
+        </span>
+      </button>
 
-      <button v-for="w in upcoming" :key="w.dueAt" class="sh-card rounded-2xl p-4 min-w-[230px] flex-shrink-0 text-start"
+      <button v-for="w in upcoming" :key="w.dueAt" type="button" class="sh-card rounded-2xl p-4 min-w-[230px] flex-shrink-0 text-start"
               :class="[nw && w.dueAt === nw.dueAt ? 'sh-card-next' : '', waveFilter === w.dueAt ? 'ring-2 ring-stone-900' : '']"
               :aria-pressed="waveFilter === w.dueAt" :title="t('oclk.waveFilter')" @click="toggleWave(w.dueAt)">
-        <div class="flex items-center justify-between gap-2">
-          <div>
-            <div class="text-[11px] font-bold uppercase tracking-wide" :class="nw && w.dueAt === nw.dueAt ? 'text-teal-700' : 'text-stone-500'">{{ dayLabel(w.dueAt) }}</div>
-            <div class="text-[20px] font-extrabold tabular-nums leading-none text-stone-900 mt-0.5" dir="ltr">{{ w.dueAt.slice(11) }}</div>
-          </div>
+        <span class="flex items-center justify-between gap-2">
+          <span class="block">
+            <span class="block text-[11px] font-bold uppercase tracking-wide" :class="nw && w.dueAt === nw.dueAt ? 'text-teal-700' : 'text-stone-500'">{{ dayLabel(w.dueAt) }}</span>
+            <span class="block text-[20px] font-extrabold tabular-nums leading-none text-stone-900 mt-0.5" dir="ltr">{{ w.dueAt.slice(11) }}</span>
+          </span>
           <svg width="44" height="44" viewBox="0 0 44 44" class="-rotate-90 flex-shrink-0" role="img" :aria-label="w.ready + ' / ' + w.n + ' ' + t('oclk.readyOf')">
             <circle cx="22" cy="22" r="17" fill="none" stroke="rgb(20 184 166 / 0.18)" stroke-width="5" />
             <circle cx="22" cy="22" r="17" fill="none" stroke="rgb(20 184 166)" stroke-width="5" stroke-linecap="round" :stroke-dasharray="dash(w.n ? w.ready / w.n : 1, 17)" />
           </svg>
-        </div>
-        <div class="mt-3 flex h-1.5 rounded-full overflow-hidden bg-stone-100">
+        </span>
+        <span class="mt-3 flex h-1.5 rounded-full overflow-hidden bg-stone-100">
           <span class="bg-emerald-400" :style="{ width: pct(w.ready, w.n) }" />
           <span class="bg-amber-400" :style="{ width: pct(w.picking, w.n) }" />
           <span class="bg-rose-400" :style="{ width: pct(w.toPick, w.n) }" />
-        </div>
-        <div class="mt-2 flex items-center justify-between text-[11px] tabular-nums">
+        </span>
+        <span class="mt-2 flex items-center justify-between text-[11px] tabular-nums">
           <span class="font-bold text-stone-900">{{ w.n }}</span>
           <span class="text-emerald-600 font-semibold">{{ w.ready }} {{ t('oclk.readyLbl') }}</span>
           <span class="text-amber-600 font-semibold">{{ w.picking }}</span>
           <span class="text-rose-600 font-semibold">{{ w.toPick }} {{ t('oclk.noList') }}</span>
-        </div>
+        </span>
       </button>
     </section>
 
@@ -142,14 +142,14 @@
     <div v-else-if="loadError && !d" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
       <div class="text-[14px] font-semibold text-rose-700">{{ t('common.loadFail') }}</div>
       <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
-      <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
+      <button class="mt-3 h-9 px-4 rounded-xl text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
     </div>
 
     <section v-else-if="d && d.rows.length" class="space-y-4">
       <div class="flex items-center gap-2 px-1 flex-wrap">
         <span class="text-[13px] font-bold text-stone-900">{{ t('oclk.v_' + (d.view || view)) }}</span>
         <button v-if="waveFilter" class="lp-tap text-[11px] font-semibold text-teal-700 bg-teal-50 ring-1 ring-teal-200 rounded-full px-2 py-0.5 inline-flex items-center gap-1" @click="waveFilter = ''">
-          {{ t('oclk.waveFilter') }} {{ waveFilter.slice(5) }}<Icon name="x" :size="11" />
+          {{ t('oclk.waveFilter') }} <span dir="ltr">{{ waveFilter.slice(5) }}</span><Icon name="x" :size="11" />
         </button>
         <button v-if="cityFilter" class="lp-tap text-[11px] font-semibold text-sky-700 bg-sky-50 ring-1 ring-sky-200 rounded-full px-2 py-0.5 inline-flex items-center gap-1" @click="cityFilter = ''">
           {{ cityFilter }}<Icon name="x" :size="11" />
@@ -167,7 +167,7 @@
       <div v-if="d.facets" class="sh-card rounded-2xl p-3 flex flex-wrap gap-x-5 gap-y-2">
         <div class="flex items-center gap-1.5 flex-wrap">
           <span class="text-[10.5px] font-bold uppercase tracking-wide text-stone-400 me-1">{{ t('oclk.byEvent') }}</span>
-          <button v-for="e in d.facets.events" :key="e.kind" class="lp-tap h-7 px-2 rounded-full text-[11px] font-semibold ring-1 inline-flex items-center gap-1"
+          <button v-for="e in d.facets.events" :key="e.kind" class="lp-tap h-8 px-2.5 rounded-full text-[11px] font-semibold ring-1 inline-flex items-center gap-1"
                   :class="eventFilter === e.kind ? 'bg-stone-900 text-white ring-stone-900' : (EV_CLS[e.kind] || EV_CLS.none)" :aria-pressed="eventFilter === e.kind"
                   @click="eventFilter = eventFilter === e.kind ? '' : e.kind">
             {{ t('oclk.ev_' + e.kind) }} <b class="tabular-nums">{{ e.n }}</b>
@@ -175,7 +175,7 @@
         </div>
         <div class="flex items-center gap-1.5 flex-wrap">
           <span class="text-[10.5px] font-bold uppercase tracking-wide text-stone-400 me-1">{{ t('oclk.byCity') }}</span>
-          <button v-for="c in d.facets.cities" :key="c.city" class="lp-tap h-7 px-2 rounded-full text-[11px] font-semibold ring-1 inline-flex items-center gap-1"
+          <button v-for="c in d.facets.cities" :key="c.city" class="lp-tap h-8 px-2.5 rounded-full text-[11px] font-semibold ring-1 inline-flex items-center gap-1"
                   :class="cityFilter === c.city ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-700 ring-stone-200 hover:ring-stone-300'" :aria-pressed="cityFilter === c.city"
                   @click="cityFilter = cityFilter === c.city ? '' : c.city" :title="'+' + c.oldestH + t('oclk.hShort')">
             <span dir="auto">{{ c.city }}</span> <b class="tabular-nums">{{ c.n }}</b>
@@ -190,42 +190,46 @@
           <span class="flex-1 h-px bg-stone-200/70" />
         </div>
         <div v-for="r in g.rows" :key="r.order" class="sh-card rounded-2xl px-4 py-3 flex items-center gap-4" :class="selected.has(r.order) ? 'ring-2 ring-teal-400' : ''">
-          <input v-if="view === 'chase'" type="checkbox" class="accent-teal-600 w-4 h-4 flex-shrink-0" :checked="selected.has(r.order)" @change="toggleSel(r.order)" />
-          <RouterLink :to="{ name: 'OrderDetail', params: { name: r.order } }" class="lp-tap contents">
-          <div class="min-w-0 flex-1 basis-[150px]">
+          <input v-if="view === 'chase'" type="checkbox" class="accent-teal-600 w-4 h-4 flex-shrink-0" :checked="selected.has(r.order)" :aria-label="t('oclk.selectOne') + ' ' + r.order" @change="toggleSel(r.order)" />
+          <RouterLink :to="{ name: 'OrderDetail', params: { name: r.order } }" class="lp-tap block min-w-0 flex-1 basis-[150px] rounded-lg -m-1 p-1 hover:bg-stone-50">
             <div class="font-mono text-[12.5px] font-bold text-stone-900 truncate" dir="ltr">{{ r.order }}</div>
             <div class="text-[11px] text-stone-400 truncate" dir="auto">{{ r.customer }}<span v-if="r.city" class="text-stone-300"> · </span><span dir="auto">{{ r.city }}</span>
               <span v-if="r.mark" class="ms-1.5 inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-1.5 py-0.5 ring-1" :class="markStyle(r.mark).cls" dir="ltr">
                 <Icon :name="markStyle(r.mark).icon" :size="10" />{{ t('oclk.mk_' + r.mark) }} {{ r.markAt.slice(5) }}
               </span>
             </div>
-          </div>
+            <!-- in the chase lens the carrier's last word sits under the name, where there is room to read it -->
+            <div v-if="view === 'chase' && r.stage === 'with_carrier'" class="mt-1 flex items-center gap-1.5 min-w-0">
+              <span class="text-[10px] font-bold rounded-full px-1.5 py-0.5 ring-1 flex-shrink-0" :class="EV_CLS[r.verdict] || EV_CLS.none">{{ t('oclk.ev_' + (r.verdict || 'none')) }}</span>
+              <span class="text-[11px] truncate" :class="r.lastEvent ? 'text-stone-500' : 'text-stone-400'" :title="r.lastEvent">{{ r.lastEvent || t('oclk.sinceHandover') }}</span>
+              <span v-if="r.eventAgeH != null" class="text-[10.5px] tabular-nums flex-shrink-0" :class="r.eventAgeH >= 48 ? 'text-rose-600 font-semibold' : 'text-stone-400'" dir="ltr">{{ ageTxt(r.eventAgeH) }}</span>
+            </div>
+          </RouterLink>
           <!-- the clock as a path: which doors this order has passed -->
-          <div class="hidden sm:flex items-center" :title="stepTitle(r)">
+          <div v-if="view !== 'chase'" class="hidden sm:flex items-center" :title="stepTitle(r)">
             <template v-for="(s, i) in STEPS" :key="s">
               <span v-if="i" class="sh-step-line" :class="reached(r) >= i ? 'sh-step-line-on' : ''" />
               <span class="sh-step" :class="reached(r) >= i ? 'sh-step-on' : (r.late && reached(r) + 1 === i ? 'sh-step-late' : '')" />
             </template>
           </div>
           <span class="text-[10px] font-bold rounded-full px-2 py-0.5 whitespace-nowrap flex-shrink-0" :class="STAGE_CLS[r.stage]">{{ t('oclk.s_' + r.stage) }}</span>
-          <span class="text-[11px] text-stone-400 tabular-nums w-[46px] text-end hidden lg:block" dir="ltr">{{ r.dueAt.slice(11) }}</span>
+          <span v-if="view !== 'chase'" class="text-[11px] text-stone-400 tabular-nums w-[46px] text-end hidden lg:block" dir="ltr">{{ r.dueAt.slice(11) }}</span>
           <span class="text-[13px] font-extrabold tabular-nums w-[64px] text-end flex-shrink-0" dir="ltr"
                 :class="r.late ? 'text-rose-600' : 'text-emerald-600'" :title="r.late ? t('oclk.pastPromise') : t('oclk.timeLeft')">{{ remain(r) }}</span>
-          </RouterLink>
-          <span v-if="r.stage === 'with_carrier'" class="hidden xl:inline-flex items-center gap-1.5 max-w-[300px] min-w-0">
+          <span v-if="view !== 'chase' && r.stage === 'with_carrier'" class="hidden xl:inline-flex items-center gap-1.5 max-w-[300px] min-w-0">
             <span class="text-[10px] font-bold rounded-full px-1.5 py-0.5 ring-1 flex-shrink-0" :class="EV_CLS[r.verdict] || EV_CLS.none">{{ t('oclk.ev_' + (r.verdict || 'none')) }}</span>
             <span v-if="r.lastEvent" class="text-[11px] text-stone-500 truncate" :title="r.lastEvent">{{ r.lastEvent }}</span>
             <span v-else class="text-[11px] text-stone-400 truncate">{{ t('oclk.sinceHandover') }}</span>
             <span v-if="r.eventAgeH != null" class="text-[10.5px] tabular-nums flex-shrink-0" :class="r.eventAgeH >= 48 ? 'text-rose-600 font-semibold' : 'text-stone-400'" dir="ltr">{{ ageTxt(r.eventAgeH) }}</span>
           </span>
           <span v-if="r.stage === 'with_carrier'" class="inline-flex items-center gap-1 flex-shrink-0">
-            <a v-if="r.trackUrl" :href="r.trackUrl" target="_blank" rel="noopener" class="lp-tap w-8 h-8 rounded-lg inline-flex items-center justify-center text-sky-600 bg-sky-50 ring-1 ring-sky-200 hover:bg-sky-100" :title="t('oclk.track')" @click.stop><Icon name="external-link" :size="13" /></a>
-            <a v-if="r.phone" :href="'tel:' + r.phone" class="lp-tap w-8 h-8 rounded-lg inline-flex items-center justify-center text-stone-600 bg-white ring-1 ring-stone-200 hover:ring-emerald-300 hover:text-emerald-700" :title="t('oclk.call')" @click.stop><Icon name="phone" :size="13" /></a>
-            <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" rel="noopener" class="lp-tap w-8 h-8 rounded-lg inline-flex items-center justify-center text-emerald-600 bg-white ring-1 ring-stone-200 hover:bg-emerald-50" :title="t('oclk.wa')" @click.stop><Icon name="message-circle" :size="13" /></a>
+            <a v-if="r.trackUrl" :href="r.trackUrl" target="_blank" rel="noopener" class="lp-tap w-8 h-8 rounded-lg inline-flex items-center justify-center text-sky-600 bg-sky-50 ring-1 ring-sky-200 hover:bg-sky-100" :title="t('oclk.track')" :aria-label="t('oclk.track')" @click.stop><Icon name="external-link" :size="13" /></a>
+            <a v-if="r.phone" :href="'tel:' + r.phone" class="lp-tap w-8 h-8 rounded-lg inline-flex items-center justify-center text-stone-600 bg-white ring-1 ring-stone-200 hover:ring-emerald-300 hover:text-emerald-700" :title="t('oclk.call')" :aria-label="t('oclk.call')" @click.stop><Icon name="phone" :size="13" /></a>
+            <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" rel="noopener" class="lp-tap w-8 h-8 rounded-lg inline-flex items-center justify-center text-emerald-600 bg-white ring-1 ring-stone-200 hover:bg-emerald-50" :title="t('oclk.wa')" :aria-label="t('oclk.wa')" @click.stop><Icon name="message-circle" :size="13" /></a>
           </span>
           <span v-if="view === 'chase'" class="inline-flex items-center gap-1 flex-shrink-0">
             <button v-for="m in MARKS" :key="m.key" class="lp-tap h-9 px-2.5 rounded-xl text-[11.5px] font-bold inline-flex items-center gap-1 ring-1 disabled:opacity-50"
-                    :class="m.cls" :disabled="chasing.has(r.order)" :title="t('oclk.mkh_' + m.key)" @click.stop="markRow(r, m.key)">
+                    :class="m.cls" :disabled="chasing.has(r.order)" :title="t('oclk.mkh_' + m.key)" :aria-label="t('oclk.mk_' + m.key)" @click.stop="markRow(r, m.key)">
               <Icon :name="m.icon" :size="13" /><span class="hidden 2xl:inline">{{ t('oclk.mk_' + m.key) }}</span>
             </button>
           </span>
@@ -233,23 +237,24 @@
       </div>
     </section>
 
+    <div v-else-if="d" class="sh-empty rounded-2xl p-12 text-center">
+      <span class="inline-flex w-14 h-14 rounded-2xl items-center justify-center mb-3" :class="loadError ? 'bg-rose-50 text-rose-500' : 'bg-emerald-50 text-emerald-500'">
+        <Icon :name="loadError ? 'alert-triangle' : 'check-circle'" :size="26" />
+      </span>
+      <div class="text-[15px] font-semibold text-stone-800">{{ loadError ? t('oclk.staleWarn') : t('oclk.clear') }}</div>
+      <button v-if="loadError" class="mt-3 h-9 px-4 rounded-xl text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
+    </div>
+
     <div v-if="view === 'chase' && selected.size" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 flex-wrap bg-white rounded-2xl shadow-floating ring-1 ring-stone-200/80 px-4 py-2.5 max-w-[94vw]">
       <span class="text-[12.5px] font-bold text-stone-800 tabular-nums whitespace-nowrap">{{ selected.size }} {{ t('oclk.selectedN') }}</span>
-      <button class="text-[11.5px] font-semibold text-stone-400 hover:text-stone-700" @click="selected = new Set()">{{ t('common.close') }}</button>
-      <button class="text-[11.5px] font-semibold text-teal-700 hover:text-teal-900" @click="selectAllShown">{{ t('oclk.selectShown') }}</button>
+      <button class="lp-tap h-9 px-2 rounded-lg text-[11.5px] font-semibold text-stone-400 hover:text-stone-700" @click="selected = new Set()">{{ t('common.clearSelection') }}</button>
+      <button class="lp-tap h-9 px-2 rounded-lg text-[11.5px] font-semibold text-teal-700 hover:text-teal-900" @click="selectAllShown">{{ t('oclk.selectShown') }}</button>
       <input v-model="bulkNote" :placeholder="t('oclk.bulkNotePh')" maxlength="120" class="h-9 w-[180px] ps-3 pe-3 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] focus:outline-none" />
       <button v-for="m in MARKS" :key="m.key" class="lp-tap h-9 px-3 rounded-xl text-[12px] font-bold inline-flex items-center gap-1.5 ring-1 disabled:opacity-40" :class="m.cls" :disabled="bulkBusy" @click="bulkMark(m.key)">
         <Icon :name="m.icon" :size="13" />{{ t('oclk.mk_' + m.key) }}
       </button>
     </div>
 
-    <div v-else-if="d" class="sh-empty rounded-2xl p-12 text-center">
-      <span class="inline-flex w-14 h-14 rounded-2xl items-center justify-center mb-3" :class="loadError ? 'bg-rose-50 text-rose-500' : 'bg-emerald-50 text-emerald-500'">
-        <Icon :name="loadError ? 'alert-triangle' : 'check-circle'" :size="26" />
-      </span>
-      <div class="text-[15px] font-semibold text-stone-800">{{ loadError ? t('oclk.staleWarn') : t('oclk.clear') }}</div>
-      <button v-if="loadError" class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
-    </div>
   </div>
 </template>
 
@@ -383,7 +388,7 @@ const countdown = computed(() => {
   const late = m < 0;
   m = Math.abs(m);
   const h = Math.floor(m / 60), mm = m % 60;
-  const txt = h ? `${h}h ${String(mm).padStart(2, "0")}m` : `${mm}m`;
+  const txt = h ? `${h}${t("oclk.hShort")} ${String(mm).padStart(2, "0")}${t("oclk.mShort")}` : `${mm}${t("oclk.mShort")}`;
   return late ? "+" + txt : txt;
 });
 
@@ -452,6 +457,10 @@ function remain(r) {
 
 function accept(b) {
   d.value = b;
+  if (selected.value.size) {
+    const shown = new Set((b.rows || []).map((r) => r.order));
+    selected.value = new Set([...selected.value].filter((o) => shown.has(o)));
+  }
   waves.value = { waves: b.waveBuckets || [], now: b.now };
   if (b?.now) offsetMs = parse(b.now) - Date.now();
 }

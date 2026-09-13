@@ -39,17 +39,28 @@
         <button
           v-for="f in filters"
           :key="f.key"
-          class="px-3 h-8 text-[12.5px] font-medium rounded-lg ring-1 transition-colors"
+          class="px-3 h-8 text-[12.5px] font-medium rounded-full ring-1 transition-colors"
           :class="filter === f.key
             ? 'bg-stone-900 text-white ring-stone-900'
             : 'bg-white text-stone-600 ring-stone-200 hover:ring-stone-300'"
+          :aria-pressed="filter === f.key"
           @click="filter = f.key"
         >{{ f.label }}</button>
       </div>
 
+      <!-- A failed feed is never "all caught up" -->
+      <div v-if="loadError" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
+        <div class="text-[14px] font-semibold text-rose-700">{{ t('common.loadFail') }}</div>
+        <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
+        <button class="mt-3 h-9 px-4 rounded-xl text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
+      </div>
+      <div v-else-if="loading" class="space-y-2.5">
+        <div v-for="n in 4" :key="n" class="h-[64px] rounded-xl bg-stone-100 animate-pulse" />
+      </div>
+
       <!-- Empty -->
       <div
-        v-if="items.length === 0"
+        v-else-if="items.length === 0"
         class="bg-white rounded-xl ring-1 ring-stone-200/70 p-10 text-center"
       >
         <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-500 flex items-center justify-center mx-auto mb-3">
@@ -89,8 +100,8 @@
                   {{ a.action }} <Icon name="arrow-right" :size="11" />
                 </button>
               </div>
-              <button :title="t('common.close')"
-                class="w-[22px] h-[22px] rounded-md flex items-center justify-center text-stone-400 hover:text-stone-600 hover:bg-stone-100 flex-shrink-0 transition-colors"
+              <button :title="t('common.close')" :aria-label="t('common.close')"
+                class="w-7 h-7 rounded-md flex items-center justify-center text-stone-400 hover:text-stone-600 hover:bg-stone-100 flex-shrink-0 transition-colors"
                 @click="dismiss(a)"
               >
                 <Icon name="x" :size="14" />
@@ -108,7 +119,7 @@ import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 
-import { api, apiPost, liveOr } from "@/lib/resource";
+import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 const { t, locale } = useI18n();
 
@@ -117,12 +128,21 @@ const router = useRouter();
 const ttl = (a) => a.i18n?.[locale.value]?.t || a.i18n?.en?.t || a.title;
 const bdy = (a) => a.i18n?.[locale.value]?.b || a.i18n?.en?.b || a.body;
 
-// Live-or-demo alert feed: `audit.recent_alerts` returns the same shape as AUDIT.
+// The alert feed. A failed load is shown as a failure — an empty list here
+// used to mean "all caught up", which is the one thing it must never fake.
 const AUDIT = ref([]);
-onMounted(async () => {
-  const live = await liveOr(null, () => api("audit.recent_alerts"));
-  if (Array.isArray(live) && live.length) AUDIT.value = live;
-});
+const loading = ref(true);
+const loadError = ref("");
+async function load() {
+  loading.value = true;
+  try {
+    const live = await api("audit.recent_alerts");
+    AUDIT.value = Array.isArray(live) ? live : [];
+    loadError.value = "";
+  } catch (e) { loadError.value = String(e?.message || e); }
+  loading.value = false;
+}
+onMounted(load);
 
 // severity → group (for filters + counts)
 const SEV_GROUP = { red: "critical", orange: "warning", yellow: "warning", insight: "info" };

@@ -6,10 +6,10 @@
         <h1 class="text-[20px] font-semibold text-stone-900 tracking-[-0.01em] flex items-center gap-2">
           <Icon name="users" :size="20" class="text-[var(--accent-600)]" /> {{ t('nav.team') }}
         </h1>
-        <p class="text-[12.5px] text-stone-500 mt-1">{{ t('px.team.sub') }}</p>
+        <p class="text-[12.5px] text-stone-500 mt-1">{{ IS_SHIP ? t('px.team.subShip') : t('px.team.sub') }}</p>
       </div>
       <!-- per-person orders-shipped-per-day target (scorecard + leaderboard) -->
-      <div v-if="mgmt" class="flex items-center gap-2 bg-white ring-1 ring-stone-200 rounded-lg px-3 h-9">
+      <div v-if="mgmt && !IS_SHIP" class="flex items-center gap-2 bg-white ring-1 ring-stone-200 rounded-lg px-3 h-9">
         <span class="text-[11.5px] font-medium text-stone-500">{{ t('px.team.target') }}</span>
         <input v-model.number="targetEdit" type="number" min="1" max="2000"
                class="w-[56px] h-7 text-[13px] font-semibold text-stone-900 tabular-nums text-center bg-stone-50 rounded-md ring-1 ring-stone-200 outline-none focus:ring-stone-400" />
@@ -21,6 +21,63 @@
       </div>
     </div>
 
+    <!-- The tracking portal's team: what each person logged today, from the
+         trail their actions leave — not the floor's pick leaderboard. -->
+    <template v-if="IS_SHIP">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+          <div class="flex items-center gap-2">
+            <span class="w-8 h-8 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center flex-shrink-0"><Icon name="activity" :size="15" /></span>
+            <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('px.team.kToday') }}</span>
+          </div>
+          <div class="mt-2 text-[24px] font-semibold text-stone-900 tabular-nums leading-none">{{ day?.totals?.total ?? '—' }}</div>
+        </div>
+        <div v-for="k in DAY_KINDS.slice(0, 2)" :key="k.key" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+          <div class="flex items-center gap-2">
+            <span class="w-8 h-8 rounded-lg bg-stone-100 text-stone-500 flex items-center justify-center flex-shrink-0"><Icon :name="k.icon" :size="15" /></span>
+            <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('oclk.day_' + k.key) }}</span>
+          </div>
+          <div class="mt-2 text-[24px] font-semibold text-stone-900 tabular-nums leading-none">{{ day?.totals?.[k.key] ?? '—' }}</div>
+        </div>
+        <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+          <div class="flex items-center gap-2">
+            <span class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0"><Icon name="users" :size="15" /></span>
+            <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('px.team.kMembers') }}</span>
+          </div>
+          <div class="mt-2 text-[24px] font-semibold text-stone-900 tabular-nums leading-none">{{ mgmt ? mgmt.members.filter((m) => m.role).length : '—' }}</div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+        <div class="px-4 py-3 border-b border-stone-100 text-[13.5px] font-semibold text-stone-900">{{ t('oclk.teamToday') }} <span class="text-[11px] font-normal text-stone-400 tabular-nums" dir="ltr">{{ day?.today }}</span></div>
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[560px]">
+            <thead>
+              <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
+                <th class="text-start px-4 py-2.5">{{ t('px.team.thMember') }}</th>
+                <th v-for="k in DAY_KINDS" :key="k.key" class="text-end px-4 py-2.5 whitespace-nowrap">{{ t('oclk.day_' + k.key) }}</th>
+                <th class="text-end px-4 py-2.5">{{ t('px.team.thTotal') }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-stone-100">
+              <tr v-for="m in day?.team || []" :key="m.user" class="hover:bg-stone-50">
+                <td class="px-4 py-2.5">
+                  <div class="flex items-center gap-2.5">
+                    <span class="w-8 h-8 rounded-full grid place-items-center text-white text-[11px] font-semibold flex-shrink-0 bg-teal-600">{{ initials(m.name) }}</span>
+                    <span class="text-[12.5px] font-semibold text-stone-900 truncate max-w-[220px]" dir="auto">{{ m.name }}</span>
+                  </div>
+                </td>
+                <td v-for="k in DAY_KINDS" :key="k.key" class="px-4 py-2.5 text-end text-[12.5px] tabular-nums" :class="m[k.key] ? 'font-semibold text-stone-900' : 'text-stone-300'">{{ m[k.key] }}</td>
+                <td class="px-4 py-2.5 text-end text-[12.5px] font-bold text-stone-900 tabular-nums">{{ m.total }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="day && !day.team.length" class="text-center text-[12.5px] text-stone-400 py-8">{{ t('oclk.teamQuiet') }}</div>
+        </div>
+      </div>
+    </template>
+
+    <template v-else>
     <!-- KPI strip -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
@@ -85,7 +142,7 @@
                 </div>
               </td>
               <td class="px-4 py-3 text-[12px] text-stone-600 capitalize whitespace-nowrap">{{ row.role }}</td>
-              <td class="px-4 py-3 text-end text-[12.5px] font-semibold text-stone-900 tabular-nums">{{ row.picks }} <span class="text-[10px] font-normal text-stone-400">orders</span></td>
+              <td class="px-4 py-3 text-end text-[12.5px] font-semibold text-stone-900 tabular-nums">{{ row.picks }} <span class="text-[10px] font-normal text-stone-400">{{ t('px.team.ordersUnit') }}</span></td>
               <td class="px-4 py-3 text-end text-[12px] text-stone-600 font-mono tabular-nums hidden lg:table-cell">{{ row.avg }}</td>
               <td class="px-4 py-3 text-end">
                 <span class="text-[12.5px] font-semibold tabular-nums" :class="slaColor(row.sla)">{{ row.sla }}%</span>
@@ -116,7 +173,7 @@
                 :style="{ background: row.rank === 1 ? '#f59e0b' : '#6366f1' }">{{ initials(row.name) }}</span>
           <div class="flex-1 min-w-0">
             <div class="text-[13.5px] font-semibold truncate" :class="row.rank === 1 ? 'text-amber-700' : 'text-stone-900'">{{ row.name }}</div>
-            <div class="text-[11.5px] text-stone-500 capitalize">{{ row.role }} · {{ row.picks }} orders · <span class="font-mono">{{ row.avg }}</span></div>
+            <div class="text-[11.5px] text-stone-500 capitalize">{{ row.role }} · {{ row.picks }} {{ t('px.team.ordersUnit') }} · <span class="font-mono">{{ row.avg }}</span></div>
           </div>
           <span class="text-[13px] font-semibold tabular-nums" :class="slaColor(row.sla)">{{ row.sla }}%</span>
         </div>
@@ -130,6 +187,8 @@
         </div>
       </div>
     </div>
+
+    </template>
 
     <!-- ── Roles & access (manager control) ─────────────────────────── -->
     <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
@@ -150,11 +209,11 @@
         <Icon name="plus" :size="13" class="text-stone-400 flex-shrink-0" />
         <input v-model="invName" :placeholder="t('px.team.namePh')"
                class="h-8 w-[150px] ps-3 pe-3 text-[12.5px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none" />
-        <input v-model="invEmail" placeholder="email@…" type="email"
+        <input v-model="invEmail" :placeholder="t('px.team.emailPh')" type="email"
                class="h-8 w-[200px] ps-3 pe-3 text-[12.5px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none" />
         <select v-model="invRole" class="role-select">
           <option v-for="r in mgmt?.roles || ['manager', 'dispatcher', 'picker', 'packer', 'returns']"
-                  :key="r" :value="r" class="capitalize">{{ r }}</option>
+                  :key="r" :value="r" class="capitalize">{{ t('roles.' + r, r) }}</option>
         </select>
         <button
           class="h-8 px-3 rounded-lg text-[12px] font-semibold text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-50"
@@ -191,8 +250,8 @@
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1.5">
                 <span class="text-[12.5px] font-semibold text-stone-900 truncate">{{ m.name }}</span>
-                <span v-if="m.source === 'seed'" class="text-[9.5px] font-semibold uppercase text-stone-400 bg-stone-100 rounded px-1 py-0.5" title="From the built-in seed map — set a role to make it explicit">seed</span>
-                <span v-else-if="m.source === 'blocked'" class="text-[9.5px] font-semibold uppercase text-rose-600 bg-rose-50 rounded px-1 py-0.5">blocked</span>
+                <span v-if="m.source === 'seed'" class="text-[9.5px] font-semibold uppercase text-stone-400 bg-stone-100 rounded px-1 py-0.5" :title="t('px.team.seedHint')">{{ t('px.team.seed') }}</span>
+                <span v-else-if="m.source === 'blocked'" class="text-[9.5px] font-semibold uppercase text-rose-600 bg-rose-50 rounded px-1 py-0.5">{{ t('px.team.blocked') }}</span>
                 <span v-if="(m.hidden || []).length" class="text-[9.5px] font-semibold text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded px-1 py-0.5 tabular-nums"
                       :title="t('px.team.hiddenChip')">−{{ m.hidden.length }}</span>
               </div>
@@ -203,7 +262,7 @@
             <button v-if="m.role"
                     class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors flex-shrink-0"
                     :class="pagesFor === m.user ? 'bg-[var(--accent-50)] text-[var(--accent-700)]' : 'text-stone-400 hover:bg-stone-100'"
-                    :title="t('px.team.pagesBtn')" @click="togglePages(m)">
+                    :title="t('px.team.pagesBtn')" :aria-label="t('px.team.pagesBtn')" :aria-expanded="pagesFor === m.user" @click="togglePages(m)">
               <Icon name="eye" :size="15" />
             </button>
             <select class="role-select" :disabled="savingRole === m.user" :value="m.role"
@@ -251,6 +310,7 @@ import Icon from "@/components/ui/Icon.vue";
 import { byId } from "@/lib/handoffData";
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { navItemsFor } from "@/lib/roles";
+import { IS_SHIP, SURFACE } from "@/lib/portal";
 import { useToast } from "@/composables/useToast";
 import { useI18n } from "@/composables/useI18n";
 const { t } = useI18n();
@@ -292,7 +352,7 @@ function onMemberSearch() {
 // Invite a brand-new user (creates the ERPNext account + portal role).
 const invName = ref("");
 const invEmail = ref("");
-const invRole = ref("picker");
+const invRole = ref(IS_SHIP ? "tracking" : "picker");
 const inviteBusy = ref(false);
 async function invite() {
   inviteBusy.value = true;
@@ -300,13 +360,13 @@ async function invite() {
     const res = await apiPost("auth.invite_member", {
       email: invEmail.value, full_name: invName.value, role: invRole.value,
     });
-    success(res.existing ? "Role assigned" : "Invited — welcome email sent",
-            `${res.user} · ${res.role}`);
+    success(res.existing ? t("px.team.roleAssigned") : t("px.team.invited"),
+            `${res.user} · ${t("roles." + res.role, res.role)}`);
     invName.value = "";
     invEmail.value = "";
     await loadMgmt();
   } catch (e) {
-    warn("Couldn't invite", String(e.message || e));
+    warn(t("px.team.inviteFail"), String(e.message || e));
   } finally {
     inviteBusy.value = false;
   }
@@ -315,7 +375,9 @@ async function invite() {
 const pagesFor = ref("");
 const draftHidden = ref(new Set());
 const savingPages = ref(false);
-function rolePages(role) { return navItemsFor(role); }
+// Only routed pages can be hidden: the attendance link has no route name, and
+// an undefined key used to be saved as the string "None" on the user.
+function rolePages(role) { return navItemsFor(role, undefined, SURFACE).filter((i) => i.to); }
 function togglePages(m) {
   if (pagesFor.value === m.user) { pagesFor.value = ""; return; }
   pagesFor.value = m.user;
@@ -344,11 +406,11 @@ async function setRole(user, role) {
   savingRole.value = user;
   try {
     await apiPost("auth.set_member_role", { user, role });
-    success(role ? `Role set: ${role}` : "Access removed", user);
+    success(role ? `${t("px.team.roleSet")}: ${t("roles." + role, role)}` : t("px.team.accessRemoved"), user);
     mq.value = "";
     await loadMgmt();
   } catch (e) {
-    warn("Couldn't update role", String(e.message || e));
+    warn(t("px.team.roleFail"), String(e.message || e));
   } finally {
     savingRole.value = "";
   }
@@ -359,16 +421,26 @@ async function saveTarget() {
   try {
     const r = await apiPost("auth.set_floor_target", { value: targetEdit.value });
     if (mgmt.value) mgmt.value.target = r.target;
-    success("Daily target updated", `${r.target} orders / person`);
+    success(t("px.team.targetSaved"), `${r.target} ${t("px.team.targetUnit")}`);
   } catch (e) {
-    warn("Couldn't save target", String(e.message || e));
+    warn(t("px.team.targetFail"), String(e.message || e));
   } finally {
     savingTarget.value = false;
   }
 }
 
+// The tracking team's day (same source as the board's my-day strip).
+const day = ref(null);
+const DAY_KINDS = [
+  { key: "chases", icon: "phone" }, { key: "rescues", icon: "route" }, { key: "cities", icon: "map-pin" },
+  { key: "feedback", icon: "message-circle" }, { key: "notes", icon: "clipboard-check" },
+];
 onMounted(async () => {
   loadMgmt();
+  if (IS_SHIP) {
+    try { day.value = await api("shipments.my_day"); } catch (_) { day.value = { today: "", team: [], totals: {} }; }
+    return;
+  }
   const live = await liveOr(null, () => api("performance.team"));
   if (live && live.leaderboard && live.leaderboard.length) {
     // Real rows only — never borrow demo sparklines for live people.

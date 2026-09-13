@@ -3,7 +3,7 @@
     <header class="sh-hero rounded-2xl p-5 sm:p-6">
       <div class="flex items-start justify-between gap-5 flex-wrap">
         <div class="flex items-center gap-3.5 min-w-0">
-          <span class="sh-hero-icon" style="background: linear-gradient(135deg, rgb(244 63 94), rgb(225 29 72)); box-shadow: 0 6px 16px -6px rgb(244 63 94 / .55)"><Icon name="package-x" :size="22" /></span>
+          <span class="sh-hero-icon" style="background: linear-gradient(135deg, rgb(245 158 11), rgb(217 119 6)); box-shadow: 0 6px 16px -6px rgb(245 158 11 / .55)"><Icon name="package-x" :size="22" /></span>
           <div class="min-w-0">
             <h1 class="text-[21px] font-bold text-stone-900 tracking-tight leading-none">{{ t('oclk.blkTitle') }}</h1>
             <p class="text-[12.5px] text-stone-500 mt-1.5 max-w-[620px]">{{ t('oclk.blkIntro') }}</p>
@@ -18,7 +18,7 @@
             <span class="sh-stat-n text-stone-900">{{ d.inHouse }}</span>
             <span class="sh-stat-l">{{ t('oclk.v_wave') }}</span>
           </div>
-          <div v-if="loadError" class="sh-stat" style="box-shadow: inset 0 0 0 1px rgb(254 205 211)">
+          <div v-if="loadError" class="sh-stat" style="box-shadow: inset 0 0 0 1px rgb(244 63 94 / .5)">
             <span class="sh-stat-n text-rose-600"><Icon name="alert-triangle" :size="18" /></span>
             <span class="sh-stat-l text-rose-600">{{ t('oclk.staleWarn') }}</span>
           </div>
@@ -34,20 +34,20 @@
     <div v-else-if="loadError && !d" class="rounded-2xl p-10 text-center bg-rose-50/60 ring-1 ring-rose-200/70">
       <div class="text-[14px] font-semibold text-rose-700">{{ t('common.loadFail') }}</div>
       <div class="text-[12px] text-rose-600/80 font-mono mt-1 break-words">{{ loadError }}</div>
-      <button class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
+      <button class="mt-3 h-9 px-4 rounded-xl text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
     </div>
 
     <div v-else-if="d" class="grid md:grid-cols-[260px_1fr] gap-4 items-start">
       <!-- the rail: every cause, its count, and the verb that clears it -->
-      <aside class="sh-card rounded-2xl p-2 md:sticky md:top-[52px]">
+      <aside class="sh-card rounded-2xl p-2 md:sticky md:top-3">
         <div class="px-2 pt-1.5 pb-2 text-[10.5px] font-bold uppercase tracking-wide text-stone-400">{{ t('oclk.railTitle') }}</div>
-        <button class="w-full text-start rounded-xl px-3 py-2.5 flex items-center gap-3 transition-colors" :class="!why ? 'bg-stone-900 text-white' : 'hover:bg-stone-50'"
+        <button class="w-full text-start rounded-xl px-3 py-2.5 flex items-center gap-3 transition-colors" :class="!why ? 'bg-stone-900 text-white ring-1 ring-stone-900' : 'hover:bg-stone-50'"
                 :aria-pressed="!why" @click="why = ''">
           <span class="text-[12.5px] font-semibold flex-1">{{ t('oclk.railAll') }}</span>
           <span class="text-[12px] font-bold tabular-nums">{{ d.total }}</span>
         </button>
         <button v-for="k in causes" :key="k.key" class="w-full text-start rounded-xl px-3 py-2.5 flex items-center gap-3 transition-colors mt-0.5"
-                :class="why === k.key ? 'bg-stone-900 text-white' : 'hover:bg-stone-50'" :aria-pressed="why === k.key"
+                :class="why === k.key ? 'bg-stone-900 text-white ring-1 ring-stone-900' : 'hover:bg-stone-50'" :aria-pressed="why === k.key"
                 @click="why = why === k.key ? '' : k.key">
           <span class="w-8 h-8 rounded-lg inline-flex items-center justify-center flex-shrink-0" :class="why === k.key ? 'bg-white/15' : k.tint">
             <Icon :name="WHY_ICON[k.key]" :size="14" />
@@ -86,7 +86,7 @@
           <span class="text-[10px] font-bold rounded-full px-2 py-0.5 whitespace-nowrap flex-shrink-0 hidden sm:inline" :class="STAGE_CLS[r.stage]">{{ t('oclk.s_' + r.stage) }}</span>
           <div class="flex items-center gap-1 flex-wrap justify-end">
             <RouterLink v-for="w in r.why" :key="w" :to="fixLink(w, r)"
-                        class="lp-tap text-[10.5px] font-semibold rounded-md px-1.5 py-1 ring-1 inline-flex items-center gap-1 hover:bg-white"
+                        class="lp-tap text-[10.5px] font-semibold rounded-full px-2 py-0.5 ring-1 inline-flex items-center gap-1 hover:bg-white"
                         :class="WHY_CLS[w]" :title="t('oclk.fx_' + w)">
               <Icon :name="WHY_ICON[w]" :size="11" />{{ t('oclk.w_' + w) }}
             </RouterLink>
@@ -105,7 +105,7 @@
             <Icon :name="loadError ? 'alert-triangle' : why ? 'filter' : 'check-circle'" :size="26" />
           </span>
           <div class="text-[15px] font-semibold text-stone-800">{{ loadError ? t('oclk.staleWarn') : why ? t('oclk.blkNoneCause') : t('oclk.blkClear') }}</div>
-          <button v-if="loadError" class="mt-3 h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
+          <button v-if="loadError" class="mt-3 h-9 px-4 rounded-xl text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700" @click="load">{{ t('common.retry') }}</button>
         </div>
       </div>
     </div>

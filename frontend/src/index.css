@@ -812,3 +812,20 @@ html[data-theme="dark"] .sh-empty { background: linear-gradient(180deg, #292524,
 html[data-theme="dark"] .sh-shimmer { background: linear-gradient(90deg, #292524 25%, #3a3530 50%, #292524 75%) !important; background-size: 200% 100% !important; }
 html[data-theme="dark"] .sh-bubble { background: #14302b !important; box-shadow: inset 0 0 0 1px #1f4d45 !important; }
 html[data-theme="dark"] .sh-bubble-neg { background: #3a1d22 !important; box-shadow: inset 0 0 0 1px #6b2a34 !important; }
+/* Teal — the tracking portal's accent — had no dark remap: teal-700 text on the
+   dark card was ~2.7:1. Mirrors the emerald block above. */
+html[data-theme="dark"] .bg-teal-50, html[data-theme="dark"] .bg-teal-100 { background-color: #12302c !important; }
+html[data-theme="dark"] .text-teal-600, html[data-theme="dark"] .text-teal-700,
+html[data-theme="dark"] .text-teal-900 { color: #5eead4 !important; }
+html[data-theme="dark"] .ring-teal-200, html[data-theme="dark"] .ring-teal-200\/70 { --tw-ring-color: #1f4d45 !important; }
+html[data-theme="dark"] .ring-teal-400 { --tw-ring-color: #2dd4bf !important; }
+html[data-theme="dark"] .hover\:bg-teal-100:hover { background-color: #1a3f3a !important; }
+html[data-theme="dark"] .bg-white\/75 { background-color: rgba(41,37,36,.85) !important; }
+html[data-theme="dark"] .ring-stone-200\/80 { --tw-ring-color: #44403c !important; }
+/* A selected chip is the brightest thing on its card, not a hole in it. Every
+   selected chip in the portal carries ring-stone-900 next to bg-stone-900;
+   solid dark buttons elsewhere do not, and keep their look. */
+html[data-theme="dark"] .bg-stone-900.ring-stone-900 { background-color: #e7e3df !important; color: #1c1917 !important; --tw-ring-color: #e7e3df !important; }
+html[data-theme="dark"] .bg-stone-900.ring-stone-900 .text-white\/80,
+html[data-theme="dark"] .bg-stone-900.ring-stone-900 .text-white\/70 { color: rgba(28,25,23,.65) !important; }
+html[data-theme="dark"] .bg-stone-900.ring-stone-900 .bg-white\/15 { background-color: rgba(28,25,23,.12) !important; }
