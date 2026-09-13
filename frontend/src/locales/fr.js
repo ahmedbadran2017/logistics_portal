@@ -2005,6 +2005,9 @@ export default {
     saveFail: "Échec de l'enregistrement",
   },
   rs: {
+    actReship: "Réexpédier", actReturnHint: "Demander le retour du colis — un motif est enregistré",
+    reasonLabels: { "Client injoignable": "Client injoignable", "Refuse le colis": "Refuse le colis", "Adresse introuvable": "Adresse introuvable",
+      "Reporté par le client": "Reporté par le client", "Annulé par le client": "Annulé par le client" },
     headRescuable: "un appel peut sauver", legendTitle: "Ce que font les boutons",
     lg_redeliver: "Client joint, il veut toujours le colis — le transporteur réessaie.",
     lg_reship: "Un nouveau colis par préparation et expédition ; l'ancien revient.",

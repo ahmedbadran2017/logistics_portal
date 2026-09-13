@@ -201,7 +201,7 @@
               <button v-for="rs in data.reasons" :key="rs"
                       class="h-7 px-2.5 rounded-full text-[11.5px] font-medium ring-1 transition-all"
                       :class="reason === rs ? 'text-white bg-rose-600 ring-rose-600 shadow-sm' : 'text-rose-700 bg-white ring-rose-200 hover:bg-rose-100'"
-                      @click="reason = rs">{{ rs }}</button>
+                      @click="reason = rs">{{ t('rs.reasonLabels.' + rs, rs) }}</button>
             </div>
             <div class="flex items-center gap-2">
               <input v-model="reason" :placeholder="t('cf.cancelPh')" maxlength="120"

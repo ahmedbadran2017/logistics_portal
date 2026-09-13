@@ -2004,6 +2004,9 @@ export default {
     saveFail: "تعذّر الحفظ",
   },
   rs: {
+    actReship: "إعادة شحن", actReturnHint: "اطلب رجوع الطرد — بيتسجل سبب",
+    reasonLabels: { "Client injoignable": "العميل مش بيرد", "Refuse le colis": "رافض الطرد", "Adresse introuvable": "العنوان مش موجود",
+      "Reporté par le client": "العميل أجّل", "Annulé par le client": "العميل لغى" },
     headRescuable: "مكالمة ممكن تنقذهم", legendTitle: "الزراير بتعمل إيه",
     lg_redeliver: "اتوصلت للعميل ولسه عايز الطرد — الكارير يحاول تاني.",
     lg_reship: "طرد جديد عن طريق التجميع والشحن؛ القديم يرجع.",

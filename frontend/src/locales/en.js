@@ -2004,6 +2004,9 @@ export default {
     saveFail: "Couldn't save",
   },
   rs: {
+    actReship: "Reship", actReturnHint: "Ask for the parcel back — a reason is recorded",
+    reasonLabels: { "Client injoignable": "Customer unreachable", "Refuse le colis": "Refuses the parcel", "Adresse introuvable": "Address not found",
+      "Reporté par le client": "Postponed by the customer", "Annulé par le client": "Cancelled by the customer" },
     headRescuable: "a call can save", legendTitle: "What the buttons do",
     lg_redeliver: "You reached the customer and they still want it — the carrier tries again.",
     lg_reship: "A new parcel through pick and ship; the old one comes back.",
