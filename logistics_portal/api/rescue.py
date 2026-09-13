@@ -212,7 +212,10 @@ def _dn_where(tab, vals, reason=""):
     if reason == "cancelled":
         extra.append(_cancelled_cond())
     elif reason == "rescuable":
-        extra.append("NOT " + _cancelled_cond())
+        # A parcel the carrier never commented on is NOT cancelled — but
+        # NOT (NULL LIKE ...) is NULL, which a WHERE reads as false and
+        # silently dropped 686 such parcels from the rescuable list.
+        extra.append("(" + _last_event_sql() + " IS NULL OR NOT " + _cancelled_cond() + ")")
     if tab == "backlog":
         # The pile OLDER than the working window — 17k untriaged parcels were
         # invisible when every queue clipped at `days`. Worked by bulk triage.
