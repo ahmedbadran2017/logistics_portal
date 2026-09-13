@@ -1580,6 +1580,12 @@ export default {
     badPhone: "The phone needs at least nine digits.",
   },
   oclk: {
+    mk_chased: "Chased", mk_confirmed: "Carrier has it", mk_found: "Found here", mk_lost: "Lost",
+    mkh_chased: "You called the carrier — back on the list in a day if nothing moves",
+    mkh_confirmed: "The carrier confirmed it holds the parcel — back in two days if still no scan",
+    mkh_found: "The parcel is physically in the warehouse — the floor is told to hand it over again",
+    mkh_lost: "The carrier cannot find it — reship or cancel it in Failed deliveries",
+    markDone: "Marked", selectedN: "selected", selectShown: "Select all shown", bulkNotePh: "Note for all (optional)",
     ev_noscan: "never scanned by the carrier", sinceHandover: "since handover",
     byEvent: "Carrier says", byCity: "By city", track: "Open the carrier tracking", call: "Call the customer", wa: "WhatsApp the customer",
     ev_hub: "at a hub", ev_ofd: "out for delivery", ev_unreachable: "customer unreachable", ev_appointment: "appointment set",

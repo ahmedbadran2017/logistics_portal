@@ -189,11 +189,16 @@
           <span class="text-[10.5px] text-stone-400 tabular-nums">{{ g.rows.length }}</span>
           <span class="flex-1 h-px bg-stone-200/70" />
         </div>
-        <div v-for="r in g.rows" :key="r.order" class="sh-card rounded-2xl px-4 py-3 flex items-center gap-4">
+        <div v-for="r in g.rows" :key="r.order" class="sh-card rounded-2xl px-4 py-3 flex items-center gap-4" :class="selected.has(r.order) ? 'ring-2 ring-teal-400' : ''">
+          <input v-if="view === 'chase'" type="checkbox" class="accent-teal-600 w-4 h-4 flex-shrink-0" :checked="selected.has(r.order)" @change="toggleSel(r.order)" />
           <RouterLink :to="{ name: 'OrderDetail', params: { name: r.order } }" class="lp-tap contents">
           <div class="min-w-0 flex-1 basis-[150px]">
             <div class="font-mono text-[12.5px] font-bold text-stone-900 truncate" dir="ltr">{{ r.order }}</div>
-            <div class="text-[11px] text-stone-400 truncate" dir="auto">{{ r.customer }}<span v-if="r.city" class="text-stone-300"> · </span><span dir="auto">{{ r.city }}</span></div>
+            <div class="text-[11px] text-stone-400 truncate" dir="auto">{{ r.customer }}<span v-if="r.city" class="text-stone-300"> · </span><span dir="auto">{{ r.city }}</span>
+              <span v-if="r.mark" class="ms-1.5 inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-1.5 py-0.5 ring-1" :class="markStyle(r.mark).cls" dir="ltr">
+                <Icon :name="markStyle(r.mark).icon" :size="10" />{{ t('oclk.mk_' + r.mark) }} {{ r.markAt.slice(5) }}
+              </span>
+            </div>
           </div>
           <!-- the clock as a path: which doors this order has passed -->
           <div class="hidden sm:flex items-center" :title="stepTitle(r)">
@@ -218,14 +223,25 @@
             <a v-if="r.phone" :href="'tel:' + r.phone" class="lp-tap w-8 h-8 rounded-lg inline-flex items-center justify-center text-stone-600 bg-white ring-1 ring-stone-200 hover:ring-emerald-300 hover:text-emerald-700" :title="t('oclk.call')" @click.stop><Icon name="phone" :size="13" /></a>
             <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" rel="noopener" class="lp-tap w-8 h-8 rounded-lg inline-flex items-center justify-center text-emerald-600 bg-white ring-1 ring-stone-200 hover:bg-emerald-50" :title="t('oclk.wa')" @click.stop><Icon name="message-circle" :size="13" /></a>
           </span>
-          <button v-if="view === 'chase'" class="lp-tap h-9 px-3 rounded-xl text-[12px] font-bold text-white flex-shrink-0 disabled:opacity-50"
-                  style="background: linear-gradient(135deg, rgb(249 115 22), rgb(234 88 12)); box-shadow: 0 4px 12px -4px rgb(249 115 22 / .45)"
-                  :disabled="chasing.has(r.order)" :title="t('oclk.chasedHint')" @click.stop="markChased(r)">
-            <Icon name="phone" :size="13" class="inline -mt-px me-1" />{{ t('oclk.chased') }}
-          </button>
+          <span v-if="view === 'chase'" class="inline-flex items-center gap-1 flex-shrink-0">
+            <button v-for="m in MARKS" :key="m.key" class="lp-tap h-9 px-2.5 rounded-xl text-[11.5px] font-bold inline-flex items-center gap-1 ring-1 disabled:opacity-50"
+                    :class="m.cls" :disabled="chasing.has(r.order)" :title="t('oclk.mkh_' + m.key)" @click.stop="markRow(r, m.key)">
+              <Icon :name="m.icon" :size="13" /><span class="hidden 2xl:inline">{{ t('oclk.mk_' + m.key) }}</span>
+            </button>
+          </span>
         </div>
       </div>
     </section>
+
+    <div v-if="view === 'chase' && selected.size" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 flex-wrap bg-white rounded-2xl shadow-floating ring-1 ring-stone-200/80 px-4 py-2.5 max-w-[94vw]">
+      <span class="text-[12.5px] font-bold text-stone-800 tabular-nums whitespace-nowrap">{{ selected.size }} {{ t('oclk.selectedN') }}</span>
+      <button class="text-[11.5px] font-semibold text-stone-400 hover:text-stone-700" @click="selected = new Set()">{{ t('common.close') }}</button>
+      <button class="text-[11.5px] font-semibold text-teal-700 hover:text-teal-900" @click="selectAllShown">{{ t('oclk.selectShown') }}</button>
+      <input v-model="bulkNote" :placeholder="t('oclk.bulkNotePh')" maxlength="120" class="h-9 w-[180px] ps-3 pe-3 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] focus:outline-none" />
+      <button v-for="m in MARKS" :key="m.key" class="lp-tap h-9 px-3 rounded-xl text-[12px] font-bold inline-flex items-center gap-1.5 ring-1 disabled:opacity-40" :class="m.cls" :disabled="bulkBusy" @click="bulkMark(m.key)">
+        <Icon :name="m.icon" :size="13" />{{ t('oclk.mk_' + m.key) }}
+      </button>
+    </div>
 
     <div v-else-if="d" class="sh-empty rounded-2xl p-12 text-center">
       <span class="inline-flex w-14 h-14 rounded-2xl items-center justify-center mb-3" :class="loadError ? 'bg-rose-50 text-rose-500' : 'bg-emerald-50 text-emerald-500'">
@@ -251,6 +267,47 @@ const waveFilter = ref("");
 const cityFilter = ref("");
 const eventFilter = ref("");
 const chasing = ref(new Set());
+const selected = ref(new Set());
+const bulkNote = ref("");
+const bulkBusy = ref(false);
+// What the team can conclude about a parcel the carrier is silent on.
+const MARKS = [
+  { key: "chased", icon: "phone", cls: "text-orange-700 bg-orange-50 ring-orange-200 hover:bg-orange-100" },
+  { key: "confirmed", icon: "check", cls: "text-sky-700 bg-sky-50 ring-sky-200 hover:bg-sky-100" },
+  { key: "found", icon: "package", cls: "text-amber-700 bg-amber-50 ring-amber-200 hover:bg-amber-100" },
+  { key: "lost", icon: "package-x", cls: "text-rose-700 bg-rose-50 ring-rose-200 hover:bg-rose-100" },
+];
+function markStyle(k) { return MARKS.find((m) => m.key === k) || { icon: "check", cls: "text-stone-600 bg-stone-100 ring-stone-200" }; }
+function toggleSel(o) { const s = new Set(selected.value); s.has(o) ? s.delete(o) : s.add(o); selected.value = s; }
+function selectAllShown() { selected.value = new Set(groups.value.flatMap((g) => g.rows.map((r) => r.order))); }
+function dropRows(orders) {
+  if (!d.value) return;
+  const set = new Set(orders);
+  d.value.rows = d.value.rows.filter((x) => !set.has(x.order));
+  d.value.total = Math.max(0, d.value.total - orders.length);
+  d.value.counts.chase = Math.max(0, d.value.counts.chase - orders.length);
+}
+async function markRow(r, outcome) {
+  if (chasing.value.has(r.order)) return;
+  chasing.value.add(r.order);
+  try {
+    await apiPost("shipments.mark", { order: r.order, outcome });
+    dropRows([r.order]); loadDay();
+    success(t("oclk.markDone"), r.order);
+  } catch (e) { warn(t("oclk.saveFail"), String(e?.message || e)); }
+  chasing.value.delete(r.order);
+}
+async function bulkMark(outcome) {
+  const orders = [...selected.value];
+  if (!orders.length) return;
+  bulkBusy.value = true;
+  try {
+    const r = await apiPost("shipments.bulk_mark", { orders, outcome, note: bulkNote.value });
+    dropRows(orders); selected.value = new Set(); bulkNote.value = ""; loadDay();
+    success(t("oclk.markDone"), String(r?.done ?? orders.length));
+  } catch (e) { warn(t("oclk.saveFail"), String(e?.message || e)); }
+  bulkBusy.value = false;
+}
 const EV_CLS = {
   noscan: "bg-rose-50 text-rose-700 ring-rose-200",
   hub: "bg-sky-50 text-sky-700 ring-sky-200", ofd: "bg-emerald-50 text-emerald-700 ring-emerald-200",
@@ -413,7 +470,7 @@ async function load() {
   loading.value = false; refreshing.value = false;
 }
 function setView(v) {
-  view.value = v; cityFilter.value = ""; eventFilter.value = "";
+  view.value = v; cityFilter.value = ""; eventFilter.value = ""; selected.value = new Set();
   const stale = readStale("ship.board." + v);
   if (stale) accept(stale);
   load();
@@ -423,17 +480,6 @@ function toggleWave(dueAt) {
   if (waveFilter.value === dueAt) { waveFilter.value = ""; return; }
   waveFilter.value = dueAt;
   if (view.value !== "wave") setView("wave");
-}
-// Mark a parcel as chased: it leaves the list for the snooze window.
-async function markChased(r) {
-  if (chasing.value.has(r.order)) return;
-  chasing.value.add(r.order);
-  try {
-    await apiPost("shipments.chase", { order: r.order });
-    if (d.value) { d.value.rows = d.value.rows.filter((x) => x.order !== r.order); d.value.total -= 1; d.value.counts.chase = Math.max(0, d.value.counts.chase - 1); }
-    success(t("oclk.chasedDone"), r.order); loadDay();
-  } catch (e) { warn(t("oclk.saveFail"), String(e?.message || e)); }
-  chasing.value.delete(r.order);
 }
 // 1-5 jump between lenses; Escape clears the wave filter.
 function onKey(e) {

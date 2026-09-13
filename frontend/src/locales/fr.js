@@ -1581,6 +1581,12 @@ export default {
     badPhone: "Le numéro doit avoir au moins neuf chiffres.",
   },
   oclk: {
+    mk_chased: "Relancé", mk_confirmed: "Chez le transporteur", mk_found: "Retrouvé ici", mk_lost: "Perdu",
+    mkh_chased: "Transporteur relancé — de retour dans la liste dans un jour si rien ne bouge",
+    mkh_confirmed: "Le transporteur confirme qu'il a le colis — de retour dans deux jours sans scan",
+    mkh_found: "Le colis est physiquement à l'entrepôt — le terrain est prévenu de le remettre à nouveau",
+    mkh_lost: "Le transporteur ne le trouve pas — réexpédier ou annuler dans Livraisons échouées",
+    markDone: "Marqué", selectedN: "sélectionnés", selectShown: "Tout sélectionner", bulkNotePh: "Note pour tous (optionnel)",
     ev_noscan: "jamais scanné par le transporteur", sinceHandover: "depuis la remise",
     byEvent: "Le transporteur dit", byCity: "Par ville", track: "Ouvrir le suivi transporteur", call: "Appeler le client", wa: "WhatsApp au client",
     ev_hub: "au hub", ev_ofd: "en livraison", ev_unreachable: "client injoignable", ev_appointment: "rendez-vous pris",

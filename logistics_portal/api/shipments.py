@@ -556,11 +556,14 @@ def board(view="live", days=30, limit=300):
 
     # A parcel the team already chased today leaves the chase list until the
     # snooze runs out; the mark lives on the order as a comment.
-    chased = _chased_at([r["order"] for r in carrier])
-    snooze_h = int(cfg.get("chaseSnoozeH") or 24)
+    marks = _marks([r["order"] for r in carrier])
+    snooze = dict(_MARK_SNOOZE_H, chased=int(cfg.get("chaseSnoozeH") or 24))
     for r in carrier:
-        r["chasedAt"] = chased.get(r["order"], "")
-        r["snoozed"] = bool(r["chasedAt"] and (now - clock.to_floor(chased[r["order"]])).total_seconds() < snooze_h * 3600)
+        kind, at = marks.get(r["order"], ("", None))
+        r["mark"] = kind
+        r["markAt"] = str(clock.to_floor(at))[:16] if at else ""
+        r["chasedAt"] = r["markAt"] if kind == "chased" else ""
+        r["snoozed"] = bool(kind and at and (now - clock.to_floor(at)).total_seconds() < snooze.get(kind, 24) * 3600)
     chase_h = int(cfg.get("chaseDays") or 5) * 24
     week = str(frappe.utils.add_days(now, -7))[:16]
     judged = [r for r in rows if r["stage"] == "delivered" and r["kept"] is not None
@@ -617,35 +620,88 @@ def board(view="live", days=30, limit=300):
             "now": str(now)[:16]}
 
 
-def _chased_at(orders):
-    """Last 'Tracking: chased' mark per order, from the order's comment trail."""
+# What the team can conclude about a parcel the carrier is silent on. Each
+# mark is a comment on the order with a fixed prefix; the chase list hides
+# the parcel for the mark's snooze, then brings it back if nothing moved.
+_MARKS = {
+    "chased": "Tracking: chased carrier",
+    "confirmed": "Tracking: carrier confirmed it has the parcel",
+    "found": "Tracking: found in the warehouse — needs a new handover",
+    "lost": "Tracking: reported lost to the carrier",
+}
+_MARK_SNOOZE_H = {"chased": 24, "confirmed": 48, "found": 168, "lost": 168}
+
+
+def _marks(orders):
+    """Latest Tracking mark per order: (kind, when)."""
     if not orders:
         return {}
     ph = ", ".join(["%s"] * len(orders))
     out = {}
-    for name, at in frappe.db.sql(
-            f"""SELECT reference_name, MAX(creation) FROM `tabComment`
-                WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
-                  AND creation >= DATE_SUB(NOW(), INTERVAL 14 DAY)
-                  AND content LIKE 'Tracking: chased%%' AND reference_name IN ({ph})
-                GROUP BY reference_name""", tuple(orders)):
-        out[name] = at
+    for name, content, at in frappe.db.sql(
+            f"""SELECT c.reference_name, c.content, c.creation FROM `tabComment` c
+                JOIN (SELECT reference_name, MAX(creation) t FROM `tabComment`
+                      WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
+                        AND creation >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+                        AND content LIKE 'Tracking: %%' AND content NOT LIKE 'Tracking: feedback%%'
+                        AND reference_name IN ({ph})
+                      GROUP BY reference_name) m
+                  ON m.reference_name = c.reference_name AND m.t = c.creation
+                WHERE c.reference_doctype = 'Sales Order'""", tuple(orders)):
+        kind = next((k for k, p in _MARKS.items() if (content or "").startswith(p)), "")
+        if kind:
+            out[name] = (kind, at)
     return out
+
+
+def _mark_one(order, kind, note):
+    doc = frappe.get_doc("Sales Order", order)
+    doc.add_comment("Comment", _MARKS[kind] + (f" — {note}" if note else "")
+                    + f" · by {frappe.session.user}")
+
+
+@frappe.whitelist(methods=["POST"])
+def mark(order, outcome="chased", note=None):
+    """One conclusion about one parcel the carrier is silent on."""
+    _gate()
+    if outcome not in _MARKS:
+        frappe.throw("lp:badPayload")
+    if not frappe.db.exists("Sales Order", {"name": order, "company": _CO}):
+        frappe.throw("lp:unknownRow")
+    _mark_one(order, outcome, (note or "").strip()[:140])
+    frappe.db.commit()
+    if outcome == "found":
+        _emit("found_in_building", {"n": 1, "order": order}, "warning", cooldown_h=1,
+              order=order, audience="dispatcher")
+    return {"ok": True}
+
+
+@frappe.whitelist(methods=["POST"])
+def bulk_mark(orders=None, outcome="chased", note=None):
+    """The same conclusion for a whole hub's worth of parcels."""
+    _gate()
+    if isinstance(orders, str):
+        orders = json.loads(orders or "[]")
+    if outcome not in _MARKS:
+        frappe.throw("lp:badPayload")
+    orders = [str(o).strip() for o in (orders or []) if str(o).strip()][:200]
+    note = (note or "").strip()[:140]
+    done = 0
+    for o in orders:
+        if frappe.db.exists("Sales Order", {"name": o, "company": _CO}):
+            _mark_one(o, outcome, note)
+            done += 1
+    frappe.db.commit()
+    if outcome == "found" and done:
+        _emit("found_in_building", {"n": done, "order": orders[0]}, "warning", cooldown_h=1,
+              order=orders[0] if done == 1 else None, audience="dispatcher")
+    return {"ok": True, "done": done}
 
 
 @frappe.whitelist(methods=["POST"])
 def chase(order, note=None):
-    """The team called the carrier about this parcel: leave a mark on the
-    order and take it off the chase list for the snooze window."""
-    _gate()
-    if not frappe.db.exists("Sales Order", {"name": order, "company": _CO}):
-        frappe.throw("lp:unknownRow")
-    note = (note or "").strip()[:140]
-    doc = frappe.get_doc("Sales Order", order)
-    doc.add_comment("Comment", "Tracking: chased carrier" + (f" — {note}" if note else "")
-                    + f" · by {frappe.session.user}")
-    frappe.db.commit()
-    return {"ok": True}
+    """Kept for the older client: the 'chased' mark."""
+    return mark(order, "chased", note)
 
 
 def _wave_buckets(in_house):
@@ -834,11 +890,11 @@ def blocked(days=30):
 # problem is one row and not one row per tick.
 # ---------------------------------------------------------------------------
 
-def _tracking_users():
+def _tracking_users(role="tracking"):
     from logistics_portal.api.auth import SEED_ROLES
-    users = [u for u, r in SEED_ROLES.items() if r == "tracking"]
+    users = [u for u, r in SEED_ROLES.items() if r == role]
     for u in frappe.db.sql("""SELECT name FROM `tabUser`
-                              WHERE enabled = 1 AND custom_logistics_role = 'tracking'"""):
+                              WHERE enabled = 1 AND custom_logistics_role = %s""", (role,)):
         if u[0] not in users:
             users.append(u[0])
     return users
@@ -865,6 +921,14 @@ _ALERTS = {
         "ar": ("أوردرات فوّتت موجتها ولسه جوه المخزن",
                "{n} أوردر. أقدمهم {order}، عدّى موجة {due} بـ {h} ساعة."),
     },
+    "found_in_building": {
+        "en": ("Manifested parcels found in the building",
+               "{n} parcel(s) on a manifest were found still in the warehouse by the tracking team ({order}). They need a new handover — they are not with the carrier."),
+        "fr": ("Colis manifestés retrouvés dans l'entrepôt",
+               "{n} colis inscrits sur un manifeste ont été retrouvés dans l'entrepôt par l'équipe suivi ({order}). Ils doivent être remis à nouveau — ils ne sont pas chez le transporteur."),
+        "ar": ("طرود في المانيفست اتلقت جوه المخزن",
+               "{n} طرد مسجّل في مانيفست اتلقى لسه جوه المخزن ({order}). لازم يتسلّم للكارير تاني — مش عنده."),
+    },
     "no_scan": {
         "en": ("Parcels manifested but never scanned by the carrier",
                "{n} parcels were handed over more than two days ago and the carrier has no scan for them. Either they never left the building or the handover was lost — check the sort wall, then the carrier."),
@@ -884,7 +948,7 @@ _ALERTS = {
 }
 
 
-def _emit(kind, params, severity="warning", cooldown_h=4, order=None):
+def _emit(kind, params, severity="warning", cooldown_h=4, order=None, audience="tracking"):
     """One row per standing problem. The stored subject is the English title
     without counts, so the unread check matches tick after tick; the three
     renderings ride in the body as JSON for the Alerts page. Once read, the
@@ -910,7 +974,7 @@ def _emit(kind, params, severity="warning", cooldown_h=4, order=None):
                 "subject": title,
                 "creation": (">=", frappe.utils.add_to_date(now_datetime(), hours=-cooldown_h))}):
             return
-        for user in _tracking_users() or []:
+        for user in _tracking_users(audience) or []:
             frappe.get_doc({
                 "doctype": "Notification Log", "subject": title,
                 "email_content": body, "type": "Alert",
@@ -921,7 +985,7 @@ def _emit(kind, params, severity="warning", cooldown_h=4, order=None):
         frappe.log_error(frappe.get_traceback()[:2000], "shipments._emit")
     frappe.publish_realtime("logistics_alert", {
         "severity": severity, "title": title, "detail": detail, "i18n": i18n,
-        "audience": "tracking"})
+        "audience": audience})
 
 
 def run_alerts():
