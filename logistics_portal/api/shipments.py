@@ -281,7 +281,7 @@ def carrier_due(handed_at, city, cfg=None):
                                                          handed_at.minute))
 
 
-_BOARD_SQL = """
+_BOARD_SELECT = """
 SELECT so.name, so.customer_name AS customer, so.grand_total AS value,
        so.creation AS created, so.custom_sales_status AS sales_status,
        so.status AS so_status, so.custom_logistics_status AS lstat,
@@ -332,6 +332,9 @@ LEFT JOIN (SELECT reference_name, MIN(creation) t FROM `tabComment`
                   OR content LIKE 'Out for delivery%%'
                   OR content LIKE 'Package Delivered%%')
            GROUP BY reference_name) hub ON hub.reference_name = so.name
+"""
+
+_BOARD_WHERE = """
 WHERE so.company = %(co)s AND so.docstatus = 1
   AND so.custom_sales_status = 'Confirmed'
   AND so.status NOT IN ('Closed', 'Cancelled')
@@ -357,7 +360,8 @@ def _rows(days=30):
         pass
     # A confirmation, a label or a carrier scan can only come AFTER the order
     # was created, so the witness tables need no wider window than the orders.
-    rows = frappe.db.sql(_BOARD_SQL, {"co": _CO, "days": days, "vdays": days + 2}, as_dict=True)
+    rows = frappe.db.sql(_BOARD_SELECT + _BOARD_WHERE,
+                         {"co": _CO, "days": days, "vdays": days + 2}, as_dict=True)
     try:
         frappe.cache().set_value(key, rows, expires_in_sec=60)
     except Exception:
@@ -500,6 +504,7 @@ def board(view="live", days=30, limit=300):
               and r["deliveredAt"] >= week]
     counts = {
         "kept7d": {"n": len(judged), "ok": sum(1 for r in judged if r["kept"])},
+        "failed": sum(1 for r in rows if r["stage"] == "failed"),
         "live": len(live),
         "inHouse": len(in_house),
         "lateInHouse": sum(1 for r in in_house if r["late"]),
@@ -876,3 +881,89 @@ def run_alerts():
             _emit("chase", {"n": len(chase), "days": cfg.get("chaseDays")}, "warning", cooldown_h=12)
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "shipments.run_alerts")
+
+
+# ---------------------------------------------------------------------------
+# One order's journey: the clock, and every hand the parcel passed through.
+# ---------------------------------------------------------------------------
+
+_CARRIER_EVENT_LIKE = ("Newly created parcel%", "Shipped to destination hub%",
+                       "The parcel is present on Hub%", "Out for delivery%",
+                       "Package Delivered%", "The driver has confirmed%",
+                       "Customer unreachable%", "%Delivery Exception%", "%Failed%",
+                       "%Returned%", "Tracking: %", "Rescue: %")
+
+
+@frappe.whitelist()
+def journey(order):
+    """The parcel's whole story for the order page: stage and promise as the
+    board reads them, the stage timestamps, the documents behind them, and
+    the carrier's own events in order. Any portal role — the order page is
+    shared — but a role is required (customer name and phone travel here)."""
+    from logistics_portal.api.permissions import require_portal_user
+    from logistics_portal.api import clock
+    require_portal_user()
+    # Six indexed point reads, not the board's derived tables: those are
+    # materialised for EVERY order before a WHERE on one name applies.
+    raw = frappe.db.sql(
+        """SELECT so.name, so.customer_name AS customer, so.grand_total AS value,
+                  so.creation AS created, so.custom_sales_status AS sales_status,
+                  so.status AS so_status, so.custom_logistics_status AS lstat,
+                  so.custom_track_shipment_status AS so_track,
+                  NULLIF(so.custom_tracking_number, '') AS so_awb, so.modified AS modified,
+                  COALESCE(NULLIF(so.custom_shipping_city, ''), addr.city, '') AS city,
+                  COALESCE(NULLIF(so.custom_customer_phone, ''), so.custom_shipping_phone) AS phone,
+                  so.custom_delivered_at AS delivered_at
+           FROM `tabSales Order` so
+           LEFT JOIN `tabAddress` addr ON addr.name = COALESCE(NULLIF(so.shipping_address_name, ''), so.customer_address)
+           WHERE so.name = %s""", (order,), as_dict=True)
+    if not raw:
+        return {"found": False}
+    raw = raw[0]
+    one = lambda q, *a: (frappe.db.sql(q, a) or [[None]])[0]
+    raw.confirmed_at = one("""SELECT MIN(creation) FROM `tabVersion` WHERE ref_doctype = 'Sales Order' AND docname = %s
+                              AND data LIKE '%%"custom_sales_status",%%,"Confirmed"]%%'""", order)[0]
+    raw.picklist_at = one("""SELECT MIN(p.creation) FROM `tabPick List Item` pli JOIN `tabPick List` p ON p.name = pli.parent
+                             WHERE pli.sales_order = %s AND p.docstatus < 2""", order)[0]
+    dn = one("""SELECT MIN(d.creation), MAX(COALESCE(NULLIF(d.custom_awb, ''), '')), MAX(d.custom_track_shipment_status)
+                FROM `tabDelivery Note Item` dni JOIN `tabDelivery Note` d ON d.name = dni.parent
+                WHERE dni.against_sales_order = %s AND d.docstatus < 2 AND d.is_return = 0""", order)
+    raw.dn_at, raw.awb, raw.track = (dn + [None, None, None])[:3] if isinstance(dn, list) else (dn[0], dn[1], dn[2])
+    raw.handed_at = one("""SELECT MIN(s.creation) FROM `tabShipment Delivery Note` sdn JOIN `tabShipment` s ON s.name = sdn.parent
+                           JOIN `tabDelivery Note Item` dni ON dni.parent = sdn.delivery_note
+                           WHERE dni.against_sales_order = %s AND s.docstatus = 1""", order)[0]
+    raw.labeled_at = one("""SELECT MIN(creation) FROM `tabComment` WHERE reference_doctype = 'Sales Order' AND reference_name = %s
+                            AND comment_type = 'Comment' AND content LIKE 'Newly created parcel%%'""", order)[0]
+    raw.hub_at = one("""SELECT MIN(creation) FROM `tabComment` WHERE reference_doctype = 'Sales Order' AND reference_name = %s
+                        AND comment_type = 'Comment' AND (content LIKE 'Shipped to destination hub%%'
+                        OR content LIKE 'The parcel is present on Hub%%' OR content LIKE 'Out for delivery%%'
+                        OR content LIKE 'Package Delivered%%')""", order)[0]
+    cfg = get_settings()
+    now = clock.floor_now()
+    r = _shape(raw, cfg, now)
+    r["live"] = raw.sales_status == "Confirmed" and raw.so_status not in ("Closed", "Cancelled")
+    r["soStatus"] = raw.so_status
+    r["lstat"] = raw.lstat or ""
+    docs = {
+        "pickLists": [x[0] for x in frappe.db.sql(
+            """SELECT DISTINCT p.name FROM `tabPick List Item` pli JOIN `tabPick List` p ON p.name = pli.parent
+               WHERE pli.sales_order = %s AND p.docstatus < 2 ORDER BY p.creation""", (order,))],
+        "deliveryNotes": [{"name": x[0], "docstatus": x[1], "awb": x[2] or ""} for x in frappe.db.sql(
+            """SELECT DISTINCT d.name, d.docstatus, d.custom_awb FROM `tabDelivery Note Item` dni
+               JOIN `tabDelivery Note` d ON d.name = dni.parent
+               WHERE dni.against_sales_order = %s AND d.docstatus < 2 AND d.is_return = 0 ORDER BY d.creation""", (order,))],
+        "shipments": [x[0] for x in frappe.db.sql(
+            """SELECT DISTINCT s.name FROM `tabShipment Delivery Note` sdn JOIN `tabShipment` s ON s.name = sdn.parent
+               JOIN `tabDelivery Note Item` dni ON dni.parent = sdn.delivery_note
+               WHERE dni.against_sales_order = %s AND s.docstatus = 1 ORDER BY s.creation""", (order,))],
+    }
+    like = " OR ".join(["content LIKE %s"] * len(_CARRIER_EVENT_LIKE))
+    events = [{"at": str(clock.to_floor(c.creation))[:16],
+               "text": frappe.utils.strip_html(c.content or "")[:160],
+               "team": bool((c.content or "").startswith(("Tracking:", "Rescue:")))}
+              for c in frappe.db.sql(
+                  f"""SELECT content, creation FROM `tabComment`
+                      WHERE reference_doctype = 'Sales Order' AND reference_name = %s
+                        AND comment_type = 'Comment' AND ({like})
+                      ORDER BY creation""", tuple([order] + list(_CARRIER_EVENT_LIKE)), as_dict=True)]
+    return {"found": True, "row": r, "docs": docs, "events": events, "now": str(now)[:16]}

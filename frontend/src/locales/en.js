@@ -42,6 +42,7 @@ export default {
     returns: "Returns",
   },
   nav: {
+    shipToday: "Today", shipTools: "Tools", findParcel: "Find a parcel", failedDeliveries: "Failed deliveries",
     more: "More",
     myDashboard: "My dashboard",
     logistics: "Logistics",
@@ -998,6 +999,7 @@ export default {
     noOrder: "No order needs this item", unknown: "Unknown item",
   },
   od: {
+    journey: "Parcel clock", journeyPromise: "Promised", journeyEvents: "Carrier events and team notes",
     placed: "Placed", printAwb: "Print AWB label", openErp: "Open in ERPNext",
     lineItems: "Line items", product: "Product", bin: "Bin", qty: "Qty", unit: "Unit", total: "Total",
     subtotal: "Subtotal", shipping: "Shipping", discount: "Discount", tax: "Tax", grandTotal: "Grand total",
@@ -1578,6 +1580,7 @@ export default {
     badPhone: "The phone needs at least nine digits.",
   },
   oclk: {
+    failedLens: "Failed deliveries", toRescue: "Delivery exceptions and failed attempts are worked in Rescue",
     chased: "Chased", chasedHint: "You called the carrier about this parcel — it leaves the list for the snooze window",
     chasedDone: "Marked as chased", waveFilter: "Only this wave", keysHint: "keys 1–5 switch lens, Esc clears",
     setSnooze: "Chase snooze (h)", setSnoozeHint: "A parcel marked as chased stays off the chase list this long.",

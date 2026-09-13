@@ -227,6 +227,44 @@
           </ol>
         </div>
 
+        <!-- The parcel's clock: where it is, what it was promised, every hand it passed -->
+        <div v-if="isLive && journey && journey.found" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+          <div class="flex items-center justify-between gap-2 mb-3">
+            <div class="text-[13px] font-semibold text-stone-900">{{ t("od.journey") }}</div>
+            <span class="text-[10px] font-bold rounded-full px-2 py-0.5" :class="JSTAGE_CLS[journey.row.stage] || 'bg-stone-100 text-stone-600'">{{ t('oclk.s_' + journey.row.stage, journey.row.stage) }}</span>
+          </div>
+          <ol class="flex items-start justify-between gap-1" dir="ltr">
+            <li v-for="(st, i) in JSTEPS" :key="st.key" class="flex-1 min-w-0 text-center">
+              <div class="flex items-center">
+                <span class="h-px flex-1" :class="i && jReached >= i ? 'bg-teal-300' : i ? 'bg-stone-200' : ''" />
+                <span class="w-3 h-3 rounded-full flex-shrink-0" :class="jReached >= i ? 'bg-teal-500' : (journey.row.late && jReached + 1 === i ? 'bg-rose-500' : 'bg-stone-200')" />
+                <span class="h-px flex-1" :class="i < JSTEPS.length - 1 && jReached > i ? 'bg-teal-300' : i < JSTEPS.length - 1 ? 'bg-stone-200' : ''" />
+              </div>
+              <div class="text-[10px] font-semibold mt-1 truncate" :class="jReached >= i ? 'text-stone-800' : 'text-stone-400'">{{ t('oclk.' + st.label) }}</div>
+              <div class="text-[10px] tabular-nums text-stone-400 truncate">{{ (journey.row[st.at] || '').slice(5) || '—' }}</div>
+            </li>
+          </ol>
+          <div v-if="journey.row.dueAt" class="mt-3 flex items-center gap-2 text-[11.5px] rounded-lg px-2.5 py-1.5" :class="journey.row.late ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'">
+            <Icon :name="journey.row.late ? 'alert-triangle' : 'clock'" :size="13" />
+            <span>{{ t('od.journeyPromise') }} <b dir="ltr">{{ journey.row.dueAt.slice(5) }}</b></span>
+            <span class="ms-auto font-bold tabular-nums" dir="ltr">{{ jRemain }}</span>
+          </div>
+          <div v-if="journey.events.length" class="mt-3">
+            <div class="text-[11px] font-semibold text-stone-500 mb-1.5">{{ t('od.journeyEvents') }}</div>
+            <ol class="space-y-1">
+              <li v-for="(e, i) in journey.events" :key="i" class="flex items-start gap-2 text-[11.5px]">
+                <span class="tabular-nums text-stone-400 flex-shrink-0 w-[78px]" dir="ltr">{{ e.at.slice(5) }}</span>
+                <span :class="e.team ? 'text-teal-700 font-semibold' : 'text-stone-700'" dir="auto">{{ e.text }}</span>
+              </li>
+            </ol>
+          </div>
+          <div v-if="journey.docs" class="mt-3 flex flex-wrap gap-1.5 text-[10.5px] font-mono">
+            <span v-for="p in journey.docs.pickLists" :key="p" class="rounded px-1.5 py-0.5 bg-amber-50 text-amber-700 ring-1 ring-amber-200">{{ p }}</span>
+            <span v-for="d in journey.docs.deliveryNotes" :key="d.name" class="rounded px-1.5 py-0.5 bg-violet-50 text-violet-700 ring-1 ring-violet-200" :title="d.docstatus ? '' : 'draft'">{{ d.name }}<span v-if="!d.docstatus"> ·draft</span></span>
+            <span v-for="sh in journey.docs.shipments" :key="sh" class="rounded px-1.5 py-0.5 bg-sky-50 text-sky-700 ring-1 ring-sky-200">{{ sh }}</span>
+          </div>
+        </div>
+
         <!-- Logistics activity (real audit trail) -->
         <div v-if="isLive" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
           <div class="flex items-center justify-between mb-4">
@@ -439,9 +477,30 @@ function fmtTs(ts) {
   return m ? `${m[1].padStart(2, "0")}:${m[2]}` : String(ts || "—");
 }
 
+// The parcel's clock, as the tracking board reads it (shipments.journey).
+const journey = ref(null);
+const JSTEPS = [
+  { key: "confirmed", label: "stConfirmed", at: "confirmedAt" }, { key: "picked", label: "stPicked", at: "pickedAt" },
+  { key: "closed", label: "stClosed", at: "closedAt" }, { key: "carrier", label: "stCarrier", at: "handedAt" },
+  { key: "door", label: "stDoor", at: "deliveredAt" },
+];
+const JREACHED = { to_pick: 0, picking: 1, to_hand_over: 2, with_carrier: 3, delivered: 4, failed: 3 };
+const JSTAGE_CLS = {
+  to_pick: "bg-rose-50 text-rose-700", picking: "bg-amber-50 text-amber-700", to_hand_over: "bg-violet-50 text-violet-700",
+  with_carrier: "bg-sky-50 text-sky-700", delivered: "bg-emerald-50 text-emerald-700", failed: "bg-rose-100 text-rose-800",
+};
+const jReached = computed(() => JREACHED[journey.value?.row?.stage] ?? 0);
+const jRemain = computed(() => {
+  const r = journey.value?.row; if (!r) return "";
+  const m = Math.abs(r.lateMin || 0), h = Math.floor(m / 60);
+  const txt = h >= 48 ? Math.floor(h / 24) + t("oclk.dShort") : h + t("oclk.hShort");
+  return (r.late ? "+" : "") + txt;
+});
+
 // Live order from `orders.detail`; demo/fabricated data stays as fallback.
 const liveOrder = ref(null);
 onMounted(async () => {
+  api("shipments.journey", { order: props.name }).then((j) => { if (j && j.found) journey.value = j; }).catch(() => {});
   liveOr(null, () => api("orders.activity", { name: props.name })).then((ev) => {
     if (Array.isArray(ev) && ev.length) activityEvents.value = ev;
   });

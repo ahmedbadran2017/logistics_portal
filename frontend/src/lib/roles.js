@@ -265,18 +265,25 @@ export const ROLE_CONFIG = {
     // is the landing screen because it IS the job — everything else is a
     // detour off it.
     home: "ShipBoard",
+    // Today = the four questions of the day, in order. Tools = the screens
+    // a question sends you to. Stranded left this nav: the clock's
+    // "no pick list" lens and the blocked screen are that list, with why.
     nav: [
       {
-        section: "nav.shipSection",
+        section: "nav.shipToday",
         items: [
           { to: "ShipBoard", label: "nav.shipBoard", icon: "gauge" },
           { to: "ShipBlocked", label: "nav.shipBlocked", icon: "package-x" },
+          { to: "Rescue", label: "nav.failedDeliveries", icon: "route" },
           { to: "ShipFeedback", label: "nav.shipFeedback", icon: "message-circle" },
-          { to: "Alerts", label: "nav.alerts", icon: "bell" },
-          { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
-          { to: "Rescue", label: "nav.rescue", icon: "route" },
-          { to: "Stranded", label: "nav.stranded", icon: "package-x" },
+        ],
+      },
+      {
+        section: "nav.shipTools",
+        items: [
+          { to: "Tracking", label: "nav.findParcel", icon: "search" },
           { to: "CityCheck", label: "nav.cityCheck", icon: "map-pin" },
+          { to: "Alerts", label: "nav.alerts", icon: "bell" },
           { to: "ShipSettings", label: "nav.settings", icon: "settings" },
         ],
       },
@@ -378,22 +385,21 @@ const SHIP_MANAGER = {
   home: "ShipBoard",
   nav: [
     {
-      section: "nav.shipSection",
+      section: "nav.shipToday",
       items: [
         { to: "ShipBoard", label: "nav.shipBoard", icon: "gauge" },
         { to: "ShipBlocked", label: "nav.shipBlocked", icon: "package-x" },
+        { to: "Rescue", label: "nav.failedDeliveries", icon: "route" },
         { to: "ShipFeedback", label: "nav.shipFeedback", icon: "message-circle" },
-        { to: "Alerts", label: "nav.alerts", icon: "bell" },
       ],
     },
     {
-      section: "nav.operations",
+      section: "nav.shipTools",
       items: [
-        { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
-        { to: "Rescue", label: "nav.rescue", icon: "route" },
-        { to: "Stranded", label: "nav.stranded", icon: "package-x" },
+        { to: "Tracking", label: "nav.findParcel", icon: "search" },
         { to: "CityCheck", label: "nav.cityCheck", icon: "map-pin" },
         { to: "CityMatrix", label: "nav.cityMatrix", icon: "layout-grid" },
+        { to: "Alerts", label: "nav.alerts", icon: "bell" },
       ],
     },
     {

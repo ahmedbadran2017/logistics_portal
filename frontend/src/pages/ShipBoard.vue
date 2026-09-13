@@ -59,6 +59,9 @@
           <span class="sh-seg-count" :class="view === l.view ? l.on : 'bg-stone-200/70 text-stone-500'">{{ l.n }}</span>
         </button>
       </div>
+      <RouterLink v-if="d.counts.failed" :to="{ name: 'Rescue' }" class="lp-tap inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-[12px] font-semibold text-rose-700 bg-rose-50 ring-1 ring-rose-200 hover:bg-rose-100" :title="t('oclk.toRescue')">
+        <Icon name="route" :size="13" /><span>{{ t('oclk.failedLens') }}</span><span class="tabular-nums font-bold">{{ d.counts.failed }}</span><Icon name="arrow-right" :size="12" class="flip-rtl" />
+      </RouterLink>
       <span class="text-[11px] text-stone-400 hidden lg:inline ms-auto">{{ t('oclk.lensHint') }}</span>
     </div>
 

@@ -42,6 +42,7 @@ export default {
     returns: "المرتجعات",
   },
   nav: {
+    shipToday: "النهاردة", shipTools: "أدوات", findParcel: "دوّر على طرد", failedDeliveries: "توصيلات فشلت",
     more: "المزيد",
     myDashboard: "لوحتي",
     logistics: "اللوجستيات",
@@ -998,6 +999,7 @@ export default {
     noOrder: "مفيش أوردر محتاج القطعة دي", unknown: "قطعة غير معروفة",
   },
   od: {
+    journey: "ساعة الطرد", journeyPromise: "موعود", journeyEvents: "أحداث الكارير وملاحظات الفريق",
     placed: "أُنشئ", printAwb: "طباعة البوليصة", openErp: "فتح في ERPNext",
     lineItems: "الأصناف", product: "المنتج", bin: "الموقع", qty: "الكمية", unit: "سعر الوحدة", total: "الإجمالي",
     subtotal: "المجموع الفرعي", shipping: "الشحن", discount: "الخصم", tax: "الضريبة", grandTotal: "الإجمالي الكلي",
@@ -1578,6 +1580,7 @@ export default {
     badPhone: "الرقم لازم يكون 9 أرقام على الأقل.",
   },
   oclk: {
+    failedLens: "توصيلات فشلت", toRescue: "الاستثناءات والمحاولات الفاشلة بتتشغل في الريسكيو",
     chased: "اتطارد", chasedHint: "كلمت الكارير على الطرد دا — هيخرج من القايمة مدة الغفوة",
     chasedDone: "اتعلّم إنه اتطارد", waveFilter: "الموجة دي بس", keysHint: "مفاتيح 1–5 تغيّر العدسة، Esc تمسح",
     setSnooze: "غفوة المطاردة (ساعة)", setSnoozeHint: "الطرد اللي اتعلّم إنه اتطارد بيفضل بره القايمة المدة دي.",

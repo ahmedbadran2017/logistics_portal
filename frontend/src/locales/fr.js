@@ -42,6 +42,7 @@ export default {
     returns: "Retours",
   },
   nav: {
+    shipToday: "Aujourd'hui", shipTools: "Outils", findParcel: "Trouver un colis", failedDeliveries: "Livraisons échouées",
     more: "Plus",
     myDashboard: "Mon tableau de bord",
     logistics: "Logistique",
@@ -998,6 +999,7 @@ export default {
     noOrder: "Aucune commande ne demande cet article", unknown: "Article inconnu",
   },
   od: {
+    journey: "Horloge du colis", journeyPromise: "Promis pour", journeyEvents: "Événements transporteur et notes de l'équipe",
     placed: "Créée", printAwb: "Imprimer l’étiquette AWB", openErp: "Ouvrir dans ERPNext",
     lineItems: "Articles", product: "Produit", bin: "Emplacement", qty: "Qté", unit: "Unitaire", total: "Total",
     subtotal: "Sous-total", shipping: "Livraison", discount: "Remise", tax: "Taxe", grandTotal: "Total",
@@ -1579,6 +1581,7 @@ export default {
     badPhone: "Le numéro doit avoir au moins neuf chiffres.",
   },
   oclk: {
+    failedLens: "Livraisons échouées", toRescue: "Les exceptions et tentatives échouées se traitent dans Rescue",
     chased: "Relancé", chasedHint: "Vous avez relancé le transporteur — le colis quitte la liste le temps du délai",
     chasedDone: "Marqué relancé", waveFilter: "Ce départ seulement", keysHint: "touches 1–5 : vue, Échap : effacer",
     setSnooze: "Pause après relance (h)", setSnoozeHint: "Un colis marqué relancé reste hors de la liste pendant ce délai.",
