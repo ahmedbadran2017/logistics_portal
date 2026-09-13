@@ -60,10 +60,10 @@
     <!-- the carrier's verdict: what a call can still save, and what is already a return -->
     <div v-if="hasVerdict && data" class="flex items-center gap-2 flex-wrap px-1">
       <button v-for="k in ['rescuable', 'cancelled', '']" :key="k" class="lp-tap h-8 px-3 rounded-full text-[11.5px] font-semibold ring-1 transition-colors"
-              :class="reason === k ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200 hover:ring-stone-300'"
-              :aria-pressed="reason === k" @click="setReason(k)">
+              :class="verdictF === k ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200 hover:ring-stone-300'"
+              :aria-pressed="verdictF === k" @click="setReason(k)">
         {{ t('rs.reason_' + (k || 'all')) }}
-        <span class="tabular-nums ms-1" :class="reason === k ? 'text-white/80' : 'text-stone-400'">{{ k ? (data.counts[k] ?? '–') : (data.counts[tab] ?? '–') }}</span>
+        <span class="tabular-nums ms-1" :class="verdictF === k ? 'text-white/80' : 'text-stone-400'">{{ k ? (data.counts[k] ?? '–') : (data.counts[tab] ?? '–') }}</span>
       </button>
       <span class="text-[11px] text-stone-400 ms-auto hidden lg:inline">{{ t('rs.legend') }}</span>
     </div>
@@ -265,15 +265,15 @@ const { success, warn } = useToast();
 
 // The carrier's last word splits the exceptions: a call can save a parcel
 // the customer did not cancel; the rest is a return to confirm.
-const reason = ref("rescuable");
+const verdictF = ref("rescuable");
 const hasVerdict = computed(() => tab.value === "exceptions" || tab.value === "failed");
-const canBulk = computed(() => tab.value === "backlog" || (hasVerdict.value && reason.value === "cancelled"));
+const canBulk = computed(() => tab.value === "backlog" || (hasVerdict.value && verdictF.value === "cancelled"));
 const VERDICT_CLS = {
   cancelled: "text-rose-700 bg-rose-50 ring-rose-200", unreachable: "text-amber-700 bg-amber-50 ring-amber-200",
   appointment: "text-emerald-700 bg-emerald-50 ring-emerald-200", moving: "text-sky-700 bg-sky-50 ring-sky-200",
   returned: "text-stone-600 bg-stone-100 ring-stone-200", other: "text-stone-600 bg-stone-100 ring-stone-200",
 };
-function setReason(r) { reason.value = r; page.value = 1; load(); }
+function setReason(r) { verdictF.value = r; page.value = 1; load(); }
 const TABS = [
   { key: "exceptions", label: "rs.tabExceptions", icon: "alert-triangle", onColor: "bg-rose-100 text-rose-700" },
   { key: "failed", label: "rs.tabFailed", icon: "alert-circle", onColor: "bg-amber-100 text-amber-700" },
@@ -339,7 +339,7 @@ async function load() {
     const res = await api("rescue.board", {
       tab: tab.value, q: q.value, limit: pageSize,
       offset: (page.value - 1) * pageSize,
-      reason: hasVerdict.value ? reason.value || undefined : undefined,
+      reason: hasVerdict.value ? verdictF.value || undefined : undefined,
     });
     data.value = res;
     rows.value = res.rows || [];
