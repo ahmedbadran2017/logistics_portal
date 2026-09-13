@@ -2010,6 +2010,7 @@ export default {
     saveFail: "تعذّر الحفظ",
   },
   rs: {
+    again: "فشل تاني بعد Redeliver", againHint: "قررت Redeliver على الطرد دا قبل كدا؛ الكارير حاول تاني وفشل — محتاج قرار جديد",
     actReship: "إعادة شحن", actReturnHint: "اطلب رجوع الطرد — بيتسجل سبب",
     reasonLabels: { "Client injoignable": "العميل مش بيرد", "Refuse le colis": "رافض الطرد", "Adresse introuvable": "العنوان مش موجود",
       "Reporté par le client": "العميل أجّل", "Annulé par le client": "العميل لغى" },

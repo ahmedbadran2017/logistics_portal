@@ -189,6 +189,7 @@ _DN_SELECT = """
            so.custom_shipping_city AS city,
            COALESCE(so.custom_call_attempts, 0) AS attempts,
            so.custom_next_call_at AS next_call,
+           dn.custom_exception_action AS prior_action, dn.custom_exception_actioned_at AS prior_at,
            """ + _last_event_sql("content") + """ AS last_event,
            """ + _last_event_sql("creation") + """ AS last_event_at,
            DATEDIFF(CURDATE(), dn.posting_date) AS age_d,
@@ -207,6 +208,19 @@ _DN_SELECT = """
 
 _RETURNED = ("NOT EXISTS (SELECT 1 FROM `tabDelivery Note` r WHERE r.is_return = 1 "
              "AND r.return_against = dn.name AND r.docstatus = 1)")
+_SO_JOIN = ("LEFT JOIN `tabSales Order` so ON so.name = (SELECT MIN(dni.against_sales_order) "
+            "FROM `tabDelivery Note Item` dni WHERE dni.parent = dn.name)")
+
+
+def _untriaged_cond():
+    """No decision yet — OR a Redeliver whose parcel the carrier failed AGAIN
+    afterwards. A decision must not hide a parcel forever: #258701 got
+    Redeliver on 09-10, the carrier tried on 09-12, found nobody, and the
+    parcel would have stayed 'handled' for good."""
+    ev_at = _last_event_sql("creation")
+    return ("(COALESCE(dn.custom_exception_action,'') = '' OR "
+            "(dn.custom_exception_action = 'Redeliver' AND dn.custom_exception_actioned_at IS NOT NULL "
+            f"AND {ev_at} > dn.custom_exception_actioned_at))")
 
 
 def _dn_where(tab, vals, reason=""):
@@ -232,7 +246,7 @@ def _dn_where(tab, vals, reason=""):
             "dn.custom_track_shipment_status IN %(backtracks)s",
             "dn.posting_date < DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"] + extra)
     conds = ["dn.docstatus = 1", "dn.company = %(co)s",
-             "COALESCE(dn.custom_exception_action,'') = ''",
+             _untriaged_cond(),
              "dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"]
     if tab in _DN_TRACK:
         conds.append("dn.custom_track_shipment_status = %(track)s")
@@ -262,7 +276,7 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
     for t in ("exceptions", "failed", "stale", "backlog"):
         v = dict(vals)
         counts[t] = int(frappe.db.sql(
-            f"SELECT COUNT(*) FROM `tabDelivery Note` dn WHERE {_dn_where(t, v)}",
+            f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} WHERE {_dn_where(t, v)}",
             v)[0][0])
     # The split that decides whether a call can save anything, for the two
     # queues a call is made from. Cached: it is a correlated read per parcel.
@@ -276,9 +290,7 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
         if not split:
             v = dict(vals)
             canc = int(frappe.db.sql(
-                f"SELECT COUNT(*) FROM `tabDelivery Note` dn LEFT JOIN `tabSales Order` so ON so.name = "
-                f"(SELECT MIN(dni.against_sales_order) FROM `tabDelivery Note Item` dni WHERE dni.parent = dn.name) "
-                f"WHERE {_dn_where(tab, v, 'cancelled')}", v)[0][0])
+                f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} WHERE {_dn_where(tab, v, 'cancelled')}", v)[0][0])
             split = {"cancelled": canc, "rescuable": max(0, counts[tab] - canc)}
             try:
                 frappe.cache().set_value(ck, split, expires_in_sec=120)
@@ -326,10 +338,8 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
             where += """ AND (dn.name LIKE %(q)s OR dn.customer_name LIKE %(q)s
                          OR dn.custom_awb LIKE %(q)s)"""
         # The verdict condition reads the order, so the count needs the join.
-        so_join = ("LEFT JOIN `tabSales Order` so ON so.name = (SELECT MIN(dni.against_sales_order) "
-                   "FROM `tabDelivery Note Item` dni WHERE dni.parent = dn.name)") if reason else ""
         total = frappe.db.sql(
-            f"SELECT COUNT(*) FROM `tabDelivery Note` dn {so_join} WHERE {where}", vals)[0][0]
+            f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} WHERE {where}", vals)[0][0]
         # Newest failures first for the queues a call can still save: the
         # carrier holds a parcel about two weeks before sending it back, so
         # a fresh exception is worth a call and a month-old one is a return.
@@ -371,6 +381,8 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
             "lastEvent": _clean(getattr(r, "last_event", "") or "")[:90],
             "lastEventAt": str(getattr(r, "last_event_at", "") or "")[:16],
             "verdict": _verdict(getattr(r, "last_event", "") or ""),
+            "again": bool(getattr(r, "prior_action", None)),
+            "priorAt": str(getattr(r, "prior_at", "") or "")[:16],
             "nextCall": str(r.next_call)[:16] if r.next_call else "",
             "due": bool(r.next_call and str(r.next_call) <= now),
             # Triage SLA in HOURS: the old day-grain math (age_d * 24) needed
@@ -696,7 +708,7 @@ def dashboard():
         where = _dn_where(tab, vals)
         r = frappe.db.sql(
             f"""SELECT COUNT(*), ROUND(COALESCE(SUM(dn.grand_total), 0))
-                FROM `tabDelivery Note` dn WHERE {where}""", vals)[0]
+                FROM `tabDelivery Note` dn {_SO_JOIN} WHERE {where}""", vals)[0]
         cards[tab] = {"n": int(r[0] or 0), "value": int(r[1] or 0)}
 
     # Untouched-vs-SLA and age spread of the two active failure queues.
@@ -766,6 +778,8 @@ def dashboard():
             "lastEvent": _clean(getattr(r, "last_event", "") or "")[:90],
             "lastEventAt": str(getattr(r, "last_event_at", "") or "")[:16],
             "verdict": _verdict(getattr(r, "last_event", "") or ""),
+            "again": bool(getattr(r, "prior_action", None)),
+            "priorAt": str(getattr(r, "prior_at", "") or "")[:16],
             "value": float(r.total or 0),
         } for r in oldest],
         "serverNow": str(now_datetime())[:19],

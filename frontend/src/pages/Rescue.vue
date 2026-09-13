@@ -133,6 +133,7 @@
               <span class="font-mono text-[11px] text-stone-400" dir="ltr">{{ r.order || r.dn }}</span>
               <span class="rs-track" :class="trackClass(r.track)">{{ t('track.' + trackKey(r.track), r.track) }}</span>
               <span v-if="r.due" class="rs-due-badge">{{ t('cf.due') }}</span>
+              <span v-if="r.again" class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 text-rose-700 bg-rose-50 ring-rose-200" :title="t('rs.againHint')" dir="ltr">{{ t('rs.again') }} {{ (r.priorAt || '').slice(5, 10) }}</span>
               <span class="ms-auto inline-flex items-center gap-1 text-[11.5px] font-semibold tabular-nums rounded-full px-2 py-0.5"
                     :class="r.slaBreached && tab !== 'backlog' ? 'text-rose-700 bg-rose-50 ring-1 ring-rose-200' : 'text-stone-500 bg-stone-100'"
                     :title="r.slaBreached ? t('rs.slaLate') : ''" dir="ltr"><Icon name="clock" :size="11" />{{ r.ageD }}{{ t('cf.days') }}</span>
