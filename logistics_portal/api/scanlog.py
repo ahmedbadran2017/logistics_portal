@@ -552,3 +552,92 @@ def floor_activity(day=None):
     return {"day": day, "people": people,
             "totalScans": sum(x["scans"] for x in people),
             "axis": axis, "floorNow": str(fnow)[11:16]}
+
+
+# ---------------------------------------------------------------------------
+# Person × station matrix.
+#
+# Deliberately NOT a 0–100 score. A confirmation agent's cell is a rate with a
+# denominator, so a score means something; a picker's is throughput, and
+# inventing a score for it would be the same fiction this board already threw
+# out once. The cell shows the real pace — actions per hour actually worked —
+# and the COLOUR is relative to the other people at that station, because 40
+# an hour at the sort wall and 40 an hour on a count are not the same work.
+#
+# An empty cell is the point as much as a full one: it says this person has
+# never worked that station, which is what a cross-training plan is made of.
+# ---------------------------------------------------------------------------
+
+@frappe.whitelist()
+def floor_matrix(days=30):
+    """[{user, name, role, stations:{st:{actions, units, hours, pace, rel}}}]"""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Managers only.", frappe.PermissionError)
+    from logistics_portal.api import clock
+
+    days = min(max(int(days or 30), 1), 120)
+    today = clock.floor_today()[:10]
+    first = str(frappe.utils.add_days(today, -(days - 1)))[:10]
+    d0 = clock.day_bounds(first)[0]
+    d1 = clock.day_bounds(today)[1]
+
+    # (user, station) -> actions, units, and the distinct half-hours worked.
+    # Hours have to be counted per station, not per person: somebody who picks
+    # all morning and counts for twenty minutes must not have the morning
+    # charged against their counting pace.
+    acc = {}
+
+    def add(user, station, at, units=1):
+        if not user or user in ("Administrator", "Guest"):
+            return
+        k = (user, station)
+        a = acc.setdefault(k, {"actions": 0, "units": 0, "slots": set()})
+        a["actions"] += 1
+        a["units"] += max(1, int(units or 1))
+        a["slots"].add("%s%02d%02d" % (str(at)[:10], at.hour,
+                                       0 if at.minute < 30 else 30))
+
+    for r in frappe.db.sql(
+            """SELECT owner, station, creation, qty FROM `tabLP Scan Event`
+               WHERE creation >= %s AND creation < %s""", (d0, d1), as_dict=True):
+        add(r.owner, r.station, clock.to_floor(r.creation), r.qty)
+    for owner, when, st, units in _sys_actions(d0, d1):
+        add(owner, st, clock.to_floor(when), units)
+
+    people, by_station = {}, {}
+    for (user, st), a in acc.items():
+        hours = len(a["slots"]) * 0.5
+        pace = round(a["actions"] / hours) if hours else 0
+        p = people.setdefault(user, {"user": user, "stations": {},
+                                     "actions": 0, "hours": 0.0})
+        p["stations"][st] = {"actions": a["actions"], "units": a["units"],
+                             "hours": round(hours, 1), "pace": pace}
+        p["actions"] += a["actions"]
+        p["hours"] += hours
+        by_station.setdefault(st, []).append(pace)
+
+    # The yardstick per column is that station's MEDIAN worker, not its best:
+    # one exceptional day would otherwise paint every colleague red.
+    med = {}
+    for st, paces in by_station.items():
+        s = sorted(paces)
+        n = len(s)
+        med[st] = float(s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0) or 1.0
+
+    for p in people.values():
+        for st, cell in p["stations"].items():
+            cell["rel"] = round(cell["pace"] / med[st], 2) if med.get(st) else None
+        p["hours"] = round(p["hours"], 1)
+        try:
+            p["role"] = resolve_role(p["user"]) or "none"
+        except Exception:
+            p["role"] = "none"
+        p["name"] = (frappe.db.get_value("User", p["user"], "full_name")
+                     or p["user"].split("@")[0])
+
+    cols = sorted(by_station, key=lambda s: -sum(by_station[s]))
+    rows = sorted(people.values(), key=lambda p: -p["actions"])
+    return {"days": days, "columns": cols,
+            "median": {s: round(med[s], 1) for s in med},
+            "rows": rows}

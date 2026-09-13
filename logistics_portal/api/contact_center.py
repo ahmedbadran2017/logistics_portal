@@ -1631,3 +1631,120 @@ def team_note(user=None, day=None, text=None):
     frappe.get_doc("Employee", emp).add_comment("Comment", f"CC {day}: {text}")
     frappe.db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Agent × city matrix — what the AGENT is responsible for, with the city's own
+# difficulty held constant.
+#
+# A raw delivered-rate per agent is unfair in both directions: whoever works
+# Casablanca looks careless and whoever works Agadir looks gifted, because the
+# cities differ by seven points on their own (see city.matrix). Comparing
+# INSIDE a column removes that, which is the whole reason this is a matrix and
+# not a leaderboard. The same two rates as the city screen, so a manager reads
+# one language on both: how many an agent confirms, and how many of those the
+# customer actually took.
+# ---------------------------------------------------------------------------
+
+@frappe.whitelist()
+def agent_matrix(weeks=12, basis="deliver", cities=8, min_orders=25):
+    """Per agent per city: confirm rate, delivered rate, and a shrunk score."""
+    if not _is_any_cc_admin():
+        frappe.throw("Section admins only.", frappe.PermissionError)
+    from logistics_portal.api.city import canon_city, _RESOLVED, _shrink
+    weeks = min(max(int(weeks or 12), 2), 52)
+    cities = min(max(int(cities or 8), 3), 14)
+    min_orders = max(int(min_orders or 25), 5)
+    basis = basis if basis in ("overall", "confirm", "deliver") else "deliver"
+
+    rows = frappe.db.sql(
+        """SELECT so.custom_allocated_to AS agent,
+                  COALESCE(NULLIF(so.custom_shipping_city, ''), addr.city, '') AS raw,
+                  COUNT(*) AS touched,
+                  SUM(CASE WHEN so.custom_sales_status = 'Confirmed' THEN 1 ELSE 0 END) AS confirmed,
+                  SUM(CASE WHEN so.custom_sales_status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled,
+                  SUM(CASE WHEN dn.st = 'Delivered' THEN 1 ELSE 0 END) AS delivered,
+                  SUM(CASE WHEN dn.st IN %(done)s THEN 1 ELSE 0 END) AS resolved
+           FROM `tabSales Order` so
+           LEFT JOIN `tabAddress` addr
+                  ON addr.name = COALESCE(NULLIF(so.shipping_address_name, ''),
+                                          so.customer_address)
+           LEFT JOIN (SELECT dni.against_sales_order AS so_name,
+                             MAX(d.custom_track_shipment_status) AS st
+                      FROM `tabDelivery Note Item` dni
+                      JOIN `tabDelivery Note` d ON d.name = dni.parent
+                      WHERE d.docstatus = 1 AND d.is_return = 0
+                      GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name
+           WHERE so.company = %(co)s AND so.docstatus = 1
+             AND COALESCE(so.custom_allocated_to, '') != ''
+             AND so.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)
+             AND so.custom_sales_status IN ('Confirmed', 'Cancelled')
+           GROUP BY agent, raw""",
+        {"co": _CO, "days": weeks * 7, "done": _RESOLVED}, as_dict=True)
+
+    agents, cells, city_vol = {}, {}, {}
+    for r in rows:
+        c = canon_city(r.raw)
+        if not c:
+            continue
+        dec = int(r.confirmed or 0) + int(r.cancelled or 0)
+        pack = ("dec", dec), ("conf", int(r.confirmed or 0)), \
+               ("res", int(r.resolved or 0)), ("del", int(r.delivered or 0))
+        a = agents.setdefault(r.agent, {"dec": 0, "conf": 0, "res": 0, "del": 0})
+        w = cells.setdefault((r.agent, c), {"dec": 0, "conf": 0, "res": 0, "del": 0})
+        for k, v in pack:
+            a[k] += v
+            w[k] += v
+        city_vol[c] = city_vol.get(c, 0) + dec
+
+    def rate(h, t):
+        return round(100.0 * h / t, 1) if t else None
+
+    def score_of(d):
+        cf, dl = rate(d["conf"], d["dec"]), rate(d["del"], d["res"])
+        if basis == "confirm":
+            return cf, d["dec"]
+        if basis == "deliver":
+            return dl, d["res"]
+        if cf is None:
+            return dl, d["res"]
+        if dl is None:
+            return cf, d["dec"]
+        return round(dl * 0.6 + cf * 0.4, 1), min(d["dec"], d["res"]) or d["dec"]
+
+    net = {"dec": 0, "conf": 0, "res": 0, "del": 0}
+    for d in agents.values():
+        for k in net:
+            net[k] += d[k]
+    net_score = score_of(net)[0] or 0.0
+
+    col = [c for c, _ in sorted(city_vol.items(), key=lambda kv: -kv[1])[:cities]]
+    out = []
+    for user, d in sorted(agents.items(), key=lambda kv: -kv[1]["dec"]):
+        if d["dec"] < min_orders:
+            continue
+        raw_s, n = score_of(d)
+        row_cells = []
+        for c in col:
+            cd = cells.get((user, c))
+            if not cd or not cd["dec"]:
+                row_cells.append({"covered": False})
+                continue
+            cs, cn = score_of(cd)
+            if cs is None:
+                row_cells.append({"covered": False})
+                continue
+            row_cells.append({"covered": True, "n": cd["dec"], "raw": cs,
+                              "score": _shrink(cs, cn, net_score),
+                              "conf": "high" if cn >= 40 else "low"})
+        out.append({
+            "user": user,
+            "name": frappe.db.get_value("User", user, "full_name") or user.split("@")[0],
+            "orders": d["dec"], "confirmPct": rate(d["conf"], d["dec"]),
+            "deliveredPct": rate(d["del"], d["res"]),
+            "score": _shrink(raw_s, n, net_score), "cells": row_cells,
+        })
+    return {"basis": basis, "columns": col, "rows": out,
+            "netScore": round(net_score, 1),
+            "netConfirm": rate(net["conf"], net["dec"]),
+            "netDeliver": rate(net["del"], net["res"]), "weeks": weeks}

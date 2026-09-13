@@ -90,6 +90,9 @@ const routes = [
       // Manager
       { path: "cockpit", name: "Cockpit", component: () => import("@/pages/Cockpit.vue") },
       { path: "team-performance", name: "TeamPerformance", component: () => import("@/pages/TeamPerformance.vue") },
+      // Each person judged against a like-for-like column: agents inside one
+      // city, floor workers against the same station.
+      { path: "team-matrix", name: "TeamMatrix", component: () => import("@/pages/TeamMatrix.vue") },
       { path: "floor-activity", name: "FloorActivity", component: () => import("@/pages/FloorActivity.vue") },
       { path: "velocity", name: "VelocityBoard", component: () => import("@/pages/VelocityBoard.vue") },
       // The full tail behind one of the velocity board's stuck cards.

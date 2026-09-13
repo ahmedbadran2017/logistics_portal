@@ -85,6 +85,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "Team", label: "nav.team", icon: "users" },
           { to: "TeamPerformance", label: "nav.teamPerf", icon: "award" },
+          { to: "TeamMatrix", label: "nav.teamMatrix", icon: "layout-grid" },
           { to: "FloorActivity", label: "nav.floorActivity", icon: "activity" },
           { to: "Bonus", label: "nav.bonus", icon: "wallet" },
           { to: "Settings", label: "nav.settings", icon: "settings" },
