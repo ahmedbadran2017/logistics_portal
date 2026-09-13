@@ -284,10 +284,14 @@ def carrier_due(handed_at, city, cfg=None):
 _BOARD_SQL = """
 SELECT so.name, so.customer_name AS customer, so.grand_total AS value,
        so.creation AS created, so.custom_sales_status AS sales_status,
+       so.status AS so_status, so.custom_logistics_status AS lstat,
+       so.custom_track_shipment_status AS so_track,
+       NULLIF(so.custom_tracking_number, '') AS so_awb, so.modified AS modified,
        COALESCE(NULLIF(so.custom_shipping_city, ''), addr.city, '') AS city,
        COALESCE(NULLIF(so.custom_customer_phone, ''), so.custom_shipping_phone) AS phone,
        cf.t AS confirmed_at, pl.t AS picklist_at, dn.t AS dn_at,
        sh.t AS handed_at, dn.awb AS awb, trk.st AS track,
+       lab.t AS labeled_at, hub.t AS hub_at,
        so.custom_delivered_at AS delivered_at
 FROM `tabSales Order` so
 LEFT JOIN `tabAddress` addr
@@ -303,7 +307,7 @@ LEFT JOIN (SELECT pli.sales_order so_name, MIN(p.creation) t
 LEFT JOIN (SELECT dni.against_sales_order so_name, MIN(d.creation) t,
                   MAX(COALESCE(NULLIF(d.custom_awb, ''), '')) awb
            FROM `tabDelivery Note Item` dni JOIN `tabDelivery Note` d ON d.name = dni.parent
-           WHERE d.docstatus = 1 AND d.is_return = 0
+           WHERE d.docstatus < 2 AND d.is_return = 0
            GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name
 LEFT JOIN (SELECT dni2.against_sales_order so_name, MIN(s.creation) t
            FROM `tabShipment Delivery Note` sdn JOIN `tabShipment` s ON s.name = sdn.parent
@@ -313,10 +317,24 @@ LEFT JOIN (SELECT dni2.against_sales_order so_name, MIN(s.creation) t
 LEFT JOIN (SELECT dni3.against_sales_order so_name,
                   MAX(d3.custom_track_shipment_status) st
            FROM `tabDelivery Note Item` dni3 JOIN `tabDelivery Note` d3 ON d3.name = dni3.parent
-           WHERE d3.docstatus = 1 AND d3.is_return = 0
+           WHERE d3.docstatus < 2 AND d3.is_return = 0
            GROUP BY dni3.against_sales_order) trk ON trk.so_name = so.name
+LEFT JOIN (SELECT reference_name, MIN(creation) t FROM `tabComment`
+           WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
+             AND creation >= DATE_SUB(NOW(), INTERVAL %(vdays)s DAY)
+             AND content LIKE 'Newly created parcel%%'
+           GROUP BY reference_name) lab ON lab.reference_name = so.name
+LEFT JOIN (SELECT reference_name, MIN(creation) t FROM `tabComment`
+           WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
+             AND creation >= DATE_SUB(NOW(), INTERVAL %(vdays)s DAY)
+             AND (content LIKE 'Shipped to destination hub%%'
+                  OR content LIKE 'The parcel is present on Hub%%'
+                  OR content LIKE 'Out for delivery%%'
+                  OR content LIKE 'Package Delivered%%')
+           GROUP BY reference_name) hub ON hub.reference_name = so.name
 WHERE so.company = %(co)s AND so.docstatus = 1
   AND so.custom_sales_status = 'Confirmed'
+  AND so.status NOT IN ('Closed', 'Cancelled')
   AND so.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)
 """
 
@@ -337,7 +355,9 @@ def _rows(days=30):
             return cached
     except Exception:
         pass
-    rows = frappe.db.sql(_BOARD_SQL, {"co": _CO, "days": days, "vdays": days + 30}, as_dict=True)
+    # A confirmation, a label or a carrier scan can only come AFTER the order
+    # was created, so the witness tables need no wider window than the orders.
+    rows = frappe.db.sql(_BOARD_SQL, {"co": _CO, "days": days, "vdays": days + 2}, as_dict=True)
     try:
         frappe.cache().set_value(key, rows, expires_in_sec=60)
     except Exception:
@@ -367,27 +387,55 @@ def _shaped(days, cfg, now):
     return rows
 
 
+_CARRIER_MOVING = ("In Transit", "Out For Delivery", "Picked up", "Picked Up")
+
+
+def _stage_of(r):
+    """Where the parcel is, read from three witnesses that do not all speak
+    for every order.
+
+    Audited 2026-09-13 on the 73 rows of the blocked screen: 12 were wrong,
+    and every one of them was an order the DOCUMENTS could not describe —
+    exchange (-ex) and J- orders get their carrier label straight from the
+    Sales Order and never see a Delivery Note; a handful of parcels sit on a
+    DRAFT Delivery Note with a label already printed; one was Closed. The
+    order's own status stamps (custom_logistics_status, tracking status,
+    delivered_at) and the carrier's webhook comments ("Newly created
+    parcel", "present on Hub", "Out for delivery", "Package Delivered")
+    describe exactly those. So: terminal states first, then the carrier,
+    then the label, then the pick list, then nothing.
+
+    Returns (stage, owner, handed_at_raw, closed_at_raw).
+    """
+    track = r.track or r.so_track or ""
+    lstat = r.lstat or ""
+    labeled = r.dn_at or r.labeled_at
+    has_label = bool(r.awb or r.so_awb or labeled or lstat in ("Label Generated", "Label Printed"))
+
+    if track in _TERMINAL_OK or r.delivered_at or lstat == "Delivered":
+        return "delivered", "", r.handed_at or r.hub_at or labeled, labeled
+    if track in _TERMINAL_BAD or lstat == "Returned":
+        return "failed", "tracking", r.handed_at or r.hub_at or labeled, labeled
+    if r.handed_at or r.hub_at or lstat == "Shipped" or track in _CARRIER_MOVING:
+        # Manifest first; else the carrier's first scan; else the label —
+        # the closest honest moment when the manifest was never written.
+        return "with_carrier", "carrier", r.handed_at or r.hub_at or labeled or r.modified, labeled
+    if has_label:
+        return "to_hand_over", "dispatcher", None, labeled or r.modified
+    if r.picklist_at:
+        return "picking", "floor", None, None
+    # The leg that holds 57% of the in-house clock.
+    return "to_pick", "dispatcher", None, None
+
+
 def _shape(r, cfg, now):
     """One order's clock: where it is, who owns it, and what it owes."""
     from logistics_portal.api import clock
     conf = clock.to_floor(r.confirmed_at) if r.confirmed_at else \
         (clock.to_floor(r.created) if r.created else None)
-    handed = clock.to_floor(r.handed_at) if r.handed_at else None
-    track = r.track or ""
-
-    if track in _TERMINAL_OK:
-        stage, owner = "delivered", ""
-    elif track in _TERMINAL_BAD:
-        stage, owner = "failed", "tracking"
-    elif handed:
-        stage, owner = "with_carrier", "carrier"
-    elif r.dn_at:
-        stage, owner = "to_hand_over", "dispatcher"
-    elif r.picklist_at:
-        stage, owner = "picking", "floor"
-    else:
-        # The leg that holds 57% of the in-house clock.
-        stage, owner = "to_pick", "dispatcher"
+    stage, owner, handed, closed_raw = _stage_of(r)
+    handed = clock.to_floor(handed) if handed else None
+    track = (r.track or r.so_track or "")
 
     wave_id, wave_due = (None, None)
     due, late_min = None, 0
@@ -405,12 +453,12 @@ def _shape(r, cfg, now):
         late_min = int((now - due).total_seconds() / 60)
 
     picked = clock.to_floor(r.picklist_at) if r.picklist_at else None
-    closed = clock.to_floor(r.dn_at) if r.dn_at else None
+    closed = clock.to_floor(closed_raw) if closed_raw else None
     delivered = clock.to_floor(r.delivered_at) if r.delivered_at else None
     return {
         "order": r.name, "customer": r.customer or "", "city": (r.city or "").strip(),
         "phone": r.phone or "", "value": round(float(r.value or 0)),
-        "stage": stage, "owner": owner, "awb": r.awb or "", "track": track,
+        "stage": stage, "owner": owner, "awb": r.awb or r.so_awb or "", "track": track,
         "confirmedAt": str(conf)[:16] if conf else "",
         "pickedAt": str(picked)[:16] if picked else "",
         "closedAt": str(closed)[:16] if closed else "",
