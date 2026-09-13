@@ -197,6 +197,7 @@ def save_settings(payload=None):
         cur["admins"] = [str(u).strip().lower() for u in payload["admins"] if str(u).strip()][:30]
     frappe.db.set_default(_SETTINGS_KEY, json.dumps(cur))
     frappe.db.commit()
+    invalidate_cache()
     return {"ok": True, "settings": cur}
 
 
@@ -292,8 +293,8 @@ SELECT so.name, so.customer_name AS customer, so.grand_total AS value,
        COALESCE(NULLIF(so.custom_customer_phone, ''), so.custom_shipping_phone) AS phone,
        cf.t AS confirmed_at, pl.t AS picklist_at, dn.t AS dn_at,
        sh.t AS handed_at, dn.awb AS awb, trk.st AS track,
-       lab.t AS labeled_at, hub.t AS hub_at,
-       ev.content AS ev_text, ev.creation AS ev_at,
+       cw.lab_t AS labeled_at, cw.hub_t AS hub_at,
+       ev.content AS ev_text, cw.ev_t AS ev_at,
        so.custom_tracking_url AS track_url,
        so.custom_delivered_at AS delivered_at
 FROM `tabSales Order` so
@@ -322,33 +323,25 @@ LEFT JOIN (SELECT dni3.against_sales_order so_name,
            FROM `tabDelivery Note Item` dni3 JOIN `tabDelivery Note` d3 ON d3.name = dni3.parent
            WHERE d3.docstatus < 2 AND d3.is_return = 0
            GROUP BY dni3.against_sales_order) trk ON trk.so_name = so.name
-LEFT JOIN (SELECT reference_name, MIN(creation) t FROM `tabComment`
+LEFT JOIN (SELECT reference_name,
+                  MIN(CASE WHEN content LIKE 'Newly created parcel%%' THEN creation END) AS lab_t,
+                  MIN(CASE WHEN content LIKE 'Shipped to destination hub%%'
+                             OR content LIKE 'The parcel is present on Hub%%'
+                             OR content LIKE 'Out for delivery%%'
+                             OR content LIKE 'Package Delivered%%' THEN creation END) AS hub_t,
+                  MAX(creation) AS ev_t
+           FROM `tabComment`
            WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
              AND creation >= DATE_SUB(NOW(), INTERVAL %(vdays)s DAY)
-             AND content LIKE 'Newly created parcel%%'
-           GROUP BY reference_name) lab ON lab.reference_name = so.name
-LEFT JOIN (SELECT reference_name, MIN(creation) t FROM `tabComment`
-           WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
-             AND creation >= DATE_SUB(NOW(), INTERVAL %(vdays)s DAY)
-             AND (content LIKE 'Shipped to destination hub%%'
-                  OR content LIKE 'The parcel is present on Hub%%'
-                  OR content LIKE 'Out for delivery%%'
-                  OR content LIKE 'Package Delivered%%')
-           GROUP BY reference_name) hub ON hub.reference_name = so.name
-LEFT JOIN (SELECT c.reference_name, c.content, c.creation
-           FROM `tabComment` c
-           JOIN (SELECT reference_name, MAX(creation) t FROM `tabComment`
-                 WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
-                   AND creation >= DATE_SUB(NOW(), INTERVAL %(vdays)s DAY)
-                   AND (content LIKE 'Newly created%%' OR content LIKE 'Shipped to%%'
-                        OR content LIKE 'The parcel%%' OR content LIKE 'Out for%%'
-                        OR content LIKE 'Package%%' OR content LIKE 'The driver%%'
-                        OR content LIKE 'Customer unreachable%%' OR content LIKE 'Customer cancelled%%'
-                        OR content LIKE 'The customer has cancelled%%' OR content LIKE 'Cancelled on site%%'
-                        OR content LIKE 'Justyol has requested%%')
-                 GROUP BY reference_name) m
-             ON m.reference_name = c.reference_name AND m.t = c.creation
-           WHERE c.reference_doctype = 'Sales Order') ev ON ev.reference_name = so.name
+             AND (content LIKE 'Newly created%%' OR content LIKE 'Shipped to%%'
+                  OR content LIKE 'The parcel%%' OR content LIKE 'Out for%%'
+                  OR content LIKE 'Package%%' OR content LIKE 'The driver%%'
+                  OR content LIKE 'Customer unreachable%%' OR content LIKE 'Customer cancelled%%'
+                  OR content LIKE 'The customer has cancelled%%' OR content LIKE 'Cancelled on site%%'
+                  OR content LIKE 'Justyol has requested%%')
+           GROUP BY reference_name) cw ON cw.reference_name = so.name
+LEFT JOIN `tabComment` ev ON ev.reference_doctype = 'Sales Order' AND ev.reference_name = so.name
+                          AND ev.comment_type = 'Comment' AND ev.creation = cw.ev_t
 """
 
 _BOARD_WHERE = """
@@ -359,53 +352,115 @@ WHERE so.company = %(co)s AND so.docstatus = 1
 """
 
 
-def _rows(days=30):
-    """The raw clock rows, shared for a minute.
+_FRESH_S = 60        # older than this: serve it, refresh in the background
+_KEEP_S = 900        # after this the cache is gone and a request computes inline
 
-    Measured on prod: 1.2s for 8,027 rows, and the board, the wave strip, the
-    blocked screen and the alert cron each ran it in full. Rows are cached
-    RAW (before shaping) so every caller still sees the current minute's
-    clock; shaping 8k rows in Python is ~100ms and needs today's `now`.
-    """
-    days = int(days)
-    key = f"lp_ship_rows:{days}"
+
+def _cached(key):
     try:
-        cached = frappe.cache().get_value(key, expires=True)
-        if cached is not None:
-            return cached
+        v = frappe.cache().get_value(key, expires=True)
+    except Exception:
+        return None
+    return v if isinstance(v, dict) and "at" in v else None
+
+
+def _age_s(entry):
+    try:
+        return (now_datetime() - frappe.utils.get_datetime(entry["at"])).total_seconds()
+    except Exception:
+        return _KEEP_S
+
+
+def _store(key, body):
+    try:
+        frappe.cache().set_value(key, dict(body, at=str(now_datetime())[:19]), expires_in_sec=_KEEP_S)
     except Exception:
         pass
+
+
+def _refresh_later(days):
+    """Ask a worker to rebuild the clock; one request per 45 s is enough."""
+    days = int(days)
+    try:
+        if not frappe.cache().set(f"lp_ship_refresh_lock:{days}", 1, nx=True, ex=45):
+            return
+        frappe.enqueue("logistics_portal.api.shipments.refresh_cache", queue="short",
+                       timeout=180, days=days, enqueue_after_commit=False)
+    except Exception:
+        pass
+
+
+def _rows(days=30):
+    """The raw clock rows.
+
+    Measured on prod 2026-09-14: 2.8 s of SQL for 8,030 rows, and the first
+    request of every minute paid it. Now the last answer is served for up to
+    fifteen minutes and a worker rebuilds it once it is a minute old — a
+    request only computes inline when nothing is cached at all (a restart).
+    """
+    days = int(days)
+    hit = _cached(f"lp_ship_rows:{days}")
+    if hit is not None:
+        if _age_s(hit) > _FRESH_S:
+            _refresh_later(days)
+        return hit["rows"]
+    return _refresh_rows(days)
+
+
+def _refresh_rows(days):
     # A confirmation, a label or a carrier scan can only come AFTER the order
     # was created, so the witness tables need no wider window than the orders.
     rows = frappe.db.sql(_BOARD_SELECT + _BOARD_WHERE,
                          {"co": _CO, "days": days, "vdays": days + 2}, as_dict=True)
-    try:
-        frappe.cache().set_value(key, rows, expires_in_sec=60)
-    except Exception:
-        pass
+    _store(f"lp_ship_rows:{days}", {"rows": rows})
     return rows
 
 
 def _shaped(days, cfg, now):
-    """Every row shaped for this minute, shared by every screen and the cron.
+    """Every row shaped for the clock, shared by every screen and the cron.
 
-    The raw rows are already cached; shaping them was the other second, and
-    the board, the wave strip, the blocked screen and the alert job each did
-    it again. One minute of staleness on a clock that moves in hours is free.
+    Shaping 8k rows costs ~0.6 s in Python, so it is cached like the rows and
+    rebuilt by the same worker job. The rows carry the minute they were shaped
+    at; a promise measured in hours is not hurt by a minute or two of that.
     """
-    key = f"lp_ship_shaped:{int(days)}:{str(now)[:16]}"
-    try:
-        cached = frappe.cache().get_value(key, expires=True)
-        if cached is not None:
-            return cached
-    except Exception:
-        pass
+    days = int(days)
+    hit = _cached(f"lp_ship_shaped:{days}")
+    if hit is not None:
+        if _age_s(hit) > _FRESH_S:
+            _refresh_later(days)
+        return hit["rows"]
+    return _refresh_shaped(days, cfg, now)
+
+
+def _refresh_shaped(days, cfg, now):
     rows = [_shape(r, cfg, now) for r in _rows(days)]
+    _store(f"lp_ship_shaped:{days}", {"rows": rows, "now": str(now)[:16]})
+    return rows
+
+
+def refresh_cache(days=30):
+    """Worker job (and the cron's first step): rebuild rows, shaped rows and
+    the blocked screen for one window, so no request ever pays for them."""
+    from logistics_portal.api import clock
+    days = int(days)
+    cfg = get_settings()
+    now = clock.floor_now()
+    _refresh_rows(days)
+    _refresh_shaped(days, cfg, now)
+    if days == 30:
+        _refresh_blocked(days, cfg, now)
+    return {"ok": True, "days": days}
+
+
+def invalidate_cache():
+    """After a settings change: forget the shaped answers (they carry the old
+    promises) and rebuild in the background; the raw rows are still good."""
     try:
-        frappe.cache().set_value(key, rows, expires_in_sec=120)
+        for pat in ("lp_ship_shaped:", "lp_ship_blocked:", "lp_ship_tuner:"):
+            frappe.cache().delete_keys(pat)   # wildcard delete, site-prefixed once
     except Exception:
         pass
-    return rows
+    _refresh_later(30)
 
 
 _CARRIER_MOVING = ("In Transit", "Out For Delivery", "Picked up", "Picked Up")
@@ -854,15 +909,17 @@ def blocked(days=30):
     cfg = get_settings()
     now = clock.floor_now()
     days = min(max(int(days or 30), 1), 90)
-    # The stock and city lookups behind the blockers cost seconds; the
-    # answer is shared for the minute like the clock itself.
-    key = f"lp_ship_blocked:{days}:{str(now)[:16]}"
-    try:
-        cached = frappe.cache().get_value(key, expires=True)
-        if cached is not None:
-            return cached
-    except Exception:
-        cached = None
+    # The stock and city lookups behind the blockers cost a second; the
+    # answer is served from the last build and rebuilt by the clock's worker.
+    hit = _cached(f"lp_ship_blocked:{days}")
+    if hit is not None:
+        if _age_s(hit) > _FRESH_S:
+            _refresh_later(days)
+        return hit["out"]
+    return _refresh_blocked(days, cfg, now)
+
+
+def _refresh_blocked(days, cfg, now):
     rows = [dict(r) for r in _shaped(days, cfg, now)
             if r["stage"] in ("to_pick", "picking", "to_hand_over")]
     _blockers(rows)
@@ -874,10 +931,7 @@ def blocked(days=30):
     hit.sort(key=lambda r: (-len(r["why"]), -r["lateMin"]))
     out = {"total": len(hit), "inHouse": len(rows), "groups": groups,
            "fix": _FIX, "rows": hit[:2000], "now": str(now)[:16]}
-    try:
-        frappe.cache().set_value(key, out, expires_in_sec=120)
-    except Exception:
-        pass
+    _store(f"lp_ship_blocked:{days}", {"out": out})
     return out
 
 
@@ -999,6 +1053,12 @@ def run_alerts():
         # Nobody is paged at 3am or on a rest day: the van is not leaving.
         if now.weekday() in set(cfg.get("restDays") or []) or not (7 <= now.hour < 21):
             return
+        # Rebuild the clock here, in the worker, so the team's first load of
+        # the day and every load after it read a cache at most 15 min old;
+        # the city tuner too, once an hour.
+        refresh_cache(30)
+        if _cached("lp_ship_tuner:4") is None:
+            refresh_tuner(4)
         rows = _shaped(30, cfg, now)
         in_house = [r for r in rows if r["stage"] in ("to_pick", "picking", "to_hand_over")]
         carrier = [r for r in rows if r["stage"] == "with_carrier"]
@@ -1225,7 +1285,21 @@ def _working_days_between(a, b, rest):
 
 @frappe.whitelist()
 def city_promises(weeks=4):
+    """What the carrier actually kept per city lately, next to the promise.
+
+    Measured 4.5 s on prod (a 42-day window of the clock). The answer changes
+    by the day, so it is kept for an hour and rebuilt by the alert cron; a
+    request computes it inline only when nothing is cached.
+    """
     _gate()
+    weeks = min(max(int(weeks or 4), 1), 8)
+    hit = _cached(f"lp_ship_tuner:{weeks}")
+    if hit is not None:
+        return hit["out"]
+    return refresh_tuner(weeks)
+
+
+def refresh_tuner(weeks=4):
     from logistics_portal.api import clock
     from logistics_portal.api.city import canon_city
     weeks = min(max(int(weeks or 4), 1), 8)
@@ -1263,4 +1337,10 @@ def city_promises(weeks=4):
                     "current": current, "configured": key in city_days,
                     "suggested": suggested, "delta": suggested - current})
     out.sort(key=lambda x: -x["n"])
-    return {"weeks": weeks, "cities": out, "default": default}
+    res = {"weeks": weeks, "cities": out, "default": default}
+    try:
+        frappe.cache().set_value(f"lp_ship_tuner:{weeks}", {"at": str(now_datetime())[:19], "out": res},
+                                 expires_in_sec=3600)
+    except Exception:
+        pass
+    return res

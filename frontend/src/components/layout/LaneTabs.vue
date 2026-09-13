@@ -67,7 +67,7 @@ const badge = computed(() => {
   return typeof n === "number" ? n : null;
 });
 async function loadCounts() {
-  if (!lane.value) return;
+  if (IS_SHIP || !lane.value) return;
   try {
     counts.value = await api("contact_center.lane_counts");
   } catch (e) { /* the badge is a bonus, never an error */ }

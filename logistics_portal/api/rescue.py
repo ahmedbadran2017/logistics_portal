@@ -259,6 +259,43 @@ def _dn_where(tab, vals, reason=""):
     return " AND ".join(conds + extra)
 
 
+def _cached_counts(days):
+    ck = f"lp_rescue_counts:{days}"
+    try:
+        hit = frappe.cache().get_value(ck, expires=True)
+        if isinstance(hit, dict):
+            return dict(hit)
+    except Exception:
+        pass
+    counts = {}
+    for t in ("exceptions", "failed", "stale", "backlog"):
+        v = {"days": days}
+        counts[t] = int(frappe.db.sql(
+            f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} WHERE {_dn_where(t, v)}",
+            v)[0][0])
+    counts["notdelivered"] = int(frappe.db.sql(
+        """SELECT COUNT(*) FROM `tabSales Order`
+           WHERE docstatus = 1 AND company = %(co)s
+             AND custom_sales_status = 'Not Delivered'
+             AND creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)""",
+        {"days": max(days, 60), "co": _CO})[0][0])
+    try:
+        frappe.cache().set_value(ck, counts, expires_in_sec=60)
+    except Exception:
+        pass
+    return counts
+
+
+def _bust():
+    """A decision changes every depth on the page: forget the shared counts
+    so the reload right after it shows the parcel gone."""
+    try:
+        for pat in ("lp_rescue_counts:", "lp_rescue_total:", "lp_rescue_verdict:"):
+            frappe.cache().delete_keys(pat)   # wildcard delete, site-prefixed once
+    except Exception:
+        pass
+
+
 @frappe.whitelist()
 def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
     """The four rescue queues + counts + my day, one call. `reason` narrows
@@ -272,12 +309,9 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
     offset = max(int(offset or 0), 0)
     vals = {"days": days, "limit": limit, "offset": offset}
 
-    counts = {}
-    for t in ("exceptions", "failed", "stale", "backlog"):
-        v = dict(vals)
-        counts[t] = int(frappe.db.sql(
-            f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} WHERE {_dn_where(t, v)}",
-            v)[0][0])
+    # The four queue depths cost ~0.6 s together (a correlated last-event
+    # read per parcel); a decision busts them, otherwise a minute is fine.
+    counts = _cached_counts(days)
     # The split that decides whether a call can save anything, for the two
     # queues a call is made from. Cached: it is a correlated read per parcel.
     if tab in ("exceptions", "failed"):
@@ -298,12 +332,6 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
                 pass
         counts["cancelled"] = split["cancelled"]
         counts["rescuable"] = split["rescuable"]
-    counts["notdelivered"] = int(frappe.db.sql(
-        """SELECT COUNT(*) FROM `tabSales Order`
-           WHERE docstatus = 1 AND company = %(co)s
-             AND custom_sales_status = 'Not Delivered'
-             AND creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)""",
-        {"days": max(days, 60), "co": _CO})[0][0])
 
     if tab == "notdelivered":
         conds = ["so.docstatus = 1", "so.company = %(co)s",
@@ -338,8 +366,22 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
             where += """ AND (dn.name LIKE %(q)s OR dn.customer_name LIKE %(q)s
                          OR dn.custom_awb LIKE %(q)s)"""
         # The verdict condition reads the order, so the count needs the join.
-        total = frappe.db.sql(
-            f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} WHERE {where}", vals)[0][0]
+        # Without a search it is the same number for everyone — share it.
+        tk = f"lp_rescue_total:{tab}:{days}:{reason}" if not (q and str(q).strip()) else ""
+        total = None
+        if tk:
+            try:
+                total = frappe.cache().get_value(tk, expires=True)
+            except Exception:
+                total = None
+        if total is None:
+            total = frappe.db.sql(
+                f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} WHERE {where}", vals)[0][0]
+            if tk:
+                try:
+                    frappe.cache().set_value(tk, int(total), expires_in_sec=60)
+                except Exception:
+                    pass
         # Newest failures first for the queues a call can still save: the
         # carrier holds a parcel about two weeks before sending it back, so
         # a fresh exception is worth a call and a month-old one is a return.
@@ -557,6 +599,7 @@ def act(id=None, action=None, note=None):
             "Comment", tag + (f" (attempt {attempts})" if action == "dna" else ""))
 
     frappe.db.commit()
+    _bust()
     # A pinned parcel leaves the actor's workspace queue with the decision —
     # same contract as confirmation.act, or the pin serves it forever.
     try:
@@ -620,6 +663,7 @@ def bulk_act(ids=None, action=None, note=None):
             skipped.append(dn)
             frappe.log_error(frappe.get_traceback(), "rescue.bulk_act")
     frappe.db.commit()
+    _bust()
     return {"ok": True, "done": len(done), "skipped": skipped}
 
 

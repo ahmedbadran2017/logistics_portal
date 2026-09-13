@@ -477,7 +477,24 @@ def matrix(weeks=8, basis="overall", limit=14, min_orders=40):
     limit = min(max(int(limit or 14), 1), 40)
     min_orders = max(int(min_orders or 40), 1)
     basis = basis if basis in ("overall", "confirm", "deliver") else "overall"
+    # 0.56 s of aggregation over weeks of orders; the picture moves by the
+    # day, so ten minutes shared across the team costs nothing.
+    ck = f"lp_city_matrix:{weeks}:{basis}:{limit}:{min_orders}"
+    try:
+        hit = frappe.cache().get_value(ck, expires=True)
+        if hit is not None:
+            return hit
+    except Exception:
+        pass
+    res = _matrix(weeks, basis, limit, min_orders)
+    try:
+        frappe.cache().set_value(ck, res, expires_in_sec=600)
+    except Exception:
+        pass
+    return res
 
+
+def _matrix(weeks, basis, limit, min_orders):
     rows = frappe.db.sql(
         """SELECT COALESCE(NULLIF(so.custom_shipping_city, ''), addr.city, '') AS raw,
                   YEARWEEK(so.creation, 3) AS wk,
