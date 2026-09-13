@@ -393,3 +393,259 @@ def pool_city_literals():
         if v:
             lits.append("'" + v + "'")
     return ",".join(lits)
+
+
+# ---------------------------------------------------------------------------
+# City performance matrix — how the GEOGRAPHY performs, with nobody's name on
+# it. Two rates that must be read together: how many orders a city confirms,
+# and how many of those actually get taken. A city can be excellent at one and
+# poor at the other, and that pair is the whole point — measured 2026-09-13,
+# El Jadida confirms 88.7% and delivers 68.1% while Tetouan confirms 80.9% and
+# delivers 80.5%. A confirmed order that comes back cost the pick, the pack
+# and the freight; one that was never confirmed cost a phone call.
+# ---------------------------------------------------------------------------
+
+# One city, one row. The raw field carries accents, case, trailing newlines and
+# Arabic spellings of the same place, which split a city's volume across
+# several rows and make every rate in them thinner and noisier than it is.
+_CANON_FOLD = {
+    "a": "àáâäãå", "e": "èéêë", "i": "ìíîï", "o": "òóôöõ", "u": "ùúûü",
+    "c": "ç", "n": "ñ",
+}
+_FOLD = {ch: base for base, chars in _CANON_FOLD.items() for ch in chars}
+
+# Same place, written differently. Kept small and explicit: a fuzzy matcher
+# would quietly merge two real towns that share a prefix.
+_CITY_ALIASES = {
+    "MOHAMMEDIA": "MOHAMMADIA", "SALA AL JADIDA": "SALE", "EL JADIDA": "ELJADIDA",
+    "AL HOCEIMA": "ALHOCEIMA", "ALHOCEIMA": "ALHOCEIMA",
+    "KSAR L KBIR": "KSAR LKBIR", "TAROUDANT": "TAROUDANTE",
+    "DAR BOUAZZA": "DARBOUAZZA", "MDIQ": "M DIQ",
+}
+
+
+def canon_city(raw):
+    """The row a city belongs to: accent-folded, upper, single-spaced."""
+    s = (raw or "").strip().lower()
+    s = "".join(_FOLD.get(ch, ch) for ch in s)
+    out, prev_space = [], False
+    for ch in s:
+        if ch.isalnum():
+            out.append(ch)
+            prev_space = False
+        elif not prev_space:
+            out.append(" ")
+            prev_space = True
+    s = "".join(out).strip().upper()
+    return _CITY_ALIASES.get(s, s)
+
+
+# A delivery rate may only be taken over parcels whose journey ENDED. A parcel
+# still in transit is not a failure, but counting it in the denominator makes
+# it one — and because the newest week holds the most parcels still moving,
+# every city appeared to collapse in the last column. Measured 2026-09-13:
+# every one of the top twelve dropped six to ten points in the final week,
+# uniformly, which is the shape of an artefact and not of a real decline.
+_RESOLVED = ("Delivered", "Returned", "Not Delivered",
+             "Failed Attempt", "Delivery Exception")
+
+
+def _matrix_gate():
+    from logistics_portal.api.permissions import is_ops_admin
+    if not is_ops_admin():
+        frappe.throw("Warehouse management only.", frappe.PermissionError)
+
+
+def _shrink(raw, n, mean, k=40.0):
+    """Pull a thin cell toward the network mean.
+
+    Twelve orders at 100% is not a better city than four hundred at 78% — it
+    is a city we have barely seen. The weight n/(n+k) makes a cell earn its
+    distance from the average, so the matrix stops rewarding small samples.
+    """
+    if raw is None:
+        return None
+    w = n / (n + k) if (n + k) else 0.0
+    return round(raw * w + mean * (1 - w), 1)
+
+
+@frappe.whitelist()
+def matrix(weeks=8, basis="overall", limit=14, min_orders=40):
+    """City × week performance. basis: overall | confirm | deliver."""
+    _matrix_gate()
+    weeks = min(max(int(weeks or 8), 2), 26)
+    limit = min(max(int(limit or 14), 1), 40)
+    min_orders = max(int(min_orders or 40), 1)
+    basis = basis if basis in ("overall", "confirm", "deliver") else "overall"
+
+    rows = frappe.db.sql(
+        """SELECT COALESCE(NULLIF(so.custom_shipping_city, ''), addr.city, '') AS raw,
+                  YEARWEEK(so.creation, 3) AS wk,
+                  COUNT(*) AS touched,
+                  SUM(CASE WHEN so.custom_sales_status = 'Confirmed' THEN 1 ELSE 0 END) AS confirmed,
+                  SUM(CASE WHEN so.custom_sales_status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled,
+                  SUM(CASE WHEN dn.st = 'Delivered' THEN 1 ELSE 0 END) AS delivered,
+                  SUM(CASE WHEN dn.st IN %(done)s THEN 1 ELSE 0 END) AS shipped
+           FROM `tabSales Order` so
+           LEFT JOIN `tabAddress` addr
+                  ON addr.name = COALESCE(NULLIF(so.shipping_address_name, ''),
+                                          so.customer_address)
+           LEFT JOIN (SELECT dni.against_sales_order AS so_name,
+                             MAX(d.custom_track_shipment_status) AS st
+                      FROM `tabDelivery Note Item` dni
+                      JOIN `tabDelivery Note` d ON d.name = dni.parent
+                      WHERE d.docstatus = 1 AND d.is_return = 0
+                      GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name
+           WHERE so.company = %(co)s AND so.docstatus = 1
+             AND so.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)
+             AND so.custom_sales_status IN ('Confirmed', 'Cancelled', 'Not Delivered',
+                                            'Follow Up', 'Did not Answer')
+           GROUP BY raw, wk""",
+        {"co": _CO, "days": weeks * 7, "done": _RESOLVED}, as_dict=True)
+
+    agg, cells = {}, {}
+    for r in rows:
+        c = canon_city(r.raw)
+        if not c:
+            continue
+        a = agg.setdefault(c, {"n": 0, "dec": 0, "conf": 0, "ship": 0, "del": 0})
+        dec = int(r.confirmed or 0) + int(r.cancelled or 0)
+        a["n"] += int(r.touched or 0)
+        a["dec"] += dec
+        a["conf"] += int(r.confirmed or 0)
+        a["ship"] += int(r.shipped or 0)
+        a["del"] += int(r.delivered or 0)
+        k = (c, int(r.wk))
+        w = cells.setdefault(k, {"n": 0, "dec": 0, "conf": 0, "ship": 0, "del": 0})
+        w["n"] += int(r.touched or 0)
+        w["dec"] += dec
+        w["conf"] += int(r.confirmed or 0)
+        w["ship"] += int(r.shipped or 0)
+        w["del"] += int(r.delivered or 0)
+
+    def rate(hit, tot):
+        return round(100.0 * hit / tot, 1) if tot else None
+
+    def score_of(d):
+        cf = rate(d["conf"], d["dec"])
+        dl = rate(d["del"], d["ship"])
+        if basis == "confirm":
+            return cf, (d["dec"] or 0)
+        if basis == "deliver":
+            return dl, (d["ship"] or 0)
+        if cf is None and dl is None:
+            return None, 0
+        # A parcel that came back cost the pick, the pack and the freight; an
+        # order never confirmed cost a call. Delivery carries the heavier half.
+        if cf is None:
+            return dl, d["ship"]
+        if dl is None:
+            return cf, d["dec"]
+        return round(dl * 0.6 + cf * 0.4, 1), min(d["dec"], d["ship"]) or d["dec"]
+
+    # The mean every thin cell is pulled toward is this window's own network
+    # average, not a number written into the code.
+    net = {"n": 0, "dec": 0, "conf": 0, "ship": 0, "del": 0}
+    for d in agg.values():
+        for k2 in net:
+            net[k2] += d[k2]
+    net_score = score_of(net)[0] or 0.0
+
+    wk_list = sorted({int(r.wk) for r in rows})[-weeks:]
+    ranked = sorted(
+        [(c, d) for c, d in agg.items() if d["n"] >= min_orders],
+        key=lambda kv: -kv[1]["n"])[:limit]
+
+    out = []
+    for c, d in ranked:
+        raw_s, n = score_of(d)
+        row_cells = []
+        for w in wk_list:
+            cd = cells.get((c, w))
+            if not cd or not cd["n"]:
+                row_cells.append({"wk": w, "covered": False})
+                continue
+            cs, cn = score_of(cd)
+            if cs is None:
+                row_cells.append({"wk": w, "covered": False})
+                continue
+            row_cells.append({
+                "wk": w, "covered": True, "n": cd["n"],
+                "score": _shrink(cs, cn, net_score),
+                "raw": cs, "conf": "high" if cn >= 40 else "low",
+            })
+        out.append({
+            "city": c, "orders": d["n"],
+            "confirmPct": rate(d["conf"], d["dec"]),
+            "deliveredPct": rate(d["del"], d["ship"]),
+            "decided": d["dec"], "shipped": d["ship"], "delivered": d["del"],
+            "score": _shrink(raw_s, n, net_score),
+            "cells": row_cells,
+        })
+    return {
+        "basis": basis, "weeks": wk_list, "netScore": round(net_score, 1),
+        "netConfirm": rate(net["conf"], net["dec"]),
+        "netDeliver": rate(net["del"], net["ship"]),
+        "cities": out, "cityCount": len(agg),
+    }
+
+
+@frappe.whitelist()
+def city_card(city, weeks=8):
+    """One city's funnel and the reasons behind its two rates."""
+    _matrix_gate()
+    weeks = min(max(int(weeks or 8), 2), 26)
+    target = canon_city(city)
+    rows = frappe.db.sql(
+        """SELECT COALESCE(NULLIF(so.custom_shipping_city, ''), addr.city, '') AS raw,
+                  so.custom_sales_status AS st, so.custom_cancellation_reason AS why,
+                  dn.st AS track, so.grand_total AS total
+           FROM `tabSales Order` so
+           LEFT JOIN `tabAddress` addr
+                  ON addr.name = COALESCE(NULLIF(so.shipping_address_name, ''),
+                                          so.customer_address)
+           LEFT JOIN (SELECT dni.against_sales_order AS so_name,
+                             MAX(d.custom_track_shipment_status) AS st
+                      FROM `tabDelivery Note Item` dni
+                      JOIN `tabDelivery Note` d ON d.name = dni.parent
+                      WHERE d.docstatus = 1 AND d.is_return = 0
+                      GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name
+           WHERE so.company = %(co)s AND so.docstatus = 1
+             AND so.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)""",
+        {"co": _CO, "days": weeks * 7}, as_dict=True)
+    f = {"orders": 0, "confirmed": 0, "cancelled": 0, "shipped": 0,
+         "delivered": 0, "failed": 0, "value": 0.0, "lostValue": 0.0}
+    reasons, fails = {}, {}
+    for r in rows:
+        if canon_city(r.raw) != target:
+            continue
+        f["orders"] += 1
+        f["value"] += float(r.total or 0)
+        if r.st == "Confirmed":
+            f["confirmed"] += 1
+        elif r.st == "Cancelled":
+            f["cancelled"] += 1
+            if r.why:
+                reasons[r.why] = reasons.get(r.why, 0) + 1
+        if r.track in _RESOLVED:
+            f["shipped"] += 1
+            if r.track == "Delivered":
+                f["delivered"] += 1
+            else:
+                f["failed"] += 1
+                f["lostValue"] += float(r.total or 0)
+                fails[r.track] = fails.get(r.track, 0) + 1
+    top = lambda d: sorted([{"label": k, "n": v} for k, v in d.items()],
+                           key=lambda x: -x["n"])[:6]
+    dec = f["confirmed"] + f["cancelled"]
+    return {
+        "city": target, "weeks": weeks, "funnel": {
+            "orders": f["orders"], "confirmed": f["confirmed"],
+            "cancelled": f["cancelled"], "shipped": f["shipped"],
+            "delivered": f["delivered"], "failed": f["failed"],
+        },
+        "confirmPct": round(100.0 * f["confirmed"] / dec, 1) if dec else None,
+        "deliveredPct": round(100.0 * f["delivered"] / f["shipped"], 1) if f["shipped"] else None,
+        "value": round(f["value"]), "lostValue": round(f["lostValue"]),
+        "cancelReasons": top(reasons), "failReasons": top(fails),
+    }

@@ -25,6 +25,7 @@ export const ROLE_CONFIG = {
           { to: "SlaBoard", label: "nav.sla", icon: "shield-alert" },
           { to: "Alerts", label: "nav.alerts", icon: "bell" },
           { to: "Audit", label: "nav.audit", icon: "activity" },
+          { to: "CityMatrix", label: "nav.cityMatrix", icon: "map-pin" },
         ],
       },
       {

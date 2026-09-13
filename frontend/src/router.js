@@ -76,6 +76,8 @@ const routes = [
       { path: "stranded", name: "Stranded", component: () => import("@/pages/Stranded.vue") },
       // Orders whose shipping city can't be turned into a carrier label (Arabic / junk).
       { path: "city-check", name: "CityCheck", component: () => import("@/pages/CityCheck.vue") },
+      // How the GEOGRAPHY performs — confirm and deliver per city, no names.
+      { path: "city-matrix", name: "CityMatrix", component: () => import("@/pages/CityMatrix.vue") },
       // Confirmation-team review: same-customer clusters → one merged order.
       { path: "consolidation", name: "Consolidation", component: () => import("@/pages/Consolidation.vue") },
       { path: "team", name: "Team", component: () => import("@/pages/Team.vue") },
