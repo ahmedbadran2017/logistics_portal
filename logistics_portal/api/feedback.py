@@ -663,7 +663,7 @@ def board(days=14):
     out["cities"] = frappe.db.sql(
         f"""SELECT city, COUNT(*) n, SUM(status = 'positive') pos, SUM(status = 'negative') neg
             FROM `tab{DT}` WHERE asked_at >= %s AND status IN ('positive', 'negative') AND city <> ''
-            GROUP BY city HAVING n >= 5 ORDER BY neg / n DESC, n DESC LIMIT 20""", (since,), as_dict=True)
+            GROUP BY city HAVING n >= 5 ORDER BY SUM(status = 'negative') / COUNT(*) DESC, COUNT(*) DESC LIMIT 20""", (since,), as_dict=True)
     out["recent"] = frappe.db.sql(
         f"""SELECT sales_order, customer_name, city, status, reply, replied_at
             FROM `tab{DT}` WHERE status IN ('positive', 'negative') ORDER BY replied_at DESC LIMIT 30""",
