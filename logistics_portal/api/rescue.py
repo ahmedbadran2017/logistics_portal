@@ -47,8 +47,14 @@ _CANCELLED_LIKE = ("Customer cancelled%", "The customer has cancelled%", "Cancel
                    "Cancellation Reason%", "Justyol has requested%")
 
 
+def _sql_like(p):
+    """Every query these land in is parameterised, so a literal % in a LIKE
+    pattern must be doubled or the driver reads it as a placeholder."""
+    return p.replace("%", "%%")
+
+
 def _last_event_sql(col="content"):
-    ors = " OR ".join(f"c.content LIKE '{p}'" for p in _CARRIER_LIKE)
+    ors = " OR ".join(f"c.content LIKE '{_sql_like(p)}'" for p in _CARRIER_LIKE)
     return (f"(SELECT c.{col} FROM `tabComment` c WHERE c.reference_doctype = 'Sales Order' "
             f"AND c.reference_name = so.name AND c.comment_type = 'Comment' AND ({ors}) "
             f"ORDER BY c.creation DESC LIMIT 1)")
@@ -56,7 +62,7 @@ def _last_event_sql(col="content"):
 
 def _cancelled_cond():
     ev = _last_event_sql()
-    return "(" + " OR ".join(f"{ev} LIKE '{p}'" for p in _CANCELLED_LIKE) + ")"
+    return "(" + " OR ".join(f"{ev} LIKE '{_sql_like(p)}'" for p in _CANCELLED_LIKE) + ")"
 
 
 def _verdict(text):
