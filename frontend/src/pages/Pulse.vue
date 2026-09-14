@@ -51,6 +51,7 @@
         <span class="truncate max-w-[120px]" dir="auto">{{ p.name }}</span>
         <span class="tabular-nums opacity-80" dir="ltr">{{ p.idleMin != null ? mins(p.idleMin) : '—' }}</span>
         <span v-if="p.current" class="font-mono text-[10px] opacity-70" dir="ltr">{{ p.current }}</span>
+        <span class="w-6 h-6 rounded-full grid place-items-center hover:bg-black/10" role="button" :title="t('pulse.nudgeHint') + ' ' + p.name" @click.stop="doNudgePerson(p)"><Icon name="bell" :size="11" /></span>
       </button>
     </section>
 
@@ -157,8 +158,22 @@
             <div v-if="r.reason" class="mt-1.5 inline-flex items-center gap-1 text-[10.5px] font-bold rounded-full px-2 py-0.5 bg-rose-50 text-rose-700 ring-1 ring-rose-200">
               <Icon name="alert-triangle" :size="10" />{{ reasonText(r) }}
             </div>
+            <div v-else-if="r.snoozedUntil" class="mt-1.5 inline-flex items-center gap-1 text-[10.5px] font-bold rounded-full px-2 py-0.5 bg-stone-100 text-stone-500 ring-1 ring-stone-200" :title="r.snoozedUntil"><Icon name="circle-pause" :size="10" />{{ t('pulse.snoozedTill') }} <span dir="ltr">{{ r.snoozedUntil.slice(11) }}</span></div>
             <div v-else-if="r.stage === 'shipped'" class="mt-1.5 inline-flex items-center gap-1 text-[10.5px] font-bold rounded-full px-2 py-0.5 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"><Icon name="check" :size="10" />{{ t('pulse.done') }}</div>
-            <div class="mt-2 flex items-center justify-end gap-1">
+            <!-- the actions: hand it over, tap the shoulder, mark it handled, open the door's own screen -->
+            <div class="mt-2 flex items-center justify-end gap-1 flex-wrap">
+              <template v-if="r.docstatus === 0">
+                <select v-if="reassignFor === r.name" class="h-8 rounded-lg text-[11px] font-semibold bg-white ring-1 ring-amber-300 px-2" :disabled="busy === r.name" @change="doReassign(r, $event.target.value)">
+                  <option value="">{{ t('pulse.pickPicker') }}</option>
+                  <option v-for="pk in d.pickers" :key="pk.email" :value="pk.email" :selected="pk.email === r.picker">{{ pk.name }} · {{ pk.load }}</option>
+                  <option value="__none__">{{ t('pulse.unassign') }}</option>
+                </select>
+                <button v-else class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-amber-800 bg-amber-50 ring-1 ring-amber-200 hover:bg-amber-100 inline-flex items-center gap-1" :title="t('pulse.reassignHint')" @click="reassignFor = r.name"><Icon name="user" :size="11" />{{ t('pulse.reassign') }}</button>
+              </template>
+              <button v-if="responsible(r)" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-orange-800 bg-orange-50 ring-1 ring-orange-200 hover:bg-orange-100 inline-flex items-center gap-1 disabled:opacity-50" :disabled="busy === r.name" :title="t('pulse.nudgeHint') + ' ' + responsibleName(r)" @click="doNudge(r)"><Icon name="bell" :size="11" />{{ t('pulse.nudge') }}</button>
+              <button v-if="r.reason" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50 inline-flex items-center gap-1 disabled:opacity-50" :disabled="busy === r.name" :title="t('pulse.snoozeHint')" @click="doSnooze(r)"><Icon name="circle-pause" :size="11" />{{ t('pulse.snooze') }}</button>
+              <RouterLink v-if="r.stage === 'manifest'" :to="{ name: 'Manifest' }" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-sky-700 bg-sky-50 ring-1 ring-sky-200 hover:bg-sky-100 inline-flex items-center gap-1"><Icon name="send" :size="11" />{{ t('pulse.st_manifest') }}</RouterLink>
+              <RouterLink v-else-if="r.stage === 'packed' || r.stage === 'label'" :to="{ name: 'PackStation' }" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-violet-700 bg-violet-50 ring-1 ring-violet-200 hover:bg-violet-100 inline-flex items-center gap-1"><Icon name="tag" :size="11" />{{ t('pulse.packStation') }}</RouterLink>
               <RouterLink :to="{ name: 'PickLists', query: { q: r.name } }" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 inline-flex items-center gap-1"><Icon name="package" :size="11" />{{ t('pulse.openList') }}</RouterLink>
               <a v-if="r.doors.manifest.shipments && r.doors.manifest.shipments.length" :href="'/app/shipment/' + encodeURIComponent(r.doors.manifest.shipments[0])" target="_blank" rel="noopener" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-sky-700 bg-sky-50 ring-1 ring-sky-200 hover:bg-sky-100 inline-flex items-center gap-1"><Icon name="send" :size="11" />{{ r.doors.manifest.shipments[0] }}</a>
             </div>
@@ -207,6 +222,48 @@ const stuckOnly = ref(false);
 const q = ref("");
 const showCfg = ref(false);
 const saving = ref(false);
+const busy = ref("");
+const reassignFor = ref("");
+// Who answers for the door a list stands at.
+function responsible(r) {
+  if (r.stage === "to_pick" || r.stage === "picking") return r.picker;
+  if (r.stage === "sorting") return r.sorter || r.picker;
+  if (r.stage === "packed") return r.packer;
+  return r.createdBy;   // label and manifest are the dispatcher's
+}
+function responsibleName(r) {
+  const u = responsible(r);
+  if (u === r.picker) return r.pickerName; if (u === r.sorter) return r.sorterName; if (u === r.packer) return r.packerName;
+  return r.createdByName;
+}
+async function doNudge(r) {
+  const user = responsible(r); if (!user) return;
+  const note = window.prompt(t("pulse.nudgePrompt").replace("{who}", responsibleName(r)), t("pulse.why_" + (r.reason || "start")).replace("{n}", mins(r.ageMin)));
+  if (note === null) return;
+  busy.value = r.name;
+  try { await apiPost("pulse.nudge", { user, pick_list: r.name, note }); success(t("pulse.nudged"), responsibleName(r)); }
+  catch (e) { warn(t("oclk.saveFail"), String(e?.message || e)); }
+  busy.value = "";
+}
+async function doNudgePerson(p) {
+  const note = window.prompt(t("pulse.nudgePrompt").replace("{who}", p.name), "");
+  if (note === null) return;
+  try { await apiPost("pulse.nudge", { user: p.user, pick_list: p.current || "", note }); success(t("pulse.nudged"), p.name); }
+  catch (e) { warn(t("oclk.saveFail"), String(e?.message || e)); }
+}
+async function doReassign(r, picker) {
+  if (!picker) { reassignFor.value = ""; return; }
+  busy.value = r.name;
+  try { await apiPost("pulse.reassign", { pick_list: r.name, picker: picker === "__none__" ? "" : picker }); success(t("pulse.reassigned"), r.name); reassignFor.value = ""; await load(); }
+  catch (e) { warn(t("oclk.saveFail"), String(e?.message || e)); }
+  busy.value = "";
+}
+async function doSnooze(r) {
+  busy.value = r.name;
+  try { const res = await apiPost("pulse.snooze", { pick_list: r.name, minutes: 30 }); success(t("pulse.snoozed"), `${r.name} · ${res.until.slice(11)}`); await load(); }
+  catch (e) { warn(t("oclk.saveFail"), String(e?.message || e)); }
+  busy.value = "";
+}
 let seq = 0;
 
 const stuckTotal = computed(() => d.value ? Object.values(d.value.stages).reduce((a, s) => a + s.stuck, 0) : 0);

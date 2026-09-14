@@ -240,7 +240,7 @@ def recent_alerts():
             # Scoped to THIS user's logistics alerts. document_type keeps system
             # noise (failed HR emails etc.) out of the operations feed.
             filters={"type": "Alert", "for_user": frappe.session.user,
-                     "document_type": ["in", ["Delivery Note", "Sales Order"]]},
+                     "document_type": ["in", ["Delivery Note", "Sales Order", "Pick List"]]},
             fields=["name", "subject", "email_content", "creation", "read",
                     "document_type", "document_name"],
             order_by="creation desc",
@@ -276,6 +276,7 @@ def recent_alerts():
                 "i18n": i18n,
                 "action": None,
                 "order": r.document_name if r.document_type == "Sales Order" else None,
+                "pickList": r.document_name if r.document_type == "Pick List" else None,
             })
         return out
     except Exception:
@@ -288,7 +289,7 @@ def unread_count():
     try:
         return frappe.db.count("Notification Log", {
             "type": "Alert", "for_user": frappe.session.user, "read": 0,
-            "document_type": ["in", ["Delivery Note", "Sales Order"]],
+            "document_type": ["in", ["Delivery Note", "Sales Order", "Pick List"]],
         })
     except Exception:
         return 0

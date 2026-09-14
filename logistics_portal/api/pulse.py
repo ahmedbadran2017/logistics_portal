@@ -73,6 +73,110 @@ def save_settings(payload=None):
     return cfg
 
 
+_SNOOZE = "lp_pulse_snooze"
+
+
+def _snoozes():
+    raw = frappe.db.get_default(_SNOOZE)
+    try:
+        v = json.loads(raw) if raw else {}
+        return v if isinstance(v, dict) else {}
+    except Exception:
+        return {}
+
+
+def _snoozed_until(name, now):
+    v = _snoozes().get(name)
+    if not v:
+        return None
+    try:
+        until = frappe.utils.get_datetime(v)
+    except Exception:
+        return None
+    return until if until > now else None
+
+
+_NUDGE = {
+    "en": ("A word from the floor manager", "{note}"),
+    "fr": ("Un mot du responsable", "{note}"),
+    "ar": ("كلمة من مدير المخزن", "{note}"),
+}
+
+
+@frappe.whitelist(methods=["POST"])
+def nudge(user, pick_list="", note=""):
+    """Manager/dispatcher: tap someone on the shoulder — a bell alert on
+    their portal naming the list, plus a comment on the list itself."""
+    _gate()
+    user = (user or "").strip()
+    if not user or not frappe.db.exists("User", user):
+        frappe.throw("Unknown user.")
+    pick_list = (pick_list or "").strip()
+    note = (note or "").strip()[:200]
+    who = frappe.db.get_value("User", frappe.session.user, "full_name") or frappe.session.user
+    body = note or (f"{pick_list}" if pick_list else "")
+    i18n = {k: {"t": t, "b": (f"{pick_list} — " if pick_list and note else "") + b.format(note=body)} for k, (t, b) in _NUDGE.items()}
+    packed = json.dumps({"lp": i18n, "sev": "warning", "kind": "nudge"}, ensure_ascii=False)
+    try:
+        frappe.get_doc({
+            "doctype": "Notification Log", "subject": i18n["en"]["t"] + (f" · {pick_list}" if pick_list else ""),
+            "email_content": i18n["en"]["b"] + f" — {who}\n<!--lp-i18n " + packed.replace("--", "- -") + " -->",
+            "type": "Alert", "document_type": "Pick List" if pick_list else "Sales Order",
+            "document_name": pick_list or None, "for_user": user,
+        }).insert(ignore_permissions=True)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[-1200:], "pulse.nudge")
+    try:
+        frappe.publish_realtime("logistics_alert", {"severity": "warning", "title": i18n["en"]["t"], "detail": i18n["en"]["b"],
+                                                    "i18n": i18n, "audience": "user"}, user=user)
+    except Exception:
+        pass
+    if pick_list and frappe.db.exists("Pick List", pick_list):
+        try:
+            frappe.get_doc({"doctype": "Comment", "comment_type": "Comment", "reference_doctype": "Pick List",
+                            "reference_name": pick_list,
+                            "content": f"Pulse: {who} nudged {user}" + (f" — {note}" if note else "")}).insert(ignore_permissions=True)
+        except Exception:
+            pass
+    frappe.db.commit()
+    return {"ok": True}
+
+
+@frappe.whitelist(methods=["POST"])
+def reassign(pick_list, picker=None):
+    """Manager/dispatcher: hand a draft list to another picker (or nobody)."""
+    _gate()
+    from logistics_portal.api.picking import assign_picker
+    res = assign_picker(pick_list, picker)
+    frappe.db.commit()
+    return res
+
+
+@frappe.whitelist(methods=["POST"])
+def snooze(pick_list, minutes=30, note=""):
+    """Manager/dispatcher: 'I know, handled' — the stall mark rests for a
+    while; the list stays on the board with a snoozed chip."""
+    _gate()
+    pick_list = (pick_list or "").strip()
+    if not frappe.db.exists("Pick List", pick_list):
+        frappe.throw("Unknown pick list.")
+    minutes = max(5, min(int(minutes or 30), 24 * 60))
+    until = frappe.utils.add_to_date(now_datetime(), minutes=minutes)
+    v = _snoozes()
+    # drop expired entries while here
+    v = {k: x for k, x in v.items() if frappe.utils.get_datetime(x) > now_datetime()}
+    v[pick_list] = str(until)[:19]
+    frappe.db.set_default(_SNOOZE, json.dumps(v))
+    try:
+        frappe.get_doc({"doctype": "Comment", "comment_type": "Comment", "reference_doctype": "Pick List",
+                        "reference_name": pick_list,
+                        "content": f"Pulse: snoozed {minutes} min by {frappe.session.user}" + (f" — {(note or '').strip()[:200]}" if note else "")}).insert(ignore_permissions=True)
+    except Exception:
+        pass
+    frappe.db.commit()
+    return {"ok": True, "until": _f(until)}
+
+
 def _min(a, b):
     """Minutes from a to b (both datetimes), or None."""
     if not a or not b:
@@ -214,6 +318,9 @@ def board(hours=None, stage="", who="", stuck=0, q=""):
             reason = "pack"
         elif stage == "manifest" and age > cfg["manifestMin"]:
             reason = "manifest"
+        snoozed = _snoozed_until(h.name, now)
+        if snoozed and reason:
+            reason = ""
         people = {"picker": h.picker or s.get("pick_who") or "", "sorter": s.get("sort_who") or "",
                   "packer": s.get("pack_who") or (sorted(p["packers"])[0] if p["packers"] else "")}
         users.update(u for u in [h.owner, *people.values()] if u)
@@ -222,6 +329,7 @@ def board(hours=None, stage="", who="", stuck=0, q=""):
             "docstatus": h.docstatus, "orders": int(h.orders or 0), "lines": int(h.n_lines or 0), "qty": int(qty),
             "picker": people["picker"], "sorter": people["sorter"], "packer": people["packer"],
             "stage": stage, "since": _f(since), "ageMin": age, "reason": reason,
+            "snoozedUntil": _f(snoozed) if snoozed else "",
             "silentMin": _min(s.get("pick_last"), now) if stage == "picking" else None,
             "doors": {
                 "to_pick": {"at": _f(h.creation), "done": True},
@@ -287,6 +395,11 @@ def board(hours=None, stage="", who="", stuck=0, q=""):
         out = [r for r in out if qq in r["name"].lower() or any(qq in (o or "").lower() for o in r["orderNames"])]
     order = {s: i for i, s in enumerate(STAGES)}
     out.sort(key=lambda r: (0 if r["reason"] else 1, order[r["stage"]], -r["ageMin"]))
-    return {"rows": out[:250], "total": len(rows), "stages": strip,
+    try:
+        from logistics_portal.api.picking import pickers as _pickers
+        picker_opts = [{"email": x["email"], "name": x["name"], "load": x["load"]} for x in _pickers()]
+    except Exception:
+        picker_opts = []
+    return {"rows": out[:250], "total": len(rows), "stages": strip, "pickers": picker_opts,
             "people": sorted(ppl.values(), key=lambda d: (d["idleMin"] if d["idleMin"] is not None else 9999)),
             "now": _f(now), "settings": cfg}

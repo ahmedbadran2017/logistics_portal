@@ -89,6 +89,7 @@
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2">
                   <span class="text-[12.5px] font-semibold text-stone-900 truncate flex-1 min-w-0" dir="auto">{{ ttl(a) }}</span>
+              <button v-if="a.pickList" class="text-[10.5px] font-semibold text-[var(--accent-700)] hover:underline font-mono flex-shrink-0" dir="ltr" @click="onAction(a)">{{ a.pickList }}</button>
                   <span class="text-[10.5px] text-stone-400 tabular-nums flex-shrink-0">{{ a.t }}</span>
                 </div>
                 <p class="text-[12px] text-stone-600 mt-0.5 leading-snug text-pretty" dir="auto">{{ bdy(a) }}</p>
@@ -194,5 +195,6 @@ async function dismiss(a) {
 function onAction(a) {
   dismiss(a);
   if (a.order) router.push({ name: "OrderDetail", params: { name: a.order.replace("#", "") } });
+  else if (a.pickList) router.push({ name: "PickLists", query: { q: a.pickList } });
 }
 </script>
