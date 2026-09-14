@@ -44,12 +44,19 @@
       <div v-if="loadingLists" class="space-y-2.5">
         <div v-for="n in 3" :key="n" class="h-[76px] rounded-2xl ring-1 ring-stone-200/60 bg-white animate-pulse" />
       </div>
-      <div v-else-if="!lists.length" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-10 text-center">
+      <div v-else-if="!lists.length && !handover.length" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-10 text-center">
         <span class="inline-flex w-12 h-12 rounded-2xl items-center justify-center bg-emerald-50 text-emerald-600 mb-3"><Icon name="check-circle" :size="22" /></span>
         <div class="text-[15px] font-semibold text-stone-900">{{ t('sort.noLists') }}</div>
         <div class="text-[12.5px] text-stone-500 mt-1">{{ t('sort.noListsHint') }}</div>
       </div>
       <div v-else class="space-y-2.5">
+        <div v-if="handover.length" class="flex items-center gap-2 px-1 pt-1">
+          <span class="text-[12px] font-bold uppercase tracking-wide text-stone-500">{{ t('sort.activeTitle') }}</span>
+          <span class="text-[12px] font-bold text-stone-400 tabular-nums">{{ lists.length }}</span>
+        </div>
+        <div v-if="handover.length && !lists.length" class="bg-white rounded-2xl ring-1 ring-stone-200/70 px-4 py-3 text-[12.5px] text-stone-500">
+          {{ t('sort.noListsHint') }}
+        </div>
         <button
           v-for="l in lists" :key="l.name"
           class="w-full bg-white rounded-2xl ring-1 ring-stone-200/70 p-4 flex items-center gap-4 text-start hover:ring-[var(--accent-400)] hover:shadow-sm transition-all"
@@ -80,6 +87,56 @@
           </span>
           <Icon name="chevron-right" :size="15" class="text-stone-300 rtl:rotate-180 flex-shrink-0" />
         </button>
+
+        <!-- ── Handover zone ──────────────────────────────────────────────
+             A list that finished sorting is not finished with the wall. It
+             stays here, visibly, until every printed parcel of it has been
+             scanned onto a shipment; a manifest that closed without one of
+             them turns the card red on the spot. Measured before this zone
+             existed: 28 lists / 55 printed parcels in 14 days never reached a
+             manifest, and nobody saw them from the list's side. -->
+        <template v-if="handover.length">
+          <div class="flex items-center gap-2 px-1 pt-3">
+            <Icon name="truck" :size="14" class="text-stone-500" />
+            <span class="text-[12px] font-bold uppercase tracking-wide text-stone-500">{{ t('sort.handoverTitle') }}</span>
+            <span class="text-[12px] font-bold tabular-nums" :class="shortCount ? 'text-rose-600' : 'text-stone-400'">{{ handover.length }}</span>
+            <span class="text-[11px] text-stone-400 hidden sm:inline truncate">{{ t('sort.handoverHint') }}</span>
+          </div>
+          <button
+            v-for="l in handover" :key="l.name"
+            class="w-full bg-white rounded-2xl ring-1 p-4 flex items-center gap-4 text-start hover:shadow-sm transition-all"
+            :class="l.short ? 'ring-rose-300 bg-rose-50/30 hover:ring-rose-400' : 'ring-stone-200/70 hover:ring-[var(--accent-400)]'"
+            @click="openWall(l.name)"
+          >
+            <span class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                  :class="l.short ? 'bg-rose-100 text-rose-600' : 'bg-amber-50 text-amber-600'">
+              <Icon :name="l.short ? 'alert-triangle' : 'clock'" :size="18" />
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block font-mono text-[14px] font-bold text-stone-900">{{ l.name }}</span>
+              <span class="block text-[12px] text-stone-500 mt-0.5">
+                {{ l.picker }} · {{ l.orders }} {{ t('ordersPg.blOrders') }} · {{ ageText(l.ageMin) }}
+              </span>
+              <span class="inline-flex items-center gap-1 mt-1 text-[11px] font-semibold rounded-md px-1.5 py-0.5 ring-1"
+                    :class="l.short ? 'text-rose-700 bg-rose-50 ring-rose-200/70' : 'text-amber-700 bg-amber-50 ring-amber-200/70'">
+                <Icon :name="l.short ? 'alert-triangle' : 'clock'" :size="11" />{{ l.waiting }} {{ l.short ? t('sort.shortChip') : t('sort.waitingChip') }}
+              </span>
+              <span v-if="l.pending" class="inline-flex items-center gap-1 mt-1 ms-1 text-[11px] font-semibold text-stone-600 bg-stone-100 ring-1 ring-stone-200 rounded-md px-1.5 py-0.5">
+                {{ l.pending }} {{ t('sort.pendingChip') }}
+              </span>
+            </span>
+            <span class="flex flex-col items-end gap-1 flex-shrink-0">
+              <span class="text-[12.5px] font-bold tabular-nums" :class="l.short ? 'text-rose-600' : 'text-stone-700'">
+                {{ l.handed }}/{{ l.orders }} <span class="text-[10.5px] font-semibold text-stone-400 uppercase">{{ t('sort.handedOf') }}</span>
+              </span>
+              <span class="w-24 h-1.5 rounded-full bg-stone-100 overflow-hidden">
+                <span class="block h-full rounded-full" :class="l.short ? 'bg-rose-500' : 'bg-amber-500'"
+                      :style="{ width: (l.orders ? l.handed / l.orders * 100 : 0) + '%' }" />
+              </span>
+            </span>
+            <Icon name="chevron-right" :size="15" class="text-stone-300 rtl:rotate-180 flex-shrink-0" />
+          </button>
+        </template>
       </div>
     </template>
 
@@ -98,6 +155,13 @@
         <span class="inline-flex items-center gap-1.5 text-[12.5px] font-bold tabular-nums px-3 h-9 rounded-lg ring-1"
               :class="doneCount === wall.orders.length ? 'text-emerald-700 bg-emerald-50 ring-emerald-200' : 'text-stone-700 bg-white ring-stone-200'">
           {{ doneCount }}/{{ wall.orders.length }} {{ t('sort.ordersDone') }}
+        </span>
+        <!-- The door: how much of this list is on a shipment. Red when a
+             manifest already closed without part of it. -->
+        <span v-if="wall.waiting || wall.short" class="inline-flex items-center gap-1.5 text-[12.5px] font-bold tabular-nums px-3 h-9 rounded-lg ring-1"
+              :class="wall.short ? 'text-rose-700 bg-rose-50 ring-rose-200' : 'text-amber-700 bg-amber-50 ring-amber-200'">
+          <Icon :name="wall.short ? 'alert-triangle' : 'truck'" :size="13" />
+          {{ wall.handed }}/{{ wall.orders.length }} {{ t('sort.handedOf') }}
         </span>
         <PlLife v-if="wall.life" :life="wall.life" class="w-full" />
       </header>
@@ -124,6 +188,15 @@
               <span v-if="o.shipped" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300">
                 <Icon name="truck" :size="10" />{{ t('sort.badgeShipped') }}
               </span>
+              <span v-else-if="o.onDraft" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300">
+                <Icon name="truck" :size="10" />{{ t('sort.badgeOnManifest') }}
+              </span>
+              <span v-else-if="o.short" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-rose-700 bg-rose-50 ring-1 ring-rose-300">
+                <Icon name="alert-triangle" :size="10" />{{ t('sort.badgeShort') }}
+              </span>
+              <span v-else-if="o.waiting" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-amber-700 bg-amber-50 ring-1 ring-amber-200">
+                <Icon name="clock" :size="10" />{{ t('sort.badgeWaiting') }}
+              </span>
               <span v-else-if="o.printed" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200">
                 <Icon name="printer" :size="10" />{{ t('sort.badgePrinted') }}
               </span>
@@ -148,8 +221,13 @@
               <span class="text-[12px] font-bold tabular-nums" :class="it.sorted >= it.qty ? 'text-emerald-600' : 'text-stone-600'">{{ it.sorted }}/{{ it.qty }}</span>
             </div>
           </div>
+          <div v-if="o.short" class="mt-2.5 flex items-start gap-2 rounded-lg bg-rose-50 ring-1 ring-rose-200/70 px-3 py-2 text-[11.5px] text-rose-800">
+            <Icon name="alert-triangle" :size="14" class="text-rose-500 shrink-0 mt-0.5" />
+            <span>{{ t('sort.shortHint') }}<span v-if="o.awb" class="block font-mono text-[10.5px] text-rose-600 mt-0.5">AWB {{ o.awb }}</span></span>
+          </div>
+          <div v-if="o.dupDn" class="mt-2 text-[11px] text-stone-500">{{ t('sort.dupDn') }}</div>
           <button
-            v-if="o.done && o.labelUrl && !o.shipped"
+            v-if="o.done && o.labelUrl && !o.shipped && !o.onDraft"
             class="mt-2.5 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5 transition-colors"
             :class="o.printed ? 'bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50' : 'bg-sky-600 text-white hover:bg-sky-700'"
             @click="printAndMark(o)"
@@ -285,8 +363,14 @@ const FIX_ROLES = ["packer", "dispatcher", "manager"];
 const canFix = computed(() => FIX_ROLES.includes(role.value));
 
 const scanner = ref(null);
-const lists = ref([]);
+const lists = ref([]);          // still sorting
+const handover = ref([]);       // sorted, not yet whole on a shipment
+const shortCount = computed(() => handover.value.filter((l) => l.short).length);
 const loadingLists = ref(true);
+function ageText(min) {
+  const m = Number(min || 0);
+  return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m` : `${m} min`;
+}
 const wall = ref(null);          // {pickList, orders:[...]} — the open tote
 const printedToday = ref(0);
 const flash = ref("");           // order slot to pulse after a scan
@@ -306,7 +390,9 @@ const doneCount = computed(() => (wall.value?.orders || []).filter((o) => o.done
 async function loadLists() {
   loadingLists.value = true;
   try {
-    lists.value = (await api("picking.sorting_lists")) || [];
+    const res = (await api("picking.sorting_lists")) || {};
+    lists.value = Array.isArray(res) ? res : (res.active || []);
+    handover.value = Array.isArray(res) ? [] : (res.handover || []);
   } catch (e) {
     warn(t("sort.loadFail"), String(e.message || e));
   } finally {
@@ -376,7 +462,7 @@ function closeWall() {
 async function onScanList(raw) {
   const code = String(raw || "").trim();
   if (!code) return;
-  const hit = lists.value.find((l) => l.name.toLowerCase() === code.toLowerCase());
+  const hit = [...lists.value, ...handover.value].find((l) => l.name.toLowerCase() === code.toLowerCase());
   if (hit) return openWall(hit.name);
   // Maybe an older list not in the window — try it anyway.
   try {
@@ -525,6 +611,7 @@ async function recheckLabel(o) {
 
 function slotClass(o) {
   if (flash.value === o.order) return "ring-2 ring-[var(--accent-500)] shadow-md";
+  if (o.short) return "ring-rose-300 bg-rose-50/40";                // a manifest left without it
   if (o.noLabel) return "ring-amber-300 bg-amber-50/40";
   if (o.printed) return "ring-emerald-300 bg-emerald-50/30";       // both stages done
   if (o.done) return "ring-sky-300 bg-sky-50/40";                  // sorted, label not confirmed out

@@ -2655,11 +2655,36 @@ def sorting_lists(days=2, limit=30):
            ORDER BY pl.creation DESC LIMIT %s""",
         (_SORT_DONE, _SORT_DONE, days, limit), as_dict=True)
     life = _pl_life([r.name for r in rows])
-    return [{"name": r.name, "picker": (r.picker or "").split("@")[0],
-             "orders": int(r.orders or 0), "qty": int(r.qty or 0),
-             "printed": int(r.printed or 0), "pending": int(r.pending or 0),
-             "blocked": int(r.blocked or 0), "life": life.get(r.name)}
-            for r in rows]
+    active = [{"name": r.name, "picker": (r.picker or "").split("@")[0],
+               "orders": int(r.orders or 0), "qty": int(r.qty or 0),
+               "printed": int(r.printed or 0), "pending": int(r.pending or 0),
+               "blocked": int(r.blocked or 0), "life": life.get(r.name)}
+              for r in rows]
+
+    # The handover zone. A list that finished sorting is not finished with the
+    # wall: it stays here until every printed parcel of it is on a Shipment.
+    # Ahmed 2026-09-14: "the sorting station hands over to shipments" — the
+    # list leaves only when it is pulled into shipments, and pulled whole; a
+    # short pull shows the difference at once. Measured before this existed:
+    # 28 lists / 55 printed parcels in 14 days off every manifest, unseen.
+    from logistics_portal.api.shipping import _handover_rows, _shape_gaps, _last_close
+    seen = {a["name"] for a in active}
+    last = _last_close()
+    gaps = [g for g in _shape_gaps(_handover_rows(14), last) if g["pickList"] not in seen]
+    hlife = _pl_life([g["pickList"] for g in gaps])
+    pickers = {}
+    if gaps:
+        for r in frappe.db.sql(
+                """SELECT name, COALESCE(NULLIF(custom_assigned_picker,''), owner) AS p
+                   FROM `tabPick List` WHERE name IN %s""",
+                (tuple(g["pickList"] for g in gaps),), as_dict=True):
+            pickers[r.name] = (r.p or "").split("@")[0]
+    handover = [{"name": g["pickList"], "picker": pickers.get(g["pickList"], ""),
+                 "orders": g["orders"], "handed": g["handed"], "waiting": g["n"],
+                 "pending": g["pending"], "short": g["short"], "ageMin": g["ageMin"],
+                 "life": hlife.get(g["pickList"])}
+                for g in gaps]
+    return {"active": active, "handover": handover, "lastClose": last}
 
 
 @frappe.whitelist()
@@ -2713,6 +2738,34 @@ def sorting_detail(pick_list):
         o["awbMissing"] = bool(not o["awb"] and not o["labelUrl"]
                                and o["status"] not in _SORT_DONE
                                and o["salesStatus"] != "Cancelled")
+    # Handover state per order: on a Shipment (draft = scanned at the door
+    # today, submitted = gone), or still waiting after printing. `short` marks
+    # a printed parcel that a manifest closed without.
+    from logistics_portal.api.shipping import _handover_rows, _shape_gaps, _last_close, _HANDED_STATUSES
+    gap = (_shape_gaps(_handover_rows(pick_lists=[pick_list]), _last_close()) or [None])[0]
+    waiting = {w["order"]: w for w in (gap["waiting"] if gap else [])}
+    on_ship = {}
+    if out:
+        for r in frappe.db.sql(
+                """SELECT dni.against_sales_order AS so, MAX(sh.docstatus) AS ds,
+                          MAX(sh.name) AS shipment
+                   FROM `tabDelivery Note Item` dni
+                   JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
+                   JOIN `tabShipment Delivery Note` sdn ON sdn.delivery_note = dn.name
+                   JOIN `tabShipment` sh ON sh.name = sdn.parent AND sh.docstatus < 2
+                   WHERE dni.against_sales_order IN %s
+                   GROUP BY dni.against_sales_order""",
+                (tuple(o["order"] for o in out),), as_dict=True):
+            on_ship[r.so] = r
+    for o in out:
+        s = on_ship.get(o["order"])
+        o["handed"] = o["status"] in _HANDED_STATUSES or s is not None
+        o["onDraft"] = bool(s is not None and int(s.ds or 0) == 0 and o["status"] not in _HANDED_STATUSES)
+        o["shipment"] = s.shipment if s else ""
+        w = waiting.get(o["order"])
+        o["waiting"] = bool(w)
+        o["short"] = bool(w and gap and gap["short"])
+        o["dupDn"] = bool(w and w.get("dup"))
     out.sort(key=lambda o: (o["done"], o["order"]))
     submitted = frappe.db.get_value("Pick List", pick_list, "modified")
     age_min = 0
@@ -2720,7 +2773,9 @@ def sorting_detail(pick_list):
         from frappe.utils import time_diff_in_seconds, now_datetime
         age_min = int(max(0, time_diff_in_seconds(now_datetime(), submitted)) // 60)
     return {"pickList": pick_list, "orders": out, "ageMin": age_min,
-            "life": _pl_life([pick_list]).get(pick_list)}
+            "life": _pl_life([pick_list]).get(pick_list),
+            "handed": sum(1 for o in out if o["handed"]),
+            "waiting": len(waiting), "short": bool(gap and gap["short"])}
 
 
 @frappe.whitelist()

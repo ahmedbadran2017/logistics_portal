@@ -443,8 +443,7 @@ def run_alerts():
                       "oldest": f"{oldest // 60}h {oldest % 60:02d}m" if oldest >= 60 else f"{oldest} min",
                       "names": ", ".join(x["name"] for x in rows[:6]) + (" …" if len(rows) > 6 else "")}
             sev = "critical" if (reason in ("start", "manifest") and len(rows) >= 5) or oldest >= 180 else "warning"
-            for audience in ("manager", "dispatcher"):
-                _emit(kind, params, severity=sev, cooldown_h=1, audience=audience)
+            _emit(kind, params, severity=sev, cooldown_h=1, audience=("manager", "dispatcher"))
     except Exception:
         frappe.log_error(frappe.get_traceback()[-2000:], "pulse.run_alerts")
 

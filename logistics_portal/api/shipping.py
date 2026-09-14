@@ -438,11 +438,21 @@ def today_manifest():
             {"docstatus": 1, "custom_logistics_status": ["in", ["Label Generated", "Label Printed"]],
              "creation": [">=", add_days(nowdate(), -7)]})
         from logistics_portal.api.settings import get_ops
+        # Lists whose printed parcels are not all scanned yet: shown before
+        # the close so the dispatcher sees what the door is about to leave
+        # behind, per list, not as a bare count.
+        gaps = _shape_gaps(_handover_rows(14), _last_close())
         base = {
             "carrier": "Cathedis", "cutoff": get_ops("cutoff"),
             "readyCount": len(_ready_parcels()),
             "notOnManifest": not_on,
             "staleDrafts": _stale_drafts(),
+            "gaps": {"lists": [{"pickList": g["pickList"], "n": g["n"],
+                                "short": g["short"], "ageMin": g["ageMin"],
+                                "orders": [w["order"] for w in g["waiting"]]}
+                               for g in gaps[:40]],
+                     "parcels": sum(g["n"] for g in gaps),
+                     "short": sum(g["n"] for g in gaps if g["short"])},
         }
 
         sh = frappe.get_all(
@@ -682,6 +692,180 @@ def _prune_manifest_rows(sh):
     return dropped
 
 
+# ── Handover: the pick list is the unit the sort wall hands to shipments ──
+#
+# Measured 2026-09-14 over 14 days: 664 pick lists left the sort wall the
+# moment their last label printed; 28 of them (55 parcels) never had those
+# parcels scanned onto any manifest, and the carrier never moved a single one —
+# boxes standing somewhere in the building while the system called them ready.
+# Every manifest in that window was built 100% by door scans, so the manifest
+# IS the physical handover record. What was missing is the link back to the
+# list: a list is handed over only when every one of its printed parcels is on
+# a Shipment, and a parcel still printed after the manifest closes is a
+# shortfall the moment the door shuts, not 24 hours later.
+
+_HANDED_STATUSES = ("Shipped", "Delivered", "Not Delivered", "Returned")
+
+
+def _handover_rows(days=14, pick_lists=None):
+    """Printed-but-not-handed parcels grouped by pick list.
+
+    An order counts as HANDED when its logistics status is already past the
+    door, or when any of its live Delivery Notes sits on a Shipment that is
+    draft (scanned onto today's manifest) or submitted. Checking per order and
+    not per DN keeps the amended/duplicate DN of one order (J-005979, #256338
+    on 2026-09-14) from reading as a parcel that never left.
+
+    Returns {pick_list: {"orders": n, "handed": n, "waiting": [row…],
+                          "sortedAt": ts}} for lists with at least one
+    waiting parcel. `sortedAt` is the list's last sort/pack scan (or its
+    submit time), which is what a manifest close is compared against."""
+    days = min(max(int(days or 14), 1), 30)
+    cond = "pl.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)"
+    params = {"days": days}
+    if pick_lists:
+        cond = "pl.name IN %(names)s"
+        params["names"] = tuple(pick_lists)
+    rows = frappe.db.sql(f"""
+        SELECT pl.name AS pick_list, pli.sales_order AS so,
+               so.custom_logistics_status AS lstatus, so.customer_name AS customer,
+               so.custom_awb AS awb, so.custom_label_url AS label_url,
+               so.grand_total AS total,
+               (SELECT COUNT(DISTINCT dn.name) FROM `tabDelivery Note Item` dni
+                 JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
+                WHERE dni.against_sales_order = so.name) AS live_dns,
+               (SELECT MAX(sh.docstatus) FROM `tabDelivery Note Item` dni
+                 JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
+                 JOIN `tabShipment Delivery Note` sdn ON sdn.delivery_note = dn.name
+                 JOIN `tabShipment` sh ON sh.name = sdn.parent AND sh.docstatus < 2
+                WHERE dni.against_sales_order = so.name) AS on_ship
+        FROM `tabPick List` pl
+        JOIN `tabPick List Item` pli ON pli.parent = pl.name
+        JOIN `tabSales Order` so ON so.name = pli.sales_order
+        WHERE pl.docstatus = 1 AND {cond}
+          AND COALESCE(so.custom_sales_status, '') <> 'Cancelled'
+        GROUP BY pl.name, pli.sales_order""", params, as_dict=True)
+    out = {}
+    for r in rows:
+        o = out.setdefault(r.pick_list, {"orders": 0, "handed": 0, "waiting": [],
+                                         "pending": 0})
+        o["orders"] += 1
+        st = r.lstatus or ""
+        handed = st in _HANDED_STATUSES or r.on_ship is not None
+        if handed:
+            o["handed"] += 1
+            continue
+        if st != "Label Printed":
+            o["pending"] += 1      # still on the sort side, not this stage's problem
+            continue
+        o["waiting"].append({
+            "order": r.so, "customer": r.customer or "", "awb": r.awb or "",
+            "labelUrl": r.label_url or "", "total": float(r.total or 0),
+            "noDn": not r.live_dns, "dup": int(r.live_dns or 0) > 1,
+        })
+    out = {k: v for k, v in out.items() if v["waiting"]}
+    if not out:
+        return out
+    for r in frappe.db.sql(
+            """SELECT pick_list, MAX(creation) AS t FROM `tabLP Scan Event`
+               WHERE pick_list IN %s AND station IN ('sort', 'pack', 'label')
+               GROUP BY pick_list""", (tuple(out),), as_dict=True):
+        out[r.pick_list]["sortedAt"] = str(r.t)[:19]
+    for r in frappe.db.sql(
+            """SELECT name, modified FROM `tabPick List` WHERE name IN %s""",
+            (tuple(out),), as_dict=True):
+        out[r.name].setdefault("sortedAt", str(r.modified)[:19])
+    return out
+
+
+def _last_close():
+    """When the door last shut: the newest submitted Cathedis manifest."""
+    t = frappe.db.sql(
+        """SELECT MAX(modified) FROM `tabShipment`
+           WHERE docstatus = 1 AND delivery_customer = 'CATHEDIS'""")
+    return str(t[0][0])[:19] if t and t[0][0] else ""
+
+
+def _shape_gaps(rows, last_close):
+    """[{pickList, orders, handed, waiting:[…], n, short, ageMin}] — `short`
+    means a manifest closed AFTER this list had finished sorting for at least
+    the Pulse manifest allowance (default 90 min) and these parcels were not
+    on it: the door shut without them. The allowance matters: measured
+    2026-09-14, 43 of 46 waiting lists had been sorted within the hour before
+    a mid-afternoon close and were simply on their way to the door for the
+    next one; without it every close would cry wolf."""
+    from frappe.utils import now_datetime, get_datetime, time_diff_in_seconds, add_to_date
+    now = now_datetime()
+    try:
+        from logistics_portal.api.pulse import settings as _pulse
+        grace = int(_pulse().get("manifestMin") or 90)
+    except Exception:
+        grace = 90
+    out = []
+    for name, g in rows.items():
+        sorted_at = g.get("sortedAt") or ""
+        short = False
+        if last_close and sorted_at:
+            due = str(add_to_date(get_datetime(sorted_at), minutes=grace))[:19]
+            short = last_close > due
+        age = 0
+        if sorted_at:
+            age = int(max(0, time_diff_in_seconds(now, get_datetime(sorted_at))) // 60)
+        out.append({"pickList": name, "orders": g["orders"], "handed": g["handed"],
+                    "pending": g["pending"], "waiting": g["waiting"],
+                    "n": len(g["waiting"]), "short": short, "ageMin": age,
+                    "sortedAt": sorted_at})
+    out.sort(key=lambda x: (not x["short"], -x["ageMin"]))
+    return out
+
+
+@frappe.whitelist()
+def handover_gaps(days=14):
+    """Pick lists whose printed parcels are not all on a Shipment yet, for the
+    sort wall's handover zone and the manifest page. Packer/dispatcher/manager."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("picker", "packer", "dispatcher", "manager"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    last = _last_close()
+    gaps = _shape_gaps(_handover_rows(days), last)
+    return {"lists": gaps, "parcels": sum(g["n"] for g in gaps),
+            "short": sum(1 for g in gaps if g["short"]), "lastClose": last}
+
+
+def _record_shortfall(shipment):
+    """Right after a manifest submits: every list that finished sorting before
+    the door shut and still has printed parcels off every Shipment is short.
+    One comment per list (skipped if this shipment already left one), one
+    alert to dispatch and the manager, and the rows back for the page."""
+    gaps = [g for g in _shape_gaps(_handover_rows(14), _last_close()) if g["short"]]
+    if not gaps:
+        return []
+    from logistics_portal.api.shipments import _emit
+    for g in gaps:
+        try:
+            marker = f"Manifest {shipment} closed"
+            if frappe.db.exists("Comment", {
+                    "reference_doctype": "Pick List", "reference_name": g["pickList"],
+                    "comment_type": "Comment", "content": ["like", f"{marker}%"]}):
+                continue
+            orders = ", ".join(w["order"] for w in g["waiting"][:12])
+            frappe.get_doc({
+                "doctype": "Comment", "comment_type": "Comment",
+                "reference_doctype": "Pick List", "reference_name": g["pickList"],
+                "content": f"{marker} with {g['n']} of this list's printed parcels "
+                           f"not scanned onto it: {orders}",
+            }).insert(ignore_permissions=True)
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:2000], "shipping._record_shortfall")
+    names = ", ".join(f"{g['pickList']} ({g['n']})" for g in gaps[:8])
+    _emit("manifest_short",
+          {"n": sum(g["n"] for g in gaps), "lists": len(gaps),
+           "shipment": shipment, "names": names},
+          severity="danger", cooldown_h=1, audience=("dispatcher", "manager"))
+    return [{"pickList": g["pickList"], "n": g["n"],
+             "orders": [w["order"] for w in g["waiting"]]} for g in gaps]
+
+
 @frappe.whitelist()
 def close_manifest(parcels=None):
     """Close the daily manifest FROM THE PORTAL — no desk. Builds + submits the
@@ -734,11 +918,21 @@ def close_manifest(parcels=None):
             frappe.db.commit()
             _save_manifest_template(sh)
             _bust_ship_caches()
+            short = _record_shortfall(sh.name)
+            frappe.db.commit()
             return {"ok": True, "shipment": sh.name,
                     "parcels": len(sh.shipment_delivery_note),
-                    "dropped": dropped,
+                    "dropped": dropped, "short": short,
                     "value": round(float(sh.value_of_goods or 0), 2)}
 
+        # No scanned draft. Sweeping every printed parcel onto a manifest
+        # nobody scanned would make a shortfall invisible by construction —
+        # a box still on the floor would be 'Shipped'. Unused in the last 14
+        # days (every manifest was scan-built); now closed off unless the
+        # caller names the parcels explicitly.
+        if not wanted:
+            frappe.throw("Nothing has been scanned onto today's manifest. "
+                         "Scan the parcels at the door first.")
         rows = _ready_parcels(wanted)
         if not rows:
             frappe.throw("No printed, ready-to-ship parcels to put on a manifest.")
@@ -758,7 +952,10 @@ def close_manifest(parcels=None):
         frappe.db.commit()
         _save_manifest_template(sh)
         _bust_ship_caches()
-        return {"ok": True, "shipment": sh.name, "parcels": len(rows), "value": value}
+        short = _record_shortfall(sh.name)
+        frappe.db.commit()
+        return {"ok": True, "shipment": sh.name, "parcels": len(rows),
+                "value": value, "short": short}
 
 
 @frappe.whitelist()

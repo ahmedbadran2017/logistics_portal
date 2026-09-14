@@ -1014,6 +1014,14 @@ _ALERTS = {
         "fr": ("Des colis emballés hors manifeste", "{n} listes emballées mais absentes du manifeste après {min} min ; la plus ancienne {oldest}. {names}"),
         "ar": ("طرود متغلّفة برة المانيفست", "{n} قائمة اتغلّفت ومش على مانيفست بعد {min} دقيقة؛ الأقدم {oldest}. {names}"),
     },
+    "manifest_short": {
+        "en": ("The manifest closed with printed parcels left behind",
+               "{n} printed parcels from {lists} pick lists were not scanned onto {shipment}. They are still in the building — open the sort wall's handover zone: {names}"),
+        "fr": ("Le manifeste a fermé en laissant des colis imprimés",
+               "{n} colis imprimés de {lists} listes n'ont pas été scannés sur {shipment}. Ils sont encore dans l'entrepôt — ouvrez la zone de remise du mur de tri : {names}"),
+        "ar": ("المانيفست اتقفل وفي طرود مطبوعة اتسابت",
+               "{n} طرد مطبوع من {lists} قائمة ما اتسكنوش على {shipment}. لسه جوه المخزن — افتح جزء التسليم في حيطة الفرز: {names}"),
+    },
     "count_big": {
         "en": ("A count posted a large value difference",
                "{name} on {wh}: {amount} MAD, mostly {sku} ({delta} units at {rate} MAD each). Check the item's valuation before reading it as a real loss or gain."),
@@ -1075,7 +1083,16 @@ def _emit(kind, params, severity="warning", cooldown_h=4, order=None, audience="
                 "subject": title,
                 "creation": (">=", frappe.utils.add_to_date(now_datetime(), hours=-cooldown_h))}):
             return
-        for user in _tracking_users(audience) or []:
+        # Several audiences at once: the unread-subject check above runs once
+        # per problem, so a second _emit call for the same kind (the old
+        # per-audience loop) was skipped and the second audience never heard.
+        auds = [audience] if isinstance(audience, str) else list(audience or [])
+        users = []
+        for aud in auds:
+            for u in _tracking_users(aud) or []:
+                if u not in users:
+                    users.append(u)
+        for user in users:
             frappe.get_doc({
                 "doctype": "Notification Log", "subject": title,
                 "email_content": body, "type": "Alert",

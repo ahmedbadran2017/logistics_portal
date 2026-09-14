@@ -58,6 +58,32 @@
           {{ t('px.mani.notLabeled').replace('{n}', notLabeled) }}
         </div>
 
+        <!-- Lists not fully at the door: printed parcels still off every
+             manifest, by pick list. The sort wall hands lists over whole;
+             this is the dispatcher's side of the same count. Red rows are
+             lists a previous manifest already closed without. -->
+        <div v-if="gaps.lists.length" class="bg-white rounded-xl ring-1 overflow-hidden"
+             :class="gaps.short ? 'ring-rose-200/70' : 'ring-amber-200/70'">
+          <div class="px-4 py-2.5 border-b flex items-center gap-2"
+               :class="gaps.short ? 'border-rose-100 bg-rose-50/50' : 'border-amber-100 bg-amber-50/50'">
+            <Icon name="truck" :size="14" :class="gaps.short ? 'text-rose-600' : 'text-amber-600'" />
+            <span class="text-[12.5px] font-bold text-stone-900">{{ t('mani.gapsTitle') }}</span>
+            <span class="text-[12px] font-bold tabular-nums" :class="gaps.short ? 'text-rose-700' : 'text-amber-700'">{{ gaps.parcels }}</span>
+            <span class="text-[11px] text-stone-500 hidden sm:inline truncate">{{ t('mani.gapsHint') }}</span>
+          </div>
+          <div class="divide-y divide-stone-100 max-h-[260px] overflow-y-auto">
+            <div v-for="g in gaps.lists" :key="g.pickList" class="px-4 py-2 flex items-center gap-3 text-[12.5px]">
+              <span class="font-mono font-semibold text-stone-900 w-[84px] flex-shrink-0">{{ g.pickList }}</span>
+              <span class="inline-flex items-center gap-1 text-[11px] font-semibold rounded-md px-1.5 py-0.5 ring-1 flex-shrink-0"
+                    :class="g.short ? 'text-rose-700 bg-rose-50 ring-rose-200/70' : 'text-amber-700 bg-amber-50 ring-amber-200/70'">
+                {{ g.n }} {{ g.short ? t('mani.gapsShort') : t('mani.gapsWaiting') }}
+              </span>
+              <span class="text-stone-500 truncate flex-1 font-mono text-[11px]">{{ g.orders.slice(0, 6).join(', ') }}<span v-if="g.orders.length > 6"> …</span></span>
+              <span class="text-stone-400 tabular-nums text-[11px] flex-shrink-0">{{ Math.floor(g.ageMin / 60) }}h {{ String(g.ageMin % 60).padStart(2, '0') }}m</span>
+            </div>
+          </div>
+        </div>
+
         <!-- scan to add -->
         <ScanInput ref="scanner" :placeholder="t('px.mani.scanPh')" @scan="onScan" />
 
@@ -189,6 +215,9 @@
         <p v-if="notLabeled > 0" class="mt-2 text-[12px] text-amber-700 bg-amber-50 ring-1 ring-amber-200/60 rounded-lg px-3 py-2">
           {{ notLabeled }} picked orders aren't labeled yet — they won't be on this manifest.
         </p>
+        <p v-if="gaps.parcels > 0" class="mt-2 text-[12px] text-rose-700 bg-rose-50 ring-1 ring-rose-200/60 rounded-lg px-3 py-2">
+          {{ t('mani.confirmGaps').replace('{n}', gaps.parcels).replace('{l}', gaps.lists.length) }}
+        </p>
         <div class="flex items-center justify-end gap-2 mt-4">
           <button class="h-9 px-4 rounded-lg text-[13px] font-medium text-stone-600 hover:bg-stone-100"
                   :disabled="closing" @click="confirmClose = false">{{ t("mani.keepOpen") }}</button>
@@ -246,6 +275,7 @@ const parcels = ref([]);
 const readyCount = ref(0); // ready-to-ship parcels waiting to be scanned onto the manifest
 const pool = ref([]);
 const notLabeled = ref(0);
+const gaps = ref({ lists: [], parcels: 0, short: 0 }); // printed parcels off every manifest, by list
 
 const totalValue = computed(() => parcels.value.reduce((s, p) => s + Number(p.value || 0), 0));
 
@@ -357,9 +387,18 @@ async function doClose() {
       `${res.parcels} parcels · ${fmtMAD(res.value)} MAD handed to ${CARRIER} — orders marked Shipped`
         + (res.dropped ? ` · ${res.dropped} ${t("mani.droppedNote")}` : ""),
     );
+    // The door shut: whatever printed parcel was not on it is now a
+    // shortfall, said here and on the sort wall's handover zone.
+    const short = Array.isArray(res.short) ? res.short : [];
+    if (short.length) {
+      const n = short.reduce((s, g) => s + Number(g.n || 0), 0);
+      warn(t("mani.shortToast").replace("{n}", n).replace("{l}", short.length),
+           short.slice(0, 6).map((g) => `${g.pickList} (${g.n})`).join(" · "));
+    }
     await loadManifest();
   } catch (e) {
-    warn("Couldn't close the manifest", String(e.message || e));
+    const msg = String(e.message || e);
+    warn("Couldn't close the manifest", /Nothing has been scanned/.test(msg) ? t("mani.needScan") : msg);
   } finally {
     closing.value = false;
   }
@@ -384,6 +423,9 @@ async function loadManifest() {
     pool.value = [];
     if (live.notOnManifest != null) notLabeled.value = Number(live.notOnManifest) || 0;
     staleDrafts.value = Array.isArray(live.staleDrafts) ? live.staleDrafts : [];
+    gaps.value = live.gaps && Array.isArray(live.gaps.lists)
+      ? { lists: live.gaps.lists, parcels: Number(live.gaps.parcels || 0), short: Number(live.gaps.short || 0) }
+      : { lists: [], parcels: 0, short: 0 };
   }
 
   // Recent manifests from `shipping.shipments` (demo rows stay as fallback).
