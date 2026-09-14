@@ -891,6 +891,46 @@ def route_return(name, item_code, ret, qty=None):
 
 
 @frappe.whitelist(methods=["POST"])
+def route_move(name, item_code, other, qty=None):
+    """Manager: the units one shelf is short of are the units another shelf
+    was found holding — one Material Transfer from the short shelf to the
+    found shelf (the same document the counter's own 'came from another
+    shelf' makes), then both drafts drop the line where the shelves now
+    agree. Two reconciliations would invent a loss and a find that never
+    happened. Either draft may be the caller."""
+    if not _is_manager():
+        frappe.throw("Only a manager can route a count.", frappe.PermissionError)
+    a, b = _draft(name), _draft(other)
+    la = next((r for r in a.items if r.item_code == item_code), None)
+    lb = next((r for r in b.items if r.item_code == item_code), None)
+    if la is None or lb is None:
+        frappe.throw("That item is not on both counts.")
+    da = float(la.qty or 0) - _live_qty(item_code, la.warehouse)
+    db = float(lb.qty or 0) - _live_qty(item_code, lb.warehouse)
+    if not (da < 0 < db or db < 0 < da):
+        frappe.throw("The two counts do not disagree in opposite directions any more.")
+    short, found = (la, lb) if da < 0 else (lb, la)
+    room = min(abs(da), abs(db))
+    want = int(qty or 0) or int(room)
+    want = int(min(want, room))
+    if want <= 0:
+        frappe.throw("Nothing to move.")
+    if short.warehouse == found.warehouse:
+        frappe.throw("A move needs two different shelves.")
+    se = _apply_count_moves(short.warehouse, [{"item_code": item_code, "qty": want,
+                                               "other": found.warehouse, "dir": "out"}])
+    for d in (a, b):
+        d.add_comment("Comment", f"Triage: {want}u of {item_code} moved {short.warehouse} → {found.warehouse} "
+                                 f"({se}) · by {frappe.session.user}")
+    ra = _settle_row(a, item_code)
+    rb = _settle_row(b, item_code)
+    frappe.db.commit()
+    return {"ok": True, "entry": se, "qty": want, "from": short.warehouse, "to": found.warehouse,
+            "emptied": ra["emptied"] if name == a.name else rb["emptied"],
+            "otherEmptied": rb["emptied"] if name == a.name else ra["emptied"]}
+
+
+@frappe.whitelist(methods=["POST"])
 def route_purchase(name, item_code, po, qty=None):
     """Manager: the found units were delivered by a supplier and never
     received — a DRAFT Purchase Receipt against the open order, into the

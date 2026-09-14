@@ -271,7 +271,14 @@
                 <div v-if="r.elsewhere.length" class="flex items-center gap-1.5 flex-wrap text-[11px] text-amber-800 bg-amber-50 ring-1 ring-amber-200 rounded-lg px-2 py-1">
                   <Icon name="alert-triangle" :size="12" />
                   <span>{{ t('cc.elsewhere') }}</span>
-                  <span v-for="o in r.elsewhere" :key="o.name" class="font-mono tabular-nums">{{ short(o.warehouse) }} {{ o.delta > 0 ? '+' : '' }}{{ o.delta }} ({{ o.name }})</span>
+                  <span v-for="o in r.elsewhere" :key="o.name" class="inline-flex items-center gap-1.5">
+                    <span class="font-mono tabular-nums">{{ short(o.warehouse) }} {{ o.delta > 0 ? '+' : '' }}{{ o.delta }} ({{ o.name }})</span>
+                    <button v-if="canApprove" class="lp-tap h-7 px-2 rounded-lg text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 inline-flex items-center gap-1 disabled:opacity-50"
+                            :disabled="busyPending" @click="routeMove(p, r, o)">
+                      <Icon name="arrow-right" :size="11" class="flip-rtl" />{{ t('cc.moveUnits') }} <b class="tabular-nums">{{ Math.min(Math.abs(r.delta), Math.abs(o.delta)) }}</b>
+                      {{ r.delta < 0 ? short(r.warehouse) + ' → ' + short(o.warehouse) : short(o.warehouse) + ' → ' + short(r.warehouse) }}
+                    </button>
+                  </span>
                 </div>
                 <div v-if="r.delta > 0 || r.needsRate" class="flex items-center gap-1.5 flex-wrap">
                   <button v-for="x in r.returns.slice(0, 3)" :key="x.ret" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-sky-700 bg-sky-50 ring-1 ring-sky-200 hover:bg-sky-100 inline-flex items-center gap-1 disabled:opacity-50"
@@ -597,6 +604,14 @@ async function routePurchase(p, r, x) {
   try {
     const res = await apiPost("cycle_count.route_purchase", { name: p.name, item_code: r.itemCode, po: x.po, qty: Math.min(x.qty, r.delta) });
     await afterRoute(p, res, `${res.qty}u · ${res.receipt} — ${t("cc.prDraftHint")}`);
+  } catch (e) { warn(t("cc.routeFail"), String(e.message || e)); }
+  busyPending.value = false;
+}
+async function routeMove(p, r, o) {
+  busyPending.value = true;
+  try {
+    const res = await apiPost("cycle_count.route_move", { name: p.name, item_code: r.itemCode, other: o.name, qty: Math.min(Math.abs(r.delta), Math.abs(o.delta)) });
+    await afterRoute(p, res, `${res.qty}u · ${short(res.from)} → ${short(res.to)} · ${res.entry}`);
   } catch (e) { warn(t("cc.routeFail"), String(e.message || e)); }
   busyPending.value = false;
 }
