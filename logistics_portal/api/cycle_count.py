@@ -685,6 +685,51 @@ def approve_count(name):
             "differenceAmount": round(float(doc.difference_amount or 0))}
 
 
+@frappe.whitelist(methods=["POST"])
+def approve_all(limit=15):
+    """Manager, at the end of a whole-warehouse count: post every pending
+    draft in one go. Moves are resolved across ALL pending shelves first —
+    with every shelf counted, a shortage here and a find there pair up at
+    their best — then each draft posts; one with a line still at zero cost
+    is left in the queue and named. Batched so a long queue never times
+    out: call until `remaining` is 0."""
+    if not _is_manager():
+        frappe.throw("Only a manager can approve counts.", frappe.PermissionError)
+    limit = min(max(int(limit or 15), 1), 50)
+    moved, posted, skipped = [], [], []
+    for name in list(_registry()):
+        if name in _registry():
+            moved.extend(_auto_moves(name))
+    for name in list(_registry())[:limit]:
+        if name not in _registry():
+            continue
+        try:
+            doc = frappe.get_doc("Stock Reconciliation", name)
+            if doc.docstatus != 0:
+                _save_registry([n for n in _registry() if n != name])
+                continue
+            if [r for r in doc.items if float(r.qty or 0) > 0 and not float(r.valuation_rate or 0)]:
+                skipped.append(name)
+                continue
+            doc.flags.ignore_permissions = True
+            doc.submit()
+            _save_registry([n for n in _registry() if n != name])
+            posted.append(name)
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+            frappe.log_error(frappe.get_traceback()[:2000], f"cycle_count.approve_all {name}")
+            skipped.append(name)
+    frappe.db.commit()
+    for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    from logistics_portal.api import campaign
+    closed = campaign.maybe_close()
+    remaining = [n for n in _registry() if n not in skipped]
+    return {"ok": True, "posted": posted, "moved": len(moved), "skipped": skipped,
+            "remaining": len(remaining), "campaignClosed": closed}
+
+
 @frappe.whitelist()
 def discard_count(name):
     """Manager or the counter themself: throw the draft away."""

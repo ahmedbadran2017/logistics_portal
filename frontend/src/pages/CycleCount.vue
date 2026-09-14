@@ -191,6 +191,14 @@
       <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
         <Icon name="clock" :size="14" class="text-amber-600" />
         <span class="text-[12px] font-semibold text-stone-900">{{ t('cc.pendingTitle') }} ({{ pending.length }})</span>
+        <span class="text-[11px] text-stone-400 hidden sm:inline">{{ t('cc.pendingHint') }}</span>
+        <!-- the end of a whole-warehouse count: one button posts everything, moves first -->
+        <button v-if="canApprove && pending.length > 1" class="ms-auto lp-tap h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors inline-flex items-center gap-1.5 disabled:opacity-50"
+                :class="armedAll ? 'text-white bg-emerald-600' : 'text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 hover:bg-emerald-100'"
+                :disabled="busyPending" @click="approveAll">
+          <Icon name="check-circle" :size="13" />
+          {{ busyPending && allProgress ? allProgress : armedAll ? t('cc.confirmAll') : t('cc.approveAll') }}
+        </button>
       </div>
       <div class="divide-y divide-stone-100">
         <div v-for="p in pending" :key="p.name" class="px-4 py-3 space-y-2">
@@ -548,6 +556,36 @@ async function approve(p) {
     warn(t("cc.approveFail"), String(e.message || e));
   } finally {
     busyPending.value = false;
+  }
+}
+
+// One press at the end of the day: every shelf is counted, so the moves
+// pair up best; then each draft posts. Loops until the server says none remain.
+const armedAll = ref(false);
+const allProgress = ref("");
+async function approveAll() {
+  if (!armedAll.value) {
+    armedAll.value = true;
+    setTimeout(() => { armedAll.value = false; }, 5000);
+    return;
+  }
+  armedAll.value = false;
+  busyPending.value = true;
+  let posted = 0, moved = 0, skipped = [], guard = 0;
+  try {
+    while (guard++ < 40) {
+      const res = await apiPost("cycle_count.approve_all", { limit: 15 });
+      posted += (res.posted || []).length; moved += res.moved || 0; skipped = res.skipped || [];
+      allProgress.value = `${posted}…`;
+      if (!res.remaining) break;
+    }
+    success(t("cc.allPosted"), `${posted} ${t("cc.posted")} · ${moved} ${t("cc.movedN")}` + (skipped.length ? ` · ${skipped.length} ${t("cc.skippedRate")}` : ""));
+    if (skipped.length) warn(t("cc.skippedRate"), skipped.join(", "));
+  } catch (e) {
+    warn(t("cc.approveFail"), String(e.message || e));
+  } finally {
+    allProgress.value = ""; busyPending.value = false;
+    await refreshPending();
   }
 }
 
