@@ -223,36 +223,63 @@
               {{ i.sku || i.itemCode }} {{ i.book }}→{{ i.counted }}
             </span>
             <span v-if="p.more" class="text-[10.5px] text-stone-400 px-1">+{{ p.more }}</span>
-            <button v-if="p.items.some((i) => i.delta > 0) || p.more" class="ms-auto lp-tap h-7 px-2.5 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 ring-1 transition-colors"
+            <button class="ms-auto lp-tap h-7 px-2.5 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 ring-1 transition-colors"
                     :class="triageFor === p.name ? 'text-white bg-stone-900 ring-stone-900' : 'text-teal-700 bg-teal-50 ring-teal-200 hover:bg-teal-100'"
                     :aria-expanded="triageFor === p.name" @click="openTriage(p)">
-              <Icon name="git-branch" :size="12" />{{ t('cc.triage') }}
+              <Icon :name="triageFor === p.name ? 'chevron-up' : 'chevron-down'" :size="12" />{{ t('cc.openCount') }}
             </button>
           </div>
 
-          <!-- triage: where each found unit came from, and the document that brings it in -->
+          <!-- the whole count: every line, its picture, what it is worth, and — for a
+               found unit — where it came from and the document that brings it in -->
           <div v-if="triageFor === p.name" class="rounded-xl bg-stone-50/70 ring-1 ring-stone-200/70 p-3 space-y-2">
             <div v-if="triageLoading" class="space-y-1.5"><div v-for="n in 3" :key="n" class="h-[44px] rounded-lg bg-white animate-pulse" /></div>
             <template v-else-if="triage">
-              <p class="text-[11px] text-stone-500">{{ t('cc.triageHint') }}</p>
-              <div v-for="r in triage.rows.filter((x) => x.delta > 0 || x.needsRate)" :key="r.itemCode" class="bg-white rounded-lg ring-1 ring-stone-200/70 px-3 py-2 space-y-1.5">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="font-mono text-[11px] font-semibold text-stone-800">{{ r.sku || r.itemCode }}</span>
-                  <span class="text-[11.5px] text-stone-600 truncate max-w-[360px]" dir="auto">{{ r.name }}</span>
-                  <span class="text-[10.5px] font-mono tabular-nums text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 rounded px-1.5 py-0.5">{{ r.book }}→{{ r.counted }} (+{{ r.delta }})</span>
-                  <span class="text-[10px] font-bold uppercase tracking-wide rounded-full px-1.5 py-0.5 ring-1" :class="KIND_CLS[r.kind]">{{ t('cc.kind_' + r.kind) }}</span>
-                  <span class="ms-auto text-[10.5px] tabular-nums" :class="r.needsRate ? 'text-amber-700 font-semibold' : 'text-stone-400'" dir="ltr">
+              <div class="flex items-center gap-2 flex-wrap text-[11px] text-stone-500">
+                <span class="font-semibold text-stone-700">{{ short(triage.warehouse) }}</span>
+                <span>· {{ triage.rows.length }} {{ t('cc.diffs') }}</span>
+                <span v-if="triage.extras" class="text-emerald-700">· {{ triage.extras }} {{ t('cc.extraLines') }}</span>
+                <span v-if="triage.missing" class="text-rose-700">· {{ triage.missing }} {{ t('cc.missingLines') }}</span>
+                <span v-if="triage.needRate" class="text-amber-700 font-semibold">· {{ triage.needRate }} {{ t('cc.rateNeeded') }}</span>
+                <span v-if="triage.note" class="italic" dir="auto">· “{{ triage.note }}”</span>
+                <a :href="'/app/stock-reconciliation/' + encodeURIComponent(p.name)" target="_blank" rel="noopener"
+                   class="ms-auto inline-flex items-center gap-1 text-[11px] font-semibold text-stone-600 hover:text-stone-900">{{ t('cc.openErp') }} <Icon name="external-link" :size="11" /></a>
+              </div>
+              <div v-for="r in triage.rows" :key="r.itemCode" class="bg-white rounded-lg ring-1 ring-stone-200/70 px-3 py-2 space-y-1.5">
+                <div class="flex items-center gap-2.5 flex-wrap">
+                  <span class="w-9 h-9 rounded-md bg-stone-100 overflow-hidden flex-shrink-0 grid place-items-center text-stone-300">
+                    <img v-if="r.image" :src="r.image" class="w-full h-full object-cover" alt="" loading="lazy" />
+                    <Icon v-else name="package" :size="14" />
+                  </span>
+                  <div class="min-w-0 flex-1 basis-[220px]">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="font-mono text-[11px] font-semibold text-stone-800">{{ r.sku || r.itemCode }}</span>
+                      <span class="text-[10.5px] font-mono tabular-nums rounded px-1.5 py-0.5 ring-1" :class="r.delta < 0 ? 'text-rose-700 bg-rose-50 ring-rose-200' : r.delta > 0 ? 'text-emerald-700 bg-emerald-50 ring-emerald-200' : 'text-stone-500 bg-stone-100 ring-stone-200'">
+                        {{ r.book }}→{{ r.counted }} ({{ r.delta > 0 ? '+' : '' }}{{ r.delta }})
+                      </span>
+                      <span class="text-[10px] font-bold uppercase tracking-wide rounded-full px-1.5 py-0.5 ring-1" :class="KIND_CLS[r.kind]">{{ t('cc.kind_' + r.kind) }}</span>
+                    </div>
+                    <div class="text-[11.5px] text-stone-600 truncate" dir="auto">{{ r.name }}</div>
+                  </div>
+                  <span class="text-[11.5px] font-semibold tabular-nums whitespace-nowrap" :class="r.valueDelta < 0 ? 'text-rose-600' : r.valueDelta > 0 ? 'text-emerald-600' : 'text-stone-400'" dir="ltr">{{ r.valueDelta > 0 ? '+' : '' }}{{ fmt(r.valueDelta) }} MAD</span>
+                  <span class="text-[10.5px] tabular-nums whitespace-nowrap" :class="r.needsRate ? 'text-amber-700 font-semibold' : 'text-stone-400'" dir="ltr">
                     <template v-if="r.needsRate">{{ t('cc.rateNeeded') }}</template>
                     <template v-else>{{ fmt(r.rate) }} MAD · {{ t('cc.rateSrc_' + r.rateSource) }}</template>
                   </span>
                 </div>
-                <div class="flex items-center gap-1.5 flex-wrap">
+                <!-- the same item counted the other way on another shelf: a move, not a loss and a find -->
+                <div v-if="r.elsewhere.length" class="flex items-center gap-1.5 flex-wrap text-[11px] text-amber-800 bg-amber-50 ring-1 ring-amber-200 rounded-lg px-2 py-1">
+                  <Icon name="alert-triangle" :size="12" />
+                  <span>{{ t('cc.elsewhere') }}</span>
+                  <span v-for="o in r.elsewhere" :key="o.name" class="font-mono tabular-nums">{{ short(o.warehouse) }} {{ o.delta > 0 ? '+' : '' }}{{ o.delta }} ({{ o.name }})</span>
+                </div>
+                <div v-if="r.delta > 0 || r.needsRate" class="flex items-center gap-1.5 flex-wrap">
                   <button v-for="x in r.returns.slice(0, 3)" :key="x.ret" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-sky-700 bg-sky-50 ring-1 ring-sky-200 hover:bg-sky-100 inline-flex items-center gap-1 disabled:opacity-50"
-                          :disabled="busyPending" :title="x.dn + ' · ' + x.date" @click="routeReturn(p, r, x)">
+                          :disabled="busyPending || !canApprove" :title="x.dn + ' · ' + x.date" @click="routeReturn(p, r, x)">
                     <Icon name="rotate-ccw" :size="11" />{{ t('cc.receiveReturn') }} · {{ x.ret }} <b class="tabular-nums">{{ Math.min(x.qty, r.delta) }}</b>
                   </button>
                   <button v-for="x in r.purchase.slice(0, 3)" :key="x.po" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-violet-700 bg-violet-50 ring-1 ring-violet-200 hover:bg-violet-100 inline-flex items-center gap-1 disabled:opacity-50"
-                          :disabled="busyPending" :title="x.supplier + ' · ' + x.date + ' · ' + fmt(x.rate) + ' MAD'" @click="routePurchase(p, r, x)">
+                          :disabled="busyPending || !canApprove" :title="x.supplier + ' · ' + x.date + ' · ' + fmt(x.rate) + ' MAD'" @click="routePurchase(p, r, x)">
                     <Icon name="file-text" :size="11" />{{ t('cc.makeReceipt') }} · {{ x.po }} <b class="tabular-nums">{{ Math.min(x.qty, r.delta) }}</b>
                   </button>
                   <span v-if="r.kind === 'unknown' && !r.needsRate" class="text-[11px] text-stone-500">{{ t('cc.noSource') }}</span>
@@ -264,7 +291,7 @@
                   </template>
                 </div>
               </div>
-              <p v-if="!triage.rows.some((x) => x.delta > 0 || x.needsRate)" class="text-[11.5px] text-stone-400">{{ t('cc.noExtras') }}</p>
+              <p v-if="triage.extras" class="text-[11px] text-stone-500">{{ t('cc.triageHint') }}</p>
             </template>
           </div>
         </div>

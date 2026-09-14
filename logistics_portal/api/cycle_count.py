@@ -754,6 +754,21 @@ def count_triage(name):
     """Every line of one draft with where its extra units came from."""
     _gate()
     doc = _draft(name)
+    # The same item on OTHER pending drafts with the opposite sign: a shelf
+    # short of 52 while another shelf holds 56 extra is a relocation, not a
+    # loss and a find — posting both would book the same units twice.
+    others = {}
+    reg = [n for n in _registry() if n != name]
+    if reg:
+        for o in frappe.db.sql(
+                """SELECT sri.parent, sri.item_code, sri.warehouse, sri.qty,
+                          COALESCE(b.actual_qty, 0) AS live
+                   FROM `tabStock Reconciliation Item` sri
+                   LEFT JOIN `tabBin` b ON b.item_code = sri.item_code AND b.warehouse = sri.warehouse
+                   WHERE sri.parent IN %s AND sri.item_code IN %s""",
+                (tuple(reg), tuple(r.item_code for r in doc.items) or ("",)), as_dict=True):
+            others.setdefault(o.item_code, []).append(
+                {"name": o.parent, "warehouse": o.warehouse, "delta": int(float(o.qty or 0) - float(o.live or 0))})
     rows, need_rate, extras = [], 0, 0
     for r in doc.items:
         live = _live_qty(r.item_code, r.warehouse)
@@ -761,12 +776,16 @@ def count_triage(name):
         delta = counted - live
         rate = float(r.valuation_rate or 0)
         suggested, src = (rate, "line") if rate else _rate_for(r.item_code)
+        it = frappe.db.get_value("Item", r.item_code, ["custom_sku", "item_name", "image"], as_dict=True) or {}
         row = {"itemCode": r.item_code,
-               "sku": frappe.db.get_value("Item", r.item_code, "custom_sku") or "",
-               "name": frappe.db.get_value("Item", r.item_code, "item_name") or r.item_code,
+               "sku": it.get("custom_sku") or "",
+               "name": it.get("item_name") or r.item_code,
+               "image": it.get("image") or "",
                "warehouse": r.warehouse, "counted": int(counted), "book": int(live), "delta": int(delta),
                "rate": rate, "suggestedRate": suggested, "rateSource": src,
+               "valueDelta": round(delta * (rate or suggested or 0)),
                "needsRate": counted > 0 and not rate,
+               "elsewhere": [o for o in others.get(r.item_code, []) if o["delta"] and (o["delta"] > 0) != (delta > 0)],
                "returns": [], "purchase": [], "kind": "missing" if delta < 0 else "ok"}
         if delta > 0:
             extras += 1
@@ -777,8 +796,16 @@ def count_triage(name):
             need_rate += 1
         rows.append(row)
     rows.sort(key=lambda x: ({"return": 0, "purchase": 1, "unknown": 2, "missing": 3, "ok": 4}[x["kind"]], -abs(x["delta"])))
+    c = frappe.db.sql("""SELECT content FROM `tabComment` WHERE reference_doctype = 'Stock Reconciliation'
+                         AND reference_name = %s AND comment_type = 'Comment' AND content LIKE 'Portal cycle count%%'
+                         ORDER BY creation LIMIT 1""", (name,))
+    note = c[0][0].split(" — ", 1)[1].strip() if c and " — " in c[0][0] else ""
     return {"name": name, "warehouse": doc.items[0].warehouse if doc.items else "",
-            "rows": rows, "needRate": need_rate, "extras": extras}
+            "owner": doc.owner, "created": str(doc.creation)[:16],
+            "note": note,
+            "rows": rows, "needRate": need_rate, "extras": extras,
+            "missing": sum(1 for x in rows if x["delta"] < 0),
+            "valueDelta": sum(x["valueDelta"] for x in rows)}
 
 
 def _delete_draft(doc):

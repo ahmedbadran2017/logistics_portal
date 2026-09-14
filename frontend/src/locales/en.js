@@ -507,6 +507,7 @@ export default {
     cleanBody: "Everything matches the book — nothing to reconcile.",
     draftTitle: "Count submitted for approval",
     submitFail: "Couldn't submit the count",
+    openCount: "Open", openErp: "Open in ERP", extraLines: "found", missingLines: "missing", elsewhere: "Counted the other way on another shelf — a move, not a loss and a find:",
     triage: "Where did it come from?", triageHint: "A unit the shelf holds and the book does not came from somewhere. Bring it in with its own document; only what has no source is posted as an adjustment — never at zero cost.",
     kind_return: "Unreceived return", kind_purchase: "Supplier delivery", kind_unknown: "No source", kind_missing: "Missing", kind_ok: "Matches",
     rateNeeded: "Needs a valuation rate", setRate: "Set rate", rateSet: "Rate set", receiveReturn: "Receive as return", makeReceipt: "Purchase receipt", noSource: "No return or purchase order behind it — posts as an adjustment at the rate shown.",

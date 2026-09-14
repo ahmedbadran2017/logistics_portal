@@ -507,6 +507,7 @@ export default {
     cleanBody: "كل حاجة مطابقة للدفتر — لا شيء يحتاج تسوية.",
     draftTitle: "الجرد اتبعت للاعتماد",
     submitFail: "تعذّر إرسال الجرد",
+    openCount: "افتح", openErp: "افتح في الـ ERP", extraLines: "زيادة", missingLines: "ناقص", elsewhere: "اتعدّ بالعكس على رف تاني — دي نقلة مش عجز وزيادة:",
     triage: "جاية منين؟", triageHint: "الوحدة اللي على الرف ومش في الدفاتر جاية من مكان. دخّلها بمستندها هي؛ اللي ملوش مصدر بس هو اللي يتعمل له تسوية — وأبدًا مش بتكلفة صفر.",
     kind_return: "مرتجع مش مستلم", kind_purchase: "شحنة مورد", kind_unknown: "بدون مصدر", kind_missing: "ناقص", kind_ok: "مطابق",
     rateNeeded: "محتاج سعر تقييم", setRate: "حدد السعر", rateSet: "اتحدد السعر", receiveReturn: "استلام كمرتجع", makeReceipt: "إذن استلام شراء", noSource: "مفيش مرتجع ولا أمر شراء وراها — هتتعمل تسوية بالسعر المعروض.",

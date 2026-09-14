@@ -507,6 +507,7 @@ export default {
     cleanBody: "Tout correspond au registre — rien à réconcilier.",
     draftTitle: "Comptage soumis pour approbation",
     submitFail: "Échec de l'envoi",
+    openCount: "Ouvrir", openErp: "Ouvrir dans l'ERP", extraLines: "trouvés", missingLines: "manquants", elsewhere: "Compté en sens inverse sur une autre étagère — un déplacement, pas une perte et une trouvaille :",
     triage: "D'où vient-il ?", triageHint: "Une unité présente sur l'étagère mais absente du livre vient de quelque part. Faites-la entrer avec son propre document ; seul ce qui n'a aucune source est passé en ajustement — jamais à coût zéro.",
     kind_return: "Retour non réceptionné", kind_purchase: "Livraison fournisseur", kind_unknown: "Sans source", kind_missing: "Manquant", kind_ok: "Conforme",
     rateNeeded: "Taux de valorisation requis", setRate: "Fixer le taux", rateSet: "Taux fixé", receiveReturn: "Réceptionner en retour", makeReceipt: "Réception d'achat", noSource: "Aucun retour ni commande d'achat derrière — passé en ajustement au taux affiché.",
