@@ -1360,11 +1360,20 @@ def team_report(days=7):
                         "total": sum(counts.values()),
                         "saved": int(o.get("saved") or 0), "savedOk": int(o.get("savedOk") or 0),
                         "chased": int(o.get("chased") or 0), "chasedOk": int(o.get("chasedOk") or 0)})
+    # The same trails are left by other lanes too (a confirmation agent's
+    # rescue decision, a dispatcher's city fix). This page is about the
+    # tracking team, so it is scoped to the users holding that role — and
+    # says so when nobody holds it yet, rather than showing an empty table.
+    team = set(_tracking_users("tracking"))
+    members = [m for m in members if m["user"] != "Administrator"]
+    scoped = bool(team) and any(m["user"] in team for m in members)
+    if scoped:
+        members = [m for m in members if m["user"] in team]
     members.sort(key=lambda x: -x["total"])
     totals = {k: sum(m[k] for m in members) for k in list(_DAY_KINDS) + ["total"]}
     tot_o = {k: sum(m[k] for m in members) for k in ("saved", "savedOk", "chased", "chasedOk")}
     return {"days": days, "since": str(lo)[:10], "until": str(now)[:10], "members": members, "totals": totals,
-            "outcomes": tot_o,
+            "outcomes": tot_o, "scoped": scoped,
             "daily": [{"d": str(x.d), **{k: int(x.get(k) or 0) for k in _DAY_KINDS},
                        "total": sum(int(x.get(k) or 0) for k in _DAY_KINDS)} for x in daily]}
 

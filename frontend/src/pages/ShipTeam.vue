@@ -95,6 +95,7 @@
           <div v-if="!d.members.length" class="text-center text-[12.5px] text-stone-400 py-8">{{ t('oclk.teamQuiet') }}</div>
         </div>
       </section>
+      <p v-if="!d.scoped" class="text-[11.5px] text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-xl px-3 py-2">{{ t('oclk.trUnscoped') }}</p>
       <p class="text-[11px] text-stone-400">{{ t('oclk.trFoot') }}</p>
     </template>
   </div>
