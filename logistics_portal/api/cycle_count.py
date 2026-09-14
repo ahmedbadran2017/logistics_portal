@@ -320,12 +320,18 @@ def _batch_bundle(item_code, warehouse, counted, company):
                 "count against. It needs a Stock Reconciliation with the batch "
                 "named by hand.")
         from erpnext.stock.serial_batch_bundle import SerialBatchCreation
+        # SerialBatchCreation copies the args onto itself and create_batch()
+        # reads self.is_rejected as a plain attribute (ERPNext 15.58) — every
+        # ERPNext caller passes it; without it the submit died with
+        # "'SerialBatchCreation' object has no attribute 'is_rejected'" on
+        # the first counted unit of a shelf with no batch left.
         doc = SerialBatchCreation({
             "item_code": item_code, "warehouse": warehouse,
             "posting_date": nowdate(), "posting_time": nowtime(),
-            "voucher_type": "Stock Reconciliation", "company": company,
+            "voucher_type": "Stock Reconciliation", "voucher_no": None,
+            "voucher_detail_no": None, "company": company,
             "type_of_transaction": "Inward", "qty": counted,
-            "do_not_submit": True,
+            "is_rejected": 0, "do_not_submit": True,
         }).make_serial_and_batch_bundle()
         return doc.name if doc and doc.get("name") else None
 
