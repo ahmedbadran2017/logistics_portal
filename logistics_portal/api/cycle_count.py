@@ -309,8 +309,11 @@ def _plan_batches(avail, counted):
 
 
 def _batch_bundle(item_code, warehouse, counted, company):
-    """A draft Serial and Batch Bundle holding the counted stock. Returns its
-    name, or None when the item is not batch-tracked."""
+    """How a counted line names its batches: {"bundle": name} — a draft Serial
+    and Batch Bundle over the batches the shelf already holds — or
+    {"batch_no": name} — a freshly minted batch on the old line fields — or
+    None when the item is not batch-tracked (or nothing was counted on an
+    empty shelf)."""
     if not frappe.get_cached_value("Item", item_code, "has_batch_no"):
         return None
     avail = _available_batches(item_code, warehouse)
@@ -326,21 +329,15 @@ def _batch_bundle(item_code, warehouse, counted, company):
                 f"{item_code} is batch-tracked and this shelf has no batch to "
                 "count against. It needs a Stock Reconciliation with the batch "
                 "named by hand.")
-        from erpnext.stock.serial_batch_bundle import SerialBatchCreation
-        # SerialBatchCreation copies the args onto itself and create_batch()
-        # reads self.is_rejected as a plain attribute (ERPNext 15.58) — every
-        # ERPNext caller passes it; without it the submit died with
-        # "'SerialBatchCreation' object has no attribute 'is_rejected'" on
-        # the first counted unit of a shelf with no batch left.
-        doc = SerialBatchCreation({
-            "item_code": item_code, "warehouse": warehouse,
-            "posting_date": nowdate(), "posting_time": nowtime(),
-            "voucher_type": "Stock Reconciliation", "voucher_no": None,
-            "voucher_detail_no": None, "company": company,
-            "type_of_transaction": "Inward", "qty": counted,
-            "is_rejected": 0, "do_not_submit": True,
-        }).make_serial_and_batch_bundle()
-        return doc.name if doc and doc.get("name") else None
+        # A bundle naming a batch that has NO stock yet cannot ride a draft
+        # reconciliation: on validate ERPNext duplicates it as an Outward
+        # package sized by the batch's current quantity — zero — and refuses
+        # ("Qty is mandatory for the batch"). Seen on J10A, 2026-09-14. The
+        # path the Desk itself takes for a new batch is the old fields: mint
+        # the Batch, put it on the line, and let the submit build the bundle.
+        from erpnext.stock.doctype.batch.batch import make_batch
+        batch = make_batch(frappe._dict({"item": item_code, "reference_doctype": "Stock Reconciliation"}))
+        return {"batch_no": batch}
 
     bundle = frappe.get_doc({
         "doctype": "Serial and Batch Bundle",
@@ -356,7 +353,7 @@ def _batch_bundle(item_code, warehouse, counted, company):
     })
     bundle.flags.ignore_permissions = True
     bundle.save()
-    return bundle.name
+    return {"bundle": bundle.name}
 
 
 def _rate_for(item_code, bin_row=None):
@@ -534,20 +531,32 @@ def submit_count(warehouse, counts=None, note=None, moves=None):
     # is; without one ERPNext refuses the draft outright. Built after the
     # differences are known so a clean count costs nothing, and rolled back
     # together — a half-attached count would leave drafts nobody can read.
-    made = []
+    made, minted = [], []
+    def _undo():
+        for b in made:
+            try:
+                frappe.delete_doc("Serial and Batch Bundle", b, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        for b in minted:
+            try:
+                frappe.delete_doc("Batch", b, force=1, ignore_permissions=True)
+            except Exception:
+                pass
     try:
         for row in diffs:
             b = _batch_bundle(row["item_code"], warehouse, row["qty"], company)
-            if b:
-                made.append(b)
-                row["serial_and_batch_bundle"] = b
+            if not b:
+                continue
+            if b.get("bundle"):
+                made.append(b["bundle"])
+                row["serial_and_batch_bundle"] = b["bundle"]
+            else:
+                minted.append(b["batch_no"])
+                row["use_serial_batch_fields"] = 1
+                row["batch_no"] = b["batch_no"]
     except Exception:
-        for b in made:
-            try:
-                frappe.delete_doc("Serial and Batch Bundle", b,
-                                  force=1, ignore_permissions=True)
-            except Exception:
-                pass
+        _undo()
         raise
 
     doc = frappe.get_doc({
@@ -564,12 +573,7 @@ def submit_count(warehouse, counts=None, note=None, moves=None):
     try:
         doc.insert(ignore_permissions=True)
     except Exception:
-        for b in made:
-            try:
-                frappe.delete_doc("Serial and Batch Bundle", b,
-                                  force=1, ignore_permissions=True)
-            except Exception:
-                pass
+        _undo()
         raise
     note = (note or "").strip()
     doc.add_comment("Comment",
@@ -876,7 +880,11 @@ def _apply_drift(doc):
         notes.append(f"{r.item_code}: counted {int(r.qty or 0)}, {'+' if d > 0 else ''}{int(d)} since → {int(new)}")
         if r.get("serial_and_batch_bundle"):
             old = r.serial_and_batch_bundle
-            r.serial_and_batch_bundle = _batch_bundle(r.item_code, r.warehouse, int(new), doc.company)
+            b = _batch_bundle(r.item_code, r.warehouse, int(new), doc.company) or {}
+            r.serial_and_batch_bundle = b.get("bundle")
+            if b.get("batch_no"):
+                r.use_serial_batch_fields = 1
+                r.batch_no = b["batch_no"]
             try:
                 frappe.delete_doc("Serial and Batch Bundle", old, force=1, ignore_permissions=True)
             except Exception:
