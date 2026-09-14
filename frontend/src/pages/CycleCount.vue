@@ -194,7 +194,10 @@
       <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
         <Icon name="clock" :size="14" class="text-amber-600" />
         <span class="text-[12px] font-semibold text-stone-900">{{ t('cc.pendingTitle') }} ({{ pending.length }})</span>
-        <span class="text-[11px] text-stone-400 hidden sm:inline">{{ t('cc.pendingHint') }}</span>
+        <span class="text-[11px] text-stone-400 hidden sm:inline">{{ autopost ? t('cc.pendingHintAuto') : t('cc.pendingHint') }}</span>
+        <label v-if="canApprove" class="inline-flex items-center gap-1.5 text-[11px] font-semibold text-stone-600 cursor-pointer select-none" :title="t('cc.autopostHint')">
+          <input type="checkbox" class="accent-emerald-600" :checked="autopost" :disabled="busyPending" @change="toggleAutopost($event.target.checked)" />{{ t('cc.autopost') }}
+        </label>
         <!-- the end of a whole-warehouse count: one button posts everything, moves first -->
         <button v-if="canApprove && pending.length > 1" class="ms-auto lp-tap h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors inline-flex items-center gap-1.5 disabled:opacity-50"
                 :class="armedAll ? 'text-white bg-emerald-600' : 'text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 hover:bg-emerald-100'"
@@ -540,6 +543,10 @@ async function submitCount() {
     });
     if (res.clean) {
       success(t("cc.cleanTitle"), t("cc.cleanBody"));
+    } else if (res.posted) {
+      success(t("cc.postedTitle"), `${res.draft} · ${res.diffs.length} ${t('cc.diffs')} · ${fmt(res.differenceAmount)} MAD` + (res.moves ? ` · ${res.moves} ${t('cc.movedN')}` : ""));
+    } else if (res.held) {
+      warn(t("cc.heldTitle"), res.held === "rate" ? t("cc.skippedRate") : res.held === "pair" ? t("cc.heldPair") : res.heldReason);
     } else {
       success(t("cc.draftTitle"), `${res.draft} · ${res.diffs.length} ${t('cc.diffs')}`);
     }
@@ -562,7 +569,13 @@ async function refreshPending() {
     const res = await api("cycle_count.pending_counts");
     pending.value = res.pending || [];
     canApprove.value = !!res.canApprove;
+    autopost.value = res.autopost !== false;
   } catch { /* boot already warned */ }
+}
+const autopost = ref(true);
+async function toggleAutopost(on) {
+  try { const r = await apiPost("cycle_count.set_autopost", { on: on ? 1 : 0 }); autopost.value = !!r.autopost; }
+  catch (e) { warn(t("cc.approveFail"), String(e.message || e)); }
 }
 
 async function approve(p) {

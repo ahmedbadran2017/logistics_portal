@@ -620,8 +620,19 @@ def submit_count(warehouse, counts=None, note=None, moves=None):
     _log_session(warehouse, len(seen), len(diffs), units_counted,
                  len(moves), doc.name)
     frappe.db.commit()
+    # Ahmed, 2026-09-14: no approval step — the shelf the counter just
+    # finished IS the stock, at once; anything that moves after it is
+    # already right. Only what the system cannot post (a line without a
+    # rate, a live reservation, a pair it could not move) waits in the
+    # queue, with its reason, for the manager.
+    post = {"posted": False, "kind": "", "reason": "", "moves": []}
+    if autopost_enabled():
+        post = _post_draft(doc.name)
     return {"ok": True, "clean": False, "draft": doc.name, "superseded": superseded,
-            "counted": len(seen), "diffs": summary, "moved": moved_entry}
+            "counted": len(seen), "diffs": summary, "moved": moved_entry,
+            "posted": bool(post.get("posted")), "held": post.get("kind") or "",
+            "heldReason": post.get("reason") or "", "moves": len(post.get("moves") or []),
+            "differenceAmount": post.get("differenceAmount", 0)}
 
 
 def _supersede(warehouse):
@@ -696,7 +707,69 @@ def _pending():
 @frappe.whitelist()
 def pending_counts():
     _gate()
-    return {"pending": _pending(), "canApprove": _is_manager()}
+    return {"pending": _pending(), "canApprove": _is_manager(), "autopost": autopost_enabled()}
+
+
+def _post_draft(name):
+    """Post one draft with every guard the review applies: moves against
+    any pending shelf first, then the reasons that hold it (an open pair, a
+    line without a rate), stale reservations released, quantities moved
+    forward by the picks since the count, then the submit. Returns
+    {"posted": bool, "kind": pair|rate|error|"", "reason", "moves", "retired"}."""
+    from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import EmptyStockReconciliationItemsError
+    moves = _auto_moves(name)
+    if name not in _registry():
+        return {"posted": False, "retired": True, "kind": "", "reason": "", "moves": moves, "differenceAmount": 0}
+    if _open_pairs(name):
+        return {"posted": False, "retired": False, "kind": "pair", "reason": "", "moves": moves}
+    try:
+        doc = frappe.get_doc("Stock Reconciliation", name)
+        if doc.docstatus != 0:
+            _save_registry([n for n in _registry() if n != name])
+            return {"posted": False, "retired": True, "kind": "", "reason": "", "moves": moves}
+        if [r for r in doc.items if float(r.qty or 0) > 0 and not float(r.valuation_rate or 0)]:
+            return {"posted": False, "retired": False, "kind": "rate", "reason": "", "moves": moves}
+        _release_stale_reservations(doc)
+        _apply_drift(doc)
+        doc.flags.ignore_permissions = True
+        doc.submit()
+        _save_registry([n for n in _registry() if n != name])
+        frappe.db.commit()
+        for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+            frappe.cache().delete_value(k)
+        return {"posted": True, "retired": False, "kind": "", "reason": "", "moves": moves,
+                "differenceAmount": round(float(doc.difference_amount or 0))}
+    except EmptyStockReconciliationItemsError:
+        frappe.db.rollback()
+        try:
+            _delete_draft(frappe.get_doc("Stock Reconciliation", name))
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+        return {"posted": False, "retired": True, "kind": "", "reason": "", "moves": moves}
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(f"{e}\n\n{frappe.get_traceback()[-1800:]}", f"cycle_count._post_draft {name}")
+        return {"posted": False, "retired": False, "kind": "error", "reason": _reason(e), "moves": moves}
+
+
+_AUTOPOST = "lp_cycle_count_autopost"
+
+
+def autopost_enabled():
+    v = frappe.db.get_default(_AUTOPOST)
+    return v is None or str(v) not in ("0", "", "false", "False")
+
+
+@frappe.whitelist(methods=["POST"])
+def set_autopost(on=1):
+    """Manager: whether a submitted count posts to stock at once (default)
+    or waits in the queue for an approval."""
+    if not _is_manager():
+        frappe.throw("Only a manager can change this.", frappe.PermissionError)
+    frappe.db.set_default(_AUTOPOST, "1" if int(on or 0) else "0")
+    frappe.db.commit()
+    return {"autopost": autopost_enabled()}
 
 
 @frappe.whitelist()
