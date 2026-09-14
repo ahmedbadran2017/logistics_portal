@@ -518,6 +518,11 @@ def submit_count(warehouse, counts=None, note=None, moves=None):
     company = frappe.db.get_value("Warehouse", warehouse, "company") \
         or frappe.defaults.get_global_default("company")
 
+    # A shelf counted again supersedes its earlier pending count: the newer
+    # walk is the truth, and two drafts of one bin would post the same
+    # correction twice (D2C. sat three times in the queue on 2026-09-14).
+    superseded = _supersede(warehouse)
+
     # Batch-tracked rows carry a bundle saying which batch each counted unit
     # is; without one ERPNext refuses the draft outright. Built after the
     # differences are known so a clean count costs nothing, and rolled back
@@ -569,8 +574,24 @@ def submit_count(warehouse, counts=None, note=None, moves=None):
     _log_session(warehouse, len(seen), len(diffs), units_counted,
                  len(moves), doc.name)
     frappe.db.commit()
-    return {"ok": True, "clean": False, "draft": doc.name,
+    return {"ok": True, "clean": False, "draft": doc.name, "superseded": superseded,
             "counted": len(seen), "diffs": summary, "moved": moved_entry}
+
+
+def _supersede(warehouse):
+    """Delete this bin's earlier pending drafts (with their bundles)."""
+    gone = []
+    for name in list(_registry()):
+        try:
+            if frappe.db.get_value("Stock Reconciliation", name, "docstatus") != 0:
+                continue
+            if frappe.db.get_value("Stock Reconciliation Item", {"parent": name}, "warehouse") != warehouse:
+                continue
+            _delete_draft(frappe.get_doc("Stock Reconciliation", name))
+            gone.append(name)
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:2000], f"cycle_count._supersede {name}")
+    return gone
 
 
 def _pending():
