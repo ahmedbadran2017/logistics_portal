@@ -1540,7 +1540,6 @@ def _pull_sources(shelves=True):
     """[(warehouse, tier)] in pull order. Tier 1 closed/correction (including
     any disabled leaf), tier 2 parking, tier 3 shelves with stock and no
     count in this campaign (and no draft pending)."""
-    company = frappe.defaults.get_global_default("company")
     never, nargs = _never_sql("name")
     out, seen = [], set()
 
@@ -1785,7 +1784,6 @@ def clear_ghosts(shelves=0):
     rows = plan.get("rows") or []
     if not rows:
         return {"ok": True, "recos": [], "lines": 0, "units": 0}
-    company = frappe.defaults.get_global_default("company")
     by_source = {}
     for r in rows:
         by_source.setdefault(r["source"], {}).setdefault(r["itemCode"], 0)
@@ -1793,6 +1791,11 @@ def clear_ghosts(shelves=0):
     recos, done_lines, done_units, failed = [], 0, 0, []
     for source, items in by_source.items():
         lines, made, minted = [], [], []
+        # The source's own company, as submit_count does: the site's global
+        # default company is another entity with no stock adjustment account
+        # ('Please enter Expense Account', 2026-09-14).
+        company = frappe.db.get_value("Warehouse", source, "company") \
+            or frappe.defaults.get_global_default("company")
         try:
             for item_code, clear in items.items():
                 b = frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": source},
