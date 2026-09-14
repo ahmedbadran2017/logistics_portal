@@ -740,6 +740,11 @@ def _post_draft(name):
         return {"posted": False, "retired": True, "kind": "", "reason": "", "moves": moves, "differenceAmount": 0}
     if _open_pairs(name):
         return {"posted": False, "retired": False, "kind": "pair", "reason": "", "moves": moves}
+    # Then the found units the book holds somewhere nobody verified: pulled
+    # in by transfer, so they do not enter as new stock (see _pull_found).
+    moves = moves + _pull_found(name)
+    if name not in _registry():
+        return {"posted": False, "retired": True, "kind": "", "reason": "", "moves": moves, "differenceAmount": 0}
     try:
         doc = frappe.get_doc("Stock Reconciliation", name)
         if doc.docstatus != 0:
@@ -1464,6 +1469,389 @@ def _reason(e):
         return strip_html(str(e))[:240]
     except Exception:
         return str(e)[:240]
+
+
+# ── Found stock is pulled from where the book already has it ─────────────
+#
+# Ahmed, 2026-09-14: "if I found the stock on one shelf, pull it from the
+# other place — it is already in the warehouse, it is not new stock." Measured
+# the same afternoon: 174 lines of found stock posted against 14 lines of
+# missing stock, and 98 of the found items were still booked in Receiving
+# Zone. Posting them as gains made every one exist twice — real on the shelf,
+# ghost in Receiving — until somebody counted Receiving again. Closed
+# warehouses (CORRECTING SOFT WH, Morocco Stock Old, Returns Adjustment)
+# carry the same ghosts and nobody will ever count them.
+#
+# So a found line is first satisfied by a transfer from a source whose book
+# quantity nobody has verified, in this order: the closed/correction
+# warehouses (anything there is a mistake by definition), the parking zones
+# (Receiving, Restock, Stock Zone), then any shelf not yet counted in this
+# campaign. Never from a shelf already counted (its count is the truth),
+# never from a shelf with a count pending (its pair handles that), never
+# from Turkey, transit, defective or return locations (physically elsewhere
+# or a different job). Whatever no source can cover posts as a find, as
+# before. It is safe in the wrong case too: if the source really did hold
+# the unit as well, counting the source later brings it back as a find —
+# the total is right at every step instead of inflated in between.
+
+_PULL = "lp_cycle_count_pull"
+_PULL_CLOSED_LIKE = ["CORRECTING%", "%Old%", "Returns Adjustment%"]
+_PULL_PARKING_LIKE = ["%receiv%", "%reception%", "Restock Zone%", "STOCK ZONE%"]
+_PULL_NEVER_LIKE = ["Goods In Transit%", "Work In Progress%", "Container%", "Air Freight%",
+                    "Cathedis%", "Turkey%", "V-Turkey%", "dsers%", "ERPNext%", "Aria%",
+                    "ain sebaa%", "Yakuplu%", "Stores%", "Finished Goods%", "Rejected%",
+                    "Defective%", "%Return Zone%", "%RETURN AIN%", "Morocco - JM"]
+
+
+def pull_enabled():
+    v = frappe.db.get_default(_PULL)
+    return v is None or str(v) not in ("0", "", "false", "False")
+
+
+@frappe.whitelist(methods=["POST"])
+def set_pull(on=1):
+    """Manager: whether a count's found units are pulled from an unverified
+    source (closed warehouses, parking zones, uncounted shelves) before
+    anything posts as a gain."""
+    if not _is_manager():
+        frappe.throw("Only a manager can change this.", frappe.PermissionError)
+    frappe.db.set_default(_PULL, "1" if int(on or 0) else "0")
+    frappe.db.commit()
+    return {"ok": True, "on": pull_enabled()}
+
+
+def _campaign_since():
+    """When the running campaign started, else the last 14 days."""
+    try:
+        from logistics_portal.api import campaign
+        c = campaign.active()
+        if c and c.started_on:
+            return str(c.started_on)[:19]
+    except Exception:
+        pass
+    return str(frappe.utils.add_days(frappe.utils.now_datetime(), -14))[:19]
+
+
+def _never_sql(col):
+    return " AND ".join([f"{col} NOT LIKE %s"] * len(_PULL_NEVER_LIKE)), list(_PULL_NEVER_LIKE)
+
+
+def _pull_sources(shelves=True):
+    """[(warehouse, tier)] in pull order. Tier 1 closed/correction (including
+    any disabled leaf), tier 2 parking, tier 3 shelves with stock and no
+    count in this campaign (and no draft pending)."""
+    company = frappe.defaults.get_global_default("company")
+    never, nargs = _never_sql("name")
+    out, seen = [], set()
+
+    def add(rows, tier):
+        for (w,) in rows:
+            if w not in seen:
+                seen.add(w)
+                out.append((w, tier))
+
+    closed = " OR ".join(["name LIKE %s"] * len(_PULL_CLOSED_LIKE))
+    add(frappe.db.sql(
+        f"""SELECT name FROM `tabWarehouse`
+            WHERE is_group = 0 AND name LIKE '%% - JM' AND ({closed} OR disabled = 1)
+              AND {never} ORDER BY name""",
+        tuple(_PULL_CLOSED_LIKE + nargs)), 1)
+    parking = " OR ".join(["LOWER(name) LIKE %s"] * len(_PULL_PARKING_LIKE))
+    add(frappe.db.sql(
+        f"""SELECT name FROM `tabWarehouse`
+            WHERE is_group = 0 AND disabled = 0 AND name LIKE '%% - JM' AND ({parking})
+              AND {never} ORDER BY name""",
+        tuple([p.lower() for p in _PULL_PARKING_LIKE] + nargs)), 2)
+    if shelves:
+        counted = set(_counted_since(_campaign_since()))
+        pending = set()
+        for n in _registry():
+            w = frappe.db.get_value("Stock Reconciliation Item", {"parent": n}, "warehouse")
+            if w:
+                pending.add(w)
+        rows = [(w,) for w, lines, units in _countable_bins()
+                if lines > 0 and w not in counted and w not in pending]
+        add(rows, 3)
+    return out
+
+
+def _counted_since(since):
+    """Bins with a portal count (session or comment) since `since`."""
+    whs = set()
+    if frappe.db.exists("DocType", SESSION_DT):
+        try:
+            whs |= {r[0] for r in frappe.db.sql(
+                f"SELECT DISTINCT warehouse FROM `tab{SESSION_DT}` WHERE creation >= %s", (since,))}
+        except Exception:
+            pass
+    whs |= {r[0] for r in frappe.db.sql(
+        """SELECT DISTINCT (SELECT i.warehouse FROM `tabStock Reconciliation Item` i
+                            WHERE i.parent = c.reference_name LIMIT 1)
+           FROM `tabComment` c
+           WHERE c.reference_doctype = 'Stock Reconciliation'
+             AND c.content LIKE 'Portal cycle count%%' AND c.creation >= %s""", (since,)) if r[0]}
+    return whs
+
+
+def _reserved(item_code, warehouse):
+    try:
+        from erpnext.stock.doctype.stock_reservation_entry.stock_reservation_entry import (
+            get_sre_reserved_qty_for_item_and_warehouse)
+        return float(get_sre_reserved_qty_for_item_and_warehouse(item_code, warehouse) or 0)
+    except Exception:
+        return 0.0
+
+
+def _apply_pull_moves(warehouse, lines):
+    """One submitted Material Transfer bringing found units INTO `warehouse`
+    from their unverified sources. Same remark family as the count's own
+    relocations, so drift never mistakes it for a pick."""
+    items = []
+    for m in lines:
+        available = int(frappe.db.get_value(
+            "Bin", {"warehouse": m["source"], "item_code": m["item_code"]}, "actual_qty") or 0)
+        qty = int(min(int(m["qty"]), available))
+        if qty <= 0:
+            continue
+        items.append({"item_code": m["item_code"], "qty": qty,
+                      "s_warehouse": m["source"], "t_warehouse": warehouse})
+    if not items:
+        return None, []
+    company = frappe.db.get_value("Warehouse", warehouse, "company") \
+        or frappe.defaults.get_global_default("company")
+    se = frappe.get_doc({
+        "doctype": "Stock Entry", "stock_entry_type": "Material Transfer",
+        "company": company,
+        "remarks": f"Cycle-count relocation into {warehouse}: found units pulled from the book's "
+                   f"unverified source · by {frappe.session.user}",
+        "items": items,
+    })
+    se.flags.ignore_permissions = True
+    se.insert(ignore_permissions=True)
+    se.submit()
+    _remember_voucher(se.name)
+    for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    return se.name, items
+
+
+def _pull_found(name):
+    """Before a draft posts: every found line is first covered by transfers
+    from the pull sources, largest tier-1 holding first. Returns the moves
+    made ({entry, qty, from, to, item}); the draft may be emptied and deleted."""
+    if not pull_enabled() or name not in _registry():
+        return []
+    doc = frappe.get_doc("Stock Reconciliation", name)
+    if doc.docstatus != 0 or not doc.items:
+        return []
+    warehouse = doc.items[0].warehouse
+    found = {}
+    for r in doc.items:
+        delta = _effective(r, doc) - _live_qty(r.item_code, r.warehouse)
+        if delta > 0:
+            found[r.item_code] = int(delta)
+    if not found:
+        return []
+    sources = [w for w, tier in _pull_sources(shelves=True) if w != warehouse]
+    if not sources:
+        return []
+    holdings = frappe.db.sql(
+        """SELECT item_code, warehouse, actual_qty FROM `tabBin`
+           WHERE item_code IN %s AND warehouse IN %s AND actual_qty > 0""",
+        (tuple(found), tuple(sources)), as_dict=True)
+    rank = {w: i for i, w in enumerate(sources)}
+    by_item = {}
+    for h in holdings:
+        by_item.setdefault(h.item_code, []).append(h)
+    plan = []
+    for item_code, need in found.items():
+        rows = sorted(by_item.get(item_code, []), key=lambda h: (rank[h.warehouse], -float(h.actual_qty or 0)))
+        for h in rows:
+            if need <= 0:
+                break
+            movable = int(float(h.actual_qty or 0) - _reserved(item_code, h.warehouse))
+            take = min(need, movable)
+            if take <= 0:
+                continue
+            plan.append({"item_code": item_code, "source": h.warehouse, "qty": take})
+            need -= take
+    if not plan:
+        return []
+    moves = []
+    # One entry per source: a source that refuses (a batch it cannot hand
+    # out, a permission) must not take the others down with it.
+    by_source = {}
+    for p in plan:
+        by_source.setdefault(p["source"], []).append(p)
+    for source, lines in by_source.items():
+        try:
+            se, items = _apply_pull_moves(warehouse, lines)
+            if not se:
+                continue
+            frappe.db.commit()
+            for it in items:
+                moves.append({"entry": se, "qty": it["qty"], "from": source, "to": warehouse,
+                              "item": it["item_code"], "pulled": True})
+            doc = frappe.get_doc("Stock Reconciliation", name)
+            doc.add_comment("Comment", f"Pulled {sum(i['qty'] for i in items)}u from {source} ({se}): "
+                                       "the book held these units there, the count found them here.")
+            emptied = False
+            for it in items:
+                if _settle_row(doc, it["item_code"])["emptied"]:
+                    emptied = True
+                    break
+                doc = frappe.get_doc("Stock Reconciliation", name)
+            frappe.db.commit()
+            if emptied:
+                break
+        except Exception as e:
+            frappe.db.rollback()
+            frappe.log_error(f"{e}\n\n{frappe.get_traceback()[-1800:]}", f"cycle_count._pull_found {name} {source}")
+    return moves
+
+
+@frappe.whitelist()
+def ghost_twins(shelves=0):
+    """Manager: the found units this campaign already POSTED as gains whose
+    twins still sit on the book in a pull source — the retroactive half of
+    the rule above. Returns the rows `clear_ghosts` would post, per source."""
+    _control_gate()
+    since = _campaign_since()
+    tiers = dict(_pull_sources(shelves=bool(int(shelves or 0))))
+    if not tiers:
+        return {"since": since, "rows": [], "sources": [], "units": 0, "value": 0}
+    finds = frappe.db.sql(
+        """SELECT sri.item_code, sri.warehouse AS shelf, sr.name AS reco, sr.creation,
+                  SUM(sri.qty - sri.current_qty) AS found
+           FROM `tabStock Reconciliation Item` sri
+           JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent AND sr.docstatus = 1
+           WHERE sr.creation >= %s AND sri.qty > sri.current_qty
+             AND EXISTS (SELECT 1 FROM `tabComment` c WHERE c.reference_doctype = 'Stock Reconciliation'
+                         AND c.reference_name = sr.name AND c.content LIKE 'Portal cycle count%%')
+           GROUP BY sri.item_code, sri.warehouse, sr.name ORDER BY sr.creation""",
+        (since,), as_dict=True)
+    if not finds:
+        return {"since": since, "rows": [], "sources": [], "units": 0, "value": 0}
+    items = tuple({f.item_code for f in finds})
+    holdings = frappe.db.sql(
+        """SELECT b.item_code, b.warehouse, b.actual_qty, b.valuation_rate,
+                  it.custom_sku AS sku, COALESCE(NULLIF(it.item_name,''), it.name) AS iname
+           FROM `tabBin` b JOIN `tabItem` it ON it.name = b.item_code
+           WHERE b.item_code IN %s AND b.warehouse IN %s AND b.actual_qty > 0""",
+        (items, tuple(tiers)), as_dict=True)
+    left = {}
+    for h in holdings:
+        h.free = max(0.0, float(h.actual_qty or 0) - _reserved(h.item_code, h.warehouse))
+        left.setdefault(h.item_code, []).append(h)
+    for rows in left.values():
+        rows.sort(key=lambda h: (tiers[h.warehouse], -h.free))
+    out = []
+    for f in finds:
+        need = int(float(f.found or 0))
+        for h in left.get(f.item_code, []):
+            if need <= 0:
+                break
+            take = int(min(need, h.free))
+            if take <= 0:
+                continue
+            h.free -= take
+            need -= take
+            out.append({"source": h.warehouse, "tier": tiers[h.warehouse],
+                        "itemCode": f.item_code, "sku": h.sku or "", "name": h.iname,
+                        "shelf": f.shelf, "reco": f.reco, "found": int(float(f.found or 0)),
+                        "clear": take, "book": int(float(h.actual_qty or 0)),
+                        "rate": float(h.valuation_rate or 0),
+                        "value": round(take * float(h.valuation_rate or 0))})
+    out.sort(key=lambda r: (r["tier"], r["source"], -r["clear"]))
+    srcs = {}
+    for r in out:
+        s = srcs.setdefault(r["source"], {"source": r["source"], "tier": r["tier"], "lines": 0, "units": 0, "value": 0})
+        s["lines"] += 1
+        s["units"] += r["clear"]
+        s["value"] += r["value"]
+    return {"since": since, "rows": out[:500], "sources": list(srcs.values()),
+            "units": sum(r["clear"] for r in out), "value": round(sum(r["value"] for r in out)),
+            "pullEnabled": pull_enabled()}
+
+
+@frappe.whitelist(methods=["POST"])
+def clear_ghosts(shelves=0):
+    """Manager: post the ghost-twin removals — one Stock Reconciliation per
+    source, each line reduced by exactly the units a counted shelf already
+    took as a find. Recomputed at click time so nothing stale posts."""
+    if not _is_manager():
+        frappe.throw("Only a manager can clear ghost twins.", frappe.PermissionError)
+    plan = ghost_twins(shelves)
+    rows = plan.get("rows") or []
+    if not rows:
+        return {"ok": True, "recos": [], "lines": 0, "units": 0}
+    company = frappe.defaults.get_global_default("company")
+    by_source = {}
+    for r in rows:
+        by_source.setdefault(r["source"], {}).setdefault(r["itemCode"], 0)
+        by_source[r["source"]][r["itemCode"]] += r["clear"]
+    recos, done_lines, done_units, failed = [], 0, 0, []
+    for source, items in by_source.items():
+        lines, made, minted = [], [], []
+        try:
+            for item_code, clear in items.items():
+                b = frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": source},
+                                        ["actual_qty", "valuation_rate"], as_dict=True)
+                book = float(b.actual_qty or 0) if b else 0.0
+                new = max(0.0, book - clear)
+                if new == book:
+                    continue
+                rate = float((b.valuation_rate if b else 0) or 0) or _rate_for(item_code, b)[0]
+                row = {"item_code": item_code, "warehouse": source, "qty": new,
+                       "valuation_rate": rate, "allow_zero_valuation_rate": 1}
+                bb = _batch_bundle(item_code, source, new, company)
+                if bb and bb.get("bundle"):
+                    made.append(bb["bundle"])
+                    row["serial_and_batch_bundle"] = bb["bundle"]
+                elif bb and bb.get("batch_no"):
+                    minted.append(bb["batch_no"])
+                    row["use_serial_batch_fields"] = 1
+                    row["batch_no"] = bb["batch_no"]
+                lines.append(row)
+            if not lines:
+                continue
+            doc = frappe.get_doc({
+                "doctype": "Stock Reconciliation", "purpose": "Stock Reconciliation",
+                "posting_date": nowdate(), "posting_time": nowtime(), "company": company,
+                "expense_account": frappe.db.get_value("Company", company, "stock_adjustment_account"),
+                "cost_center": frappe.db.get_value("Company", company, "cost_center"),
+                "items": lines,
+            })
+            doc.flags.ignore_permissions = True
+            doc.insert(ignore_permissions=True)
+            doc.add_comment("Comment", f"Portal ghost clear of {source}: {len(lines)} lines, "
+                                       f"{int(sum(items.values()))}u the campaign's counts already found on "
+                                       f"shelves and posted as gains · by {frappe.session.user}")
+            doc.submit()
+            frappe.db.commit()
+            recos.append({"name": doc.name, "source": source, "lines": len(lines),
+                          "units": int(sum(items.values())),
+                          "value": round(float(doc.difference_amount or 0))})
+            done_lines += len(lines)
+            done_units += int(sum(items.values()))
+        except Exception as e:
+            frappe.db.rollback()
+            for x in made:
+                try:
+                    frappe.delete_doc("Serial and Batch Bundle", x, force=1, ignore_permissions=True)
+                except Exception:
+                    pass
+            for x in minted:
+                try:
+                    frappe.delete_doc("Batch", x, force=1, ignore_permissions=True)
+                except Exception:
+                    pass
+            frappe.db.commit()
+            frappe.log_error(f"{e}\n\n{frappe.get_traceback()[-1800:]}", f"cycle_count.clear_ghosts {source}")
+            failed.append({"source": source, "reason": _reason(e)})
+    for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    return {"ok": True, "recos": recos, "lines": done_lines, "units": done_units, "failed": failed}
 
 
 @frappe.whitelist(methods=["POST"])

@@ -160,6 +160,56 @@
         </section>
       </div>
 
+      <!-- Ghost twins: found units this campaign already posted as gains
+           whose book twin still sits in a closed warehouse or a parking
+           zone. The rule that pulls instead of posting runs at every count
+           from now on; this panel is the retroactive half. -->
+      <section class="bg-white rounded-xl ring-1 overflow-hidden" :class="ghost && ghost.units ? 'ring-amber-200/70' : 'ring-stone-200/70'">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('cc.ghostTitle') }}</span>
+          <span v-if="ghost" class="text-[11px] tabular-nums font-bold" :class="ghost.units ? 'text-amber-700' : 'text-stone-400'">{{ fmt(ghost.units) }} {{ t('recv.units') }}</span>
+          <label class="ms-auto inline-flex items-center gap-1.5 text-[11.5px] text-stone-600 cursor-pointer">
+            <input type="checkbox" v-model="ghostShelves" class="accent-[var(--accent-600)]" @change="loadGhost" />
+            {{ t('cc.ghostShelves') }}
+          </label>
+          <button class="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-[11.5px] font-semibold ring-1 transition-colors"
+                  :class="pullOn ? 'text-emerald-700 bg-emerald-50 ring-emerald-200' : 'text-stone-600 bg-white ring-stone-200'"
+                  :disabled="pullBusy" @click="togglePull">
+            <Icon :name="pullOn ? 'check-circle' : 'circle'" :size="12" />{{ pullOn ? t('cc.pullOn') : t('cc.pullOff') }}
+          </button>
+        </div>
+        <p class="px-4 py-2 text-[11.5px] text-stone-500 border-b border-stone-50">{{ t('cc.ghostHint') }}</p>
+        <div v-if="ghostLoading" class="p-3 space-y-2">
+          <div v-for="n in 3" :key="n" class="h-[34px] rounded-lg bg-stone-50 ring-1 ring-stone-200/60 animate-pulse" />
+        </div>
+        <div v-else-if="!ghost || !ghost.rows.length" class="px-4 py-6 text-center text-[12px] text-emerald-700">{{ t('cc.ghostNone') }}</div>
+        <template v-else>
+          <div class="px-4 py-2 flex flex-wrap gap-1.5 border-b border-stone-50">
+            <span v-for="s in ghost.sources" :key="s.source"
+                  class="inline-flex items-center gap-1 text-[11px] rounded-md px-1.5 py-0.5 ring-1 tabular-nums"
+                  :class="s.tier === 1 ? 'text-rose-700 bg-rose-50 ring-rose-200/70' : s.tier === 2 ? 'text-amber-700 bg-amber-50 ring-amber-200/70' : 'text-stone-600 bg-stone-50 ring-stone-200'">
+              <span class="font-semibold">{{ s.source.replace(' - JM', '') }}</span> · {{ s.units }}u · {{ s.lines }} {{ t('cc.lines') }}
+            </span>
+          </div>
+          <div class="max-h-[320px] overflow-y-auto divide-y divide-stone-50">
+            <div v-for="(r, i) in ghost.rows" :key="r.source + r.itemCode + i" class="px-4 py-1.5 flex items-center gap-3 text-[11.5px]">
+              <span class="font-mono font-semibold text-stone-800 w-[120px] truncate flex-shrink-0">{{ r.source.replace(' - JM', '') }}</span>
+              <span class="font-mono text-stone-700 flex-1 truncate" :title="r.name">{{ r.sku || r.itemCode }}</span>
+              <span class="text-stone-400 tabular-nums flex-shrink-0">{{ t('cc.ghostFoundOn') }} <span class="font-mono text-stone-600">{{ r.shelf.replace(' - JM', '') }}</span></span>
+              <span class="font-bold text-stone-800 tabular-nums w-[52px] text-end flex-shrink-0">−{{ r.clear }} / {{ r.book }}</span>
+            </div>
+          </div>
+          <div class="px-4 py-2.5 border-t border-stone-100 flex items-center gap-3 flex-wrap">
+            <span class="text-[11.5px] text-stone-500 tabular-nums">{{ ghost.rows.length }} {{ t('cc.lines') }} · {{ fmt(ghost.units) }} {{ t('recv.units') }} · {{ fmt(ghost.value) }} MAD</span>
+            <button class="ms-auto h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white transition-colors disabled:opacity-50"
+                    :class="ghostArmed ? 'bg-rose-600 hover:bg-rose-700' : 'bg-stone-900 hover:bg-stone-800'"
+                    :disabled="ghostBusy" @click="clearGhosts">
+              {{ ghostBusy ? t('cc.ghostBusy') : ghostArmed ? t('cc.ghostSure') : t('cc.ghostClear').replace('{n}', fmt(ghost.units)) }}
+            </button>
+          </div>
+        </template>
+      </section>
+
       <!-- Daily rhythm: only real once sessions exist, so it hides until then -->
       <section v-if="data.daily.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
         <div class="text-[12px] font-semibold text-stone-900 mb-2.5">{{ t('cc.daily') }}</div>
@@ -177,12 +227,67 @@
 import { computed, onMounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import CountCampaign from "@/components/CountCampaign.vue";
-import { api } from "@/lib/resource";
+import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
 
 const { t } = useI18n();
-const { warn } = useToast();
+const { warn, success } = useToast();
+
+// ── Ghost twins (retroactive pull) ───────────────────────────────────────
+const ghost = ref(null);
+const ghostLoading = ref(true);
+const ghostShelves = ref(false);
+const ghostArmed = ref(false);
+const ghostBusy = ref(false);
+const pullOn = ref(true);
+const pullBusy = ref(false);
+let disarm = null;
+async function loadGhost() {
+  ghostLoading.value = true;
+  try {
+    ghost.value = await api("cycle_count.ghost_twins", { shelves: ghostShelves.value ? 1 : 0 });
+    if (ghost.value && ghost.value.pullEnabled != null) pullOn.value = !!ghost.value.pullEnabled;
+  } catch (e) {
+    warn(t("mv.loadFail"), String(e.message || e));
+  } finally {
+    ghostLoading.value = false;
+  }
+}
+async function togglePull() {
+  pullBusy.value = true;
+  try {
+    const res = await apiPost("cycle_count.set_pull", { on: pullOn.value ? 0 : 1 });
+    pullOn.value = !!res.on;
+  } catch (e) {
+    warn(t("mv.loadFail"), String(e.message || e));
+  } finally {
+    pullBusy.value = false;
+  }
+}
+async function clearGhosts() {
+  if (!ghostArmed.value) {
+    ghostArmed.value = true;
+    clearTimeout(disarm);
+    disarm = setTimeout(() => (ghostArmed.value = false), 5000);
+    return;
+  }
+  ghostArmed.value = false;
+  ghostBusy.value = true;
+  try {
+    const res = await apiPost("cycle_count.clear_ghosts", { shelves: ghostShelves.value ? 1 : 0 });
+    success(t("cc.ghostDone").replace("{n}", fmt(res.units)).replace("{r}", (res.recos || []).length),
+            (res.recos || []).map((r) => `${r.source.replace(" - JM", "")} · ${r.name}`).join(" · "));
+    if (res.failed && res.failed.length) {
+      warn(t("cc.ghostFail"), res.failed.map((f) => `${f.source}: ${f.reason}`).join(" · "));
+    }
+    await Promise.all([loadGhost(), load()]);
+  } catch (e) {
+    warn(t("cc.ghostFail"), String(e.message || e));
+  } finally {
+    ghostBusy.value = false;
+  }
+}
 
 const data = ref(null);
 const loading = ref(true);
@@ -227,5 +332,5 @@ async function load() {
 }
 function setDays(d) { days.value = d; load(); }
 function setSource(sc) { source.value = sc; load(); }
-onMounted(load);
+onMounted(() => { load(); loadGhost(); });
 </script>
