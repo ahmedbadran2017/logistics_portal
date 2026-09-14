@@ -71,6 +71,9 @@
       <div class="px-4 pt-3 pb-2 border-b border-stone-100 sticky top-0 bg-white/95 backdrop-blur-sm z-10 space-y-2">
         <div class="flex items-center justify-between gap-2 flex-wrap">
           <span class="text-[14px] font-bold text-stone-900">{{ short(sheet.warehouse) }}</span>
+          <span v-if="sheet.openPicks" class="text-[10.5px] font-semibold text-amber-800 bg-amber-50 ring-1 ring-amber-200 rounded-full px-2 py-0.5 inline-flex items-center gap-1" :title="t('cc.openPicksHint')">
+            <Icon name="alert-triangle" :size="11" />{{ sheet.openPicks }} {{ t('cc.openPicks') }}
+          </span>
           <span class="text-[12px] text-stone-500 tabular-nums font-semibold">{{ countedCount }}/{{ sheet.rows.length }} {{ t('cc.counted') }}</span>
         </div>
         <div class="h-2 rounded-full bg-stone-100 overflow-hidden">
@@ -208,6 +211,7 @@
             <span class="text-[11.5px] font-semibold tabular-nums" :class="p.valueDelta < 0 ? 'text-rose-600' : 'text-emerald-600'">
               {{ p.valueDelta > 0 ? '+' : '' }}{{ fmt(p.valueDelta) }} MAD
             </span>
+            <span v-if="p.drifted" class="text-[10.5px] font-semibold text-sky-800 bg-sky-50 ring-1 ring-sky-200 rounded-full px-2 py-0.5" :title="t('cc.driftedHint')">{{ p.drifted }} {{ t('cc.drifted') }}</span>
             <span v-if="p.pairs" class="text-[10.5px] font-semibold text-amber-800 bg-amber-50 ring-1 ring-amber-200 rounded-full px-2 py-0.5 inline-flex items-center gap-1" :title="t('cc.autoMovesHint')">
               <Icon name="arrow-right" :size="10" class="flip-rtl" />{{ p.pairs }} {{ t('cc.autoMoves') }}
             </span>
@@ -268,6 +272,7 @@
                       <span class="text-[10.5px] font-mono tabular-nums rounded px-1.5 py-0.5 ring-1" :class="r.delta < 0 ? 'text-rose-700 bg-rose-50 ring-rose-200' : r.delta > 0 ? 'text-emerald-700 bg-emerald-50 ring-emerald-200' : 'text-stone-500 bg-stone-100 ring-stone-200'">
                         {{ r.book }}→{{ r.counted }} ({{ r.delta > 0 ? '+' : '' }}{{ r.delta }})
                       </span>
+                      <span v-if="r.drift" class="text-[10px] text-sky-700 tabular-nums" :title="t('cc.driftedHint')" dir="ltr">{{ r.drift > 0 ? '+' : '' }}{{ r.drift }} {{ t('cc.sinceCount') }}</span>
                       <span class="text-[10px] font-bold uppercase tracking-wide rounded-full px-1.5 py-0.5 ring-1" :class="KIND_CLS[r.kind]">{{ t('cc.kind_' + r.kind) }}</span>
                     </div>
                     <div class="text-[11.5px] text-stone-600 truncate" dir="auto">{{ r.name }}</div>
@@ -455,7 +460,7 @@ async function loadSheet() {
   filter.value = "all";
   try {
     const res = await apiPost("cycle_count.bin_contents", { warehouse: binInput.value });
-    sheet.value = { warehouse: res.warehouse,
+    sheet.value = { warehouse: res.warehouse, openPicks: res.openPicks || 0,
                     rows: (res.rows || []).map((r) => ({ ...r, counted: "" })) };
   } catch (e) {
     warn(t("mv.loadFail"), String(e.message || e));

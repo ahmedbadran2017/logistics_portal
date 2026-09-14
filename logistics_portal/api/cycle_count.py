@@ -200,7 +200,14 @@ def bin_contents(warehouse):
            LEFT JOIN `tabItem` it ON it.name = b.item_code
            WHERE b.warehouse = %s AND b.actual_qty <> 0
            ORDER BY b.actual_qty DESC""", (warehouse,), as_dict=True)
-    return {"warehouse": warehouse, "rows": [{
+    # Picking does not stop for the count: a list still open on this shelf
+    # means units may leave it while it is being counted. Said up front.
+    open_picks = int(frappe.db.sql(
+        """SELECT COUNT(DISTINCT pl.name) FROM `tabPick List` pl
+           JOIN `tabPick List Item` pli ON pli.parent = pl.name
+           WHERE pli.warehouse = %s AND pl.docstatus < 2
+             AND COALESCE(pl.status, '') NOT IN ('Completed', 'Cancelled')""", (warehouse,))[0][0] or 0)
+    return {"warehouse": warehouse, "openPicks": open_picks, "rows": [{
         "itemCode": r.item_code, "sku": r.sku or "", "name": r.name,
         "image": r.image or "", "book": int(r.qty or 0),
     } for r in rows]}
@@ -611,16 +618,20 @@ def _pending():
     out = []
     for name, r in alive.items():
         items = frappe.db.sql(
-            """SELECT sri.item_code, sri.warehouse, sri.qty, sri.valuation_rate,
+            f"""SELECT sri.item_code, sri.warehouse, sri.qty, sri.valuation_rate,
                       it.custom_sku AS sku,
                       COALESCE(NULLIF(it.item_name,''), sri.item_code) AS iname,
-                      COALESCE(b.actual_qty, 0) AS live
+                      COALESCE(b.actual_qty, 0) AS live,
+                      {_DRIFT_SQL} AS drift
                FROM `tabStock Reconciliation Item` sri
+               JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent
                LEFT JOIN `tabItem` it ON it.name = sri.item_code
                LEFT JOIN `tabBin` b ON b.item_code = sri.item_code
                     AND b.warehouse = sri.warehouse
                WHERE sri.parent = %s ORDER BY ABS(sri.qty - COALESCE(b.actual_qty,0)) DESC""",
             (name,), as_dict=True)
+        for i in items:
+            i.qty = float(i.qty or 0) + float(i.drift or 0)
         value_delta = sum(
             (int(i.qty or 0) - int(i.live or 0)) * float(i.valuation_rate or 0)
             for i in items)
@@ -637,6 +648,7 @@ def _pending():
             } for i in items[:12]],
             "more": max(0, len(items) - 12),
             "pairs": len(pairs.get(name) or {}),
+            "drifted": sum(1 for i in items if float(i.drift or 0)),
         })
     out.sort(key=lambda x: x["created"], reverse=True)
     return out
@@ -672,6 +684,7 @@ def approve_count(name):
     if zero:
         frappe.db.commit()   # the moves made so far are real and stay
         frappe.throw("lp:zeroRate")
+    _apply_drift(doc)
     doc.flags.ignore_permissions = True
     doc.submit()
     _save_registry([n for n in _registry() if n != name])
@@ -711,6 +724,7 @@ def approve_all(limit=15):
             if [r for r in doc.items if float(r.qty or 0) > 0 and not float(r.valuation_rate or 0)]:
                 skipped.append(name)
                 continue
+            _apply_drift(doc)
             doc.flags.ignore_permissions = True
             doc.submit()
             _save_registry([n for n in _registry() if n != name])
@@ -823,6 +837,58 @@ def _draft(name):
     return doc
 
 
+# The floor never stops for a count: a picker can take from a shelf between
+# the moment it was counted and the moment its draft posts. What the counter
+# saw is true for THAT moment; every ledger movement on the bin dated after
+# it (picks out, returns in) is the drift. The difference the count found is
+# unchanged by it — physical and book moved together — so the quantity that
+# posts is `counted + drift`, and the delta everywhere is `(counted + drift)
+# − live`. Measured need: a whole-warehouse walk with picking running.
+_DRIFT_SQL = """COALESCE((SELECT SUM(s.actual_qty) FROM `tabStock Ledger Entry` s
+                          WHERE s.item_code = sri.item_code AND s.warehouse = sri.warehouse
+                            AND s.is_cancelled = 0
+                            AND TIMESTAMP(s.posting_date, s.posting_time) > sr.creation), 0)"""
+
+
+def _drift(item_code, warehouse, since):
+    return float(frappe.db.sql(
+        """SELECT COALESCE(SUM(actual_qty), 0) FROM `tabStock Ledger Entry`
+           WHERE item_code = %s AND warehouse = %s AND is_cancelled = 0
+             AND TIMESTAMP(posting_date, posting_time) > %s""",
+        (item_code, warehouse, since))[0][0] or 0)
+
+
+def _effective(line, doc):
+    """What the shelf holds NOW if the count was right: counted + drift."""
+    return float(line.qty or 0) + _drift(line.item_code, line.warehouse, doc.creation)
+
+
+def _apply_drift(doc):
+    """Right before posting: move each line's quantity forward by the
+    movements since the count, so a pick made after the walk is not undone.
+    A batch line gets its bundle rebuilt for the new quantity."""
+    notes = []
+    for r in doc.items:
+        d = _drift(r.item_code, r.warehouse, doc.creation)
+        if not d:
+            continue
+        new = max(0.0, float(r.qty or 0) + d)
+        notes.append(f"{r.item_code}: counted {int(r.qty or 0)}, {'+' if d > 0 else ''}{int(d)} since → {int(new)}")
+        if r.get("serial_and_batch_bundle"):
+            old = r.serial_and_batch_bundle
+            r.serial_and_batch_bundle = _batch_bundle(r.item_code, r.warehouse, int(new), doc.company)
+            try:
+                frappe.delete_doc("Serial and Batch Bundle", old, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        r.qty = new
+    if notes:
+        doc.flags.ignore_permissions = True
+        doc.save(ignore_permissions=True)
+        doc.add_comment("Comment", "Adjusted for movements since the count: " + "; ".join(notes)[:1800])
+    return notes
+
+
 def _live_qty(item_code, warehouse):
     return float(frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty") or 0)
 
@@ -839,9 +905,10 @@ def count_triage(name):
     reg = [n for n in _registry() if n != name]
     if reg:
         for o in frappe.db.sql(
-                """SELECT sri.parent, sri.item_code, sri.warehouse, sri.qty,
+                f"""SELECT sri.parent, sri.item_code, sri.warehouse, sri.qty + {_DRIFT_SQL} AS qty,
                           COALESCE(b.actual_qty, 0) AS live
                    FROM `tabStock Reconciliation Item` sri
+                   JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent
                    LEFT JOIN `tabBin` b ON b.item_code = sri.item_code AND b.warehouse = sri.warehouse
                    WHERE sri.parent IN %s AND sri.item_code IN %s""",
                 (tuple(reg), tuple(r.item_code for r in doc.items) or ("",)), as_dict=True):
@@ -850,7 +917,8 @@ def count_triage(name):
     rows, need_rate, extras = [], 0, 0
     for r in doc.items:
         live = _live_qty(r.item_code, r.warehouse)
-        counted = float(r.qty or 0)
+        drift = _drift(r.item_code, r.warehouse, doc.creation)
+        counted = float(r.qty or 0) + drift
         delta = counted - live
         rate = float(r.valuation_rate or 0)
         suggested, src = (rate, "line") if rate else _rate_for(r.item_code)
@@ -860,6 +928,7 @@ def count_triage(name):
                "name": it.get("item_name") or r.item_code,
                "image": it.get("image") or "",
                "warehouse": r.warehouse, "counted": int(counted), "book": int(live), "delta": int(delta),
+               "drift": int(drift),
                "rate": rate, "suggestedRate": suggested, "rateSource": src,
                "valueDelta": round(delta * (rate or suggested or 0)),
                "needsRate": counted > 0 and not rate,
@@ -906,7 +975,7 @@ def _settle_row(doc, item_code):
     shelf still disagrees with the book. An emptied draft is deleted."""
     keep = []
     for r in doc.items:
-        if r.item_code == item_code and float(r.qty or 0) == _live_qty(r.item_code, r.warehouse):
+        if r.item_code == item_code and _effective(r, doc) == _live_qty(r.item_code, r.warehouse):
             continue
         keep.append(r)
     if not keep:
@@ -953,7 +1022,7 @@ def route_return(name, item_code, ret, qty=None):
     line = next((r for r in doc.items if r.item_code == item_code), None)
     if line is None:
         frappe.throw("That item is not on this count.")
-    want = int(qty or 0) or int(float(line.qty or 0) - _live_qty(item_code, line.warehouse))
+    want = int(qty or 0) or int(_effective(line, doc) - _live_qty(item_code, line.warehouse))
     if want <= 0:
         frappe.throw("Nothing to receive for this line.")
     from logistics_portal.api import returns_repair
@@ -990,8 +1059,8 @@ def _move_pair(a, b, item_code, qty=None):
     lb = next((r for r in b.items if r.item_code == item_code), None)
     if la is None or lb is None:
         frappe.throw("That item is not on both counts.")
-    da = float(la.qty or 0) - _live_qty(item_code, la.warehouse)
-    db = float(lb.qty or 0) - _live_qty(item_code, lb.warehouse)
+    da = _effective(la, a) - _live_qty(item_code, la.warehouse)
+    db = _effective(lb, b) - _live_qty(item_code, lb.warehouse)
     if not (da < 0 < db or db < 0 < da):
         frappe.throw("The two counts do not disagree in opposite directions any more.")
     short, found = (la, lb) if da < 0 else (lb, la)
@@ -1021,7 +1090,7 @@ def _pairs_for(names):
     if len(names) < 2:
         return {}
     rows = frappe.db.sql(
-        """SELECT sri.parent, sri.item_code, sri.qty - COALESCE(b.actual_qty, 0) AS delta
+        f"""SELECT sri.parent, sri.item_code, sri.qty + {_DRIFT_SQL} - COALESCE(b.actual_qty, 0) AS delta
            FROM `tabStock Reconciliation Item` sri
            JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent AND sr.docstatus = 0
            LEFT JOIN `tabBin` b ON b.item_code = sri.item_code AND b.warehouse = sri.warehouse
@@ -1078,7 +1147,7 @@ def route_purchase(name, item_code, po, qty=None):
     line = next((r for r in doc.items if r.item_code == item_code), None)
     if line is None:
         frappe.throw("That item is not on this count.")
-    want = int(qty or 0) or int(float(line.qty or 0) - _live_qty(item_code, line.warehouse))
+    want = int(qty or 0) or int(_effective(line, doc) - _live_qty(item_code, line.warehouse))
     if want <= 0:
         frappe.throw("Nothing to receive for this line.")
     from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_receipt
