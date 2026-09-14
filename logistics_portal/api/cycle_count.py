@@ -586,6 +586,7 @@ def _pending():
     # self-heal: drop approved/deleted names from the registry
     if len(alive) != len(reg):
         _save_registry([n for n in reg if n in alive])
+    pairs = _pairs_for(list(alive))
     out = []
     for name, r in alive.items():
         items = frappe.db.sql(
@@ -614,6 +615,7 @@ def _pending():
                 "delta": int(i.qty or 0) - int(i.live or 0),
             } for i in items[:12]],
             "more": max(0, len(items) - 12),
+            "pairs": len(pairs.get(name) or {}),
         })
     out.sort(key=lambda x: x["created"], reverse=True)
     return out
@@ -632,12 +634,22 @@ def approve_count(name):
         frappe.throw("Only a manager can approve a count.", frappe.PermissionError)
     if name not in _registry():
         frappe.throw("Not a portal cycle count.")
-    doc = frappe.get_doc("Stock Reconciliation", name)
-    if doc.docstatus != 0:
+    if frappe.db.get_value("Stock Reconciliation", name, "docstatus") != 0:
         frappe.throw("Already processed.")
+    # A shortage here that another shelf's count found is a move — recorded
+    # by the system itself, before anything posts as a loss or a find.
+    moves = _auto_moves(name)
+    if name not in _registry():
+        frappe.db.commit()
+        for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+            frappe.cache().delete_value(k)
+        return {"ok": True, "name": name, "emptied": True, "moves": moves,
+                "campaignClosed": False, "differenceAmount": 0}
+    doc = frappe.get_doc("Stock Reconciliation", name)
     zero = [r.item_code for r in doc.items
             if float(r.qty or 0) > 0 and not float(r.valuation_rate or 0)]
     if zero:
+        frappe.db.commit()   # the moves made so far are real and stay
         frappe.throw("lp:zeroRate")
     doc.flags.ignore_permissions = True
     doc.submit()
@@ -648,7 +660,7 @@ def approve_count(name):
     # This approval may have been the last bin a campaign was waiting on.
     from logistics_portal.api import campaign
     closed = campaign.maybe_close()
-    return {"ok": True, "name": name, "campaignClosed": closed,
+    return {"ok": True, "name": name, "campaignClosed": closed, "moves": moves,
             "differenceAmount": round(float(doc.difference_amount or 0))}
 
 
@@ -900,7 +912,14 @@ def route_move(name, item_code, other, qty=None):
     happened. Either draft may be the caller."""
     if not _is_manager():
         frappe.throw("Only a manager can route a count.", frappe.PermissionError)
-    a, b = _draft(name), _draft(other)
+    res = _move_pair(_draft(name), _draft(other), item_code, qty)
+    frappe.db.commit()
+    return {"ok": True, **res}
+
+
+def _move_pair(a, b, item_code, qty=None):
+    """One item, two drafts disagreeing in opposite directions → one transfer
+    from the short shelf to the found shelf, then both lines settle."""
     la = next((r for r in a.items if r.item_code == item_code), None)
     lb = next((r for r in b.items if r.item_code == item_code), None)
     if la is None or lb is None:
@@ -924,10 +943,61 @@ def route_move(name, item_code, other, qty=None):
                                  f"({se}) · by {frappe.session.user}")
     ra = _settle_row(a, item_code)
     rb = _settle_row(b, item_code)
-    frappe.db.commit()
-    return {"ok": True, "entry": se, "qty": want, "from": short.warehouse, "to": found.warehouse,
-            "emptied": ra["emptied"] if name == a.name else rb["emptied"],
-            "otherEmptied": rb["emptied"] if name == a.name else ra["emptied"]}
+    return {"entry": se, "qty": want, "from": short.warehouse, "to": found.warehouse, "item": item_code,
+            "emptied": ra["emptied"], "otherEmptied": rb["emptied"]}
+
+
+def _pairs_for(names):
+    """Across the pending drafts, the (item, draft, delta) lines whose item is
+    counted the other way on another pending draft — the moves the approval
+    will record on its own. Returns {draft: {item_code: [other drafts]}}."""
+    names = [n for n in names if n]
+    if len(names) < 2:
+        return {}
+    rows = frappe.db.sql(
+        """SELECT sri.parent, sri.item_code, sri.qty - COALESCE(b.actual_qty, 0) AS delta
+           FROM `tabStock Reconciliation Item` sri
+           JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent AND sr.docstatus = 0
+           LEFT JOIN `tabBin` b ON b.item_code = sri.item_code AND b.warehouse = sri.warehouse
+           WHERE sri.parent IN %s""", (tuple(names),), as_dict=True)
+    by_item = {}
+    for r in rows:
+        if float(r.delta or 0):
+            by_item.setdefault(r.item_code, []).append((r.parent, float(r.delta)))
+    out = {}
+    for item, lines in by_item.items():
+        for parent, delta in lines:
+            twins = [q for q, d in lines if q != parent and (d > 0) != (delta > 0)]
+            if twins:
+                out.setdefault(parent, {})[item] = twins
+    return out
+
+
+def _auto_moves(name):
+    """Before a draft posts: every line of it that another pending shelf
+    counted the other way becomes a transfer, not a loss plus a find. Returns
+    the moves made; the draft may have been emptied and deleted by them."""
+    pairs = _pairs_for(_registry()).get(name) or {}
+    moves = []
+    for item_code, twins in pairs.items():
+        for other in twins:
+            if name not in _registry() or other not in _registry():
+                break
+            try:
+                a, b = _draft(name), _draft(other)
+                res = _move_pair(a, b, item_code)
+                moves.append(res)
+                if res["emptied"]:
+                    break
+            except Exception:
+                # A pair that no longer disagrees, or a shelf the transfer
+                # refuses (book short of the qty): the line stays a difference
+                # for the manager to read, never a silent skip of the post.
+                frappe.log_error(frappe.get_traceback()[:2000], f"cycle_count._auto_moves {name} {item_code}")
+                break
+        if name not in _registry():
+            break
+    return moves
 
 
 @frappe.whitelist(methods=["POST"])

@@ -200,6 +200,9 @@
             <span class="text-[11.5px] font-semibold tabular-nums" :class="p.valueDelta < 0 ? 'text-rose-600' : 'text-emerald-600'">
               {{ p.valueDelta > 0 ? '+' : '' }}{{ fmt(p.valueDelta) }} MAD
             </span>
+            <span v-if="p.pairs" class="text-[10.5px] font-semibold text-amber-800 bg-amber-50 ring-1 ring-amber-200 rounded-full px-2 py-0.5 inline-flex items-center gap-1" :title="t('cc.autoMovesHint')">
+              <Icon name="arrow-right" :size="10" class="flip-rtl" />{{ p.pairs }} {{ t('cc.autoMoves') }}
+            </span>
             <span class="text-[10.5px] text-stone-400 flex-1">{{ p.owner }} · {{ p.created }}</span>
             <template v-if="canApprove">
               <button
@@ -537,7 +540,9 @@ async function approve(p) {
   busyPending.value = true;
   try {
     const res = await apiPost("cycle_count.approve_count", { name: p.name });
-    success(t("cc.approvedTitle"), `${p.name} · ${fmt(res.differenceAmount)} MAD`);
+    const moved = (res.moves || []).length ? ` · ${res.moves.length} ${t("cc.movedN")}` : "";
+    success(res.emptied ? t("cc.allMoved") : t("cc.approvedTitle"), `${p.name} · ${fmt(res.differenceAmount)} MAD${moved}`);
+    if (triageFor.value) { triageFor.value = ""; triage.value = null; }
     await refreshPending();
   } catch (e) {
     warn(t("cc.approveFail"), String(e.message || e));

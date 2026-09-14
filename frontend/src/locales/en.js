@@ -508,6 +508,7 @@ export default {
     draftTitle: "Count submitted for approval",
     submitFail: "Couldn't submit the count",
     moveUnits: "Record the move",
+    autoMoves: "move on approve", autoMovesHint: "Lines another pending shelf counted the other way — recorded as transfers by the system when you approve, never as a loss plus a find", movedN: "recorded as moves", allMoved: "Nothing to post — every difference was a move",
     openCount: "Open", openErp: "Open in ERP", extraLines: "found", missingLines: "missing", elsewhere: "Counted the other way on another shelf — a move, not a loss and a find:",
     triage: "Where did it come from?", triageHint: "A unit the shelf holds and the book does not came from somewhere. Bring it in with its own document; only what has no source is posted as an adjustment — never at zero cost.",
     kind_return: "Unreceived return", kind_purchase: "Supplier delivery", kind_unknown: "No source", kind_missing: "Missing", kind_ok: "Matches",

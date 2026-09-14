@@ -508,6 +508,7 @@ export default {
     draftTitle: "Comptage soumis pour approbation",
     submitFail: "Échec de l'envoi",
     moveUnits: "Enregistrer le déplacement",
+    autoMoves: "déplacements à la validation", autoMovesHint: "Lignes comptées en sens inverse sur une autre étagère en attente — enregistrées comme transferts par le système à la validation, jamais comme une perte plus une trouvaille", movedN: "enregistrés en déplacement", allMoved: "Rien à passer — chaque écart était un déplacement",
     openCount: "Ouvrir", openErp: "Ouvrir dans l'ERP", extraLines: "trouvés", missingLines: "manquants", elsewhere: "Compté en sens inverse sur une autre étagère — un déplacement, pas une perte et une trouvaille :",
     triage: "D'où vient-il ?", triageHint: "Une unité présente sur l'étagère mais absente du livre vient de quelque part. Faites-la entrer avec son propre document ; seul ce qui n'a aucune source est passé en ajustement — jamais à coût zéro.",
     kind_return: "Retour non réceptionné", kind_purchase: "Livraison fournisseur", kind_unknown: "Sans source", kind_missing: "Manquant", kind_ok: "Conforme",
