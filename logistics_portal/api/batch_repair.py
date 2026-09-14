@@ -142,7 +142,7 @@ _SRE_STALE = """
     FROM `tabStock Reservation Entry` sre
     JOIN `tabSales Order` so ON so.name = sre.voucher_no
     WHERE sre.docstatus = 1
-      AND sre.status IN ('Reserved', 'Partially Delivered')
+      AND sre.status IN ('Reserved', 'Partially Reserved', 'Partially Delivered')
       AND so.custom_sales_status IN ('Cancelled', 'Duplicated')
 """
 

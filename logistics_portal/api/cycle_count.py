@@ -724,6 +724,7 @@ def approve_count(name):
             if float(r.qty or 0) > 0 and not float(r.valuation_rate or 0)]
     if zero:
         frappe.throw("lp:zeroRate")
+    _release_stale_reservations(doc)
     _apply_drift(doc)
     doc.flags.ignore_permissions = True
     doc.submit()
@@ -770,6 +771,7 @@ def approve_all(limit=15):
             if [r for r in doc.items if float(r.qty or 0) > 0 and not float(r.valuation_rate or 0)]:
                 skipped.append({"name": name, "kind": "rate", "reason": ""})
                 continue
+            _release_stale_reservations(doc)
             _apply_drift(doc)
             doc.flags.ignore_permissions = True
             doc.submit()
@@ -921,6 +923,41 @@ def _drift(item_code, warehouse, since):
 def _effective(line, doc):
     """What the shelf holds NOW if the count was right: counted + drift."""
     return float(line.qty or 0) + _drift(line.item_code, line.warehouse, doc.creation)
+
+
+def _release_stale_reservations(doc):
+    """A reservation held by an order sales already cancelled blocks the post
+    (ERPNext refuses a reconciliation on reserved stock) and holds nothing
+    real — the same rule Batch Repair applies, run here for this draft's
+    lines only. A LIVE order's reservation is left alone and the draft stays
+    held with the reason. Returns the reservations released."""
+    released = []
+    for r in doc.items:
+        rows = frappe.db.sql(
+            """SELECT sre.name, sre.voucher_no, sre.reserved_qty - sre.delivered_qty AS qty
+               FROM `tabStock Reservation Entry` sre
+               JOIN `tabSales Order` so ON so.name = sre.voucher_no
+               WHERE sre.docstatus = 1 AND sre.item_code = %s AND sre.warehouse = %s
+                 AND sre.status IN ('Reserved', 'Partially Reserved', 'Partially Delivered')
+                 AND (so.custom_sales_status IN ('Cancelled', 'Duplicated') OR so.status IN ('Closed', 'Cancelled'))""",
+            (r.item_code, r.warehouse), as_dict=True)
+        for x in rows:
+            try:
+                sre = frappe.get_doc("Stock Reservation Entry", x.name)
+                sre.flags.ignore_permissions = True
+                sre.cancel()
+                released.append(x.name)
+                try:
+                    frappe.get_doc("Sales Order", x.voucher_no).add_comment(
+                        "Comment", f"Stale stock reservation {x.name} released ({float(x.qty or 0):g}u) — the order is "
+                                   f"sales-cancelled and the reservation blocked cycle count {doc.name} · by {frappe.session.user}")
+                except Exception:
+                    pass
+            except Exception:
+                frappe.log_error(frappe.get_traceback()[-1500:], f"cycle_count._release_stale_reservations {x.name}")
+    if released:
+        doc.add_comment("Comment", "Released stale reservations before posting: " + ", ".join(released))
+    return released
 
 
 def _apply_drift(doc):
