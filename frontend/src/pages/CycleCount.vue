@@ -206,6 +206,26 @@
           {{ busyPending && allProgress ? allProgress : armedAll ? t('cc.confirmAll') : t('cc.approveAll') }}
         </button>
       </div>
+      <!-- counts that posted a large value: the quantity was right, the reading needs a human -->
+      <div v-if="canApprove && bigPosts.length" class="px-4 py-3 bg-rose-50/60 border-b border-rose-200/70 text-[12px] space-y-1.5">
+        <div class="flex items-center gap-2 flex-wrap">
+          <Icon name="alert-triangle" :size="13" class="text-rose-600" />
+          <span class="font-semibold text-rose-800">{{ t('cc.bigTitle') }}</span>
+          <span class="text-[11px] text-rose-700/80">{{ t('cc.bigHint') }}</span>
+          <label class="ms-auto inline-flex items-center gap-1.5 text-[11px] text-stone-600" dir="ltr">
+            <span>≥</span><input v-model.number="bigThreshold" type="number" min="500" step="500" class="h-7 w-[90px] px-2 rounded-md bg-white ring-1 ring-stone-200 text-[11.5px] tabular-nums text-center" @change="saveThreshold" /><span>MAD</span>
+          </label>
+        </div>
+        <ul class="space-y-1">
+          <li v-for="b in bigPosts" :key="b.name" class="flex items-center gap-2 flex-wrap">
+            <a :href="'/app/stock-reconciliation/' + encodeURIComponent(b.name)" target="_blank" rel="noopener" class="font-mono text-[11px] font-semibold text-stone-800 hover:underline">{{ b.name }}</a>
+            <span class="text-stone-500">{{ short(b.warehouse) }} · {{ b.owner }} · <span class="tabular-nums" dir="ltr">{{ b.at.slice(5) }}</span></span>
+            <span class="font-bold tabular-nums" :class="b.amount < 0 ? 'text-rose-700' : 'text-emerald-700'" dir="ltr">{{ b.amount > 0 ? '+' : '' }}{{ fmt(b.amount) }} MAD</span>
+            <span class="text-stone-600" dir="auto">{{ t('cc.bigMostly') }} <b class="font-mono">{{ b.sku }}</b> ({{ b.delta > 0 ? '+' : '' }}{{ b.delta }} × {{ fmt(b.rate) }} MAD, {{ b.share }}%)</span>
+            <a :href="'/app/item/' + encodeURIComponent(b.item)" target="_blank" rel="noopener" class="text-[11px] font-semibold text-teal-700 hover:underline">{{ t('cc.bigCheckItem') }}</a>
+          </li>
+        </ul>
+      </div>
       <!-- what the last "post everything" did — it stays until dismissed -->
       <div v-if="lastRun" class="px-4 py-3 bg-stone-50/70 border-b border-stone-100 text-[12px] space-y-1.5">
         <div class="flex items-center gap-2 flex-wrap">
@@ -545,6 +565,7 @@ async function submitCount() {
       success(t("cc.cleanTitle"), t("cc.cleanBody"));
     } else if (res.posted) {
       success(t("cc.postedTitle"), `${res.draft} · ${res.diffs.length} ${t('cc.diffs')} · ${fmt(res.differenceAmount)} MAD` + (res.moves ? ` · ${res.moves} ${t('cc.movedN')}` : ""));
+      if (res.big) warn(t("cc.bigTitle"), `${res.big.amount} MAD · ${res.big.sku}`);
     } else if (res.held) {
       warn(t("cc.heldTitle"), res.held === "rate" ? t("cc.skippedRate") : res.held === "pair" ? t("cc.heldPair") : res.heldReason);
     } else {
@@ -570,7 +591,15 @@ async function refreshPending() {
     pending.value = res.pending || [];
     canApprove.value = !!res.canApprove;
     autopost.value = res.autopost !== false;
+    bigPosts.value = res.big || [];
+    if (res.bigThreshold) bigThreshold.value = res.bigThreshold;
   } catch { /* boot already warned */ }
+}
+const bigPosts = ref([]);
+const bigThreshold = ref(5000);
+async function saveThreshold() {
+  try { const r = await apiPost("cycle_count.set_big_threshold", { mad: bigThreshold.value }); bigThreshold.value = r.threshold; await refreshPending(); }
+  catch (e) { warn(t("cc.approveFail"), String(e.message || e)); }
 }
 const autopost = ref(true);
 async function toggleAutopost(on) {

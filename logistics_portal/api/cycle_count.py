@@ -721,7 +721,11 @@ def _pending():
 @frappe.whitelist()
 def pending_counts():
     _gate()
-    return {"pending": _pending(), "canApprove": _is_manager(), "autopost": autopost_enabled()}
+    out = {"pending": _pending(), "canApprove": _is_manager(), "autopost": autopost_enabled()}
+    if _is_manager():
+        out["big"] = big_posts()
+        out["bigThreshold"] = big_threshold()
+    return out
 
 
 def _post_draft(name):
@@ -760,8 +764,10 @@ def _post_draft(name):
         frappe.db.commit()
         for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
             frappe.cache().delete_value(k)
+        big = _watch_big(doc)
+        frappe.db.commit()
         return {"posted": True, "retired": False, "kind": "", "reason": "", "moves": moves,
-                "differenceAmount": round(float(doc.difference_amount or 0))}
+                "differenceAmount": round(float(doc.difference_amount or 0)), "big": big}
     except EmptyStockReconciliationItemsError:
         frappe.db.rollback()
         try:
@@ -777,6 +783,83 @@ def _post_draft(name):
 
 
 _AUTOPOST = "lp_cycle_count_autopost"
+_BIG = "lp_cycle_count_big_mad"
+
+
+def big_threshold():
+    try:
+        return float(frappe.db.get_default(_BIG) or 5000)
+    except Exception:
+        return 5000.0
+
+
+@frappe.whitelist(methods=["POST"])
+def set_big_threshold(mad=5000):
+    if not _is_manager():
+        frappe.throw("Only a manager can change this.", frappe.PermissionError)
+    v = max(500.0, min(float(mad or 5000), 1000000.0))
+    frappe.db.set_default(_BIG, str(v))
+    frappe.db.commit()
+    return {"threshold": v}
+
+
+def _top_line(name):
+    r = frappe.db.sql(
+        """SELECT sri.item_code, it.custom_sku, sri.qty, sri.current_qty, sri.valuation_rate, sri.amount_difference
+           FROM `tabStock Reconciliation Item` sri LEFT JOIN `tabItem` it ON it.name = sri.item_code
+           WHERE sri.parent = %s ORDER BY ABS(sri.amount_difference) DESC LIMIT 1""", (name,), as_dict=True)
+    return r[0] if r else None
+
+
+def _watch_big(doc):
+    """A posted count whose value difference crosses the threshold is
+    flagged for the manager: on the reconciliation, in the queue panel, and
+    on the bell. Measured 2026-09-14: F2B posted −31,530 MAD for 7 missing
+    units of an item carried at 4,526 MAD — a currency error in a receipt,
+    not a loss. The quantities were right; the reading needed a human."""
+    amount = float(doc.difference_amount or 0)
+    if abs(amount) < big_threshold():
+        return None
+    top = _top_line(doc.name) or {}
+    info = {"name": doc.name, "wh": doc.items[0].warehouse if doc.items else "", "amount": round(amount),
+            "sku": top.get("custom_sku") or top.get("item_code") or "", "item": top.get("item_code") or "",
+            "delta": int(float(top.get("qty") or 0) - float(top.get("current_qty") or 0)),
+            "rate": round(float(top.get("valuation_rate") or 0))}
+    try:
+        doc.add_comment("Comment", f"Large value difference: {info['amount']} MAD, mostly {info['sku']} "
+                                   f"({info['delta']:+d} units at {info['rate']} MAD) — check the item's valuation")
+    except Exception:
+        pass
+    try:
+        from logistics_portal.api.shipments import _emit
+        _emit("count_big", info, severity="critical", cooldown_h=1, audience="manager")
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[-1200:], "cycle_count._watch_big")
+    return info
+
+
+def big_posts(hours=48):
+    """Posted portal counts over the threshold, newest first, for the queue panel."""
+    thr = big_threshold()
+    rows = frappe.db.sql(
+        """SELECT sr.name, sr.modified, sr.difference_amount, sr.owner,
+                  (SELECT sri.warehouse FROM `tabStock Reconciliation Item` sri WHERE sri.parent = sr.name LIMIT 1) AS wh
+           FROM `tabStock Reconciliation` sr
+           WHERE sr.docstatus = 1 AND ABS(sr.difference_amount) >= %s
+             AND sr.modified >= DATE_SUB(NOW(), INTERVAL %s HOUR)
+             AND EXISTS (SELECT 1 FROM `tabComment` c WHERE c.reference_doctype = 'Stock Reconciliation'
+                         AND c.reference_name = sr.name AND c.comment_type = 'Comment' AND c.content LIKE 'Portal cycle count%%')
+           ORDER BY sr.modified DESC LIMIT 20""", (thr, int(hours)), as_dict=True)
+    out = []
+    for r in rows:
+        top = _top_line(r.name) or {}
+        out.append({"name": r.name, "warehouse": r.wh or "", "amount": round(float(r.difference_amount or 0)),
+                    "owner": (r.owner or "").split("@")[0], "at": str(r.modified)[:16],
+                    "sku": top.get("custom_sku") or top.get("item_code") or "", "item": top.get("item_code") or "",
+                    "delta": int(float(top.get("qty") or 0) - float(top.get("current_qty") or 0)),
+                    "rate": round(float(top.get("valuation_rate") or 0)),
+                    "share": round(100 * abs(float(top.get("amount_difference") or 0)) / max(1.0, abs(float(r.difference_amount or 1))))})
+    return out
 
 
 def autopost_enabled():

@@ -984,6 +984,14 @@ _ALERTS = {
         "ar": ("طرود في المانيفست اتلقت جوه المخزن",
                "{n} طرد مسجّل في مانيفست اتلقى لسه جوه المخزن ({order}). لازم يتسلّم للكارير تاني — مش عنده."),
     },
+    "count_big": {
+        "en": ("A count posted a large value difference",
+               "{name} on {wh}: {amount} MAD, mostly {sku} ({delta} units at {rate} MAD each). Check the item's valuation before reading it as a real loss or gain."),
+        "fr": ("Un comptage a passé un écart de valeur important",
+               "{name} sur {wh} : {amount} MAD, surtout {sku} ({delta} unités à {rate} MAD). Vérifiez la valorisation de l'article avant d'y lire une vraie perte ou un vrai gain."),
+        "ar": ("عدّة اترحّلت بفرق قيمة كبير",
+               "{name} على {wh}: {amount} درهم، معظمها من {sku} ({delta} وحدة بسعر {rate} درهم). راجع تقييم الصنف قبل ما تعتبره خسارة أو زيادة حقيقية."),
+    },
     "cf_first_call": {
         "en": ("Orders waiting for a first call past the target",
                "{n} orders have been Pending for more than {h} hours with no call logged. The oldest has waited {oldest} hours."),

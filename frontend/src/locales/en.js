@@ -514,6 +514,7 @@ export default {
     retiredN: "already settled", heldN: "held in the queue", heldPair: "Counted the other way on another shelf and the move could not be recorded — open the draft and see the flagged line.",
     releaseLink: "Release the reservation (Batch Repair)",
     postedTitle: "Counted and posted", heldTitle: "Counted — waiting for the manager", autopost: "Post counts on submit", autopostHint: "On: a finished shelf updates stock at once; only what the system cannot post waits here. Off: every count waits for an approval.", pendingHintAuto: "Counts post on submit — only what the system could not post waits here, with its reason.",
+    bigTitle: "Large value differences posted", bigHint: "The quantities are what the counter saw; a value this size usually means the item's valuation is wrong (a receipt in the wrong currency), not a real loss or gain — check the item before reading it as one.", bigMostly: "mostly", bigCheckItem: "Check the item",
     openCount: "Open", openErp: "Open in ERP", extraLines: "found", missingLines: "missing", elsewhere: "Counted the other way on another shelf — a move, not a loss and a find:",
     triage: "Where did it come from?", triageHint: "A unit the shelf holds and the book does not came from somewhere. Bring it in with its own document; only what has no source is posted as an adjustment — never at zero cost.",
     kind_return: "Unreceived return", kind_purchase: "Supplier delivery", kind_unknown: "No source", kind_missing: "Missing", kind_ok: "Matches",
