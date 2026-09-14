@@ -218,6 +218,8 @@
           <li v-for="x in lastRun.skipped" :key="x.name" class="flex items-start gap-2">
             <span class="font-mono text-[11px] text-stone-700 flex-shrink-0">{{ x.name }}</span>
             <span class="text-[11.5px] text-stone-600" dir="auto">{{ x.kind === 'pair' ? t('cc.heldPair') : x.kind === 'rate' ? t('cc.skippedRate') : x.reason }}</span>
+            <RouterLink v-if="/reserv/i.test(x.reason || '')" :to="{ name: 'BatchRepair' }" class="text-[11px] font-semibold text-teal-700 whitespace-nowrap hover:underline">{{ t('cc.releaseLink') }}</RouterLink>
+            <button v-else-if="x.kind === 'rate' || x.kind === 'pair'" class="text-[11px] font-semibold text-teal-700 whitespace-nowrap hover:underline" @click="openTriage({ name: x.name })">{{ t('cc.openCount') }}</button>
           </li>
         </ul>
       </div>
@@ -346,6 +348,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import { RouterLink } from "vue-router";
 import ScanInput from "@/components/ui/ScanInput.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";

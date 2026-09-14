@@ -1151,8 +1151,20 @@ def _move_pair(a, b, item_code, qty=None):
     room = min(abs(da), abs(db))
     want = int(qty or 0) or int(room)
     want = int(min(want, room))
+    # ERPNext will not let a transfer consume units a sales order holds a
+    # reservation on (D3C, 2026-09-14: 3 short, 1 reserved, only 2 movable).
+    # Move what it allows; the rest stays a visible difference.
+    try:
+        from erpnext.stock.doctype.stock_reservation_entry.stock_reservation_entry import (
+            get_sre_reserved_qty_for_item_and_warehouse)
+        reserved = float(get_sre_reserved_qty_for_item_and_warehouse(item_code, short.warehouse) or 0)
+    except Exception:
+        reserved = 0.0
+    movable = _live_qty(item_code, short.warehouse) - reserved
+    if movable < want:
+        want = int(max(0, movable))
     if want <= 0:
-        frappe.throw("Nothing to move.")
+        frappe.throw(f"{item_code}: every unit left in {short.warehouse} is reserved for a sales order — release the reservation first.")
     if short.warehouse == found.warehouse:
         frappe.throw("A move needs two different shelves.")
     se = _apply_count_moves(short.warehouse, [{"item_code": item_code, "qty": want,
