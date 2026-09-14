@@ -1006,6 +1006,7 @@ export default {
     tl_label: "Étiquette créée chez le transporteur", tl_hub: "Au hub du transporteur", tl_ofd: "En cours de livraison", tl_appointment: "Rendez-vous pris avec le client",
     tl_unreachable: "Client injoignable", tl_cancelled: "Annulé", tl_returned: "Retourné", tl_delivered: "Livré",
     tl_mark: "Équipe suivi", tl_rescue: "Décision de sauvetage", tl_other: "Note transporteur",
+    tl_created: "Commande reçue", tl_cfstatus: "Décision de confirmation", tl_cfnote: "Équipe confirmation",
     journey: "Horloge du colis", journeyPromise: "Promis pour", journeyEvents: "Événements transporteur et notes de l'équipe",
     placed: "Créée", printAwb: "Imprimer l’étiquette AWB", openErp: "Ouvrir dans ERPNext",
     lineItems: "Articles", product: "Produit", bin: "Emplacement", qty: "Qté", unit: "Unitaire", total: "Total",

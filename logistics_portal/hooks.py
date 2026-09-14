@@ -133,6 +133,8 @@ scheduler_events = {
             # Tracking portal: page the team about the wave that is about to
             # leave orders behind, and the parcels the carrier has lost.
             "logistics_portal.api.shipments.run_alerts",
+            # Confirmation lane: Pending orders past the first-call target.
+            "logistics_portal.api.confirmation.run_alerts",
             # Post-delivery feedback: read the replies to the question we
             # asked, thank or ticket, expire the silent ones.
             "logistics_portal.api.feedback.run_replies",

@@ -2716,6 +2716,36 @@ def next_up(limit=20, as_user=None):
             "scope": "mine" if mine else "team"}
 
 
+def run_alerts():
+    """Scheduled every 15 min: the stage before confirmation belongs to this
+    lane, so this lane is paged when it slips — Pending orders older than the
+    first-call target (slaFirstCallH) with no call logged, the same test the
+    queue's red badge makes. Same alert store and Alerts page as the tracking
+    portal; the audience is the confirmation team."""
+    try:
+        from logistics_portal.api.shipments import _emit
+        now = _clock.floor_now()
+        if not (8 <= now.hour < 22):
+            return
+        sla_h = int(_cf_settings().get("slaFirstCallH", 6))
+        row = frappe.db.sql(
+            """SELECT COUNT(*), MAX(TIMESTAMPDIFF(HOUR, creation, NOW()))
+               FROM `tabSales Order`
+               WHERE docstatus = 1 AND company = %(co)s
+                 AND custom_sales_status = 'Pending'
+                 AND COALESCE(custom_call_attempts, 0) = 0
+                 AND creation <= DATE_SUB(NOW(), INTERVAL %(h)s HOUR)
+                 AND creation >= DATE_SUB(NOW(), INTERVAL 30 DAY)""",
+            {"co": _CO, "h": sla_h})[0]
+        n, oldest = int(row[0] or 0), int(row[1] or 0)
+        if n >= 5:
+            _emit("cf_first_call", {"n": n, "h": sla_h, "oldest": oldest},
+                  severity="critical" if n >= 30 else "warning", cooldown_h=4,
+                  audience="confirmation")
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "confirmation.run_alerts")
+
+
 @frappe.whitelist()
 def new_orders_ping(since=None):
     """The "new orders just landed" heartbeat — TKT-2609-3803989, item 1.

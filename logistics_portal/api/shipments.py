@@ -984,6 +984,14 @@ _ALERTS = {
         "ar": ("طرود في المانيفست اتلقت جوه المخزن",
                "{n} طرد مسجّل في مانيفست اتلقى لسه جوه المخزن ({order}). لازم يتسلّم للكارير تاني — مش عنده."),
     },
+    "cf_first_call": {
+        "en": ("Orders waiting for a first call past the target",
+               "{n} orders have been Pending for more than {h} hours with no call logged. The oldest has waited {oldest} hours."),
+        "fr": ("Des commandes attendent un premier appel au-delà de l'objectif",
+               "{n} commandes sont en attente depuis plus de {h} h sans aucun appel enregistré. La plus ancienne attend depuis {oldest} h."),
+        "ar": ("أوردرات مستنية أول مكالمة بعد الهدف",
+               "{n} أوردر Pending من أكتر من {h} ساعة من غير أي مكالمة مسجلة. الأقدم مستني من {oldest} ساعة."),
+    },
     "no_scan": {
         "en": ("Parcels manifested but never scanned by the carrier",
                "{n} parcels were handed over more than two days ago and the carrier has no scan for them. Either they never left the building or the handover was lost — check the sort wall, then the carrier."),
@@ -1137,6 +1145,17 @@ def journey(order):
         return {"found": False}
     raw = raw[0]
     one = lambda q, *a: (frappe.db.sql(q, a) or [[None]])[0]
+    # The stage before ours belongs to the confirmation lane; its trail is
+    # read here so the order page shows the whole chain, from the moment the
+    # order arrived: every status decision (Version rows carry who made it)
+    # and every 'Confirmation:' note the lane writes.
+    cf_versions = frappe.db.sql("""SELECT owner, creation, data FROM `tabVersion`
+                                   WHERE ref_doctype = 'Sales Order' AND docname = %s
+                                     AND data LIKE '%%custom_sales_status%%' ORDER BY creation""", (order,), as_dict=True)
+    cf_notes = frappe.db.sql("""SELECT owner, creation, content FROM `tabComment`
+                                WHERE reference_doctype = 'Sales Order' AND reference_name = %s
+                                  AND comment_type = 'Comment' AND content LIKE 'Confirmation:%%'
+                                ORDER BY creation""", (order,), as_dict=True)
     raw.confirmed_at = one("""SELECT MIN(creation) FROM `tabVersion` WHERE ref_doctype = 'Sales Order' AND docname = %s
                               AND data LIKE '%%"custom_sales_status",%%,"Confirmed"]%%'""", order)[0]
     raw.picklist_at = one("""SELECT MIN(p.creation) FROM `tabPick List Item` pli JOIN `tabPick List` p ON p.name = pli.parent
@@ -1196,7 +1215,31 @@ def journey(order):
     def add(at, kind, text="", who=""):
         if at:
             timeline.append({"at": at, "kind": kind, "text": text, "who": who})
-    add(r["confirmedAt"], "confirmed")
+    def _who(u):
+        u = u or ""
+        return "" if u in ("Administrator", "Guest") else u.split("@")[0]
+    add(str(clock.to_floor(raw.created))[:16], "created")
+    confirmed_by = ""
+    for v in cf_versions:
+        try:
+            changed = [c for c in (json.loads(v.data or "{}").get("changed") or []) if c and c[0] == "custom_sales_status"]
+        except Exception:
+            changed = []
+        for _f, _old, new in changed:
+            if new == "Confirmed":
+                confirmed_by = confirmed_by or _who(v.owner)
+                continue   # the milestone below carries it
+            add(str(clock.to_floor(v.creation))[:16], "cfstatus", new or "", _who(v.owner))
+    add(r["confirmedAt"], "confirmed", "", confirmed_by)
+    for c in cf_notes:
+        text = _clean_text(c.content)
+        m = re.search(r"· by (\S+)$", text)
+        who = m.group(1).split("@")[0] if m else _who(c.owner)
+        text = re.sub(r"\s*· by \S+$", "", text).split(":", 1)[-1].strip()
+        # 'confirm' is the Confirmed milestone itself — one entry, not two.
+        if text.startswith("confirm"):
+            continue
+        add(str(clock.to_floor(c.creation))[:16], "cfnote", text, who)
     add(r["pickedAt"], "picklist")
     add(r["closedAt"], "closed")
     if raw.handed_at:

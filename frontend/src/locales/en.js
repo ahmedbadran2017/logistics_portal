@@ -1006,6 +1006,7 @@ export default {
     tl_label: "Label created at the carrier", tl_hub: "At a carrier hub", tl_ofd: "Out for delivery", tl_appointment: "Appointment set with the customer",
     tl_unreachable: "Customer unreachable", tl_cancelled: "Cancelled", tl_returned: "Returned", tl_delivered: "Delivered",
     tl_mark: "Tracking team", tl_rescue: "Rescue decision", tl_other: "Carrier note",
+    tl_created: "Order received", tl_cfstatus: "Confirmation decision", tl_cfnote: "Confirmation team",
     journey: "Parcel clock", journeyPromise: "Promised", journeyEvents: "Carrier events and team notes",
     placed: "Placed", printAwb: "Print AWB label", openErp: "Open in ERPNext",
     lineItems: "Line items", product: "Product", bin: "Bin", qty: "Qty", unit: "Unit", total: "Total",

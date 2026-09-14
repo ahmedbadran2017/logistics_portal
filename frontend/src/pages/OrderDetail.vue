@@ -266,7 +266,7 @@
                   <span v-if="e.who" class="text-[10.5px] text-stone-500 inline-flex items-center gap-1"><Icon name="user" :size="10" />{{ e.who }}</span>
                   <span class="ms-auto text-[10.5px] text-stone-400 tabular-nums" dir="ltr">{{ e.at.slice(5) }}</span>
                 </div>
-                <div v-if="e.text && !SAME_AS_TITLE.has(e.kind)" class="text-[11.5px] text-stone-500 mt-0.5 leading-snug" dir="auto">{{ e.text }}</div>
+                <div v-if="e.text && !SAME_AS_TITLE.has(e.kind)" class="text-[11.5px] text-stone-500 mt-0.5 leading-snug" dir="auto">{{ tlText(e) }}</div>
               </li>
             </ol>
           </div>
@@ -499,6 +499,9 @@ const JSTEPS = [
 const JREACHED = { to_pick: 0, picking: 1, to_hand_over: 2, with_carrier: 3, delivered: 4, failed: 3 };
 // Every kind of thing that can happen to a parcel, with its own face.
 const TL = {
+  created: { icon: "plus", cls: "bg-stone-100 text-stone-500" },
+  cfstatus: { icon: "phone", cls: "bg-sky-50 text-sky-600" },
+  cfnote: { icon: "message-circle", cls: "bg-sky-50 text-sky-600" },
   confirmed: { icon: "check", cls: "bg-stone-100 text-stone-600" },
   picklist: { icon: "clipboard-check", cls: "bg-amber-50 text-amber-600" },
   closed: { icon: "package", cls: "bg-violet-50 text-violet-600" },
@@ -516,7 +519,18 @@ const TL = {
   other: { icon: "info", cls: "bg-stone-100 text-stone-500" },
 };
 // Milestones read from documents carry no text of their own.
-const SAME_AS_TITLE = new Set(["confirmed", "picklist", "closed", "manifest"]);
+const SAME_AS_TITLE = new Set(["created", "confirmed", "picklist", "closed", "manifest"]);
+// The confirmation lane writes its decisions as codes ("dna (attempt 2) — note");
+// the reader gets the lane's own label for the code, in their language.
+const CF_STATUS = { "Did not Answer": "cf.actDna", "Follow Up": "cf.actFollowup", "On Hold": "cf.actOnhold", "Cancelled": "cf.actCancelled",
+  "Duplicated": "cf.tabDuplicated", "Pending": "cf.tabPending", "Not Delivered": "track.notdelivered", "Confirmed": "od.tl_confirmed" };
+const CF_ACT = { confirm: "cf.actConfirm", dna: "cf.actDna", followup: "cf.actFollowup", onhold: "cf.actOnhold", cancel: "cf.actCancel", duplicate: "cf.actDuplicate" };
+function tlText(e) {
+  if (e.kind === "cfstatus") return CF_STATUS[e.text] ? t(CF_STATUS[e.text], e.text) : e.text;
+  if (e.kind !== "cfnote") return e.text;
+  const m = /^([a-z]+)(.*)$/.exec(e.text || "");
+  return m && CF_ACT[m[1]] ? t(CF_ACT[m[1]]) + m[2] : e.text;
+}
 const JSTAGE_CLS = {
   to_pick: "bg-rose-50 text-rose-700", picking: "bg-amber-50 text-amber-700", to_hand_over: "bg-violet-50 text-violet-700",
   with_carrier: "bg-sky-50 text-sky-700", delivered: "bg-emerald-50 text-emerald-700", failed: "bg-rose-100 text-rose-800",
