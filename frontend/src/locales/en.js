@@ -511,6 +511,7 @@ export default {
     autoMoves: "move on approve", autoMovesHint: "Lines another pending shelf counted the other way — recorded as transfers by the system when you approve, never as a loss plus a find", movedN: "recorded as moves", allMoved: "Nothing to post — every difference was a move",
     approveAll: "Post everything", confirmAll: "Confirm — moves first, then post all", allPosted: "Count posted", posted: "posted", skippedRate: "left in the queue: a line still needs a valuation rate", pendingHint: "Counting is never blocked by this queue — post at the end of the walk, when every shelf is in.",
     openPicks: "open pick lists on this shelf", openPicksHint: "Picking does not stop for the count — units may leave this shelf while you count; the system corrects the posted quantity for movements after your count", drifted: "moved since count", driftedHint: "Lines whose shelf saw picks or receipts after the count — the posted quantity is corrected for them automatically", sinceCount: "since the count",
+    retiredN: "already settled", heldN: "held in the queue", heldPair: "Counted the other way on another shelf and the move could not be recorded — open the draft and see the flagged line.",
     openCount: "Open", openErp: "Open in ERP", extraLines: "found", missingLines: "missing", elsewhere: "Counted the other way on another shelf — a move, not a loss and a find:",
     triage: "Where did it come from?", triageHint: "A unit the shelf holds and the book does not came from somewhere. Bring it in with its own document; only what has no source is posted as an adjustment — never at zero cost.",
     kind_return: "Unreceived return", kind_purchase: "Supplier delivery", kind_unknown: "No source", kind_missing: "Missing", kind_ok: "Matches",
@@ -1597,6 +1598,7 @@ export default {
   },
   srv: {
     shipTeamOnly: "Shipment tracking team only.",
+    pairOpen: "This shelf is counted the other way on another pending shelf and the move could not be recorded — resolve the flagged line first, posting now would book a move as a loss plus a find.",
     zeroRate: "Some found units have no valuation rate — set one in the review (Where did it come from?) before posting.",
     leadsOnly: "Tracking leads only.",
     managerOnly: "Only a manager can change the leads list.",

@@ -54,6 +54,40 @@ def _save_registry(names):
     frappe.db.set_default(_REG, json.dumps(names))
 
 
+# Vouchers the count/triage flows post themselves (relocations, return
+# credits, purchase receipts). They correct the BOOK for units that were
+# already on the shelf when it was counted, so they must never read as
+# "movement since the count" — that mistake sent a resolved pair back into
+# the queue and kept a shelf short by the very move that had fixed it.
+_OWN = "lp_cycle_count_vouchers"
+
+
+def _own_vouchers():
+    raw = frappe.db.get_default(_OWN)
+    try:
+        v = json.loads(raw) if raw else []
+        return [str(x) for x in v] if isinstance(v, list) else []
+    except Exception:
+        return []
+
+
+def _remember_voucher(name):
+    if not name:
+        return
+    v = _own_vouchers()
+    if name not in v:
+        v.append(name)
+        frappe.db.set_default(_OWN, json.dumps(v[-500:]))
+
+
+def _own_sql():
+    """A SQL list literal of our vouchers, for the drift subqueries."""
+    own = _own_vouchers()
+    if not own:
+        return "('')"
+    return "(" + ", ".join(frappe.db.escape(x) for x in own) + ")"
+
+
 # ---------------------------------------------------------------------------
 # Count sessions — the witness every count leaves behind.
 #
@@ -446,6 +480,7 @@ def _apply_count_moves(warehouse, moves):
     se.flags.ignore_permissions = True
     se.insert(ignore_permissions=True)
     se.submit()
+    _remember_voucher(se.name)
     for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
         frappe.cache().delete_value(k)
     return se.name
@@ -626,7 +661,7 @@ def _pending():
                       it.custom_sku AS sku,
                       COALESCE(NULLIF(it.item_name,''), sri.item_code) AS iname,
                       COALESCE(b.actual_qty, 0) AS live,
-                      {_DRIFT_SQL} AS drift
+                      {_drift_sql()} AS drift
                FROM `tabStock Reconciliation Item` sri
                JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent
                LEFT JOIN `tabItem` it ON it.name = sri.item_code
@@ -682,11 +717,12 @@ def approve_count(name):
             frappe.cache().delete_value(k)
         return {"ok": True, "name": name, "emptied": True, "moves": moves,
                 "campaignClosed": False, "differenceAmount": 0}
+    if _open_pairs(name):
+        frappe.throw("lp:pairOpen")
     doc = frappe.get_doc("Stock Reconciliation", name)
     zero = [r.item_code for r in doc.items
             if float(r.qty or 0) > 0 and not float(r.valuation_rate or 0)]
     if zero:
-        frappe.db.commit()   # the moves made so far are real and stay
         frappe.throw("lp:zeroRate")
     _apply_drift(doc)
     doc.flags.ignore_permissions = True
@@ -713,20 +749,26 @@ def approve_all(limit=15):
     if not _is_manager():
         frappe.throw("Only a manager can approve counts.", frappe.PermissionError)
     limit = min(max(int(limit or 15), 1), 50)
-    moved, posted, skipped = [], [], []
+    moved, posted, skipped = [], [], []   # skipped: [{name, kind: pair|rate|error, reason}]
+    from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import EmptyStockReconciliationItemsError
     for name in list(_registry()):
         if name in _registry():
             moved.extend(_auto_moves(name))
-    for name in list(_registry())[:limit]:
+    retired = []
+    names = [n for n in _registry() if not any(x["name"] == n for x in skipped)]
+    for name in names[:limit]:
         if name not in _registry():
             continue
         try:
-            doc = frappe.get_doc("Stock Reconciliation", name)
-            if doc.docstatus != 0:
+            if frappe.db.get_value("Stock Reconciliation", name, "docstatus") != 0:
                 _save_registry([n for n in _registry() if n != name])
                 continue
+            if _open_pairs(name):
+                skipped.append({"name": name, "kind": "pair", "reason": ""})
+                continue
+            doc = frappe.get_doc("Stock Reconciliation", name)
             if [r for r in doc.items if float(r.qty or 0) > 0 and not float(r.valuation_rate or 0)]:
-                skipped.append(name)
+                skipped.append({"name": name, "kind": "rate", "reason": ""})
                 continue
             _apply_drift(doc)
             doc.flags.ignore_permissions = True
@@ -734,17 +776,28 @@ def approve_all(limit=15):
             _save_registry([n for n in _registry() if n != name])
             posted.append(name)
             frappe.db.commit()
-        except Exception:
+        except EmptyStockReconciliationItemsError:
+            # The book caught up with the shelf on its own (a move, a
+            # receipt): nothing left to post — the draft is done, not stuck.
             frappe.db.rollback()
-            frappe.log_error(frappe.get_traceback()[:2000], f"cycle_count.approve_all {name}")
-            skipped.append(name)
+            try:
+                _delete_draft(frappe.get_doc("Stock Reconciliation", name))
+                frappe.db.commit()
+            except Exception:
+                frappe.db.rollback()
+            retired.append(name)
+        except Exception as e:
+            frappe.db.rollback()
+            frappe.log_error(f"{e}\n\n{frappe.get_traceback()[-1800:]}", f"cycle_count.approve_all {name}")
+            skipped.append({"name": name, "kind": "error", "reason": _reason(e)})
     frappe.db.commit()
     for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
         frappe.cache().delete_value(k)
     from logistics_portal.api import campaign
     closed = campaign.maybe_close()
-    remaining = [n for n in _registry() if n not in skipped]
-    return {"ok": True, "posted": posted, "moved": len(moved), "skipped": skipped,
+    held = {x["name"] for x in skipped}
+    remaining = [n for n in _registry() if n not in held]
+    return {"ok": True, "posted": posted, "moved": len(moved), "skipped": skipped, "retired": retired,
             "remaining": len(remaining), "campaignClosed": closed}
 
 
@@ -848,16 +901,19 @@ def _draft(name):
 # unchanged by it — physical and book moved together — so the quantity that
 # posts is `counted + drift`, and the delta everywhere is `(counted + drift)
 # − live`. Measured need: a whole-warehouse walk with picking running.
-_DRIFT_SQL = """COALESCE((SELECT SUM(s.actual_qty) FROM `tabStock Ledger Entry` s
+def _drift_sql():
+    return f"""COALESCE((SELECT SUM(s.actual_qty) FROM `tabStock Ledger Entry` s
                           WHERE s.item_code = sri.item_code AND s.warehouse = sri.warehouse
-                            AND s.is_cancelled = 0
+                            AND s.is_cancelled = 0 AND s.voucher_type != 'Stock Reconciliation'
+                            AND s.voucher_no NOT IN {_own_sql()}
                             AND TIMESTAMP(s.posting_date, s.posting_time) > sr.creation), 0)"""
 
 
 def _drift(item_code, warehouse, since):
     return float(frappe.db.sql(
-        """SELECT COALESCE(SUM(actual_qty), 0) FROM `tabStock Ledger Entry`
+        f"""SELECT COALESCE(SUM(actual_qty), 0) FROM `tabStock Ledger Entry`
            WHERE item_code = %s AND warehouse = %s AND is_cancelled = 0
+             AND voucher_type != 'Stock Reconciliation' AND voucher_no NOT IN {_own_sql()}
              AND TIMESTAMP(posting_date, posting_time) > %s""",
         (item_code, warehouse, since))[0][0] or 0)
 
@@ -872,6 +928,17 @@ def _apply_drift(doc):
     movements since the count, so a pick made after the walk is not undone.
     A batch line gets its bundle rebuilt for the new quantity."""
     notes = []
+    # The "current" bundle ERPNext attached at draft time froze each batch's
+    # quantity as of the count; a pick since then leaves it stale, and the
+    # submit then tries to take more of a batch than the shelf holds
+    # (G1B, 2026-09-14: current −19 against 18 left). Cleared here so the
+    # validate on submit rebuilds it from the live batches.
+    stale = []
+    for r in doc.items:
+        if r.get("current_serial_and_batch_bundle"):
+            stale.append(r.current_serial_and_batch_bundle)
+            r.current_serial_and_batch_bundle = None
+            r.current_qty = 0
     for r in doc.items:
         d = _drift(r.item_code, r.warehouse, doc.creation)
         if not d:
@@ -890,9 +957,16 @@ def _apply_drift(doc):
             except Exception:
                 pass
         r.qty = new
-    if notes:
+    if notes or stale:
         doc.flags.ignore_permissions = True
         doc.save(ignore_permissions=True)
+        for b in stale:
+            try:
+                if not frappe.db.exists("Stock Reconciliation Item", {"current_serial_and_batch_bundle": b}):
+                    frappe.delete_doc("Serial and Batch Bundle", b, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+    if notes:
         doc.add_comment("Comment", "Adjusted for movements since the count: " + "; ".join(notes)[:1800])
     return notes
 
@@ -913,7 +987,7 @@ def count_triage(name):
     reg = [n for n in _registry() if n != name]
     if reg:
         for o in frappe.db.sql(
-                f"""SELECT sri.parent, sri.item_code, sri.warehouse, sri.qty + {_DRIFT_SQL} AS qty,
+                f"""SELECT sri.parent, sri.item_code, sri.warehouse, sri.qty + {_drift_sql()} AS qty,
                           COALESCE(b.actual_qty, 0) AS live
                    FROM `tabStock Reconciliation Item` sri
                    JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent
@@ -1037,6 +1111,8 @@ def route_return(name, item_code, ret, qty=None):
     res = returns_repair.complete_item(ret, item_code, want, line.warehouse)
     if not res.get("created"):
         frappe.throw("The return note could not be posted — see the error log.")
+    for r in res.get("rows") or []:
+        _remember_voucher(r.get("dn"))
     doc.add_comment("Comment", f"Triage: {res['units']}u of {item_code} received as return {ret} into {line.warehouse} · by {frappe.session.user}")
     out = _settle_row(doc, item_code)
     frappe.db.commit()
@@ -1098,7 +1174,7 @@ def _pairs_for(names):
     if len(names) < 2:
         return {}
     rows = frappe.db.sql(
-        f"""SELECT sri.parent, sri.item_code, sri.qty + {_DRIFT_SQL} - COALESCE(b.actual_qty, 0) AS delta
+        f"""SELECT sri.parent, sri.item_code, sri.qty + {_drift_sql()} - COALESCE(b.actual_qty, 0) AS delta
            FROM `tabStock Reconciliation Item` sri
            JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent AND sr.docstatus = 0
            LEFT JOIN `tabBin` b ON b.item_code = sri.item_code AND b.warehouse = sri.warehouse
@@ -1129,18 +1205,37 @@ def _auto_moves(name):
             try:
                 a, b = _draft(name), _draft(other)
                 res = _move_pair(a, b, item_code)
+                # Each move is real the moment it posts: a later draft's
+                # failure in the same request must not roll it back (it did,
+                # on 2026-09-14, and the pair then posted as a loss).
+                frappe.db.commit()
                 moves.append(res)
                 if res["emptied"]:
                     break
-            except Exception:
-                # A pair that no longer disagrees, or a shelf the transfer
-                # refuses (book short of the qty): the line stays a difference
-                # for the manager to read, never a silent skip of the post.
-                frappe.log_error(frappe.get_traceback()[:2000], f"cycle_count._auto_moves {name} {item_code}")
+            except Exception as e:
+                frappe.db.rollback()
+                # The line stays a difference the manager can read — and the
+                # draft will NOT post while its pair is open (see _open_pairs).
+                frappe.log_error(f"{e}\n\n{frappe.get_traceback()[-1800:]}", f"cycle_count._auto_moves {name} {item_code}")
                 break
         if name not in _registry():
             break
     return moves
+
+
+def _open_pairs(name):
+    """Items on this draft still counted the other way on another pending
+    shelf after the moves ran — posting now would book a move as a loss
+    plus a find. Returns the item codes."""
+    return list((_pairs_for(_registry()).get(name) or {}).keys())
+
+
+def _reason(e):
+    try:
+        from frappe.utils import strip_html
+        return strip_html(str(e))[:240]
+    except Exception:
+        return str(e)[:240]
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1172,6 +1267,7 @@ def route_purchase(name, item_code, po, qty=None):
     pr.set_warehouse = line.warehouse
     pr.flags.ignore_permissions = True
     pr.insert(ignore_permissions=True)
+    _remember_voucher(pr.name)
     pr.add_comment("Comment", f"From cycle count {name}: {int(it.qty)}u of {item_code} found on {line.warehouse} · by {frappe.session.user}")
     doc.add_comment("Comment", f"Triage: {int(it.qty)}u of {item_code} → draft purchase receipt {pr.name} ({po}) · by {frappe.session.user}")
     doc.items = [r for r in doc.items if r.item_code != item_code]

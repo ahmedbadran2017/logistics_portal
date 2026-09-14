@@ -203,6 +203,24 @@
           {{ busyPending && allProgress ? allProgress : armedAll ? t('cc.confirmAll') : t('cc.approveAll') }}
         </button>
       </div>
+      <!-- what the last "post everything" did — it stays until dismissed -->
+      <div v-if="lastRun" class="px-4 py-3 bg-stone-50/70 border-b border-stone-100 text-[12px] space-y-1.5">
+        <div class="flex items-center gap-2 flex-wrap">
+          <Icon name="check-circle" :size="13" class="text-emerald-600" />
+          <span class="font-semibold text-stone-800">{{ t('cc.allPosted') }}:</span>
+          <span class="tabular-nums text-emerald-700">{{ lastRun.posted }} {{ t('cc.posted') }}</span>
+          <span class="tabular-nums text-amber-700">· {{ lastRun.moved }} {{ t('cc.movedN') }}</span>
+          <span v-if="lastRun.retired" class="tabular-nums text-stone-500">· {{ lastRun.retired }} {{ t('cc.retiredN') }}</span>
+          <span v-if="lastRun.skipped.length" class="tabular-nums text-rose-700">· {{ lastRun.skipped.length }} {{ t('cc.heldN') }}</span>
+          <button class="ms-auto text-stone-400 hover:text-stone-700" :aria-label="t('common.close')" @click="lastRun = null"><Icon name="x" :size="13" /></button>
+        </div>
+        <ul v-if="lastRun.skipped.length" class="space-y-1">
+          <li v-for="x in lastRun.skipped" :key="x.name" class="flex items-start gap-2">
+            <span class="font-mono text-[11px] text-stone-700 flex-shrink-0">{{ x.name }}</span>
+            <span class="text-[11.5px] text-stone-600" dir="auto">{{ x.kind === 'pair' ? t('cc.heldPair') : x.kind === 'rate' ? t('cc.skippedRate') : x.reason }}</span>
+          </li>
+        </ul>
+      </div>
       <div class="divide-y divide-stone-100">
         <div v-for="p in pending" :key="p.name" class="px-4 py-3 space-y-2">
           <div class="flex items-center gap-3 flex-wrap">
@@ -215,6 +233,7 @@
             <span v-if="p.pairs" class="text-[10.5px] font-semibold text-amber-800 bg-amber-50 ring-1 ring-amber-200 rounded-full px-2 py-0.5 inline-flex items-center gap-1" :title="t('cc.autoMovesHint')">
               <Icon name="arrow-right" :size="10" class="flip-rtl" />{{ p.pairs }} {{ t('cc.autoMoves') }}
             </span>
+            <span v-if="heldReason[p.name]" class="text-[10.5px] font-semibold text-rose-700 bg-rose-50 ring-1 ring-rose-200 rounded-full px-2 py-0.5 max-w-[420px] truncate" :title="heldReason[p.name]" dir="auto">{{ heldReason[p.name] }}</span>
             <span class="text-[10.5px] text-stone-400 flex-1">{{ p.owner }} · {{ p.created }}</span>
             <template v-if="canApprove">
               <button
@@ -568,6 +587,8 @@ async function approve(p) {
 // pair up best; then each draft posts. Loops until the server says none remain.
 const armedAll = ref(false);
 const allProgress = ref("");
+const lastRun = ref(null);
+const heldReason = ref({});
 async function approveAll() {
   if (!armedAll.value) {
     armedAll.value = true;
@@ -576,16 +597,20 @@ async function approveAll() {
   }
   armedAll.value = false;
   busyPending.value = true;
-  let posted = 0, moved = 0, skipped = [], guard = 0;
+  let posted = 0, moved = 0, retired = 0, skipped = [], guard = 0;
   try {
     while (guard++ < 40) {
       const res = await apiPost("cycle_count.approve_all", { limit: 15 });
-      posted += (res.posted || []).length; moved += res.moved || 0; skipped = res.skipped || [];
-      allProgress.value = `${posted}…`;
+      posted += (res.posted || []).length; moved += res.moved || 0; retired += (res.retired || []).length;
+      skipped = res.skipped || [];
+      allProgress.value = `${posted} ${t("cc.posted")}…`;
       if (!res.remaining) break;
     }
-    success(t("cc.allPosted"), `${posted} ${t("cc.posted")} · ${moved} ${t("cc.movedN")}` + (skipped.length ? ` · ${skipped.length} ${t("cc.skippedRate")}` : ""));
-    if (skipped.length) warn(t("cc.skippedRate"), skipped.join(", "));
+    lastRun.value = { posted, moved, retired, skipped };
+    const held = {};
+    for (const x of skipped) held[x.name] = x.kind === "pair" ? t("cc.heldPair") : x.kind === "rate" ? t("cc.skippedRate") : x.reason;
+    heldReason.value = held;
+    success(t("cc.allPosted"), `${posted} ${t("cc.posted")} · ${moved} ${t("cc.movedN")}` + (skipped.length ? ` · ${skipped.length} ${t("cc.heldN")}` : ""));
   } catch (e) {
     warn(t("cc.approveFail"), String(e.message || e));
   } finally {

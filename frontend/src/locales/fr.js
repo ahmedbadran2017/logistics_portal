@@ -511,6 +511,7 @@ export default {
     autoMoves: "déplacements à la validation", autoMovesHint: "Lignes comptées en sens inverse sur une autre étagère en attente — enregistrées comme transferts par le système à la validation, jamais comme une perte plus une trouvaille", movedN: "enregistrés en déplacement", allMoved: "Rien à passer — chaque écart était un déplacement",
     approveAll: "Tout valider", confirmAll: "Confirmer — déplacements d'abord, puis tout passer", allPosted: "Inventaire passé", posted: "passés", skippedRate: "laissés en file : une ligne attend encore un taux de valorisation", pendingHint: "Le comptage n'est jamais bloqué par cette file — validez à la fin du tour, quand toutes les étagères sont rentrées.",
     openPicks: "listes de prélèvement ouvertes sur cette étagère", openPicksHint: "Le prélèvement ne s'arrête pas pour le comptage — des unités peuvent quitter l'étagère pendant que vous comptez ; le système corrige la quantité passée des mouvements survenus après votre comptage", drifted: "mouvements depuis le comptage", driftedHint: "Lignes dont l'étagère a vu des prélèvements ou des réceptions après le comptage — la quantité passée est corrigée automatiquement", sinceCount: "depuis le comptage",
+    retiredN: "déjà réglés", heldN: "retenus dans la file", heldPair: "Compté en sens inverse sur une autre étagère et le déplacement n'a pas pu être enregistré — ouvrez le brouillon et regardez la ligne signalée.",
     openCount: "Ouvrir", openErp: "Ouvrir dans l'ERP", extraLines: "trouvés", missingLines: "manquants", elsewhere: "Compté en sens inverse sur une autre étagère — un déplacement, pas une perte et une trouvaille :",
     triage: "D'où vient-il ?", triageHint: "Une unité présente sur l'étagère mais absente du livre vient de quelque part. Faites-la entrer avec son propre document ; seul ce qui n'a aucune source est passé en ajustement — jamais à coût zéro.",
     kind_return: "Retour non réceptionné", kind_purchase: "Livraison fournisseur", kind_unknown: "Sans source", kind_missing: "Manquant", kind_ok: "Conforme",
@@ -1598,6 +1599,7 @@ export default {
   },
   srv: {
     shipTeamOnly: "Réservé à l'équipe de suivi des expéditions.",
+    pairOpen: "Cette étagère est comptée en sens inverse sur une autre étagère en attente et le déplacement n'a pas pu être enregistré — réglez d'abord la ligne signalée ; valider maintenant passerait un déplacement en perte plus trouvaille.",
     zeroRate: "Certaines unités trouvées n'ont pas de taux de valorisation — fixez-le dans la revue (D'où vient-il ?) avant de valider.",
     leadsOnly: "Réservé aux responsables du suivi.",
     managerOnly: "Seul un manager peut modifier la liste des responsables.",
