@@ -984,6 +984,36 @@ _ALERTS = {
         "ar": ("طرود في المانيفست اتلقت جوه المخزن",
                "{n} طرد مسجّل في مانيفست اتلقى لسه جوه المخزن ({order}). لازم يتسلّم للكارير تاني — مش عنده."),
     },
+    "pulse_start": {
+        "en": ("Pick lists nobody has started", "{n} lists created more than {min} min ago with no scan yet; the oldest waits {oldest}. {names}"),
+        "fr": ("Des listes que personne n'a commencées", "{n} listes créées il y a plus de {min} min sans aucun scan ; la plus ancienne attend depuis {oldest}. {names}"),
+        "ar": ("قوائم محدش بدأ فيها", "{n} قائمة اتعملت من أكتر من {min} دقيقة ومفيش scan لسه؛ الأقدم مستنية من {oldest}. {names}"),
+    },
+    "pulse_silent": {
+        "en": ("A picker has gone silent mid-list", "{n} lists in picking with no scan for more than {min} min. {names}"),
+        "fr": ("Un préparateur silencieux en pleine liste", "{n} listes en prélèvement sans scan depuis plus de {min} min. {names}"),
+        "ar": ("بيكر ساكت في نص القائمة", "{n} قائمة في التجهيز من غير scan من أكتر من {min} دقيقة. {names}"),
+    },
+    "pulse_sort": {
+        "en": ("Sorting is holding lists", "{n} submitted lists still sorting after {min} min; the oldest {oldest}. {names}"),
+        "fr": ("Le tri retient des listes", "{n} listes soumises encore au tri après {min} min ; la plus ancienne {oldest}. {names}"),
+        "ar": ("الفرز ماسك قوائم", "{n} قائمة اتبعتت ولسه في الفرز بعد {min} دقيقة؛ الأقدم {oldest}. {names}"),
+    },
+    "pulse_label": {
+        "en": ("Lists without a carrier label", "{n} lists sorted but without a label after {min} min; the oldest {oldest}. {names}"),
+        "fr": ("Des listes sans étiquette transporteur", "{n} listes triées mais sans étiquette après {min} min ; la plus ancienne {oldest}. {names}"),
+        "ar": ("قوائم من غير بوليصة", "{n} قائمة اتفرزت ومفيش بوليصة بعد {min} دقيقة؛ الأقدم {oldest}. {names}"),
+    },
+    "pulse_pack": {
+        "en": ("Labelled lists not packed", "{n} lists labelled but not packed after {min} min; the oldest {oldest}. {names}"),
+        "fr": ("Des listes étiquetées non emballées", "{n} listes étiquetées mais non emballées après {min} min ; la plus ancienne {oldest}. {names}"),
+        "ar": ("قوائم متبوّلصة وما اتغلّفتش", "{n} قائمة عليها بوليصة وما اتغلّفتش بعد {min} دقيقة؛ الأقدم {oldest}. {names}"),
+    },
+    "pulse_manifest": {
+        "en": ("Packed parcels off the manifest", "{n} lists packed but not on a manifest after {min} min; the oldest {oldest}. {names}"),
+        "fr": ("Des colis emballés hors manifeste", "{n} listes emballées mais absentes du manifeste après {min} min ; la plus ancienne {oldest}. {names}"),
+        "ar": ("طرود متغلّفة برة المانيفست", "{n} قائمة اتغلّفت ومش على مانيفست بعد {min} دقيقة؛ الأقدم {oldest}. {names}"),
+    },
     "count_big": {
         "en": ("A count posted a large value difference",
                "{name} on {wh}: {amount} MAD, mostly {sku} ({delta} units at {rate} MAD each). Check the item's valuation before reading it as a real loss or gain."),

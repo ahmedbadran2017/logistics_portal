@@ -1622,6 +1622,7 @@ export default {
     reassign: "Réaffecter", reassignHint: "Confier cette liste brouillon à un autre préparateur", pickPicker: "Choisir un préparateur…", unassign: "Personne (libérer)", reassigned: "Réaffectée",
     nudge: "Relancer", nudgeHint: "Une alerte sur le portail de", nudgePrompt: "Message pour {who} (visible sur sa cloche sous une minute) :", nudged: "Relance envoyée",
     snooze: "Pris en charge, 30 min", snoozeHint: "Je sais — mettre la marque en pause 30 minutes", snoozed: "En pause", snoozedTill: "en pause jusqu'à", packStation: "Poste d'emballage",
+    measuredOver: "Mesuré sur", useAllP90: "Utiliser p90 partout", useP90: "Régler ce seuil sur le p90 du terrain", noHistory: "pas encore d'historique", bellHint: "Toutes les 10 min en heures d'entrepôt, une cloche par type de blocage part aux managers et dispatchers, avec les listes nommées.",
     st_to_pick: "À prélever", st_picking: "Prélèvement", st_sorting: "Tri", st_label: "Étiquette", st_packed: "Emballée", st_manifest: "Manifeste", st_shipped: "Expédiée",
     stn_pick: "scans prélèvement", stn_sort: "scans tri", stn_pack: "emballées", stn_manifest: "scans manifeste",
     cfg_startMin: "Non démarrée", cfg_silentMin: "Préparateur silencieux", cfg_pickMin: "Prélèvement trop long", cfg_sortMin: "Tri", cfg_labelMin: "Sans étiquette", cfg_packMin: "Non emballée", cfg_manifestMin: "Sans manifeste",

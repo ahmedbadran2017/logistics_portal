@@ -69,14 +69,18 @@
         <Icon name="search" :size="13" class="absolute start-3 top-1/2 -translate-y-1/2 text-stone-400" />
         <input v-model="q" :placeholder="t('pulse.searchPh')" class="h-8 w-[220px] ps-8 pe-3 rounded-full bg-white ring-1 ring-stone-200 text-[12px] focus:outline-none focus:ring-stone-400" dir="ltr" />
       </div>
-      <button class="lp-tap h-8 px-3 rounded-full text-[11.5px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50 inline-flex items-center gap-1.5" :aria-expanded="showCfg" @click="showCfg = !showCfg">
+      <button class="lp-tap h-8 px-3 rounded-full text-[11.5px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50 inline-flex items-center gap-1.5" :aria-expanded="showCfg" @click="showCfg = !showCfg; if (showCfg) loadMeasure()">
         <Icon name="settings" :size="12" />{{ t('pulse.thresholds') }}
       </button>
     </div>
 
     <!-- thresholds: when a door counts as stuck -->
     <section v-if="showCfg && cfg" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4">
-      <p class="text-[11.5px] text-stone-500 mb-3">{{ t('pulse.thresholdsHint') }}</p>
+      <div class="flex items-center gap-2 flex-wrap mb-3">
+        <p class="text-[11.5px] text-stone-500 flex-1 min-w-[260px]">{{ t('pulse.thresholdsHint') }}</p>
+        <span v-if="meas" class="text-[11px] text-stone-400 tabular-nums">{{ t('pulse.measuredOver') }} {{ meas.days }}{{ t('oclk.dShort') }} · {{ meas.lists }} {{ t('pulse.lists') }}</span>
+        <button v-if="meas" class="lp-tap h-8 px-3 rounded-lg text-[11px] font-bold text-amber-800 bg-amber-50 ring-1 ring-amber-200 hover:bg-amber-100" @click="useAll('p90')">{{ t('pulse.useAllP90') }}</button>
+      </div>
       <div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3">
         <label v-for="k in CFG_KEYS" :key="k" class="block">
           <span class="block text-[10.5px] font-bold uppercase tracking-wide text-stone-400 mb-1">{{ t('pulse.cfg_' + k) }}</span>
@@ -84,11 +88,19 @@
             <input v-model.number="cfg[k]" type="number" min="1" max="1440" dir="ltr" class="h-9 w-full px-2 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12px] tabular-nums text-center" />
             <span class="text-[11px] text-stone-400">{{ t('pulse.minShort') }}</span>
           </span>
+          <!-- what the floor actually does at this door: the evidence next to the setting -->
+          <span v-if="meas && meas.keys[k] && meas.keys[k].n" class="mt-1 flex items-center gap-1 text-[10px] tabular-nums text-stone-400" dir="ltr">
+            p50 <b class="text-stone-600">{{ meas.keys[k].p50 }}</b> · p75 <b class="text-stone-600">{{ meas.keys[k].p75 }}</b> ·
+            <button class="font-bold rounded px-1 ring-1" :class="cfg[k] === meas.keys[k].p90 ? 'text-stone-500 bg-stone-100 ring-stone-200' : 'text-amber-800 bg-amber-50 ring-amber-200 hover:bg-amber-100'" :title="t('pulse.useP90')" @click.prevent="cfg[k] = meas.keys[k].p90">p90 {{ meas.keys[k].p90 }}</button>
+            <span class="text-stone-300">n{{ meas.keys[k].n }}</span>
+          </span>
+          <span v-else-if="meas" class="mt-1 block text-[10px] text-stone-300">{{ t('pulse.noHistory') }}</span>
         </label>
       </div>
       <div class="mt-3 flex items-center gap-2">
         <button class="h-9 px-4 rounded-xl text-[12.5px] font-bold text-white disabled:opacity-50" style="background: linear-gradient(135deg, rgb(234 88 12), rgb(194 65 12))" :disabled="saving" @click="saveCfg">{{ saving ? t('oclk.saving') : t('common.save') }}</button>
         <span class="text-[11px] text-stone-400">{{ t('pulse.measured') }}</span>
+        <span class="ms-auto text-[11px] text-stone-400">{{ t('pulse.bellHint') }}</span>
       </div>
     </section>
 
@@ -223,6 +235,15 @@ const q = ref("");
 const showCfg = ref(false);
 const saving = ref(false);
 const busy = ref("");
+const meas = ref(null);
+async function loadMeasure() {
+  if (meas.value) return;
+  try { meas.value = await api("pulse.measure", { days: 14 }); } catch (_) { meas.value = null; }
+}
+function useAll(pk) {
+  if (!meas.value) return;
+  for (const k of CFG_KEYS) { const v = meas.value.keys[k]; if (v && v.n && v[pk]) cfg.value[k] = v[pk]; }
+}
 const reassignFor = ref("");
 // Who answers for the door a list stands at.
 function responsible(r) {

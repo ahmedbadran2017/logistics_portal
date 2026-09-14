@@ -1621,6 +1621,7 @@ export default {
     reassign: "Reassign", reassignHint: "Hand this draft list to another picker", pickPicker: "Choose a picker…", unassign: "Nobody (release it)", reassigned: "Reassigned",
     nudge: "Nudge", nudgeHint: "A bell alert on the portal of", nudgePrompt: "Message for {who} (they see it on their bell within a minute):", nudged: "Nudge sent",
     snooze: "Handled, 30 min", snoozeHint: "I know — rest the stall mark for 30 minutes", snoozed: "Snoozed", snoozedTill: "snoozed until", packStation: "Pack station",
+    measuredOver: "Measured over", useAllP90: "Use p90 everywhere", useP90: "Set this threshold to the floor's p90", noHistory: "no history yet", bellHint: "Every 10 min in floor hours, one bell per kind of stall goes to managers and dispatchers, naming the lists.",
     st_to_pick: "To pick", st_picking: "Picking", st_sorting: "Sorting", st_label: "Label", st_packed: "Packed", st_manifest: "Manifest", st_shipped: "Shipped",
     stn_pick: "pick scans", stn_sort: "sort scans", stn_pack: "packed", stn_manifest: "manifest scans",
     cfg_startMin: "Not started", cfg_silentMin: "Picker silent", cfg_pickMin: "Picking too long", cfg_sortMin: "Sorting", cfg_labelMin: "No label", cfg_packMin: "Not packed", cfg_manifestMin: "No manifest",

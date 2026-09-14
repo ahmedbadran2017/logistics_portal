@@ -1621,6 +1621,7 @@ export default {
     reassign: "إعادة تعيين", reassignHint: "سلّم القائمة دي لبيكر تاني", pickPicker: "اختار بيكر…", unassign: "محدش (حررها)", reassigned: "اتعيّنت",
     nudge: "نبّه", nudgeHint: "تنبيه على جرس", nudgePrompt: "رسالة لـ {who} (هيشوفها على الجرس خلال دقيقة):", nudged: "التنبيه اتبعت",
     snooze: "متابَع، 30 د", snoozeHint: "عارف — ريّح علامة العلقة 30 دقيقة", snoozed: "اتأجّلت", snoozedTill: "مؤجّلة لحد", packStation: "محطة التغليف",
+    measuredOver: "مقاس على", useAllP90: "استخدم p90 في الكل", useP90: "اضبط الحد ده على p90 بتاع الأرض", noHistory: "مفيش تاريخ لسه", bellHint: "كل 10 دقايق في ساعات الشغل، جرس واحد لكل نوع علقة بيروح للمديرين والديسباتش بأسماء القوائم.",
     st_to_pick: "للتجهيز", st_picking: "تجهيز", st_sorting: "فرز", st_label: "بوليصة", st_packed: "تغليف", st_manifest: "مانيفست", st_shipped: "اتشحنت",
     stn_pick: "scans تجهيز", stn_sort: "scans فرز", stn_pack: "اتغلّفت", stn_manifest: "scans مانيفست",
     cfg_startMin: "ما بدأتش", cfg_silentMin: "البيكر ساكت", cfg_pickMin: "تجهيز طويل", cfg_sortMin: "الفرز", cfg_labelMin: "بدون بوليصة", cfg_packMin: "ما اتغلّفتش", cfg_manifestMin: "بدون مانيفست",

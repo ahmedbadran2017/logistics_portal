@@ -189,9 +189,10 @@ def _f(dt):
 
 
 @frappe.whitelist()
-def board(hours=None, stage="", who="", stuck=0, q=""):
+def board(hours=None, stage="", who="", stuck=0, q="", internal=False):
     """Every pick list of the window with its doors, stage, age and stall."""
-    _gate()
+    if not internal:
+        _gate()
     cfg = settings()
     hours = min(max(int(hours or cfg["hours"]), 1), 24 * 7)
     now = now_datetime()
@@ -403,3 +404,122 @@ def board(hours=None, stage="", who="", stuck=0, q=""):
     return {"rows": out[:250], "total": len(rows), "stages": strip, "pickers": picker_opts,
             "people": sorted(ppl.values(), key=lambda d: (d["idleMin"] if d["idleMin"] is not None else 9999)),
             "now": _f(now), "settings": cfg}
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — the bell rings before the manager looks, and the thresholds come
+# from what the floor actually does.
+# ---------------------------------------------------------------------------
+
+_REASON_KIND = {"start": "pulse_start", "silent": "pulse_silent", "slow": "pulse_silent", "sort": "pulse_sort",
+                "label": "pulse_label", "pack": "pulse_pack", "manifest": "pulse_manifest"}
+_REASON_MIN = {"start": "startMin", "silent": "silentMin", "slow": "pickMin", "sort": "sortMin",
+               "label": "labelMin", "pack": "packMin", "manifest": "manifestMin"}
+
+
+def run_alerts():
+    """Every 10 minutes in floor hours: one bell per kind of stall, to the
+    managers and the dispatchers, with the lists named. Dedup and cooldown
+    are the alert store's (an unread one is not repeated; a read one waits
+    an hour)."""
+    try:
+        now = clock.floor_now()
+        if not (7 <= now.hour < 21):
+            return
+        from logistics_portal.api.shipments import _emit
+        b = board(internal=True)
+        cfg = b["settings"]
+        groups = {}
+        for r in b["rows"]:
+            if r["reason"]:
+                groups.setdefault(r["reason"], []).append(r)
+        for reason, rows in groups.items():
+            kind = _REASON_KIND.get(reason)
+            if not kind:
+                continue
+            rows.sort(key=lambda x: -x["ageMin"])
+            oldest = rows[0]["ageMin"]
+            params = {"n": len(rows), "min": cfg.get(_REASON_MIN[reason], 0),
+                      "oldest": f"{oldest // 60}h {oldest % 60:02d}m" if oldest >= 60 else f"{oldest} min",
+                      "names": ", ".join(x["name"] for x in rows[:6]) + (" …" if len(rows) > 6 else "")}
+            sev = "critical" if (reason in ("start", "manifest") and len(rows) >= 5) or oldest >= 180 else "warning"
+            for audience in ("manager", "dispatcher"):
+                _emit(kind, params, severity=sev, cooldown_h=1, audience=audience)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[-2000:], "pulse.run_alerts")
+
+
+def _pct(vals, q):
+    vals = sorted(v for v in vals if v is not None and v >= 0)
+    if not vals:
+        return None
+    return int(vals[min(len(vals) - 1, int(round(q * (len(vals) - 1))))])
+
+
+@frappe.whitelist()
+def measure(days=14):
+    """What each door actually takes, from the last `days` of finished
+    lists: p50 / p75 / p90 in minutes per threshold key, so a manager sets
+    the stall lines from evidence. 'silentMin' is the p90 gap between two
+    consecutive pick scans on one list."""
+    _gate()
+    days = min(max(int(days or 14), 3), 60)
+    ck = f"lp_pulse_measure:{days}"
+    try:
+        hit = frappe.cache().get_value(ck, expires=True)
+        if hit:
+            return hit
+    except Exception:
+        pass
+    rows = frappe.db.sql(
+        """SELECT pl.name, pl.creation,
+                  fs.t AS first_pick, ls.t AS last_pick, ss.t AS sort_last,
+                  sub.t AS submitted, lab.t AS label_first, labl.t AS label_last,
+                  pk.t AS pack_first, man.t AS man_first,
+                  (SELECT COUNT(DISTINCT sales_order) FROM `tabPick List Item` WHERE parent = pl.name) AS orders
+           FROM `tabPick List` pl
+           LEFT JOIN (SELECT pick_list, MIN(creation) t FROM `tabLP Scan Event` WHERE station='pick' GROUP BY pick_list) fs ON fs.pick_list = pl.name
+           LEFT JOIN (SELECT pick_list, MAX(creation) t FROM `tabLP Scan Event` WHERE station='pick' GROUP BY pick_list) ls ON ls.pick_list = pl.name
+           LEFT JOIN (SELECT pick_list, MAX(creation) t FROM `tabLP Scan Event` WHERE station='sort' GROUP BY pick_list) ss ON ss.pick_list = pl.name
+           LEFT JOIN (SELECT pick_list, MIN(creation) t FROM `tabLP Scan Event` WHERE station='pack' GROUP BY pick_list) pk ON pk.pick_list = pl.name
+           LEFT JOIN (SELECT docname, MIN(creation) t FROM `tabVersion` WHERE ref_doctype='Pick List' AND data LIKE '%%"docstatus",0,1%%' GROUP BY docname) sub ON sub.docname = pl.name
+           LEFT JOIN (SELECT pli.parent pl, MIN(dn.creation) t, MAX(dn.creation) t2 FROM `tabPick List Item` pli
+                      JOIN `tabDelivery Note Item` dni ON dni.against_sales_order = pli.sales_order
+                      JOIN `tabDelivery Note` dn ON dn.name = dni.parent WHERE dn.docstatus < 2 AND dn.is_return = 0 GROUP BY pli.parent) lab ON lab.pl = pl.name
+           LEFT JOIN (SELECT pli.parent pl, MAX(dn.creation) t FROM `tabPick List Item` pli
+                      JOIN `tabDelivery Note Item` dni ON dni.against_sales_order = pli.sales_order
+                      JOIN `tabDelivery Note` dn ON dn.name = dni.parent WHERE dn.docstatus < 2 AND dn.is_return = 0 GROUP BY pli.parent) labl ON labl.pl = pl.name
+           LEFT JOIN (SELECT pli.parent pl, MIN(s.creation) t FROM `tabPick List Item` pli
+                      JOIN `tabDelivery Note Item` dni ON dni.against_sales_order = pli.sales_order
+                      JOIN `tabShipment Delivery Note` sdn ON sdn.delivery_note = dni.parent
+                      JOIN `tabShipment` s ON s.name = sdn.parent WHERE s.docstatus = 1 GROUP BY pli.parent) man ON man.pl = pl.name
+           WHERE pl.docstatus = 1 AND pl.creation >= DATE_SUB(NOW(), INTERVAL %s DAY)""", (days,), as_dict=True)
+    d = {"startMin": [], "pickMin": [], "sortMin": [], "labelMin": [], "packMin": [], "manifestMin": []}
+    for r in rows:
+        d["startMin"].append(_min(r.creation, r.first_pick))
+        d["pickMin"].append(_min(r.first_pick, r.submitted or r.last_pick))
+        if r.orders and r.orders > 1:
+            d["sortMin"].append(_min(r.submitted, r.sort_last))
+        d["labelMin"].append(_min(r.sort_last or r.submitted, r.label_first))
+        d["packMin"].append(_min(r.label_last, r.pack_first))
+        d["manifestMin"].append(_min(r.label_last, r.man_first))
+    gaps = []
+    last = {}
+    for e in frappe.db.sql(
+            """SELECT pick_list, creation FROM `tabLP Scan Event`
+               WHERE station = 'pick' AND creation >= DATE_SUB(NOW(), INTERVAL %s DAY)
+               ORDER BY pick_list, creation""", (days,), as_dict=True):
+        if e.pick_list in last:
+            gaps.append(_min(last[e.pick_list], e.creation))
+        last[e.pick_list] = e.creation
+    d["silentMin"] = gaps
+    out = {}
+    for k, vals in d.items():
+        vals = [v for v in vals if v is not None]
+        out[k] = {"n": len(vals), "p50": _pct(vals, .5), "p75": _pct(vals, .75), "p90": _pct(vals, .9)}
+    res = {"days": days, "lists": len(rows), "keys": out}
+    try:
+        frappe.cache().set_value(ck, res, expires_in_sec=3600)   # 3.2 s on prod over 14 days
+    except Exception:
+        pass
+    return res
