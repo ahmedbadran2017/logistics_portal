@@ -1065,6 +1065,7 @@ export default {
     dismiss: "Don't show again",
   },
   trk: {
+    fullHistory: "Full history",
     title: "Tracking", subtitle: "parcels shipped in the last {n} days",
     loadFail: "Couldn't load tracking",
     openErp: "Open in ERP", timeline: "Timeline", lastUpdate: "last update",
@@ -1647,6 +1648,10 @@ export default {
     s_to_pick: "no pick list", s_picking: "picking",
     s_to_hand_over: "awaiting handover", s_with_carrier: "with carrier",
     hShort: "h", dShort: "d",
+    trTitle: "Team performance", trIntro: "What each person on the tracking team did over the window, and what came of it: a rescue that ended in a delivery, a chased parcel that arrived.",
+    trActions: "Actions", trSavedRate: "Rescues delivered", trSavedHint: "Of the parcels marked Redeliver or Reship, the share the carrier then delivered", trChasedRate: "Chased and arrived", trChasedHint: "Of the parcels chased with the carrier, the share that were then delivered",
+    trActive: "Active members", trDaily: "Day by day", trFoot: "Read from the trail the team's own actions leave on the orders — nothing is typed in by hand. Outcomes come from the carrier's final status.",
+    openOrder: "Open the order", ownerHint: "Who clears this cause", owner_floor: "Floor fixes this", owner_dispatcher: "Dispatcher fixes this", owner_tracking: "Yours to fix",
     mShort: "m", selectOne: "Select", unsaved: "Unsaved changes", leaveUnsaved: "You have unsaved changes. Leave without saving?",
     clear: "Nothing past its promise — all clear.",
     setTitle: "Tracking settings",

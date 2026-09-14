@@ -1307,6 +1307,68 @@ def my_day():
     return {"today": str(lo)[:10], "me": me, "team": team[:12], "totals": totals}
 
 
+@frappe.whitelist()
+def team_report(days=7):
+    """The tracking team over a window, for its lead: what each member did
+    (the same five trails as my-day) and what came of it — a rescue decision
+    that ended in a delivery, a chased parcel that arrived. Outcomes are read
+    from the order's own terminal stamps, so they are as true as the carrier.
+    """
+    _gate()
+    if not _is_lead():
+        frappe.throw("lp:leadsOnly", frappe.PermissionError)
+    from logistics_portal.api import clock
+    days = min(max(int(days or 7), 1), 90)
+    now = clock.floor_now()
+    lo, _hi = clock.day_bounds(frappe.utils.add_days(now.date(), -(days - 1)))
+    _lo0, hi = clock.day_bounds(now.date())
+    off_min = int(round(clock.offset_hours() * 60))
+    sums = ", ".join(f"SUM(content LIKE %({k})s) AS {k}" for k in _DAY_KINDS)
+    anyof = " OR ".join(f"content LIKE %({k})s" for k in _DAY_KINDS)
+    params = dict(_DAY_KINDS, lo=lo, hi=hi, off=off_min)
+    base = f"""FROM `tabComment`
+               WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
+                 AND creation >= %(lo)s AND creation < %(hi)s AND ({anyof})"""
+    per = frappe.db.sql(f"SELECT owner, {sums} {base} GROUP BY owner", params, as_dict=True)
+    daily = frappe.db.sql(
+        f"""SELECT DATE(DATE_SUB(creation, INTERVAL %(off)s MINUTE)) AS d, {sums} {base}
+            GROUP BY d ORDER BY d""", params, as_dict=True)
+    # Outcomes: of the parcels this person decided to save (Redeliver/Reship)
+    # or chased, how many the carrier later delivered.
+    delivered = """(so.custom_track_shipment_status = 'Delivered' OR so.custom_delivered_at IS NOT NULL
+                    OR so.custom_logistics_status = 'Delivered')"""
+    outc = frappe.db.sql(
+        f"""SELECT c.owner,
+                   SUM(c.content LIKE 'Rescue: redeliver%%' OR c.content LIKE 'Rescue: reship%%') AS saved,
+                   SUM((c.content LIKE 'Rescue: redeliver%%' OR c.content LIKE 'Rescue: reship%%') AND {delivered}) AS savedOk,
+                   SUM(c.content LIKE 'Tracking: chased%%') AS chased,
+                   SUM(c.content LIKE 'Tracking: chased%%' AND {delivered}) AS chasedOk
+            FROM `tabComment` c JOIN `tabSales Order` so ON so.name = c.reference_name
+            WHERE c.reference_doctype = 'Sales Order' AND c.comment_type = 'Comment'
+              AND c.creation >= %(lo)s AND c.creation < %(hi)s
+              AND (c.content LIKE 'Rescue: redeliver%%' OR c.content LIKE 'Rescue: reship%%'
+                   OR c.content LIKE 'Tracking: chased%%')
+            GROUP BY c.owner""", params, as_dict=True)
+    outcomes = {r.owner: r for r in outc}
+    users = [r.owner for r in per]
+    names = dict(frappe.db.sql("SELECT name, full_name FROM `tabUser` WHERE name IN %s", (users,))) if users else {}
+    members = []
+    for r in per:
+        counts = {k: int(r.get(k) or 0) for k in _DAY_KINDS}
+        o = outcomes.get(r.owner) or {}
+        members.append({"user": r.owner, "name": names.get(r.owner) or r.owner.split("@")[0], **counts,
+                        "total": sum(counts.values()),
+                        "saved": int(o.get("saved") or 0), "savedOk": int(o.get("savedOk") or 0),
+                        "chased": int(o.get("chased") or 0), "chasedOk": int(o.get("chasedOk") or 0)})
+    members.sort(key=lambda x: -x["total"])
+    totals = {k: sum(m[k] for m in members) for k in list(_DAY_KINDS) + ["total"]}
+    tot_o = {k: sum(m[k] for m in members) for k in ("saved", "savedOk", "chased", "chasedOk")}
+    return {"days": days, "since": str(lo)[:10], "until": str(now)[:10], "members": members, "totals": totals,
+            "outcomes": tot_o,
+            "daily": [{"d": str(x.d), **{k: int(x.get(k) or 0) for k in _DAY_KINDS},
+                       "total": sum(int(x.get(k) or 0) for k in _DAY_KINDS)} for x in daily]}
+
+
 # ---------------------------------------------------------------------------
 # City promise tuner: what the carrier has actually been doing per city over
 # the last weeks, next to the promise the settings hold. Cities drift; the

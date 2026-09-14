@@ -55,7 +55,11 @@
           <div><div class="text-[13px] font-semibold text-stone-900">{{ t("trk.timeline") }}</div><div class="text-[11px] text-stone-400">{{ tlParcel.carrier }} · {{ t("trk.lastUpdate") }} {{ tlParcel.updated || "—" }}</div></div>
         </div>
         <div class="p-4">
-          <ol class="relative">
+          <!-- the full history when the parcel has an order behind it; the
+               carrier's four steps when it does not -->
+          <div v-if="journeyLoading" class="space-y-2.5"><div v-for="n in 4" :key="n" class="h-[40px] rounded-xl bg-stone-100 animate-pulse" /></div>
+          <JourneyTimeline v-else-if="journey && journey.timeline && journey.timeline.length" :timeline="journey.timeline" :title="t('trk.fullHistory')" />
+          <ol v-else class="relative">
             <li v-for="(e, i) in timelineSteps" :key="i" class="relative flex gap-3.5 pb-4 last:pb-0">
               <span
                 v-if="i !== timelineSteps.length - 1"
@@ -277,9 +281,10 @@
 </template>
 
 <script setup>
-import { computed, ref, h, onMounted, onUnmounted } from "vue";
+import { computed, ref, h, onMounted, onUnmounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import JourneyTimeline from "@/components/JourneyTimeline.vue";
 import {
   TRACK_STATES, TRACK_LABEL, SLA, SLA_LABEL, CARRIER, fmtMAD,
 } from "@/lib/handoffData";
@@ -329,6 +334,18 @@ const q = ref("");
 const page = ref(1);
 const pageSize = 30;
 const tlParcel = ref(null);
+// The parcel's whole story (order arrival → confirmation → floor → carrier →
+// team), read from the order behind the parcel when it opens.
+const journey = ref(null);
+const journeyLoading = ref(false);
+watch(tlParcel, async (p) => {
+  journey.value = null;
+  if (!p || !p.order) return;
+  journeyLoading.value = true;
+  try { const j = await api("shipments.journey", { order: p.order }); journey.value = j && j.found ? j : null; }
+  catch (_) { journey.value = null; }
+  journeyLoading.value = false;
+});
 const updatedAt = ref(Date.now());
 let searchTimer = null;
 

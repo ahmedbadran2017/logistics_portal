@@ -452,7 +452,7 @@ import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
 import { useAuth } from "@/composables/useAuth";
-import { IS_CC } from "@/lib/portal";
+import { IS_CC, IS_SHIP } from "@/lib/portal";
 
 const { t } = useI18n();
 const { role, ccAdmin, viewAs } = useAuth();
@@ -464,6 +464,8 @@ const isManager = computed(() => role.value === "manager");
 // CC agents — and a manager viewing as one — get the coming-soon panel; only
 // the manager/section admins see (and keep designing) the actual board.
 const comingSoon = computed(() => {
+  // The tracking team's scheme is not designed yet: the promise, honestly.
+  if (IS_SHIP) return true;
   if (!IS_CC) return false;
   // The moment the manager flips money.on, the promise page steps aside on
   // its own — no deploy between "activated" and "the team can see it".

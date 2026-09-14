@@ -103,6 +103,7 @@ const routes = [
       // The tracking portal's own screens (served under the /tracking base).
       { path: "board", name: "ShipBoard", component: () => import("@/pages/ShipBoard.vue") },
       { path: "ship-settings", name: "ShipSettings", component: () => import("@/pages/ShipSettings.vue") },
+      { path: "ship-team", name: "ShipTeam", component: () => import("@/pages/ShipTeam.vue") },
       { path: "blocked", name: "ShipBlocked", component: () => import("@/pages/ShipBlocked.vue") },
       { path: "feedback", name: "ShipFeedback", component: () => import("@/pages/ShipFeedback.vue") },
       { path: "audit", name: "Audit", component: () => import("@/pages/Audit.vue") },

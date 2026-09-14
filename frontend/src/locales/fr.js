@@ -1065,6 +1065,7 @@ export default {
     dismiss: "Ne plus afficher",
   },
   trk: {
+    fullHistory: "Historique complet",
     title: "Suivi", subtitle: "colis expédiés sur les {n} derniers jours",
     loadFail: "Impossible de charger le suivi",
     openErp: "Ouvrir dans l’ERP", timeline: "Chronologie", lastUpdate: "dernière mise à jour",
@@ -1648,6 +1649,10 @@ export default {
     s_to_pick: "sans liste", s_picking: "préparation",
     s_to_hand_over: "attend la remise", s_with_carrier: "transporteur",
     hShort: "h", dShort: "j",
+    trTitle: "Performance de l'équipe", trIntro: "Ce que chaque membre de l'équipe suivi a fait sur la période, et ce que cela a donné : un sauvetage terminé en livraison, un colis relancé qui est arrivé.",
+    trActions: "Actions", trSavedRate: "Sauvetages livrés", trSavedHint: "Parmi les colis marqués Relivrer ou Réexpédier, la part ensuite livrée par le transporteur", trChasedRate: "Relancés et arrivés", trChasedHint: "Parmi les colis relancés auprès du transporteur, la part ensuite livrée",
+    trActive: "Membres actifs", trDaily: "Jour par jour", trFoot: "Lu dans la trace que les actions de l'équipe laissent sur les commandes — rien n'est saisi à la main. Les résultats viennent du statut final du transporteur.",
+    openOrder: "Ouvrir la commande", ownerHint: "Qui lève cette cause", owner_floor: "L'entrepôt corrige", owner_dispatcher: "Le dispatch corrige", owner_tracking: "À vous de corriger",
     mShort: "min", selectOne: "Sélectionner", unsaved: "Modifications non enregistrées", leaveUnsaved: "Vous avez des modifications non enregistrées. Quitter sans enregistrer ?",
     clear: "Rien hors promesse — tout est en ordre.",
     setTitle: "Paramètres du suivi",

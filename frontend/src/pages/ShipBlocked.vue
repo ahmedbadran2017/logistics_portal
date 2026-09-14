@@ -85,6 +85,7 @@
           </RouterLink>
           <span class="text-[10px] font-bold rounded-full px-2 py-0.5 whitespace-nowrap flex-shrink-0 hidden sm:inline" :class="STAGE_CLS[r.stage]">{{ t('oclk.s_' + r.stage) }}</span>
           <div class="flex items-center gap-1 flex-wrap justify-end">
+            <span v-if="IS_SHIP" class="text-[10px] font-semibold text-stone-400 whitespace-nowrap" :title="t('oclk.ownerHint')">{{ t('oclk.owner_' + ownerOf(r.why[0])) }}</span>
             <RouterLink v-for="w in r.why" :key="w" :to="fixLink(w, r)"
                         class="lp-tap text-[10.5px] font-semibold rounded-full px-2 py-0.5 ring-1 inline-flex items-center gap-1 hover:bg-white"
                         :class="WHY_CLS[w]" :title="t('oclk.fx_' + w)">
@@ -93,7 +94,7 @@
           </div>
           <RouterLink :to="fixLink(r.why[0], r)" class="lp-tap hidden lg:inline-flex h-9 px-3 rounded-xl text-[12px] font-bold text-white items-center gap-1.5 flex-shrink-0"
                       style="background: linear-gradient(135deg, rgb(20 184 166), rgb(13 148 136)); box-shadow: 0 4px 12px -4px rgb(20 184 166 / .45)">
-            {{ t('oclk.openFix') }}<Icon name="arrow-right" :size="13" class="flip-rtl" />
+            {{ IS_SHIP && ownerOf(r.why[0]) !== 'tracking' ? t('oclk.openOrder') : t('oclk.openFix') }}<Icon name="arrow-right" :size="13" class="flip-rtl" />
           </RouterLink>
           <span class="text-[12px] font-bold tabular-nums w-[44px] text-end flex-shrink-0" dir="ltr" :class="r.late ? 'text-rose-600' : 'text-stone-400'" :title="t('oclk.ageHint')">{{ age(r) }}</span>
         </div>
@@ -115,6 +116,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import Icon from "@/components/ui/Icon.vue";
+import { IS_SHIP } from "@/lib/portal";
 import Pager from "@/components/ui/Pager.vue";
 import { api } from "@/lib/resource";
 import { readStale, writeStale } from "@/lib/swr";
@@ -154,7 +156,13 @@ watch(why, () => { page.value = 1; });
 watch(() => rows.value.length, (n) => { page.value = Math.min(page.value, Math.max(1, Math.ceil(n / pageSize.value))); });
 
 // Each door lands on the row, not on the top of a long list.
+// Who clears each cause. On /tracking the team owns the city; stock, shelf,
+// label and picking are the floor's — the button then opens the order (to
+// note or chase), not a floor screen this team does not operate.
+const OWNER = { oos: "floor", shelf: "floor", stuck_pick: "floor", no_awb: "dispatcher", city: "tracking" };
+function ownerOf(w) { return OWNER[w] || "floor"; }
 function fixLink(w, r) {
+  if (IS_SHIP && ownerOf(w) !== "tracking") return { name: "OrderDetail", params: { name: String(r.order).replace("#", "") } };
   const name = d.value?.fix?.[w] || "ShipBoard";
   if (w === "oos" || w === "stuck_pick") return { name, query: { q: r.order } };
   if (w === "no_awb") return { name, query: { orphans: 1 } };

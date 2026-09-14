@@ -145,6 +145,7 @@ export const ROLE_CONFIG = {
         section: "nav.me",
         items: [
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          { to: "Bonus", label: "nav.bonus", icon: "wallet" },
           { href: "/hrms", label: "nav.attendance", icon: "clock" },
         ],
       },
@@ -406,6 +407,8 @@ const SHIP_MANAGER = {
       section: "nav.team",
       items: [
         { to: "Team", label: "nav.team", icon: "users" },
+        { to: "ShipTeam", label: "nav.teamPerf", icon: "award" },
+        { to: "Bonus", label: "nav.bonus", icon: "wallet" },
         { to: "ShipSettings", label: "nav.settings", icon: "settings" },
         { href: "/hrms", label: "nav.attendance", icon: "clock" },
       ],
