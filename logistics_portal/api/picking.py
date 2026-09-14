@@ -2692,7 +2692,10 @@ def sorting_detail(pick_list):
     """One pick list's sort wall: every order slot with its items (image,
     real SKU, qty, sorted so far) and label state."""
     _sort_gate()
-    if not frappe.db.exists("Pick List", pick_list):
+    # The canonical name: a typed 'pl-56058' opens the wall (the lookup is
+    # case-insensitive) but every scan it logged carried the lowercase id.
+    pick_list = frappe.db.get_value("Pick List", {"name": (pick_list or "").strip()}, "name")
+    if not pick_list:
         frappe.throw("Unknown pick list.")
     rows = frappe.db.sql(
         """SELECT pli.sales_order AS so, pli.item_code, pli.qty,
@@ -3041,7 +3044,8 @@ def sort_scan(pick_list, code):
     completes an order, its status flips to Label Printed and the label URL
     is returned for immediate printing."""
     _sort_gate()
-    if not frappe.db.exists("Pick List", pick_list):
+    pick_list = frappe.db.get_value("Pick List", {"name": (pick_list or "").strip()}, "name")
+    if not pick_list:
         return {"ok": False, "reason": "unknown_list"}
     r = resolve_scan(code)
     item_code = r.get("itemCode")

@@ -27,10 +27,16 @@ DT = "LP Scan Event"
 def log_scan(station, pick_list=None, sales_order=None, item_code=None, qty=1):
     """Fire-and-forget. Called INSIDE hot scan paths; must never raise."""
     try:
+        # A sorter who TYPES the list id gives 'pl-56058'; the Pick List is
+        # 'PL-56058'. MariaDB matches them, Python dicts do not — the
+        # handover zone crashed on the lowercase witness (2026-09-14).
+        pick_list = (pick_list or "").strip()
+        if pick_list.lower().startswith("pl-"):
+            pick_list = pick_list.upper()
         frappe.get_doc({
             "doctype": DT,
             "station": station,
-            "pick_list": (pick_list or "")[:140],
+            "pick_list": pick_list[:140],
             "sales_order": (sales_order or "")[:140],
             "item_code": (item_code or "")[:140],
             "qty": int(qty or 1),

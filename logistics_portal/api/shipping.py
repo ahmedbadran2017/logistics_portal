@@ -766,11 +766,16 @@ def _handover_rows(days=14, pick_lists=None):
     out = {k: v for k, v in out.items() if v["waiting"]}
     if not out:
         return out
+    # Scan events may carry the list id as the sorter typed it ('pl-56058'):
+    # the SQL match is case-insensitive, the dict key is not.
+    keys = {k.upper(): k for k in out}
     for r in frappe.db.sql(
-            """SELECT pick_list, MAX(creation) AS t FROM `tabLP Scan Event`
+            """SELECT UPPER(pick_list) AS pick_list, MAX(creation) AS t FROM `tabLP Scan Event`
                WHERE pick_list IN %s AND station IN ('sort', 'pack', 'label')
-               GROUP BY pick_list""", (tuple(out),), as_dict=True):
-        out[r.pick_list]["sortedAt"] = str(r.t)[:19]
+               GROUP BY UPPER(pick_list)""", (tuple(out),), as_dict=True):
+        k = keys.get((r.pick_list or "").upper())
+        if k:
+            out[k]["sortedAt"] = str(r.t)[:19]
     for r in frappe.db.sql(
             """SELECT name, modified FROM `tabPick List` WHERE name IN %s""",
             (tuple(out),), as_dict=True):

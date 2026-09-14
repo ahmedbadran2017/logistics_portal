@@ -215,8 +215,10 @@ def board(hours=None, stage="", who="", stuck=0, q="", internal=False):
     names = tuple(h.name for h in heads)
 
     # The witnesses, one query each, grouped by list.
+    # UPPER: a typed 'pl-56058' logged lowercase witnesses that MariaDB matches
+    # to the list but a Python dict keyed by the list name would not.
     scans = {r.pick_list: r for r in frappe.db.sql(
-        """SELECT pick_list,
+        """SELECT UPPER(pick_list) AS pick_list,
                   MIN(CASE WHEN station = 'pick' THEN creation END) AS pick_first,
                   MAX(CASE WHEN station = 'pick' THEN creation END) AS pick_last,
                   MIN(CASE WHEN station = 'sort' THEN creation END) AS sort_first,
@@ -226,7 +228,7 @@ def board(hours=None, stage="", who="", stuck=0, q="", internal=False):
                   MAX(CASE WHEN station = 'pick' THEN owner END) AS pick_who,
                   MAX(CASE WHEN station = 'sort' THEN owner END) AS sort_who,
                   MAX(CASE WHEN station = 'pack' THEN owner END) AS pack_who
-           FROM `tabLP Scan Event` WHERE pick_list IN %s GROUP BY pick_list""", (names,), as_dict=True)}
+           FROM `tabLP Scan Event` WHERE pick_list IN %s GROUP BY UPPER(pick_list)""", (names,), as_dict=True)}
     submits = {r.docname: r.t for r in frappe.db.sql(
         """SELECT docname, MIN(creation) AS t FROM `tabVersion`
            WHERE ref_doctype = 'Pick List' AND docname IN %s AND data LIKE '%%"docstatus",0,1%%'
