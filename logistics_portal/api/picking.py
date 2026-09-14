@@ -1666,6 +1666,7 @@ def bulk_pick_lists(action, names=None, picker=None):
 # 3.3h, p90 17.6h, p99 48h. Longer than 12h is one draft in eight — normal
 # overnight work. Longer than 24h is one in twenty-seven, and that is the line
 # where "still being picked" stops being the likely explanation.
+_CO = "Justyol Morocco"
 _DRAFT_WATCH_H = 12
 _DRAFT_STALE_H = 24
 _DRAFT_RADAR_KEY = "lp_draft_radar"

@@ -271,7 +271,7 @@ def _hold_totals():
            WHERE sbb.voucher_type = 'Pick List' AND sbb.docstatus = 1
              AND p.docstatus = 1 AND sabe.qty < 0""", as_dict=True)[0]
     return {"entries": int(r.entries or 0), "picklists": int(r.picklists or 0),
-            "items": int(r.items or 0), "units": int(r.units or 0)}
+            "items": int(r.get("items") or 0), "units": int(r.units or 0)}
 
 
 def _radar_history():

@@ -1652,6 +1652,7 @@ def agent_matrix(weeks=12, basis="deliver", cities=8, min_orders=25):
     if not _is_any_cc_admin():
         frappe.throw("Section admins only.", frappe.PermissionError)
     from logistics_portal.api.city import canon_city, _RESOLVED, _shrink
+    from logistics_portal.api.confirmation import _CO
     weeks = min(max(int(weeks or 12), 2), 52)
     cities = min(max(int(cities or 8), 3), 14)
     min_orders = max(int(min_orders or 25), 5)
