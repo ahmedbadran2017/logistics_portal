@@ -741,7 +741,16 @@ def _post_draft(name):
         if doc.docstatus != 0:
             _save_registry([n for n in _registry() if n != name])
             return {"posted": False, "retired": True, "kind": "", "reason": "", "moves": moves}
-        if [r for r in doc.items if float(r.qty or 0) > 0 and not float(r.valuation_rate or 0)]:
+        # Lines the book already agrees with (a newer count of the same
+        # shelf posted, a move landed) are not differences any more — they
+        # must not hold the draft for a rate they will never need. An older
+        # F6B draft sat 'needs a rate' after its twin had posted the shelf.
+        live_lines = [r for r in doc.items if _effective(r, doc) != _live_qty(r.item_code, r.warehouse)]
+        if not live_lines:
+            _delete_draft(doc)
+            frappe.db.commit()
+            return {"posted": False, "retired": True, "kind": "", "reason": "", "moves": moves}
+        if [r for r in live_lines if float(r.qty or 0) > 0 and not float(r.valuation_rate or 0)]:
             return {"posted": False, "retired": False, "kind": "rate", "reason": "", "moves": moves}
         _release_stale_reservations(doc)
         _apply_drift(doc)
