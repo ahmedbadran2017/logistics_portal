@@ -844,6 +844,8 @@ def mark_labels_printed(orders):
         if st in ("Label Generated", "Picked", "In transit", "Received"):
             frappe.get_doc("Sales Order", name).db_set(
                 "custom_logistics_status", "Label Printed")
+            from logistics_portal.api.scanlog import log_scan
+            log_scan("pack", pick_list=frappe.db.get_value("Pick List Item", {"sales_order": name}, "parent"), sales_order=name)
             done += 1
     frappe.cache().delete_value("lp_board_summary")
     frappe.cache().delete_value("lp_pick_avail")

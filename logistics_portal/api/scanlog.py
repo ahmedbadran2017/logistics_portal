@@ -46,6 +46,17 @@ def ensure_doctype():
     schema files, safe to run every time."""
     try:
         if frappe.db.exists("DocType", DT):
+            # The pack station started logging on 2026-09-14: the Select must
+            # accept it or the insert silently fails (log_scan never raises).
+            try:
+                dt = frappe.get_doc("DocType", DT)
+                f = next((x for x in dt.fields if x.fieldname == "station"), None)
+                if f and "pack" not in (f.options or "").split("\n"):
+                    f.options = (f.options or "").rstrip("\n") + "\npack"
+                    dt.save(ignore_permissions=True)
+                    frappe.db.commit()
+            except Exception:
+                pass
             return
         frappe.get_doc({
             "doctype": "DocType",
@@ -56,7 +67,7 @@ def ensure_doctype():
             "autoname": "autoincrement",
             "fields": [
                 {"fieldname": "station", "fieldtype": "Select", "label": "Station",
-                 "options": "pick\nsort\nmanifest", "in_standard_filter": 1},
+                 "options": "pick\nsort\nmanifest\npack", "in_standard_filter": 1},
                 {"fieldname": "pick_list", "fieldtype": "Data", "label": "Pick List"},
                 {"fieldname": "sales_order", "fieldtype": "Data", "label": "Sales Order"},
                 {"fieldname": "item_code", "fieldtype": "Data", "label": "Item"},

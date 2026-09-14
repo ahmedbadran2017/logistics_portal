@@ -1,0 +1,292 @@
+"""Floor Pulse — every open pick list as one line with its seven doors, for
+the manager who has to see a stall the minute it starts.
+
+Nothing here is typed in by hand. Every door already leaves a witness:
+the list's creation (dispatcher), its assigned picker, one LP Scan Event
+per unit at the pick and sort stations, the submit (a Version row), the
+Delivery Note (the carrier label), the pack station (Label Printed + a
+'pack' scan event since 2026-09-14), the Shipment (the manifest) and the
+carrier's first status. Measured on prod over 14 days (697 lists):
+created→first scan 23 min, picking 5 min, submit→label 2 min,
+label→manifest 150 min — the floor is fast, the wait for the van is long.
+
+A list is 'stuck' when its current door has been open longer than the
+door's threshold; the thresholds are settings a manager tunes.
+"""
+
+import json
+
+import frappe
+from frappe.utils import now_datetime
+
+from logistics_portal.api import clock
+
+STAGES = ("to_pick", "picking", "sorting", "label", "packed", "manifest", "shipped")
+
+_DEFAULTS = {
+    "startMin": 15,      # created, nobody has scanned yet
+    "silentMin": 10,     # picking, last scan this long ago
+    "pickMin": 45,       # picking, since the first scan
+    "sortMin": 20,       # submitted, sorting not finished
+    "labelMin": 10,      # sorted, no carrier label yet
+    "packMin": 30,       # labelled, not packed/printed
+    "manifestMin": 90,   # packed, not on a manifest
+    "hours": 24,         # how far back finished lists are shown
+}
+_KEY = "lp_pulse_settings"
+
+
+def _gate():
+    from logistics_portal.api.auth import resolve_role
+    from logistics_portal.api.permissions import is_ops_admin
+    if is_ops_admin():
+        return
+    if resolve_role(frappe.session.user) not in ("manager", "dispatcher"):
+        frappe.throw("lp:managerOnly", frappe.PermissionError)
+
+
+def settings():
+    raw = frappe.db.get_default(_KEY)
+    cfg = dict(_DEFAULTS)
+    if raw:
+        try:
+            v = json.loads(raw)
+            for k in _DEFAULTS:
+                if k in v:
+                    cfg[k] = int(v[k])
+        except Exception:
+            pass
+    return cfg
+
+
+@frappe.whitelist(methods=["POST"])
+def save_settings(payload=None):
+    _gate()
+    if isinstance(payload, str):
+        payload = json.loads(payload or "{}")
+    cfg = settings()
+    for k in _DEFAULTS:
+        if k in (payload or {}):
+            cfg[k] = max(1, min(int(payload[k] or _DEFAULTS[k]), 1440))
+    frappe.db.set_default(_KEY, json.dumps(cfg))
+    frappe.db.commit()
+    return cfg
+
+
+def _min(a, b):
+    """Minutes from a to b (both datetimes), or None."""
+    if not a or not b:
+        return None
+    return int((b - a).total_seconds() // 60)
+
+
+def _f(dt):
+    return str(clock.to_floor(dt))[:16] if dt else ""
+
+
+@frappe.whitelist()
+def board(hours=None, stage="", who="", stuck=0, q=""):
+    """Every pick list of the window with its doors, stage, age and stall."""
+    _gate()
+    cfg = settings()
+    hours = min(max(int(hours or cfg["hours"]), 1), 24 * 7)
+    now = now_datetime()
+    heads = frappe.db.sql(
+        """SELECT pl.name, pl.creation, pl.modified, pl.owner, pl.docstatus, pl.status,
+                  pl.custom_assigned_picker AS picker,
+                  COUNT(DISTINCT pli.sales_order) AS orders, COUNT(pli.name) AS n_lines,
+                  COALESCE(SUM(pli.qty), 0) AS qty,
+                  COALESCE(SUM(pli.custom_scanned_qty), 0) AS scanned,
+                  COALESCE(SUM(pli.custom_sorted_qty), 0) AS sorted_qty
+           FROM `tabPick List` pl JOIN `tabPick List Item` pli ON pli.parent = pl.name
+           WHERE pl.docstatus < 2 AND COALESCE(pl.status, '') != 'Cancelled'
+             AND (pl.creation >= DATE_SUB(NOW(), INTERVAL %(h)s HOUR)
+                  OR (pl.docstatus = 0 AND pl.creation >= DATE_SUB(NOW(), INTERVAL 7 DAY)))
+           GROUP BY pl.name ORDER BY pl.creation DESC LIMIT 400""",
+        {"h": hours}, as_dict=True)
+    if not heads:
+        return {"rows": [], "stages": {s: {"n": 0, "stuck": 0, "oldestMin": 0} for s in STAGES},
+                "people": [], "now": _f(now), "settings": cfg}
+    names = tuple(h.name for h in heads)
+
+    # The witnesses, one query each, grouped by list.
+    scans = {r.pick_list: r for r in frappe.db.sql(
+        """SELECT pick_list,
+                  MIN(CASE WHEN station = 'pick' THEN creation END) AS pick_first,
+                  MAX(CASE WHEN station = 'pick' THEN creation END) AS pick_last,
+                  MIN(CASE WHEN station = 'sort' THEN creation END) AS sort_first,
+                  MAX(CASE WHEN station = 'sort' THEN creation END) AS sort_last,
+                  MIN(CASE WHEN station = 'pack' THEN creation END) AS pack_first,
+                  MAX(CASE WHEN station = 'pack' THEN creation END) AS pack_last,
+                  MAX(CASE WHEN station = 'pick' THEN owner END) AS pick_who,
+                  MAX(CASE WHEN station = 'sort' THEN owner END) AS sort_who,
+                  MAX(CASE WHEN station = 'pack' THEN owner END) AS pack_who
+           FROM `tabLP Scan Event` WHERE pick_list IN %s GROUP BY pick_list""", (names,), as_dict=True)}
+    submits = {r.docname: r.t for r in frappe.db.sql(
+        """SELECT docname, MIN(creation) AS t FROM `tabVersion`
+           WHERE ref_doctype = 'Pick List' AND docname IN %s AND data LIKE '%%"docstatus",0,1%%'
+           GROUP BY docname""", (names,), as_dict=True)}
+    # Orders of each list → labels (DN with AWB), packed (status), manifest, carrier.
+    so_rows = frappe.db.sql(
+        """SELECT pli.parent AS pl, pli.sales_order AS so, so.custom_logistics_status AS lstat,
+                  dn.name AS dn, dn.creation AS dn_at, NULLIF(dn.custom_awb, '') AS awb,
+                  dn.custom_track_shipment_status AS track, dn.custom_assigned_packer AS packer,
+                  sh.creation AS man_at, sh.name AS shipment
+           FROM (SELECT DISTINCT parent, sales_order FROM `tabPick List Item` WHERE parent IN %s) pli
+           LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
+           LEFT JOIN (SELECT dni.against_sales_order AS so, MIN(d.name) AS name
+                      FROM `tabDelivery Note Item` dni JOIN `tabDelivery Note` d ON d.name = dni.parent
+                      WHERE d.docstatus < 2 AND d.is_return = 0 AND dni.against_sales_order IN
+                            (SELECT sales_order FROM `tabPick List Item` WHERE parent IN %s)
+                      GROUP BY dni.against_sales_order) dl ON dl.so = pli.sales_order
+           LEFT JOIN `tabDelivery Note` dn ON dn.name = dl.name
+           LEFT JOIN (SELECT sdn.delivery_note AS dn, MIN(s.creation) AS creation, MIN(s.name) AS name
+                      FROM `tabShipment Delivery Note` sdn JOIN `tabShipment` s ON s.name = sdn.parent
+                      WHERE s.docstatus = 1 GROUP BY sdn.delivery_note) sh ON sh.dn = dn.name""",
+        (names, names), as_dict=True)
+    per = {}
+    for r in so_rows:
+        p = per.setdefault(r.pl, {"orders": 0, "labels": 0, "label_first": None, "label_last": None,
+                                  "packed": 0, "manifested": 0, "man_first": None, "man_last": None,
+                                  "shipped": 0, "packers": set(), "shipments": set(), "sos": []})
+        p["orders"] += 1
+        p["sos"].append(r.so)
+        if r.awb:
+            p["labels"] += 1
+            p["label_first"] = min(p["label_first"] or r.dn_at, r.dn_at)
+            p["label_last"] = max(p["label_last"] or r.dn_at, r.dn_at)
+        if (r.lstat or "") in ("Label Printed", "Shipped", "In Transit", "Delivered", "Returned") or r.man_at:
+            p["packed"] += 1
+        if r.packer:
+            p["packers"].add(r.packer)
+        if r.man_at:
+            p["manifested"] += 1
+            p["man_first"] = min(p["man_first"] or r.man_at, r.man_at)
+            p["man_last"] = max(p["man_last"] or r.man_at, r.man_at)
+            p["shipments"].add(r.shipment)
+        if (r.track or "Pending") != "Pending" or (r.lstat or "") in ("Shipped", "In Transit", "Delivered", "Returned"):
+            p["shipped"] += 1
+
+    users = set()
+    rows = []
+    for h in heads:
+        s = scans.get(h.name) or frappe._dict()
+        p = per.get(h.name) or {"orders": int(h.orders or 0), "labels": 0, "label_first": None, "label_last": None,
+                                "packed": 0, "manifested": 0, "man_first": None, "man_last": None,
+                                "shipped": 0, "packers": set(), "shipments": set(), "sos": []}
+        orders = max(int(h.orders or 0), 1)
+        qty = float(h.qty or 0)
+        scanned = min(float(h.scanned or 0), qty)
+        sorted_qty = min(float(h.sorted_qty or 0), qty)
+        submitted = submits.get(h.name) or (h.modified if h.docstatus == 1 else None)
+        needs_sort = orders > 1
+        # Which door is open, and since when.
+        if h.docstatus == 0 and not s.get("pick_first") and scanned == 0:
+            stage, since = "to_pick", h.creation
+        elif h.docstatus == 0:
+            stage, since = "picking", s.get("pick_first") or h.creation
+        elif needs_sort and sorted_qty < qty and p["labels"] < orders:
+            stage, since = "sorting", submitted or h.modified
+        elif p["labels"] < orders:
+            stage, since = "label", (s.get("sort_last") if needs_sort else None) or submitted or h.modified
+        elif p["packed"] < orders:
+            stage, since = "packed", p["label_last"] or submitted
+        elif p["manifested"] < orders:
+            stage, since = "manifest", s.get("pack_last") or p["label_last"] or submitted
+        else:
+            stage, since = "shipped", p["man_last"] or submitted
+        age = _min(since, now) or 0
+        # The stall rules, one per door.
+        reason = ""
+        if stage == "to_pick" and age > cfg["startMin"]:
+            reason = "start"
+        elif stage == "picking":
+            silent = _min(s.get("pick_last"), now)
+            if silent is not None and silent > cfg["silentMin"]:
+                reason = "silent"
+            elif age > cfg["pickMin"]:
+                reason = "slow"
+        elif stage == "sorting" and age > cfg["sortMin"]:
+            reason = "sort"
+        elif stage == "label" and age > cfg["labelMin"]:
+            reason = "label"
+        elif stage == "packed" and age > cfg["packMin"]:
+            reason = "pack"
+        elif stage == "manifest" and age > cfg["manifestMin"]:
+            reason = "manifest"
+        people = {"picker": h.picker or s.get("pick_who") or "", "sorter": s.get("sort_who") or "",
+                  "packer": s.get("pack_who") or (sorted(p["packers"])[0] if p["packers"] else "")}
+        users.update(u for u in [h.owner, *people.values()] if u)
+        rows.append({
+            "name": h.name, "createdAt": _f(h.creation), "createdBy": h.owner or "",
+            "docstatus": h.docstatus, "orders": int(h.orders or 0), "lines": int(h.n_lines or 0), "qty": int(qty),
+            "picker": people["picker"], "sorter": people["sorter"], "packer": people["packer"],
+            "stage": stage, "since": _f(since), "ageMin": age, "reason": reason,
+            "silentMin": _min(s.get("pick_last"), now) if stage == "picking" else None,
+            "doors": {
+                "to_pick": {"at": _f(h.creation), "done": True},
+                "picking": {"at": _f(s.get("pick_first")), "done": h.docstatus == 1, "n": int(scanned), "of": int(qty),
+                            "last": _f(s.get("pick_last")), "min": _min(s.get("pick_first"), submitted or s.get("pick_last"))},
+                "sorting": {"at": _f(s.get("sort_first")), "done": (not needs_sort) or sorted_qty >= qty or p["labels"] >= orders,
+                            "n": int(sorted_qty), "of": int(qty), "skip": not needs_sort, "min": _min(s.get("sort_first"), s.get("sort_last"))},
+                "label": {"at": _f(p["label_first"]), "done": p["labels"] >= orders, "n": p["labels"], "of": orders},
+                "packed": {"at": _f(s.get("pack_first")), "done": p["packed"] >= orders, "n": p["packed"], "of": orders},
+                "manifest": {"at": _f(p["man_first"]), "done": p["manifested"] >= orders, "n": p["manifested"], "of": orders,
+                             "shipments": sorted(p["shipments"])},
+                "shipped": {"at": "", "done": p["shipped"] >= orders, "n": p["shipped"], "of": orders},
+            },
+            "orderNames": p["sos"][:12],
+        })
+
+    names_map = {}
+    if users:
+        names_map = dict(frappe.db.sql("SELECT name, full_name FROM `tabUser` WHERE name IN %s", (tuple(users),)))
+    def short(u):
+        return (names_map.get(u) or (u or "").split("@")[0]) if u else ""
+    for r in rows:
+        r["createdByName"] = short(r["createdBy"])
+        r["pickerName"] = short(r["picker"])
+        r["sorterName"] = short(r["sorter"])
+        r["packerName"] = short(r["packer"])
+
+    # The strip on top: how many lists stand at each door, the oldest, the stuck.
+    strip = {s: {"n": 0, "stuck": 0, "oldestMin": 0} for s in STAGES}
+    for r in rows:
+        st = strip[r["stage"]]
+        st["n"] += 1
+        if r["reason"]:
+            st["stuck"] += 1
+        st["oldestMin"] = max(st["oldestMin"], r["ageMin"])
+    # People on the floor right now: last scan, current list.
+    people = frappe.db.sql(
+        """SELECT owner, station, MAX(creation) AS last_at, COUNT(*) AS n_today
+           FROM `tabLP Scan Event` WHERE creation >= DATE_SUB(NOW(), INTERVAL 12 HOUR)
+           GROUP BY owner, station ORDER BY last_at DESC""", as_dict=True)
+    ppl = {}
+    for x in people:
+        d = ppl.setdefault(x.owner, {"user": x.owner, "name": short(x.owner) or (x.owner or "").split("@")[0],
+                                     "stations": {}, "lastAt": None, "idleMin": None})
+        d["stations"][x.station] = int(x.n_today or 0)
+        if not d["lastAt"] or x.last_at > d["lastAt"]:
+            d["lastAt"] = x.last_at
+    for d in ppl.values():
+        d["idleMin"] = _min(d["lastAt"], now)
+        d["lastAt"] = _f(d["lastAt"])
+        d["current"] = next((r["name"] for r in rows if r["stage"] == "picking" and r["picker"] == d["user"]), "")
+
+    # Filters are applied last so the strip always shows the whole floor.
+    out = rows
+    if stage in STAGES:
+        out = [r for r in out if r["stage"] == stage]
+    if who:
+        out = [r for r in out if who in (r["picker"], r["sorter"], r["packer"], r["createdBy"])]
+    if int(stuck or 0):
+        out = [r for r in out if r["reason"]]
+    if q and str(q).strip():
+        qq = str(q).strip().lower()
+        out = [r for r in out if qq in r["name"].lower() or any(qq in (o or "").lower() for o in r["orderNames"])]
+    order = {s: i for i, s in enumerate(STAGES)}
+    out.sort(key=lambda r: (0 if r["reason"] else 1, order[r["stage"]], -r["ageMin"]))
+    return {"rows": out[:250], "total": len(rows), "stages": strip,
+            "people": sorted(ppl.values(), key=lambda d: (d["idleMin"] if d["idleMin"] is not None else 9999)),
+            "now": _f(now), "settings": cfg}

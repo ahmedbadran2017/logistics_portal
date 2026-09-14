@@ -91,6 +91,7 @@ const routes = [
 
       // Manager
       { path: "cockpit", name: "Cockpit", component: () => import("@/pages/Cockpit.vue") },
+      { path: "pulse", name: "Pulse", component: () => import("@/pages/Pulse.vue") },
       { path: "team-performance", name: "TeamPerformance", component: () => import("@/pages/TeamPerformance.vue") },
       // Each person judged against a like-for-like column: agents inside one
       // city, floor workers against the same station.
