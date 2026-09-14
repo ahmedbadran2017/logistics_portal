@@ -352,6 +352,45 @@ def _batch_bundle(item_code, warehouse, counted, company):
     return bundle.name
 
 
+def _rate_for(item_code, bin_row=None):
+    """The cost a found unit enters the books at, from the nearest witness:
+    this bin's valuation, the item's, the item's last ledger valuation in any
+    warehouse, its last purchase receipt, its last purchase order, its last
+    purchase rate. Measured on prod 2026-09-14: every one of the 95 items the
+    count found on empty shelves had a ledger valuation, so this closes the
+    hole that let them enter at zero. Returns (rate, source)."""
+    r = float((bin_row.valuation_rate if bin_row else 0) or 0)
+    if r:
+        return r, "bin"
+    r = float(frappe.db.get_value("Item", item_code, "valuation_rate") or 0)
+    if r:
+        return r, "item"
+    row = frappe.db.sql(
+        """SELECT valuation_rate FROM `tabStock Ledger Entry`
+           WHERE item_code = %s AND is_cancelled = 0 AND valuation_rate > 0
+           ORDER BY posting_date DESC, posting_time DESC, creation DESC LIMIT 1""", (item_code,))
+    if row and row[0][0]:
+        return float(row[0][0]), "ledger"
+    row = frappe.db.sql(
+        """SELECT pri.valuation_rate FROM `tabPurchase Receipt Item` pri
+           JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
+           WHERE pri.item_code = %s AND pr.docstatus = 1 AND pri.valuation_rate > 0
+           ORDER BY pr.posting_date DESC LIMIT 1""", (item_code,))
+    if row and row[0][0]:
+        return float(row[0][0]), "receipt"
+    row = frappe.db.sql(
+        """SELECT poi.rate FROM `tabPurchase Order Item` poi
+           JOIN `tabPurchase Order` po ON po.name = poi.parent
+           WHERE poi.item_code = %s AND po.docstatus = 1 AND poi.rate > 0
+           ORDER BY po.transaction_date DESC LIMIT 1""", (item_code,))
+    if row and row[0][0]:
+        return float(row[0][0]), "po"
+    r = float(frappe.db.get_value("Item", item_code, "last_purchase_rate") or 0)
+    if r:
+        return r, "item"
+    return 0.0, "none"
+
+
 def _apply_count_moves(warehouse, moves):
     """The count's transfers, as ONE submitted Material Transfer.
 
@@ -455,11 +494,13 @@ def submit_count(warehouse, counts=None, note=None, moves=None):
         book_qty = int(b.actual_qty or 0) if b else 0
         if qty == book_qty:
             continue
-        rate = float((b.valuation_rate if b else 0) or 0) \
-            or float(frappe.db.get_value("Item", code, "valuation_rate") or 0)
+        rate, _src = _rate_for(code, b)
         row = {"item_code": code, "warehouse": warehouse, "qty": qty,
                "valuation_rate": rate}
         if not rate:
+            # ERPNext refuses to even save a draft line without a rate. The
+            # flag lets the draft exist; approve_count refuses to POST a
+            # found unit at zero cost until the manager sets a rate.
             row["allow_zero_valuation_rate"] = 1
         diffs.append(row)
         summary.append({"itemCode": code, "counted": qty, "book": book_qty,
@@ -594,6 +635,10 @@ def approve_count(name):
     doc = frappe.get_doc("Stock Reconciliation", name)
     if doc.docstatus != 0:
         frappe.throw("Already processed.")
+    zero = [r.item_code for r in doc.items
+            if float(r.qty or 0) > 0 and not float(r.valuation_rate or 0)]
+    if zero:
+        frappe.throw("lp:zeroRate")
     doc.flags.ignore_permissions = True
     doc.submit()
     _save_registry([n for n in _registry() if n != name])
@@ -638,6 +683,227 @@ def discard_count(name):
     _save_registry([n for n in _registry() if n != name])
     frappe.db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Triage — a unit the shelf holds and the book does not came from somewhere.
+#
+# Measured on prod 2026-09-14 over 14 days of counts: 95 items were found on
+# shelves the book had at zero; none was new to the ledger; 56 had a submitted
+# Return Shipment nobody ever received into stock, 35 an open purchase order
+# with no receipt. A reconciliation would book them at a guessed cost and hide
+# both gaps. So the review names the source per row and offers the document
+# that actually brought the unit in; only the sourceless remainder is posted
+# as an adjustment, and never at zero.
+# ---------------------------------------------------------------------------
+
+def _unreceived_returns(item_code):
+    """Submitted return shipments that say this item came back, minus what a
+    return note already credited — the same arithmetic as the Return Repair."""
+    rows = frappe.db.sql(
+        """SELECT rsi.parent AS ret, rsi.delivery_note AS dn, rsi.delivery_note_item AS dn_item,
+                  COALESCE(rsi.actual_qty, rsi.ordered_qty, 1) AS qty, rs.posting_date
+           FROM `tabReturn Shipment Item` rsi JOIN `tabReturn Shipment` rs ON rs.name = rsi.parent
+           WHERE rsi.item_code = %s AND rs.docstatus = 1 AND COALESCE(rsi.is_complete, 0) = 1
+             AND COALESCE(rsi.delivery_note, '') != ''
+             AND rs.creation >= DATE_SUB(NOW(), INTERVAL 180 DAY)
+           ORDER BY rs.posting_date DESC LIMIT 20""", (item_code,), as_dict=True)
+    out = []
+    for r in rows:
+        credited = float(frappe.db.sql(
+            """SELECT COALESCE(SUM(-dni.qty), 0) FROM `tabDelivery Note` dn
+               JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
+               WHERE dn.is_return = 1 AND dn.docstatus = 1 AND dn.return_against = %s
+                 AND dni.item_code = %s""", (r.dn, item_code))[0][0] or 0)
+        shipped = float(frappe.db.get_value(
+            "Delivery Note Item", {"parent": r.dn, "item_code": item_code}, "qty") or 0)
+        pending = min(float(r.qty or 0) - credited, max(0.0, shipped - credited))
+        if pending > 0:
+            out.append({"ret": r.ret, "dn": r.dn, "qty": int(pending), "date": str(r.posting_date or "")[:10]})
+    return out
+
+
+def _open_po_lines(item_code):
+    return [{"po": r.po, "poItem": r.po_item, "supplier": r.supplier, "qty": int(r.pending or 0),
+             "rate": float(r.rate or 0), "date": str(r.transaction_date or "")[:10]}
+            for r in frappe.db.sql(
+                """SELECT po.name AS po, poi.name AS po_item, po.supplier, poi.qty - poi.received_qty AS pending,
+                          poi.rate, po.transaction_date
+                   FROM `tabPurchase Order Item` poi JOIN `tabPurchase Order` po ON po.name = poi.parent
+                   WHERE poi.item_code = %s AND po.docstatus = 1
+                     AND po.status NOT IN ('Closed', 'Completed', 'Cancelled')
+                     AND poi.received_qty < poi.qty
+                   ORDER BY po.transaction_date DESC LIMIT 10""", (item_code,), as_dict=True)]
+
+
+def _draft(name):
+    if name not in _registry():
+        frappe.throw("Not a portal cycle count.")
+    doc = frappe.get_doc("Stock Reconciliation", name)
+    if doc.docstatus != 0:
+        frappe.throw("Already processed.")
+    return doc
+
+
+def _live_qty(item_code, warehouse):
+    return float(frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty") or 0)
+
+
+@frappe.whitelist()
+def count_triage(name):
+    """Every line of one draft with where its extra units came from."""
+    _gate()
+    doc = _draft(name)
+    rows, need_rate, extras = [], 0, 0
+    for r in doc.items:
+        live = _live_qty(r.item_code, r.warehouse)
+        counted = float(r.qty or 0)
+        delta = counted - live
+        rate = float(r.valuation_rate or 0)
+        suggested, src = (rate, "line") if rate else _rate_for(r.item_code)
+        row = {"itemCode": r.item_code,
+               "sku": frappe.db.get_value("Item", r.item_code, "custom_sku") or "",
+               "name": frappe.db.get_value("Item", r.item_code, "item_name") or r.item_code,
+               "warehouse": r.warehouse, "counted": int(counted), "book": int(live), "delta": int(delta),
+               "rate": rate, "suggestedRate": suggested, "rateSource": src,
+               "needsRate": counted > 0 and not rate,
+               "returns": [], "purchase": [], "kind": "missing" if delta < 0 else "ok"}
+        if delta > 0:
+            extras += 1
+            row["returns"] = _unreceived_returns(r.item_code)
+            row["purchase"] = _open_po_lines(r.item_code)
+            row["kind"] = "return" if row["returns"] else ("purchase" if row["purchase"] else "unknown")
+        if row["needsRate"]:
+            need_rate += 1
+        rows.append(row)
+    rows.sort(key=lambda x: ({"return": 0, "purchase": 1, "unknown": 2, "missing": 3, "ok": 4}[x["kind"]], -abs(x["delta"])))
+    return {"name": name, "warehouse": doc.items[0].warehouse if doc.items else "",
+            "rows": rows, "needRate": need_rate, "extras": extras}
+
+
+def _delete_draft(doc):
+    """The draft and the batch bundles only it points at (same as discard)."""
+    bundles = [b for b in
+               [r.get("serial_and_batch_bundle") for r in doc.items]
+               + [r.get("current_serial_and_batch_bundle") for r in doc.items] if b]
+    doc.flags.ignore_permissions = True
+    doc.delete(ignore_permissions=True)
+    for b in bundles:
+        try:
+            frappe.delete_doc("Serial and Batch Bundle", b, force=1, ignore_permissions=True)
+        except Exception:
+            pass
+    _save_registry([n for n in _registry() if n != doc.name])
+
+
+def _settle_row(doc, item_code):
+    """After a source document brought units in, the line is kept only if the
+    shelf still disagrees with the book. An emptied draft is deleted."""
+    keep = []
+    for r in doc.items:
+        if r.item_code == item_code and float(r.qty or 0) == _live_qty(r.item_code, r.warehouse):
+            continue
+        keep.append(r)
+    if not keep:
+        _delete_draft(doc)
+        return {"emptied": True}
+    if len(keep) != len(doc.items):
+        doc.items = keep
+        doc.flags.ignore_permissions = True
+        doc.save(ignore_permissions=True)
+    return {"emptied": False}
+
+
+@frappe.whitelist(methods=["POST"])
+def set_count_rate(name, item_code, rate=None):
+    """Manager: the cost a found unit enters at, when no witness had one."""
+    if not _is_manager():
+        frappe.throw("Only a manager can set a valuation rate.", frappe.PermissionError)
+    rate = float(rate or 0)
+    if rate <= 0:
+        frappe.throw("The rate must be above zero.")
+    doc = _draft(name)
+    hit = False
+    for r in doc.items:
+        if r.item_code == item_code:
+            r.valuation_rate = rate
+            r.allow_zero_valuation_rate = 0
+            hit = True
+    if not hit:
+        frappe.throw("That item is not on this count.")
+    doc.flags.ignore_permissions = True
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return {"ok": True, "rate": rate}
+
+
+@frappe.whitelist(methods=["POST"])
+def route_return(name, item_code, ret, qty=None):
+    """Manager: the found units are a return nobody received — credit them
+    through the return note, INTO THE COUNTED BIN (that is where they are),
+    and drop the line if the shelf now agrees with the book."""
+    if not _is_manager():
+        frappe.throw("Only a manager can route a count.", frappe.PermissionError)
+    doc = _draft(name)
+    line = next((r for r in doc.items if r.item_code == item_code), None)
+    if line is None:
+        frappe.throw("That item is not on this count.")
+    want = int(qty or 0) or int(float(line.qty or 0) - _live_qty(item_code, line.warehouse))
+    if want <= 0:
+        frappe.throw("Nothing to receive for this line.")
+    from logistics_portal.api import returns_repair
+    res = returns_repair.complete_item(ret, item_code, want, line.warehouse)
+    if not res.get("created"):
+        frappe.throw("The return note could not be posted — see the error log.")
+    doc.add_comment("Comment", f"Triage: {res['units']}u of {item_code} received as return {ret} into {line.warehouse} · by {frappe.session.user}")
+    out = _settle_row(doc, item_code)
+    frappe.db.commit()
+    for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    return {"ok": True, **res, **out}
+
+
+@frappe.whitelist(methods=["POST"])
+def route_purchase(name, item_code, po, qty=None):
+    """Manager: the found units were delivered by a supplier and never
+    received — a DRAFT Purchase Receipt against the open order, into the
+    counted bin, for the manager to check and submit in the ERP. The line
+    leaves the count: the unit has its document now."""
+    if not _is_manager():
+        frappe.throw("Only a manager can route a count.", frappe.PermissionError)
+    doc = _draft(name)
+    line = next((r for r in doc.items if r.item_code == item_code), None)
+    if line is None:
+        frappe.throw("That item is not on this count.")
+    want = int(qty or 0) or int(float(line.qty or 0) - _live_qty(item_code, line.warehouse))
+    if want <= 0:
+        frappe.throw("Nothing to receive for this line.")
+    from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_receipt
+    pr = make_purchase_receipt(po)
+    keep = [it for it in pr.items if it.item_code == item_code]
+    if not keep:
+        frappe.throw("That order has no open line for this item.")
+    it = keep[0]
+    it.qty = min(want, float(it.qty or want))
+    it.received_qty = it.qty
+    it.stock_qty = it.qty * float(it.conversion_factor or 1)
+    it.warehouse = line.warehouse
+    pr.items = [it]
+    pr.set_warehouse = line.warehouse
+    pr.flags.ignore_permissions = True
+    pr.insert(ignore_permissions=True)
+    pr.add_comment("Comment", f"From cycle count {name}: {int(it.qty)}u of {item_code} found on {line.warehouse} · by {frappe.session.user}")
+    doc.add_comment("Comment", f"Triage: {int(it.qty)}u of {item_code} → draft purchase receipt {pr.name} ({po}) · by {frappe.session.user}")
+    doc.items = [r for r in doc.items if r.item_code != item_code]
+    if doc.items:
+        doc.flags.ignore_permissions = True
+        doc.save(ignore_permissions=True)
+        emptied = False
+    else:
+        _delete_draft(doc)
+        emptied = True
+    frappe.db.commit()
+    return {"ok": True, "receipt": pr.name, "qty": int(it.qty), "emptied": emptied}
 
 
 # ---------------------------------------------------------------------------

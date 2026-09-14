@@ -223,6 +223,49 @@
               {{ i.sku || i.itemCode }} {{ i.book }}→{{ i.counted }}
             </span>
             <span v-if="p.more" class="text-[10.5px] text-stone-400 px-1">+{{ p.more }}</span>
+            <button v-if="p.items.some((i) => i.delta > 0) || p.more" class="ms-auto lp-tap h-7 px-2.5 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 ring-1 transition-colors"
+                    :class="triageFor === p.name ? 'text-white bg-stone-900 ring-stone-900' : 'text-teal-700 bg-teal-50 ring-teal-200 hover:bg-teal-100'"
+                    :aria-expanded="triageFor === p.name" @click="openTriage(p)">
+              <Icon name="git-branch" :size="12" />{{ t('cc.triage') }}
+            </button>
+          </div>
+
+          <!-- triage: where each found unit came from, and the document that brings it in -->
+          <div v-if="triageFor === p.name" class="rounded-xl bg-stone-50/70 ring-1 ring-stone-200/70 p-3 space-y-2">
+            <div v-if="triageLoading" class="space-y-1.5"><div v-for="n in 3" :key="n" class="h-[44px] rounded-lg bg-white animate-pulse" /></div>
+            <template v-else-if="triage">
+              <p class="text-[11px] text-stone-500">{{ t('cc.triageHint') }}</p>
+              <div v-for="r in triage.rows.filter((x) => x.delta > 0 || x.needsRate)" :key="r.itemCode" class="bg-white rounded-lg ring-1 ring-stone-200/70 px-3 py-2 space-y-1.5">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-mono text-[11px] font-semibold text-stone-800">{{ r.sku || r.itemCode }}</span>
+                  <span class="text-[11.5px] text-stone-600 truncate max-w-[360px]" dir="auto">{{ r.name }}</span>
+                  <span class="text-[10.5px] font-mono tabular-nums text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 rounded px-1.5 py-0.5">{{ r.book }}→{{ r.counted }} (+{{ r.delta }})</span>
+                  <span class="text-[10px] font-bold uppercase tracking-wide rounded-full px-1.5 py-0.5 ring-1" :class="KIND_CLS[r.kind]">{{ t('cc.kind_' + r.kind) }}</span>
+                  <span class="ms-auto text-[10.5px] tabular-nums" :class="r.needsRate ? 'text-amber-700 font-semibold' : 'text-stone-400'" dir="ltr">
+                    <template v-if="r.needsRate">{{ t('cc.rateNeeded') }}</template>
+                    <template v-else>{{ fmt(r.rate) }} MAD · {{ t('cc.rateSrc_' + r.rateSource) }}</template>
+                  </span>
+                </div>
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <button v-for="x in r.returns.slice(0, 3)" :key="x.ret" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-sky-700 bg-sky-50 ring-1 ring-sky-200 hover:bg-sky-100 inline-flex items-center gap-1 disabled:opacity-50"
+                          :disabled="busyPending" :title="x.dn + ' · ' + x.date" @click="routeReturn(p, r, x)">
+                    <Icon name="rotate-ccw" :size="11" />{{ t('cc.receiveReturn') }} · {{ x.ret }} <b class="tabular-nums">{{ Math.min(x.qty, r.delta) }}</b>
+                  </button>
+                  <button v-for="x in r.purchase.slice(0, 3)" :key="x.po" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-violet-700 bg-violet-50 ring-1 ring-violet-200 hover:bg-violet-100 inline-flex items-center gap-1 disabled:opacity-50"
+                          :disabled="busyPending" :title="x.supplier + ' · ' + x.date + ' · ' + fmt(x.rate) + ' MAD'" @click="routePurchase(p, r, x)">
+                    <Icon name="file-text" :size="11" />{{ t('cc.makeReceipt') }} · {{ x.po }} <b class="tabular-nums">{{ Math.min(x.qty, r.delta) }}</b>
+                  </button>
+                  <span v-if="r.kind === 'unknown' && !r.needsRate" class="text-[11px] text-stone-500">{{ t('cc.noSource') }}</span>
+                  <template v-if="r.needsRate && canApprove">
+                    <input v-model.number="rateDraft[r.itemCode]" type="number" min="0.01" step="0.01" dir="ltr" :placeholder="r.suggestedRate ? String(r.suggestedRate) : '0.00'"
+                           class="h-8 w-[110px] px-2 rounded-lg bg-stone-50 ring-1 ring-amber-300 text-[12px] tabular-nums text-center" />
+                    <button class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-amber-800 bg-amber-50 ring-1 ring-amber-200 hover:bg-amber-100 disabled:opacity-50"
+                            :disabled="busyPending || !(rateDraft[r.itemCode] > 0)" @click="setRate(p, r)">{{ t('cc.setRate') }}</button>
+                  </template>
+                </div>
+              </div>
+              <p v-if="!triage.rows.some((x) => x.delta > 0 || x.needsRate)" class="text-[11.5px] text-stone-400">{{ t('cc.noExtras') }}</p>
+            </template>
           </div>
         </div>
       </div>
@@ -486,6 +529,58 @@ async function discard(p) {
   } finally {
     busyPending.value = false;
   }
+}
+
+// ── triage: where a found unit came from ───────────────────────────────
+const triageFor = ref("");
+const triage = ref(null);
+const triageLoading = ref(false);
+const rateDraft = ref({});
+const KIND_CLS = {
+  return: "text-sky-700 bg-sky-50 ring-sky-200", purchase: "text-violet-700 bg-violet-50 ring-violet-200",
+  unknown: "text-stone-600 bg-stone-100 ring-stone-200", missing: "text-rose-700 bg-rose-50 ring-rose-200", ok: "text-stone-500 bg-stone-100 ring-stone-200",
+};
+async function loadTriage(name) {
+  triageLoading.value = true;
+  try { triage.value = await api("cycle_count.count_triage", { name }); }
+  catch (e) { triage.value = null; warn(t("cc.routeFail"), String(e.message || e)); }
+  triageLoading.value = false;
+}
+function openTriage(p) {
+  if (triageFor.value === p.name) { triageFor.value = ""; triage.value = null; return; }
+  triageFor.value = p.name; triage.value = null; rateDraft.value = {};
+  loadTriage(p.name);
+}
+async function afterRoute(p, res, label) {
+  success(t("cc.routed"), label);
+  await refreshPending();
+  if (res && res.emptied) { triageFor.value = ""; triage.value = null; }
+  else await loadTriage(p.name);
+}
+async function routeReturn(p, r, x) {
+  busyPending.value = true;
+  try {
+    const res = await apiPost("cycle_count.route_return", { name: p.name, item_code: r.itemCode, ret: x.ret, qty: Math.min(x.qty, r.delta) });
+    await afterRoute(p, res, `${res.units}u · ${x.ret}`);
+  } catch (e) { warn(t("cc.routeFail"), String(e.message || e)); }
+  busyPending.value = false;
+}
+async function routePurchase(p, r, x) {
+  busyPending.value = true;
+  try {
+    const res = await apiPost("cycle_count.route_purchase", { name: p.name, item_code: r.itemCode, po: x.po, qty: Math.min(x.qty, r.delta) });
+    await afterRoute(p, res, `${res.qty}u · ${res.receipt} — ${t("cc.prDraftHint")}`);
+  } catch (e) { warn(t("cc.routeFail"), String(e.message || e)); }
+  busyPending.value = false;
+}
+async function setRate(p, r) {
+  busyPending.value = true;
+  try {
+    await apiPost("cycle_count.set_count_rate", { name: p.name, item_code: r.itemCode, rate: rateDraft.value[r.itemCode] });
+    success(t("cc.rateSet"), `${r.sku || r.itemCode} · ${fmt(rateDraft.value[r.itemCode])} MAD`);
+    await loadTriage(p.name); await refreshPending();
+  } catch (e) { warn(t("cc.routeFail"), String(e.message || e)); }
+  busyPending.value = false;
 }
 
 function short(w) { return String(w || "").replace(" - JM", ""); }

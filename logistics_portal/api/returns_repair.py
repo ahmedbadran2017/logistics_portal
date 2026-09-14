@@ -142,6 +142,55 @@ def scan(days=30):
             "totalValue": round(value), "days": days}
 
 
+def complete_item(ret, item_code, qty, warehouse):
+    """Credit up to `qty` units of ONE item from one return shipment's
+    unposted rows, into `warehouse` (the counted shelf, where the units are).
+    Called by the cycle-count triage; same guards as complete()."""
+    _gate()
+    ret = (ret or "").strip()
+    if frappe.db.get_value("Return Shipment", ret, "docstatus") != 1:
+        frappe.throw("The return shipment is not submitted.")
+    from erpnext.controllers.sales_and_purchase_return import make_return_doc
+    left = float(qty or 0)
+    created, units, rows = 0, 0.0, []
+    for p in [r for r in _pending_rows(ret) if r["item"] == item_code]:
+        if left <= 0:
+            break
+        take = min(left, float(p["qty"]))
+        try:
+            doc = make_return_doc("Delivery Note", p["dn"])
+            line = next((it for it in doc.items if p["dnItem"] and it.get("dn_detail") == p["dnItem"]), None) \
+                or next((it for it in doc.items if it.item_code == item_code), None)
+            if line is None:
+                continue
+            line.qty = -abs(take)
+            line.stock_qty = line.qty
+            line.warehouse = warehouse
+            doc.items = [line]
+            doc.set_warehouse = warehouse
+            doc.posting_date = nowdate()
+            doc.set_posting_time = 0
+            if doc.meta.has_field("custom_return_shipment"):
+                doc.custom_return_shipment = ret
+            doc.flags.ignore_permissions = True
+            doc.insert(ignore_permissions=True)
+            doc.submit()
+            created += 1
+            units += take
+            left -= take
+            rows.append({"dn": doc.name, "qty": take})
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:3000], f"returns_repair.complete_item {ret} {item_code}")
+    if created:
+        try:
+            frappe.get_doc("Return Shipment", ret).add_comment(
+                "Comment", f"Cycle-count triage: credited {units:g}u of {item_code} into {warehouse} "
+                           f"· by {frappe.session.user} · {str(now_datetime())[:16]}")
+        except Exception:
+            pass
+    return {"created": created, "units": round(units), "rows": rows}
+
+
 @frappe.whitelist(methods=["POST"])
 def complete(ret, limit=10):
     """Post the missing return credits for ONE shipment, oldest row first."""
