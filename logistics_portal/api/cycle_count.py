@@ -39,19 +39,27 @@ def _is_manager():
 
 
 def _registry():
-    raw = frappe.db.get_default(_REG)
-    if raw:
-        try:
-            v = json.loads(raw)
-            if isinstance(v, list):
-                return [str(x) for x in v]
-        except Exception:
-            pass
-    return []
+    """Every portal draft still open, read from the database.
+
+    This used to be a JSON list in a Default, rewritten on every submit —
+    and two counters submitting in the same second overwrote each other:
+    F6B's count (MAT-RECO-2026-22493, six found items) survived as a draft
+    but vanished from the queue, was never posted, and the shelf kept
+    showing the book. A portal draft is any open reconciliation that
+    carries the count's own comment; nothing to keep in sync any more."""
+    rows = frappe.db.sql(
+        """SELECT sr.name FROM `tabStock Reconciliation` sr
+           WHERE sr.docstatus = 0
+             AND EXISTS (SELECT 1 FROM `tabComment` c
+                         WHERE c.reference_doctype = 'Stock Reconciliation' AND c.reference_name = sr.name
+                           AND c.comment_type = 'Comment' AND c.content LIKE 'Portal cycle count%%')
+           ORDER BY sr.creation""")
+    return [r[0] for r in rows]
 
 
 def _save_registry(names):
-    frappe.db.set_default(_REG, json.dumps(names))
+    """Kept for the call sites; the registry is derived, not stored."""
+    return None
 
 
 # Vouchers the count/triage flows post themselves (relocations, return
@@ -81,11 +89,17 @@ def _remember_voucher(name):
 
 
 def _own_sql():
-    """A SQL list literal of our vouchers, for the drift subqueries."""
-    own = _own_vouchers()
+    """A SQL list literal of our vouchers, for the drift subqueries — the
+    remembered ones plus every relocation entry by its remark, so a lost
+    list entry never turns a move into drift."""
+    own = set(_own_vouchers())
+    for r in frappe.db.sql("""SELECT name FROM `tabStock Entry` WHERE docstatus = 1
+                              AND remarks LIKE 'Cycle-count relocation%%'
+                              AND creation >= DATE_SUB(NOW(), INTERVAL 30 DAY)"""):
+        own.add(r[0])
     if not own:
         return "('')"
-    return "(" + ", ".join(frappe.db.escape(x) for x in own) + ")"
+    return "(" + ", ".join(frappe.db.escape(x) for x in sorted(own)) + ")"
 
 
 # ---------------------------------------------------------------------------
