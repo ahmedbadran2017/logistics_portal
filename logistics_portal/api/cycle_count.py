@@ -373,10 +373,22 @@ def _batch_bundle(item_code, warehouse, counted, company):
         if not counted:
             return None
         if not frappe.get_cached_value("Item", item_code, "create_new_batch"):
-            frappe.throw(
-                f"{item_code} is batch-tracked and this shelf has no batch to "
-                "count against. It needs a Stock Reconciliation with the batch "
-                "named by hand.")
+            # An item whose batches are only minted at receipt (China-zone
+            # 'BT.CH' items): ERPNext's autoname wants an explicit id, so
+            # the count names one that says what it is — a unit found by a
+            # count, batch unknown. Refusing the count here (the old
+            # behaviour) sent the counter to the Desk for a job the Desk
+            # cannot do either.
+            base = f"CC-{item_code}-{nowdate()}"
+            bid, n = base, 1
+            while frappe.db.exists("Batch", bid):
+                n += 1
+                bid = f"{base}-{n}"
+            batch = frappe.get_doc({"doctype": "Batch", "item": item_code, "batch_id": bid,
+                                    "description": "Found by cycle count; batch unknown"})
+            batch.flags.ignore_permissions = True
+            batch.insert(ignore_permissions=True)
+            return {"batch_no": batch.name}
         # A bundle naming a batch that has NO stock yet cannot ride a draft
         # reconciliation: on validate ERPNext duplicates it as an Outward
         # package sized by the batch's current quantity — zero — and refuses
@@ -558,15 +570,41 @@ def submit_count(warehouse, counts=None, note=None, moves=None):
         diffs.append(row)
         summary.append({"itemCode": code, "counted": qty, "book": book_qty,
                         "delta": qty - book_qty})
+    # A batch-tracked unit found on a shelf that holds no batch of it cannot
+    # even be DRAFTED: ERPNext wants a batch to count against. Before this the
+    # count was refused outright (Return Zone, 2026-09-15: MN-SH-073-blk-40,
+    # booked 4 in CH-A1-A). The unit is nearly always the book's unit standing
+    # somewhere else, so it is pulled from its source FIRST — the same rule
+    # posting applies — which gives the shelf a batch to count against and,
+    # when the pull covers the whole find, leaves no difference at all.
+    pulled = []
+    if pull_enabled():
+        for row in list(diffs):
+            code = row["item_code"]
+            b = book.get(code)
+            book_qty = int(b.actual_qty or 0) if b else 0
+            need = int(row["qty"]) - book_qty
+            if need <= 0 or not frappe.get_cached_value("Item", code, "has_batch_no"):
+                continue
+            if _available_batches(code, warehouse):
+                continue
+            got = _pull_now(warehouse, code, need)
+            if not got:
+                continue
+            pulled.extend(got)
+            live = int(_live_qty(code, warehouse))
+            if int(row["qty"]) == live:
+                diffs.remove(row)
+                summary[:] = [x for x in summary if x["itemCode"] != code]
     if not diffs:
         # A perfect shelf is the count's best outcome and leaves nothing for
         # ERPNext to correct — the session row is the ONLY proof the walk
         # happened, so it is filed before the commit like any other result.
         _log_session(warehouse, len(seen), 0, units_counted,
-                     len(moves), "")
+                     len(moves) + len(pulled), "")
         frappe.db.commit()
         return {"ok": True, "clean": True, "counted": len(seen),
-                "moved": moved_entry}
+                "moved": moved_entry, "pulled": pulled}
 
     company = frappe.db.get_value("Warehouse", warehouse, "company") \
         or frappe.defaults.get_global_default("company")
@@ -643,7 +681,7 @@ def submit_count(warehouse, counts=None, note=None, moves=None):
     if autopost_enabled():
         post = _post_draft(doc.name)
     return {"ok": True, "clean": False, "draft": doc.name, "superseded": superseded,
-            "counted": len(seen), "diffs": summary, "moved": moved_entry,
+            "counted": len(seen), "diffs": summary, "moved": moved_entry, "pulled": pulled,
             "posted": bool(post.get("posted")), "held": post.get("kind") or "",
             "heldReason": post.get("reason") or "", "moves": len(post.get("moves") or []),
             "differenceAmount": post.get("differenceAmount", 0)}
@@ -1632,6 +1670,38 @@ def _apply_pull_moves(warehouse, lines):
     for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
         frappe.cache().delete_value(k)
     return se.name, items
+
+
+def _pull_now(warehouse, item_code, need):
+    """Transfer up to `need` units of one item INTO `warehouse` from the pull
+    sources, before a draft exists. Returns the moves made."""
+    sources = [w for w, tier in _pull_sources(shelves=True) if w != warehouse]
+    if not sources or need <= 0:
+        return []
+    rank = {w: i for i, w in enumerate(sources)}
+    rows = frappe.db.sql(
+        """SELECT warehouse, actual_qty FROM `tabBin`
+           WHERE item_code = %s AND warehouse IN %s AND actual_qty > 0""",
+        (item_code, tuple(sources)), as_dict=True)
+    rows.sort(key=lambda h: (rank[h.warehouse], -float(h.actual_qty or 0)))
+    moves = []
+    for h in rows:
+        if need <= 0:
+            break
+        take = min(need, int(float(h.actual_qty or 0) - _reserved(item_code, h.warehouse)))
+        if take <= 0:
+            continue
+        try:
+            se, items = _apply_pull_moves(warehouse, [{"item_code": item_code, "source": h.warehouse, "qty": take}])
+        except Exception as e:
+            frappe.log_error(f"{e}\n\n{frappe.get_traceback()[-1500:]}", f"cycle_count._pull_now {warehouse} {item_code}")
+            continue
+        if se:
+            for it in items:
+                moves.append({"entry": se, "qty": it["qty"], "from": h.warehouse, "to": warehouse,
+                              "item": item_code, "pulled": True})
+                need -= it["qty"]
+    return moves
 
 
 def _pull_found(name):
