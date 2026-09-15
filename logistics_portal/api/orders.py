@@ -533,18 +533,20 @@ def _pick_availability():
     try:
         rows = frappe.db.sql("""
             SELECT so.name AS so, so.grand_total AS val, so.creation AS created,
-                   soi.item_code AS code,
-                   COALESCE(NULLIF(soi.item_name,''), soi.item_code) AS item_name,
-                   SUM(GREATEST(soi.qty - soi.delivered_qty, 0)) AS need
+                   COALESCE(pk.item_code, soi.item_code) AS code,
+                   COALESCE(NULLIF(pk.item_name,''), NULLIF(soi.item_name,''), soi.item_code) AS item_name,
+                   SUM(GREATEST(soi.qty - soi.delivered_qty, 0)
+                       * COALESCE(pk.qty / NULLIF(soi.qty, 0), 1)) AS need
             FROM `tabSales Order` so
             JOIN `tabSales Order Item` soi ON soi.parent = so.name
+            LEFT JOIN `tabPacked Item` pk ON pk.parent = so.name AND pk.parent_detail_docname = soi.name
             LEFT JOIN (SELECT pli.sales_order FROM `tabPick List Item` pli
                        JOIN `tabPick List` p ON p.name=pli.parent
                        WHERE p.docstatus < 2 GROUP BY pli.sales_order) pl ON pl.sales_order = so.name
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Pending' AND pl.sales_order IS NULL
               AND so.creation >= %s
-            GROUP BY so.name, soi.item_code, item_name, val, created""",
+            GROUP BY so.name, code, item_name, val, created""",
             (w,), as_dict=True)
         # The SAME availability the create runs — audited 2026-08-27, when raw
         # Bin math called 50 orders ready and only 12 could be picked, and again
@@ -1627,7 +1629,7 @@ def detail(name):
 
     # Line items with the product image (97% of items carry one).
     items = frappe.db.sql(
-        """SELECT soi.idx, soi.item_code sku, soi.item_name name, soi.qty, soi.rate price,
+        """SELECT soi.idx, soi.name row, soi.item_code sku, soi.item_name name, soi.qty, soi.rate price,
                   soi.amount line, soi.warehouse bin, i.image, i.custom_sku real_sku
            FROM `tabSales Order Item` soi
            LEFT JOIN `tabItem` i ON i.name = soi.item_code
@@ -1641,7 +1643,21 @@ def detail(name):
     # THIS order's own reservation credited back.
     try:
         from logistics_portal.api.picking import availability
-        _codes = {r.sku for r in items if r.sku}
+        # A product bundle line is judged on its components: the box itself
+        # holds no stock, its five pieces do (JUSTYOL Top 5 Box, 2026-09-14).
+        _packed = {}
+        for pk in frappe.db.sql(
+                """SELECT parent_detail_docname AS row, item_code, item_name, qty
+                   FROM `tabPacked Item` WHERE parent = %s AND parenttype = 'Sales Order'
+                   ORDER BY idx""", (name,), as_dict=True):
+            _packed.setdefault(pk.row, []).append(pk)
+        for r in items:
+            comps = _packed.get(r.row) if _packed else None
+            if comps:
+                r["components"] = [{"sku": c.item_code, "name": c.item_name, "qty": float(c.qty or 0)}
+                                   for c in comps]
+        _codes = {r.sku for r in items if r.sku and not r.get("components")}
+        _codes |= {c["sku"] for r in items for c in (r.get("components") or [])}
         if _codes:
             # One shared definition, so the card, the board and the create can
             # never disagree about the same line again.
@@ -1664,6 +1680,23 @@ def detail(name):
             except Exception:
                 pass
             for r in items:
+                if r.get("components"):
+                    # The bundle is available as many times as its scarcest
+                    # component allows; short if any piece is short.
+                    fits = []
+                    shorts = []
+                    for c in r["components"]:
+                        _f = _free(name, c["sku"])
+                        c["avail"] = int(max(0, _f))
+                        c["short"] = bool(_f < c["qty"]) and c["sku"] not in _local
+                        if c["short"]:
+                            shorts.append(c)
+                        per = c["qty"] / float(r.qty or 1) if r.qty else c["qty"]
+                        fits.append(int(max(0, _f) // per) if per else 0)
+                    r["avail"] = min(fits) if fits else 0
+                    r["short"] = bool(shorts)
+                    r["shortComponents"] = shorts
+                    continue
                 _need = float(r.qty or 0)
                 _f = _free(name, r.sku)
                 r["avail"] = int(max(0, _f))
@@ -1709,9 +1742,11 @@ def detail(name):
         "sales_status": so.get("custom_sales_status") or "",
         # Name to read, code to look up: the agent has the customer on the
         # line and needs to check the shelf, not just be told there is none.
-        "stockShort": [{"name": r.get("name") or r.get("sku"),
-                        "code": r.get("sku") or ""}
-                       for r in items if r.get("short")],
+        # A short bundle names the PIECE that is short, not the box.
+        "stockShort": [x for r in items if r.get("short") for x in (
+            [{"name": c.get("name") or c.get("sku"), "code": c.get("sku") or ""}
+             for c in r.get("shortComponents") or []]
+            or [{"name": r.get("name") or r.get("sku"), "code": r.get("sku") or ""}])],
         "attempts": int(so.get("custom_call_attempts") or 0),
         "next_call": str(so.get("custom_next_call_at") or "")[:16],
         "payment_collection": so.get("custom_payment_collection") or "",

@@ -333,6 +333,53 @@ def scan_pick(pick_list, code):
             "totalScanned": int(tot.s or 0), "totalQty": int(tot.q or 0)}
 
 
+# ── Product bundles: the order says 'box', the shelf says five pieces ──────
+#
+# A Sales Order line whose item is a Product Bundle (JUSTYOL Top 5 Box,
+# 2026-09-14) carries no stock of its own: ERPNext explodes it into the
+# order's Packed Items, and a Pick List holds the COMPONENT rows, each
+# pointing back at the bundle's Sales Order Item through product_bundle_item
+# (the Delivery Note is then rebuilt from those rows by ERPNext itself).
+# Every read of "what does this order need" must see the components, or the
+# bundle reads as out of stock with thousands of each piece on the shelf —
+# measured: 59 confirmed bundle orders in 30 days, not one ever on a pick
+# list, every one shown to confirmation as 'rupture'.
+#
+# SQL fragments for the queries that read `tabSales Order Item soi` under a
+# `tabSales Order so`: join the packed rows, take the component code, name
+# and its share of the pending quantity.
+_LINE_JOIN = "LEFT JOIN `tabPacked Item` pk ON pk.parent = soi.parent AND pk.parent_detail_docname = soi.name"
+_LINE_CODE = "COALESCE(pk.item_code, soi.item_code)"
+_LINE_NAME = "COALESCE(NULLIF(pk.item_name,''), NULLIF(soi.item_name,''), soi.item_code)"
+_LINE_NEED = "GREATEST(soi.qty - COALESCE(soi.delivered_qty, 0), 0) * COALESCE(pk.qty / NULLIF(soi.qty, 0), 1)"
+
+
+def _pick_lines(so):
+    """The order's lines as the floor picks them: a bundle line replaced by
+    its packed components (each carrying `product_bundle_item` = the bundle's
+    Sales Order Item and `name` = its Packed Item row, which is what ERPNext's
+    own mapping writes into sales_order_item), every other line as is."""
+    packed = {}
+    for p in (so.get("packed_items") or []):
+        packed.setdefault(p.parent_detail_docname, []).append(p)
+    out = []
+    for it in _pick_lines(so):
+        comps = packed.get(it.name)
+        if not comps:
+            out.append(it)
+            continue
+        qty = float(it.qty or 0)
+        done = float(it.delivered_qty or 0) / qty if qty else 0.0
+        for p in comps:
+            pq = float(p.qty or 0)
+            out.append(frappe._dict(
+                name=p.name, item_code=p.item_code, item_name=p.item_name,
+                qty=pq, delivered_qty=pq * done,
+                uom=p.uom or it.uom, conversion_factor=p.conversion_factor or 1,
+                product_bundle_item=it.name))
+    return out
+
+
 def _pack_order(order):
     """One order's packing view: customer, label, and every item with image + SKU
     so the packer can complete a multi-piece parcel. `single` = a one-piece order
@@ -341,13 +388,15 @@ def _pack_order(order):
         "Sales Order", order,
         ["customer_name", "custom_awb", "custom_label_url", "grand_total",
          "custom_shipping_city"], as_dict=True) or {}
+    # A product bundle ships as its components: the packer sees the five
+    # pieces, not one line called 'box'.
     items = frappe.db.sql(
-        """SELECT soi.item_code AS sku, it.custom_sku AS real_sku,
-                  COALESCE(NULLIF(soi.item_name,''), soi.item_code) AS name,
-                  soi.qty, it.image
-           FROM `tabSales Order Item` soi
-           LEFT JOIN `tabItem` it ON it.name = soi.item_code
-           WHERE soi.parent = %s ORDER BY soi.idx""", (order,), as_dict=True)
+        f"""SELECT {_LINE_CODE} AS sku, it.custom_sku AS real_sku,
+                  {_LINE_NAME} AS name,
+                  soi.qty * COALESCE(pk.qty / NULLIF(soi.qty, 0), 1) AS qty, it.image
+           FROM `tabSales Order Item` soi {_LINE_JOIN}
+           LEFT JOIN `tabItem` it ON it.name = {_LINE_CODE}
+           WHERE soi.parent = %s ORDER BY soi.idx, pk.idx""", (order,), as_dict=True)
     pieces = sum(int(i.qty or 0) for i in items)
     return {
         "order": order, "customer": so.get("customer_name") or "",
@@ -826,7 +875,7 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
         f"""SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
                    {_CAND_CITY} AS city,
                    COUNT(*) AS line_count,
-                   SUM(GREATEST(soi.qty - soi.delivered_qty, 0)) AS units,
+                   SUM({_LINE_NEED}) AS units,
                    COUNT(DISTINCT COALESCE(NULLIF(i.default_supplier,''),'(none)')) AS sup_count,
                    MAX(COALESCE(NULLIF(i.default_supplier,''),'(none)')) AS one_supplier,
                    MAX(CASE WHEN %(sku)s <> '' AND (i.custom_sku = %(sku)s
@@ -845,8 +894,8 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
     for zr in frappe.db.sql(
         f"""SELECT soi.parent AS so, LEFT(b.warehouse, 1) AS zone
             FROM `tabSales Order Item` soi
-            JOIN `tabSales Order` so ON so.name = soi.parent
-            JOIN `tabBin` b ON b.item_code = soi.item_code AND b.actual_qty > 0
+            JOIN `tabSales Order` so ON so.name = soi.parent {_LINE_JOIN}
+            JOIN `tabBin` b ON b.item_code = {_LINE_CODE} AND b.actual_qty > 0
                  AND b.warehouse REGEXP '^[A-Z][0-9]{{1,2}}[A-Z]?[.]? - JM$'
             WHERE {_POOL_WHERE}{_city_known_clause()}""", as_dict=True):
         order_zones.setdefault(zr.so, set()).add(zr.zone)
@@ -893,9 +942,10 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
     page_names = [r.name for r in page]
     if page_names:
         need_rows = frappe.db.sql(
-            """SELECT parent, item_code, SUM(qty - delivered_qty) AS q
-               FROM `tabSales Order Item` WHERE parent IN %s
-               GROUP BY parent, item_code HAVING q > 0""",
+            f"""SELECT soi.parent, {_LINE_CODE} AS item_code, SUM({_LINE_NEED}) AS q
+               FROM `tabSales Order Item` soi {_LINE_JOIN}
+               WHERE soi.parent IN %s
+               GROUP BY soi.parent, item_code HAVING q > 0""",
             (tuple(page_names),), as_dict=True)
         needs = {}
         for nr in need_rows:
@@ -1030,7 +1080,7 @@ def _insert_one(sos, picker=None):
     if picker and frappe.get_meta("Pick List").has_field("custom_assigned_picker"):
         pl.custom_assigned_picker = picker
     dropped = []
-    bins = _resolve_bins({it.item_code for so in sos for it in so.items})
+    bins = _resolve_bins({it.item_code for so in sos for it in _pick_lines(so)})
     # Running pool per (item, bin): two orders on the same list must not both be
     # written against the same single unit.
     left = {}
@@ -1040,7 +1090,7 @@ def _insert_one(sos, picker=None):
 
     for so in sos:
         rows_for_order, unplaceable = [], None
-        for it in so.items:
+        for it in _pick_lines(so):
             pending = (it.qty or 0) - (it.delivered_qty or 0)
             if pending <= 0:
                 continue
@@ -1084,6 +1134,9 @@ def _insert_one(sos, picker=None):
                     "conversion_factor": it.conversion_factor or 1,
                     "sales_order": so.name, "sales_order_item": it.name,
                     "uom": it.uom, "warehouse": wh,
+                    # A bundle component points at its bundle's order line;
+                    # ERPNext rebuilds the parent on the Delivery Note from it.
+                    "product_bundle_item": it.get("product_bundle_item"),
                 })
                 # NB: item_name is deliberately NOT set here. It is a
                 # fetch_from field with fetch_if_empty = 0, so Frappe's
@@ -1127,7 +1180,7 @@ def _insert_one(sos, picker=None):
     for so in sos:
         if so.name in dropped_names:
             continue
-        for it in so.items:
+        for it in _pick_lines(so):
             pending = (it.qty or 0) - (it.delivered_qty or 0)
             if pending > 0:
                 need[(so.name, it.item_code)] = need.get((so.name, it.item_code), 0) + pending
@@ -1280,7 +1333,7 @@ def _allocate_and_insert(sos, skipped, picker):
     # The orders' own reservations hand over to the pick list FIRST — see
     # _release_order_reservations.
     _release_order_reservations(sos)
-    item_codes = {it.item_code for so in sos for it in so.items}
+    item_codes = {it.item_code for so in sos for it in _pick_lines(so)}
     totals = _available_totals(item_codes)
     # Two ledgers, spent together. `ceiling` is what physically exists and can
     # be picked; `shared` is the part of it nobody has reserved. A Stock
@@ -1310,7 +1363,7 @@ def _allocate_and_insert(sos, skipped, picker):
     covered = []
     for so in sos:
         need = {}
-        for it in so.items:
+        for it in _pick_lines(so):
             pending = (it.qty or 0) - (it.delivered_qty or 0)
             if pending > 0:
                 need[it.item_code] = need.get(it.item_code, 0) + pending
@@ -1431,7 +1484,7 @@ def _blamed_order(err, sos):
     # the most of it, since that is the one the availability check tripped on.
     hit = None
     for so in sos:
-        for it in so.items:
+        for it in _pick_lines(so):
             if it.item_code and str(it.item_code) in e:
                 need = (it.qty or 0) - (it.delivered_qty or 0)
                 if not hit or need > hit[1]:
@@ -2218,11 +2271,11 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
         # production); the correlated probe uses lp_pli_so_idx (58ms, same rows).
         rows = frappe.db.sql(
             f"""SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
-                      so.creation, soi.item_code,
-                      COALESCE(NULLIF(soi.item_name,''), soi.item_code) AS item_name,
-                      GREATEST(soi.qty - soi.delivered_qty, 0) AS qty
+                      so.creation, {_LINE_CODE} AS item_code,
+                      {_LINE_NAME} AS item_name,
+                      {_LINE_NEED} AS qty
                FROM `tabSales Order` so
-               JOIN `tabSales Order Item` soi ON soi.parent = so.name
+               JOIN `tabSales Order Item` soi ON soi.parent = so.name {_LINE_JOIN}
                WHERE so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
                  AND so.custom_logistics_status = 'Pending'
                  AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
@@ -3389,12 +3442,12 @@ def false_oos_worklist():
     from logistics_portal.api.warehouses import excluded_zones
 
     rows = frappe.db.sql(
-        """SELECT so.name so, so.customer_name customer, so.grand_total val,
-                  soi.item_code c, soi.item_name nm,
-                  (soi.qty - COALESCE(soi.delivered_qty, 0)) need,
+        f"""SELECT so.name so, so.customer_name customer, so.grand_total val,
+                  {_LINE_CODE} c, {_LINE_NAME} nm,
+                  {_LINE_NEED} need,
                   DATEDIFF(CURDATE(), DATE(so.creation)) age
            FROM `tabSales Order` so
-           JOIN `tabSales Order Item` soi ON soi.parent = so.name
+           JOIN `tabSales Order Item` soi ON soi.parent = so.name {_LINE_JOIN}
            WHERE so.docstatus = 1 AND so.company = 'Justyol Morocco'
              AND so.custom_sales_status = 'Confirmed'
              AND COALESCE(so.custom_logistics_status, '') IN ('', 'Pending')
