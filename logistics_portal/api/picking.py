@@ -363,7 +363,7 @@ def _pick_lines(so):
     for p in (so.get("packed_items") or []):
         packed.setdefault(p.parent_detail_docname, []).append(p)
     out = []
-    for it in _pick_lines(so):
+    for it in so.items:
         comps = packed.get(it.name)
         if not comps:
             out.append(it)
