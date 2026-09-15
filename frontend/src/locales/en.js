@@ -431,6 +431,8 @@ export default {
     removeFail: "Couldn't remove",
     noOpen: "No open manifest today",
     droppedNote: "no-longer-shippable parcels were dropped",
+    alreadyIn: "Already scanned on manifest {n} ({d})",
+    alreadyShipped: "Already shipped on manifest {n} ({d}) — this parcel left the building",
     gapsTitle: "Lists not fully at the door",
     gapsHint: "Printed parcels that have not been scanned onto a manifest, by pick list. Closing the manifest flags whatever is still here as left behind.",
     gapsShort: "left behind",

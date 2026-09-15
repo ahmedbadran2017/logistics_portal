@@ -560,17 +560,23 @@ def manifest_scan(code):
     if not rows:
         return {"ok": False, "reason": "unknown", "code": code}
     d = rows[0]
+    # Name the manifest it is already on: the door staff asked for it
+    # (2026-09-15) so a double scan says WHERE the parcel went, not just no.
     on = frappe.db.sql(
-        """SELECT 1 FROM `tabShipment Delivery Note` sdn
+        """SELECT sh.name, sh.docstatus, sh.pickup_date FROM `tabShipment Delivery Note` sdn
            JOIN `tabShipment` sh ON sh.name = sdn.parent
-           WHERE sdn.delivery_note = %s AND sh.docstatus < 2 LIMIT 1""", (d.dn,))
+           WHERE sdn.delivery_note = %s AND sh.docstatus < 2
+           ORDER BY sh.docstatus DESC, sh.creation DESC LIMIT 1""", (d.dn,), as_dict=True)
     if on:
-        return {"ok": False, "reason": "already", "dn": d.dn, "awb": d.awb or ""}
+        return {"ok": False, "reason": "already", "dn": d.dn, "awb": d.awb or "",
+                "shipment": on[0].name, "submitted": int(on[0].docstatus or 0) == 1,
+                "date": str(on[0].pickup_date or "")[:10]}
     if d.lstatus not in ("Label Printed", "Label Generated"):
         return {"ok": False, "reason": "not_ready", "dn": d.dn, "status": d.lstatus or ""}
     sh = _open_or_new_manifest()
     if any(r.delivery_note == d.dn for r in (sh.get("shipment_delivery_note") or [])):
-        return {"ok": False, "reason": "already", "dn": d.dn, "shipment": sh.name}
+        return {"ok": False, "reason": "already", "dn": d.dn, "awb": d.awb or "",
+                "shipment": sh.name, "submitted": False, "date": str(sh.pickup_date or "")[:10]}
     sh.append("shipment_delivery_note", {"delivery_note": d.dn, "grand_total": d.value or 0})
     sh.value_of_goods = float(sh.value_of_goods or 0) + float(d.value or 0)
     sh.save(ignore_permissions=True)

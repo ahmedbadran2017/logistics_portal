@@ -431,6 +431,8 @@ export default {
     removeFail: "Suppression impossible",
     noOpen: "Aucun manifeste ouvert aujourd'hui",
     droppedNote: "colis non expédiables retirés",
+    alreadyIn: "Déjà scanné sur le manifeste {n} ({d})",
+    alreadyShipped: "Déjà expédié sur le manifeste {n} ({d}) — ce colis a quitté l'entrepôt",
     gapsTitle: "Listes pas entièrement à la porte",
     gapsHint: "Colis imprimés non scannés sur un manifeste, par liste de prélèvement. Fermer le manifeste marque ce qui reste ici comme oublié.",
     gapsShort: "oubliés",

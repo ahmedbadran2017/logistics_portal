@@ -303,12 +303,18 @@ async function onScan(code) {
   if (isLive.value) {
     if (!c) return;
     if (parcels.value.some((p) => (p.awb || "").toLowerCase() === c.toLowerCase())) {
-      scanner.value?.showError(t("mani.already")); return;
+      scanner.value?.showError(t("mani.alreadyIn").replace("{n}", MANIFEST.value.no || "").replace("{d}", "").replace(" ()", "")); return;
     }
     const res = await liveOr(null, () => apiPost("shipping.manifest_scan", { code: c }));
     if (!res || !res.ok) {
+      // A parcel already on a manifest: say which one, and whether that
+      // manifest already left, so the door knows what it is holding.
       scanner.value?.showError(
-        res && res.reason === "already" ? t("mani.alreadyShip")
+        res && res.reason === "already"
+          ? (res.shipment
+              ? t(res.submitted ? "mani.alreadyShipped" : "mani.alreadyIn")
+                  .replace("{n}", res.shipment).replace("{d}", res.date || "")
+              : t("mani.alreadyShip"))
           : res && res.reason === "not_ready" ? t("mani.notReady")
             : t("mani.unknownAwb"));
       return;
