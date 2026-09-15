@@ -316,7 +316,8 @@ async function onScan(code) {
                   .replace("{n}", res.shipment).replace("{d}", res.date || "")
               : t("mani.alreadyShip"))
           : res && res.reason === "not_ready" ? t("mani.notReady")
-            : t("mani.unknownAwb"));
+            : res && res.reason === "unknown" ? `${t("mani.unknownAwb")}: ${res.code || c}`
+              : !res ? t("mani.serverErr") : t("mani.unknownAwb"));
       return;
     }
     parcels.value.unshift({ dn: res.dn, awb: res.awb, order: res.order,

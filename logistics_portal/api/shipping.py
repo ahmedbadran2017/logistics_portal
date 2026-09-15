@@ -544,9 +544,33 @@ def manifest_scan(code):
     from logistics_portal.api.auth import resolve_role
     if resolve_role(frappe.session.user) not in ("packer", "dispatcher", "manager"):
         frappe.throw("Not authorized to build the manifest.", frappe.PermissionError)
-    code = (code or "").strip()
-    if not code:
+    raw = (code or "").strip()
+    if not raw:
         return {"ok": False, "reason": "empty"}
+    # What the door actually scans: the Code128 under the AWB, the QR beside
+    # it (which may carry a URL or '#CMD J-006978#'), a wedge that prefixes a
+    # symbology id (']C1LD0085...'), or a bare tracking number without 'LD'.
+    # Every one of those must land on the parcel; only a code that names
+    # nothing is 'unknown', and the answer then carries the code so the
+    # dispatcher can read what the device sent (2026-09-15: a whole
+    # afternoon of 'Unknown AWB' with nothing to look at).
+    import re
+    cands = []
+    up = raw.upper()
+    cands.append(raw)
+    m = re.search(r"LD\d{6,12}", up)
+    if m:
+        cands.append(m.group(0))
+    digits = re.sub(r"\D", "", up)
+    if digits and len(digits) >= 6:
+        cands.append(digits)
+        cands.append("LD" + digits)
+        cands.append("LD" + digits.lstrip("0").rjust(9, "0"))
+    order_hint = None
+    mo = re.search(r"(J-\d{5,7}|SAL-ORD-\d{4}-\d{5}|#\d{5,7})", raw.upper().replace("CMD ", "").replace("CMD", ""))
+    if mo:
+        order_hint = mo.group(1)
+    cands = list(dict.fromkeys(c for c in cands if c))
     rows = frappe.db.sql(
         """SELECT dn.name AS dn, dn.custom_awb AS awb, dn.customer_name AS customer,
                   dn.grand_total AS value, so.custom_logistics_status AS lstatus,
@@ -557,11 +581,22 @@ def manifest_scan(code):
            LEFT JOIN `tabSales Order` so ON so.name = (
                SELECT dni.against_sales_order FROM `tabDelivery Note Item` dni
                WHERE dni.parent = dn.name AND dni.against_sales_order IS NOT NULL LIMIT 1)
-           WHERE dn.docstatus = 1 AND (dn.custom_awb = %s OR dn.custom_tracking_number = %s)
-           LIMIT 1""", (code, code), as_dict=True)
+           WHERE dn.docstatus = 1 AND (dn.custom_awb IN %s OR dn.custom_tracking_number IN %s)
+           ORDER BY dn.creation DESC LIMIT 1""", (tuple(cands), tuple(cands)), as_dict=True)
+    if not rows and order_hint:
+        rows = frappe.db.sql(
+            """SELECT dn.name AS dn, dn.custom_awb AS awb, dn.customer_name AS customer,
+                      dn.grand_total AS value, so.custom_logistics_status AS lstatus,
+                      dni.against_sales_order AS so
+               FROM `tabDelivery Note Item` dni
+               JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
+               JOIN `tabSales Order` so ON so.name = dni.against_sales_order
+               WHERE dni.against_sales_order = %s AND COALESCE(dn.custom_awb, '') <> ''
+               ORDER BY dn.creation DESC LIMIT 1""", (order_hint,), as_dict=True)
     if not rows:
-        return {"ok": False, "reason": "unknown", "code": code}
+        return {"ok": False, "reason": "unknown", "code": raw[:80]}
     d = rows[0]
+    code = d.awb or raw
     # Name the manifest it is already on: the door staff asked for it
     # (2026-09-15) so a double scan says WHERE the parcel went, not just no.
     on = frappe.db.sql(

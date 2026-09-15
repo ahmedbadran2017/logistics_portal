@@ -431,6 +431,7 @@ export default {
     removeFail: "Couldn't remove",
     noOpen: "No open manifest today",
     droppedNote: "no-longer-shippable parcels were dropped",
+    serverErr: "Server error — the scan did not reach the manifest, try again",
     alreadyIn: "Already scanned on manifest {n} ({d})",
     alreadyShipped: "Already shipped on manifest {n} ({d}) — this parcel left the building",
     gapsTitle: "Lists not fully at the door",

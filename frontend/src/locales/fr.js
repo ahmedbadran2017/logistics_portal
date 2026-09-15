@@ -431,6 +431,7 @@ export default {
     removeFail: "Suppression impossible",
     noOpen: "Aucun manifeste ouvert aujourd'hui",
     droppedNote: "colis non expédiables retirés",
+    serverErr: "Erreur serveur — le scan n'a pas atteint le manifeste, réessayez",
     alreadyIn: "Déjà scanné sur le manifeste {n} ({d})",
     alreadyShipped: "Déjà expédié sur le manifeste {n} ({d}) — ce colis a quitté l'entrepôt",
     gapsTitle: "Listes pas entièrement à la porte",
