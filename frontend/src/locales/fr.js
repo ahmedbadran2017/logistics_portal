@@ -338,6 +338,7 @@ export default {
     badgeShort: "Oublié",
     shortHint: "Un manifeste a fermé après le tri de cette liste et ce colis n'y était pas. Retrouvez le carton, puis scannez-le à la porte sur le prochain manifeste.",
     dupDn: "Cette commande a deux bons de livraison — l'un est un doublon.",
+    labelReadyScan: "Étiquette créée. Scannez la pièce dans cette case — elle s'imprime dès que le colis est complet.",
     activeTitle: "Tri",
     loadFail: "Échec du chargement",
   },

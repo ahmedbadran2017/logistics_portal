@@ -375,6 +375,9 @@ const wall = ref(null);          // {pickList, orders:[...]} — the open tote
 const printedToday = ref(0);
 const flash = ref("");           // order slot to pulse after a scan
 const pending = ref(null);       // multi-piece order the sorter must finish
+// The slot the sorter is working in: a scan of an item two orders want goes
+// there first (PL-56069: it went to the neighbour, the repaired parcel stayed 0/1).
+const lastSlot = ref("");
 
 // Hold the repair panel back for a few minutes on a parcel that is merely
 // waiting: the AWB normally lands within a minute or two of the pick list, and
@@ -482,7 +485,7 @@ async function onScanItem(raw) {
   if (pending.value) pending.value = null;
   let res;
   try {
-    res = await apiPost("picking.sort_scan", { pick_list: wall.value.pickList, code });
+    res = await apiPost("picking.sort_scan", { pick_list: wall.value.pickList, code, prefer: lastSlot.value || undefined });
   } catch (e) {
     scanner.value?.showError(String(e.message || e));
     return;
@@ -496,6 +499,7 @@ async function onScanItem(raw) {
   }
   // Update the slot locally.
   const o = wall.value.orders.find((x) => x.order === res.order);
+  if (o && o.order === lastSlot.value) lastSlot.value = "";
   if (o) {
     const it = o.items.find((x) => x.itemCode === res.itemCode && x.sorted < x.qty)
       || o.items.find((x) => x.itemCode === res.itemCode);
@@ -523,6 +527,7 @@ async function onScanItem(raw) {
       // More pieces owed on this order. Show them — the toast alone is what
       // lets a short parcel get taped shut.
       pending.value = o;
+      lastSlot.value = o.order;
       scanner.value?.refocus();
     } else {
       pending.value = null;
@@ -540,6 +545,7 @@ async function onScanItem(raw) {
 // Generated' forever (Anas, 2026-08-27). mark_packed is idempotent and only
 // upgrades eligible statuses — safe to call on every print/reprint.
 async function printAndMark(o) {
+  lastSlot.value = o.order;
   printLabel(o.order, () => { o.printed = true; });
   try {
     const res = await apiPost("picking.mark_packed", { order: o.order });
@@ -568,8 +574,26 @@ async function fixAndLabel(o) {
       o.labelUrl = res.labelUrl || o.labelUrl;
       o.status = "Label Generated";
       if (res.cityChanged) o.city = res.cityChanged;
-      if (o.labelUrl) printLabel(o.order, () => { o.printed = true; printedToday.value += 1; });
-      success(t("sort.labelArrived"), o.order);
+      lastSlot.value = o.order;
+      if (o.sorted >= o.qty) {
+        // Every piece already scanned: print, and move the order on the
+        // server too — the old code only painted the slot green locally, so
+        // a reload showed it unprinted again.
+        if (o.labelUrl) printLabel(o.order, () => { o.printed = true; printedToday.value += 1; });
+        try {
+          await apiPost("picking.mark_packed", { order: o.order });
+          o.status = "Label Printed";
+        } catch (e) {
+          warn(t("sort.statusStuck"), String(e.message || e));
+        }
+        success(t("sort.labelArrived"), o.order);
+      } else {
+        // The label exists but the piece was never scanned into this slot.
+        // No print yet: a label on an unverified box is how a parcel leaves
+        // short. The next scan is routed here and prints on completion.
+        pending.value = o;
+        warn(t("sort.labelReadyScan"), o.order);
+      }
     } else {
       // Say what the carrier said. A generic failure here sends the parcel
       // back to the shelf it just came from.
@@ -587,6 +611,7 @@ async function fixAndLabel(o) {
 // Late AWB recovery: re-read the order; if the label landed since the sort
 // completed, flip it and print — no rescan (which would say "already sorted").
 async function recheckLabel(o) {
+  lastSlot.value = o.order;
   o.rechecking = true;
   try {
     const res = await apiPost("picking.recheck_label", {

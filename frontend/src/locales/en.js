@@ -339,6 +339,7 @@ export default {
     badgeShort: "Left behind",
     shortHint: "A manifest closed after this list was sorted and this parcel was not on it. Find the box, then scan it at the door on the next manifest.",
     dupDn: "This order has two delivery notes — one of them is a duplicate.",
+    labelReadyScan: "Label created. Scan the piece into this slot — it prints the moment the parcel is complete.",
     activeTitle: "Sorting",
   },
   recv: {

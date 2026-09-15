@@ -3090,12 +3090,20 @@ def unclaim_unprinted_labels():
 
 
 @frappe.whitelist()
-def sort_scan(pick_list, code):
+def sort_scan(pick_list, code, prefer=None):
     """Allocate one scanned unit to an order ON THIS PICK LIST. Routing:
     the not-yet-full line of that item whose order is CLOSEST to completion,
     so orders finish (and labels print) as early as possible. When the scan
     completes an order, its status flips to Label Printed and the label URL
-    is returned for immediate printing."""
+    is returned for immediate printing.
+
+    `prefer` is the slot the sorter is working in (they just repaired its
+    label, or the wall asked them for its next piece): a tie between two
+    orders wanting the same item goes there first. Then to the order that
+    already HAS a label — its print can fire — before one still waiting for
+    its AWB. PL-56069, 2026-09-15: two orders, one item, one scan; it landed
+    on the neighbour with the label, the sorter repaired the other's city
+    with the box in hand, printed, packed, and the slot stayed 0/1."""
     _sort_gate()
     pick_list = frappe.db.get_value("Pick List", {"name": (pick_list or "").strip()}, "name")
     if not pick_list:
@@ -3105,9 +3113,11 @@ def sort_scan(pick_list, code):
     if not item_code:
         return {"ok": False, "reason": "unknown_item", "code": (code or "").strip()}
 
+    prefer = (prefer or "").strip()
     rows = frappe.db.sql(
-        """SELECT pli.name, pli.sales_order AS so, pli.qty,
-                  COALESCE(pli.custom_sorted_qty,0) AS sorted_qty
+        """SELECT pli.name, pli.sales_order AS so, pli.qty, pli.idx,
+                  COALESCE(pli.custom_sorted_qty,0) AS sorted_qty,
+                  (COALESCE(s.custom_awb,'') <> '' OR COALESCE(s.custom_label_url,'') <> '') AS labelled
            FROM `tabPick List Item` pli
            LEFT JOIN `tabSales Order` s ON s.name = pli.sales_order
            WHERE pli.parent = %s AND pli.item_code = %s
@@ -3130,7 +3140,8 @@ def sort_scan(pick_list, code):
                FROM `tabPick List Item` WHERE parent = %s AND sales_order = %s""",
             (pick_list, so))[0][0]
         remaining[so] = int(t or 0)
-    rows.sort(key=lambda x: remaining.get(x.so, 9999))
+    rows.sort(key=lambda x: (0 if x.so == prefer else 1, remaining.get(x.so, 9999),
+                             0 if x.labelled else 1, int(x.idx or 0)))
     row = rows[0]
 
     # Atomic bump (two sorters, one wall): the WHERE guard means concurrent
