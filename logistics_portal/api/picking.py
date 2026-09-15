@@ -882,6 +882,7 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
                             OR soi.item_code = %(sku)s) THEN 1 ELSE 0 END) AS sku_hit
             FROM `tabSales Order` so
             JOIN `tabSales Order Item` soi ON soi.parent = so.name
+            {_LINE_JOIN}
             JOIN `tabItem` i ON i.name = soi.item_code
             {_CAND_CITY_JOIN}
             WHERE {_POOL_WHERE}{_city_known_clause()}
