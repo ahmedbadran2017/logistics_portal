@@ -1587,10 +1587,14 @@ def _pull_sources(shelves=True):
                 seen.add(w)
                 out.append((w, tier))
 
+    # NB: disabled = 0 on every tier. ERPNext refuses any stock transaction on
+    # a disabled warehouse ('Disabled Warehouse Returns Adjustment - JM cannot
+    # be used', 2026-09-15), so a ghost there can only be cleared after the
+    # warehouse is re-enabled for the clean-up.
     closed = " OR ".join(["name LIKE %s"] * len(_PULL_CLOSED_LIKE))
     add(frappe.db.sql(
         f"""SELECT name FROM `tabWarehouse`
-            WHERE is_group = 0 AND name LIKE '%% - JM' AND ({closed} OR disabled = 1)
+            WHERE is_group = 0 AND disabled = 0 AND name LIKE '%% - JM' AND ({closed})
               AND {never} ORDER BY name""",
         tuple(_PULL_CLOSED_LIKE + nargs)), 1)
     parking = " OR ".join(["LOWER(name) LIKE %s"] * len(_PULL_PARKING_LIKE))
@@ -1691,10 +1695,20 @@ def _pull_now(warehouse, item_code, need):
         take = min(need, int(float(h.actual_qty or 0) - _reserved(item_code, h.warehouse)))
         if take <= 0:
             continue
+        # Savepoint, not a bare try: a refused transfer must not poison the
+        # count that follows. And the refusal's message is cleared — it was
+        # riding along in the response and surfaced as the count's own
+        # failure while the real one stayed hidden (2026-09-15).
+        frappe.db.savepoint("lp_pull")
         try:
             se, items = _apply_pull_moves(warehouse, [{"item_code": item_code, "source": h.warehouse, "qty": take}])
         except Exception as e:
+            frappe.db.rollback(save_point="lp_pull")
             frappe.log_error(f"{e}\n\n{frappe.get_traceback()[-1500:]}", f"cycle_count._pull_now {warehouse} {item_code}")
+            try:
+                frappe.clear_messages()
+            except Exception:
+                pass
             continue
         if se:
             for it in items:
@@ -1776,6 +1790,10 @@ def _pull_found(name):
         except Exception as e:
             frappe.db.rollback()
             frappe.log_error(f"{e}\n\n{frappe.get_traceback()[-1800:]}", f"cycle_count._pull_found {name} {source}")
+            try:
+                frappe.clear_messages()
+            except Exception:
+                pass
     return moves
 
 
