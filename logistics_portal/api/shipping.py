@@ -1,5 +1,7 @@
 """Label generation, packer capture, and the daily Shipment manifest."""
 
+import json
+
 import frappe
 from frappe.utils import getdate, nowdate
 
@@ -583,6 +585,7 @@ def manifest_scan(code):
     from logistics_portal.api.scanlog import log_scan
     log_scan("manifest", sales_order=d.so)
     frappe.db.commit()
+    _bust_handover()
     return {"ok": True, "dn": d.dn, "awb": d.awb or "", "order": d.so or "",
             "customer": d.customer or "", "value": float(d.value or 0),
             "shipment": sh.name, "count": len(sh.shipment_delivery_note),
@@ -713,6 +716,9 @@ def _prune_manifest_rows(sh):
 _HANDED_STATUSES = ("Shipped", "Delivered", "Not Delivered", "Returned")
 
 
+_HANDOVER_TTL = 60
+
+
 def _handover_rows(days=14, pick_lists=None):
     """Printed-but-not-handed parcels grouped by pick list.
 
@@ -722,11 +728,61 @@ def _handover_rows(days=14, pick_lists=None):
     not per DN keeps the amended/duplicate DN of one order (J-005979, #256338
     on 2026-09-14) from reading as a parcel that never left.
 
+    Shape, and why: the first version put the delivery-note check in two
+    correlated subqueries on every (list, order) row of the window — ~4,700
+    rows, each probing Delivery Note Item → Shipment Delivery Note. It ran in
+    0.3s alone and took the server down under load (2026-09-15: sixteen
+    sorting stations opened at once, sixteen copies of it at 80+ minutes and
+    630% CPU, read locks on tabDelivery Note, every web request behind them).
+    Now: one flat read of the window; only the orders at 'Label Printed' —
+    the only ones whose answer depends on a Shipment — go to ONE grouped
+    delivery-note query, in chunks; and the whole window result is cached so
+    concurrent stations share a single computation.
+
     Returns {pick_list: {"orders": n, "handed": n, "waiting": [row…],
                           "sortedAt": ts}} for lists with at least one
     waiting parcel. `sortedAt` is the list's last sort/pack scan (or its
     submit time), which is what a manifest close is compared against."""
     days = min(max(int(days or 14), 1), 30)
+    if pick_lists:
+        return _handover_compute(days, pick_lists)
+    cache = frappe.cache()
+    key = f"lp_handover:{days}"
+
+    def _hit():
+        raw = cache.get_value(key)
+        if raw:
+            try:
+                return json.loads(raw)
+            except Exception:
+                return None
+        return None
+
+    hit = _hit()
+    if hit is not None:
+        return hit
+    # One computation per window: the other stations wait on the lock, then
+    # read what the first one stored. A station that cannot get the lock in
+    # time shows an empty handover zone for one refresh rather than adding a
+    # seventeenth copy of the query.
+    got = frappe.db.sql("SELECT GET_LOCK(%s, 25)", (f"lp_handover_{days}",))[0][0]
+    if not got:
+        return _hit() or {}
+    try:
+        hit = _hit()
+        if hit is not None:
+            return hit
+        out = _handover_compute(days, None)
+        cache.set_value(key, json.dumps(out), expires_in_sec=_HANDOVER_TTL)
+        return out
+    finally:
+        try:
+            frappe.db.sql("SELECT RELEASE_LOCK(%s)", (f"lp_handover_{days}",))
+        except Exception:
+            pass
+
+
+def _handover_compute(days, pick_lists):
     cond = "pl.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)"
     params = {"days": days}
     if pick_lists:
@@ -736,57 +792,77 @@ def _handover_rows(days=14, pick_lists=None):
         SELECT pl.name AS pick_list, pli.sales_order AS so,
                so.custom_logistics_status AS lstatus, so.customer_name AS customer,
                so.custom_awb AS awb, so.custom_label_url AS label_url,
-               so.grand_total AS total,
-               (SELECT COUNT(DISTINCT dn.name) FROM `tabDelivery Note Item` dni
-                 JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
-                WHERE dni.against_sales_order = so.name) AS live_dns,
-               (SELECT MAX(sh.docstatus) FROM `tabDelivery Note Item` dni
-                 JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
-                 JOIN `tabShipment Delivery Note` sdn ON sdn.delivery_note = dn.name
-                 JOIN `tabShipment` sh ON sh.name = sdn.parent AND sh.docstatus < 2
-                WHERE dni.against_sales_order = so.name) AS on_ship
+               so.grand_total AS total
         FROM `tabPick List` pl
         JOIN `tabPick List Item` pli ON pli.parent = pl.name
         JOIN `tabSales Order` so ON so.name = pli.sales_order
         WHERE pl.docstatus = 1 AND {cond}
           AND COALESCE(so.custom_sales_status, '') <> 'Cancelled'
         GROUP BY pl.name, pli.sales_order""", params, as_dict=True)
+
+    # The delivery-note side, only for the orders whose verdict needs it.
+    printed = sorted({r.so for r in rows if (r.lstatus or "") == "Label Printed"})
+    dn_info = {}
+    for i in range(0, len(printed), 400):
+        chunk = tuple(printed[i:i + 400])
+        for r in frappe.db.sql(
+                """SELECT dni.against_sales_order AS so,
+                          COUNT(DISTINCT dn.name) AS live_dns,
+                          MAX(sh.docstatus) AS on_ship
+                   FROM `tabDelivery Note Item` dni
+                   JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
+                   LEFT JOIN `tabShipment Delivery Note` sdn ON sdn.delivery_note = dn.name
+                   LEFT JOIN `tabShipment` sh ON sh.name = sdn.parent AND sh.docstatus < 2
+                   WHERE dni.against_sales_order IN %s
+                   GROUP BY dni.against_sales_order""", (chunk,), as_dict=True):
+            dn_info[r.so] = r
+
     out = {}
     for r in rows:
         o = out.setdefault(r.pick_list, {"orders": 0, "handed": 0, "waiting": [],
                                          "pending": 0})
         o["orders"] += 1
         st = r.lstatus or ""
-        handed = st in _HANDED_STATUSES or r.on_ship is not None
-        if handed:
+        if st in _HANDED_STATUSES:
             o["handed"] += 1
             continue
         if st != "Label Printed":
             o["pending"] += 1      # still on the sort side, not this stage's problem
             continue
+        d = dn_info.get(r.so)
+        if d and d.on_ship is not None:
+            o["handed"] += 1
+            continue
+        live = int((d.live_dns if d else 0) or 0)
         o["waiting"].append({
             "order": r.so, "customer": r.customer or "", "awb": r.awb or "",
             "labelUrl": r.label_url or "", "total": float(r.total or 0),
-            "noDn": not r.live_dns, "dup": int(r.live_dns or 0) > 1,
+            "noDn": not live, "dup": live > 1,
         })
     out = {k: v for k, v in out.items() if v["waiting"]}
-    if not out:
-        return out
-    # Scan events may carry the list id as the sorter typed it ('pl-56058'):
-    # the SQL match is case-insensitive, the dict key is not.
-    keys = {k.upper(): k for k in out}
-    for r in frappe.db.sql(
-            """SELECT UPPER(pick_list) AS pick_list, MAX(creation) AS t FROM `tabLP Scan Event`
-               WHERE pick_list IN %s AND station IN ('sort', 'pack', 'label')
-               GROUP BY UPPER(pick_list)""", (tuple(out),), as_dict=True):
-        k = keys.get((r.pick_list or "").upper())
-        if k:
-            out[k]["sortedAt"] = str(r.t)[:19]
-    for r in frappe.db.sql(
-            """SELECT name, modified FROM `tabPick List` WHERE name IN %s""",
-            (tuple(out),), as_dict=True):
-        out[r.name].setdefault("sortedAt", str(r.modified)[:19])
+    if out:
+        # Scan events may carry the list id as the sorter typed it ('pl-56058'):
+        # the SQL match is case-insensitive, the dict key is not.
+        keys = {k.upper(): k for k in out}
+        for r in frappe.db.sql(
+                """SELECT UPPER(pick_list) AS pick_list, MAX(creation) AS t FROM `tabLP Scan Event`
+                   WHERE pick_list IN %s AND station IN ('sort', 'pack', 'label')
+                   GROUP BY UPPER(pick_list)""", (tuple(out),), as_dict=True):
+            k = keys.get((r.pick_list or "").upper())
+            if k:
+                out[k]["sortedAt"] = str(r.t)[:19]
+        for r in frappe.db.sql(
+                """SELECT name, modified FROM `tabPick List` WHERE name IN %s""",
+                (tuple(out),), as_dict=True):
+            out[r.name].setdefault("sortedAt", str(r.modified)[:19])
     return out
+
+
+def _bust_handover():
+    try:
+        frappe.cache().delete_keys("lp_handover")
+    except Exception:
+        pass
 
 
 def _last_close():
@@ -1028,6 +1104,7 @@ def manifest_remove(dn):
 def _bust_ship_caches():
     for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
         frappe.cache().delete_value(k)
+    _bust_handover()
 
 @frappe.whitelist()
 def mark_labels_printed(orders):

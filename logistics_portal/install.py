@@ -83,6 +83,12 @@ INDEXES = [
     # very first migrate simply picks these up on its second run.)
     ("LP Scan Event", ["owner", "creation"], "lp_scan_owner_idx"),
     ("LP Scan Event", ["station", "creation"], "lp_scan_station_idx"),
+    # The handover zone asks, per printed order, whether a live Delivery
+    # Note of it sits on a Shipment. Both hops must be index hits: the
+    # parcel→shipment link had none (2026-09-15).
+    ("LP Scan Event", ["pick_list", "station"], "lp_scan_list_idx"),
+    ("Delivery Note Item", ["against_sales_order"], "lp_dni_so_idx"),
+    ("Shipment Delivery Note", ["delivery_note"], "lp_sdn_dn_idx"),
 ]
 
 
