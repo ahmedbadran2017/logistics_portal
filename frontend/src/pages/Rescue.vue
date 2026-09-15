@@ -131,7 +131,12 @@
             <!-- who, which parcel, where, how long -->
             <div class="flex items-center gap-x-2.5 gap-y-1 flex-wrap">
               <span class="text-[14px] font-bold text-stone-900 truncate max-w-[240px]" dir="auto">{{ r.customer || '—' }}</span>
-              <span class="font-mono text-[11px] text-stone-400" dir="ltr">{{ r.order || r.dn }}</span>
+              <!-- The order number opens the order page: the card is the
+                   summary, the details live there (Ahmed 2026-09-15). -->
+              <RouterLink v-if="r.order" :to="{ name: 'OrderDetail', params: { name: String(r.order).replace('#', '') } }"
+                          class="font-mono text-[11.5px] font-semibold text-stone-500 hover:text-[var(--accent-700)] hover:underline"
+                          dir="ltr" :title="t('cf.fullOrder')" @click.stop>{{ r.order }}</RouterLink>
+              <span v-else class="font-mono text-[11px] text-stone-400" dir="ltr">{{ r.dn }}</span>
               <span class="rs-track" :class="trackClass(r.track)">{{ t('track.' + trackKey(r.track), r.track) }}</span>
               <span v-if="r.due" class="rs-due-badge">{{ t('cf.due') }}</span>
               <span v-if="r.again" class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 text-rose-700 bg-rose-50 ring-rose-200" :title="t('rs.againHint')" dir="ltr">{{ t('rs.again') }} {{ (r.priorAt || '').slice(5, 10) }}</span>
