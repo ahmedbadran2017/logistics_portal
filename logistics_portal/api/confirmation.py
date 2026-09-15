@@ -473,14 +473,18 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
         for k, v in _AUTOMATION_DONE.items():
             if v == r.s:
                 counts[k] = int(r.n or 0)
-    # Duplicated is a human/desk-only decision — the automation never mass-
-    # produces it (23 on prod). Its rows also predate custom_last_call_at, so
-    # the custom_last_call_at filter used above hid every one of them. Date it
-    # by creation, like a working queue, so the tab actually shows its orders.
+    # Duplicated is NOT a portal decision on this site: measured 2026-09-15,
+    # 59 of 61 marked in 30 days came from the Administrator automation and
+    # none through act(). So it is scoped like a WORKING queue — by the
+    # ERPNext assignment (_assign), the owner the desk divides work by — not
+    # by custom_allocated_to (the intake round-robin), which agreed with the
+    # assignee on only 16 of those 59 and showed each agent somebody else's
+    # duplicates. Its rows predate custom_last_call_at, so it is dated by
+    # creation as well.
     counts["duplicated"] = int(frappe.db.sql(
         f"""SELECT COUNT(*) FROM `tabSales Order`
             WHERE docstatus = 1 AND company = %(co)s
-              AND custom_sales_status = 'Duplicated'{me_done}{q_cnt}
+              AND custom_sales_status = 'Duplicated'{me_q}{q_cnt}
               AND {_rng_or_all(q_rng)}""",
         {"co": _CO, **rng_vals})[0][0])
 
@@ -626,8 +630,10 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     # (_assign, what the desk divides work by); the done tabs by the actor
     # (custom_allocated_to, what act() stamped) so they stay a "what I did"
     # trail. (both me / me_like are already in vals from the block above.)
+    # Duplicated rides with the working queues: the mark is the automation's,
+    # the order is still the assignee's (see the count above).
     if mine_only:
-        if tab in _AUTOMATION_DONE or tab == "duplicated":
+        if tab in _AUTOMATION_DONE:
             conds.append("so.custom_allocated_to = %(me)s")
         else:
             conds.append("so._assign LIKE %(me_like)s")
