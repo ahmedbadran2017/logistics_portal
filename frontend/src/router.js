@@ -117,6 +117,9 @@ const routes = [
       // Fulfillment
       { path: "picklists", name: "PickLists", component: () => import("@/pages/PickLists.vue") },
       { path: "pack", name: "PackStation", component: () => import("@/pages/PackStation.vue") },
+      // The packing desk is its own screen: the sort wall is a WALL (a big
+      // screen with slots), this is one parcel in two hands on a PDA.
+      { path: "packing", name: "PackDesk", component: () => import("@/pages/PackDesk.vue") },
       { path: "tracking", name: "Tracking", component: () => import("@/pages/Tracking.vue") },
       { path: "exceptions", name: "Exceptions", component: () => import("@/pages/Exceptions.vue") },
       { path: "carriers", name: "Carriers", component: () => import("@/pages/Carriers.vue") },

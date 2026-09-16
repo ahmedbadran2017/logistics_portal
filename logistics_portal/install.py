@@ -22,6 +22,9 @@ INDEXES = [
     # manifest_scan / ready-parcels NOT-IN / shipped-stage rows join on the
     # child table's delivery_note (parent is indexed by default; this isn't).
     ("Shipment Delivery Note", ["delivery_note"], "lp_sdn_dn_idx"),
+    # The packing desk reads a parcel's progress back out of its own scans on
+    # every piece; without this it is a full scan of the event table per scan.
+    ("LP Scan Event", ["sales_order", "station"], "lp_scan_so_idx"),
     # Board counts + intake filter Confirmed orders by creation window.
     ("Sales Order", ["custom_sales_status", "creation"], "lp_so_sales_creation_idx"),
     # Contact Center my-day tallies filter Comments by owner+today, and the
@@ -195,6 +198,19 @@ _SO_CONTACT_FIELDS = [
      "read_only": 1, "no_copy": 1, "hidden": 1},
 ]
 
+_SO_PACK_FIELDS = [
+    # The packing desk's seal: the moment a multi-piece parcel stopped being a
+    # pile in a sort slot and became a closed bag somebody is answerable for.
+    # Deliberately NOT a new value in custom_logistics_status — the board, the
+    # pool, the handover zone, the alerts and the autopilot all read that
+    # ladder, and a state wedged between Label Printed and Shipped would have
+    # to be taught to every one of them.
+    {"fieldname": "custom_packed_at", "label": "Packed At", "fieldtype": "Datetime",
+     "read_only": 1, "no_copy": 1, "hidden": 1},
+    {"fieldname": "custom_packed_by", "label": "Packed By", "fieldtype": "Data",
+     "read_only": 1, "no_copy": 1, "hidden": 1},
+]
+
 _SO_SHORT_FIELDS = [
     # Set when a picker reports the item physically missing (short pick):
     # batching skips the order for 24h so it doesn't bounce straight back
@@ -208,7 +224,7 @@ def ensure_pick_fields():
     try:
         from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
         create_custom_fields({"Pick List Item": _PLI_FIELDS,
-                              "Sales Order": _SO_SHORT_FIELDS + _SO_CONTACT_FIELDS,
+                              "Sales Order": _SO_SHORT_FIELDS + _SO_CONTACT_FIELDS + _SO_PACK_FIELDS,
                               "Delivery Note": _DN_EXC_FIELDS}, ignore_validate=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_pick_fields")

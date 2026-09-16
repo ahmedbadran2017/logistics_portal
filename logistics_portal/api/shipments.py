@@ -1022,6 +1022,14 @@ _ALERTS = {
         "ar": ("المانيفست اتقفل وفي طرود مطبوعة اتسابت",
                "{n} طرد مطبوع من {lists} قائمة ما اتسكنوش على {shipment}. لسه جوه المخزن — افتح جزء التسليم في حيطة الفرز: {names}"),
     },
+    "pack_short": {
+        "en": ("A piece is missing at the packing desk",
+               "{order}: {sku} was counted onto the sort wall but is not in the slot. The parcel is held at packing until someone finds it."),
+        "fr": ("Une pièce manque au poste d'emballage",
+               "{order} : {sku} a été comptée au mur de tri mais n'est pas dans le casier. Le colis est retenu à l'emballage."),
+        "ar": ("في قطعة ناقصة عند محطة التغليف",
+               "{order}: {sku} اتعدّت على حيطة الفرز بس مش موجودة في السلوت. الطرد متوقف عند التغليف لحد ما حد يلاقيها."),
+    },
     "count_big": {
         "en": ("A count posted a large value difference",
                "{name} on {wh}: {amount} MAD, mostly {sku} ({delta} units at {rate} MAD each). Check the item's valuation before reading it as a real loss or gain."),

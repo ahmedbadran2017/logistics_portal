@@ -39,6 +39,7 @@ export const ROLE_CONFIG = {
           { to: "Stranded", label: "nav.stranded", icon: "package-x" },
           { to: "CityCheck", label: "nav.cityCheck", icon: "map-pin" },
           { to: "PackStation", label: "nav.pack", icon: "tag" },
+          { to: "PackDesk", label: "nav.packing", icon: "package-check" },
           { to: "Shipments", label: "nav.shipments", icon: "truck" },
           { to: "Carriers", label: "nav.carriers", icon: "send" },
         ],
@@ -163,6 +164,7 @@ export const ROLE_CONFIG = {
           { to: "CycleCount", label: "nav.count", icon: "list-checks" },
           { to: "Manifest", label: "nav.manifest", icon: "package-check" },
           { to: "PackStation", label: "nav.pack", icon: "tag" },
+          { to: "PackDesk", label: "nav.packing", icon: "package-check" },
           { to: "PickLists", label: "nav.picklists", icon: "package" },
           { to: "Shipments", label: "nav.shipments", icon: "truck" },
         ],
@@ -192,6 +194,7 @@ export const ROLE_CONFIG = {
         section: "nav.operations",
         items: [
           { to: "PackStation", label: "nav.pack", icon: "tag" },
+          { to: "PackDesk", label: "nav.packing", icon: "package-check" },
           { to: "Queue", label: "nav.queue", icon: "list-checks" },
           { to: "CycleCount", label: "nav.count", icon: "list-checks" },
           { to: "LabelQueue", label: "nav.label", icon: "printer" },
