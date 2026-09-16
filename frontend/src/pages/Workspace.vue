@@ -364,11 +364,31 @@
             </button>
           </div>
 
-          <!-- Duplicated: one honest exit — back into the queue. -->
+          <!-- Duplicated: the agent reached the customer — decide here, no
+               reopen detour. Same four decisions, plus "back in the queue"
+               for when the call is not for now. -->
           <div v-else-if="isDupCard" class="flex flex-wrap gap-2">
-            <button class="ws-decide flex-1 min-w-[180px] bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100"
+            <button class="ws-decide flex-[2] min-w-[160px] text-white"
+                    :class="isBlocked ? (confirmArmed ? 'bg-rose-600 hover:bg-rose-700' : 'bg-stone-400 hover:bg-stone-500') : 'bg-emerald-600 hover:bg-emerald-700'"
+                    :disabled="busy" @click="onConfirm">
+              <Icon name="check" :size="16" />
+              <span>{{ isBlocked && confirmArmed ? t('ws.confirmAnyway') : t('cf.actConfirm') }}</span>
+              <kbd>1</kbd>
+            </button>
+            <button class="ws-decide flex-1 min-w-[120px] bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100" :disabled="busy" @click="decide('dna')">
+              <Icon name="phone-off" :size="14" /><span>{{ t('cf.actDna') }}</span> <kbd>2</kbd>
+            </button>
+            <button class="ws-decide flex-1 min-w-[120px] bg-sky-50 text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100" :disabled="busy" @click="decide('followup')">
+              <Icon name="clock" :size="14" /><span>{{ t('cf.actFollowup') }}</span> <kbd>3</kbd>
+            </button>
+            <button class="ws-decide flex-1 min-w-[120px] bg-white text-rose-600 ring-1 ring-rose-200 hover:bg-rose-50" :disabled="busy"
+                    :class="panel === 'cancel' ? 'ring-2' : ''"
+                    @click="panel = panel === 'cancel' ? '' : 'cancel'">
+              <Icon name="x" :size="14" /><span>{{ t('rs.actCancel') }}</span> <kbd>4</kbd>
+            </button>
+            <button class="ws-decide flex-1 min-w-[150px] bg-stone-50 text-stone-600 ring-1 ring-stone-200 hover:bg-stone-100"
                     :disabled="busy" @click="decide('reopen')">
-              <Icon name="rotate-ccw" :size="15" /><span>{{ t('cf.bulkReopen') }}</span> <kbd>1</kbd>
+              <Icon name="rotate-ccw" :size="14" /><span>{{ t('cf.bulkReopen') }}</span> <kbd>5</kbd>
             </button>
           </div>
 
@@ -1155,7 +1175,12 @@ function onKey(e) {
     return;
   }
   else if (isDupCard.value) {
-    if (c === "Digit1" || c === "Numpad1") decide("reopen");
+    if (c === "Digit1" || c === "Numpad1") onConfirm();
+    else if (c === "Digit2" || c === "Numpad2") decide("dna");
+    else if (c === "Digit3" || c === "Numpad3") decide("followup");
+    else if (c === "Digit4" || c === "Numpad4") panel.value = panel.value === "cancel" ? "" : "cancel";
+    else if (c === "Digit5" || c === "Numpad5") decide("reopen");
+    else if (c === "KeyM") panel.value = panel.value === "note" ? "" : "note";
     return;
   }
   else if (!inLane.value) return;

@@ -888,7 +888,12 @@ def act(order, action, note=None, _bulk=False):
         if so.custom_sales_status not in DONE_QUEUES.values():
             frappe.throw(f"Order is {so.custom_sales_status or 'unset'} — outside the "
                          "confirmation lane. Refresh the queue.")
-        if action != "reopen":
+        # A Duplicated order is a parked call, not a closed one: the agent
+        # who opens it and reaches the customer decides on the spot — the
+        # reopen-then-decide detour was two clicks for one truth (Ahmed,
+        # 2026-09-16). Same fences as reopen: nothing the warehouse holds.
+        direct = so.custom_sales_status == "Duplicated" and action in ("confirm", "dna", "followup", "cancel")
+        if action != "reopen" and not direct:
             frappe.throw(f"Order is already {so.custom_sales_status}. Reopen it "
                          "first if the decision was wrong.")
         stage = frappe.db.get_value("Sales Order", order, "custom_logistics_status")
@@ -968,6 +973,7 @@ def act(order, action, note=None, _bulk=False):
     doc = frappe.get_doc("Sales Order", order)
     doc.add_comment("Comment",
                     f"Confirmation: {action}"
+                    + (" (from duplicated)" if so.custom_sales_status == "Duplicated" and action != "reopen" else "")
                     + (" (bulk)" if _bulk else "")
                     + (f" (attempt {attempts})" if action in _RETRY_HOURS else "")
                     + (f" — {note}" if note else "")

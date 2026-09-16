@@ -276,6 +276,21 @@
               {{ t('cf.fixCity') }}
             </span>
           </div>
+          <!-- Duplicated: parked, not closed — decide right here. -->
+          <div v-else-if="tab === 'duplicated'" class="flex items-center gap-1.5 flex-wrap">
+            <button class="cf-act cf-act-confirm" :disabled="busy === r.order" @click="act(r, 'confirm')">
+              <Icon name="check" :size="14" class="inline -mt-px me-1" />{{ t('cf.actConfirm') }}
+            </button>
+            <button class="cf-act cf-act-soft text-amber-700" :disabled="busy === r.order" :title="t('cf.actDna')" @click="act(r, 'dna')"><Icon name="phone-off" :size="15" /></button>
+            <button class="cf-act cf-act-soft text-sky-700" :disabled="busy === r.order" :title="t('cf.actFollowup')" @click="act(r, 'followup')"><Icon name="clock" :size="15" /></button>
+            <button :title="t('common.close')" class="cf-act cf-act-soft text-rose-600" :disabled="busy === r.order"
+                    :class="cancelFor === r.order ? 'ring-2' : ''"
+                    @click="cancelFor = cancelFor === r.order ? '' : r.order"><Icon name="circle-x" :size="15" /></button>
+            <button class="cf-act cf-act-soft text-stone-500" :disabled="busy === r.order"
+                    :title="t('cf.bulkReopen')" @click="act(r, 'reopen')">
+              <Icon name="rotate-ccw" :size="15" />
+            </button>
+          </div>
           <!-- already decided: the outcome + an undo -->
           <div v-else class="flex items-center gap-2 flex-wrap">
             <span class="cf-done" :class="doneClass(r.status)">
