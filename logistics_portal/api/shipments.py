@@ -1358,8 +1358,14 @@ def my_day():
     names = {}
     if users:
         names = dict(frappe.db.sql("SELECT name, full_name FROM `tabUser` WHERE name IN %s", (users,)))
+    # The same trails are left by other lanes (a confirmation agent's note, a
+    # dispatcher's city fix). This is the tracking team's day, so only people
+    # holding the tracking role are listed — the manager grants it on Team.
+    tracking = set(_tracking_users("tracking"))
     team = []
     for r in rows:
+        if r.owner not in tracking:
+            continue
         counts = {k: int(r.get(k) or 0) for k in _DAY_KINDS}
         counts["total"] = sum(counts.values())
         team.append({"user": r.owner, "name": names.get(r.owner) or r.owner.split("@")[0], **counts})
@@ -1367,7 +1373,7 @@ def my_day():
     me = next((x for x in team if x["user"] == frappe.session.user), None) or \
         {"user": frappe.session.user, **{k: 0 for k in _DAY_KINDS}, "total": 0}
     totals = {k: sum(x[k] for x in team) for k in list(_DAY_KINDS) + ["total"]}
-    return {"today": str(lo)[:10], "me": me, "team": team[:12], "totals": totals}
+    return {"today": str(lo)[:10], "me": me, "team": team[:12], "totals": totals, "teamSize": len(tracking)}
 
 
 @frappe.whitelist()

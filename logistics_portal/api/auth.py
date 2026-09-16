@@ -185,12 +185,20 @@ def _require_manager():
         frappe.throw("Only a manager can manage the team.", frappe.PermissionError)
 
 
+# Which roles belong to which portal surface. The Team page on /tracking is
+# about the tracking team, not the floor or the contact centre.
+SURFACE_ROLES = {"ship": {"tracking"}, "cc": {"confirmation", "cs"}}
+
+
 @frappe.whitelist()
-def team_members(q=""):
+def team_members(q="", surface=""):
     """The portal roster (everyone with a role, and where the role comes from:
     set / seed) + search matches over the remaining system users so the
-    manager can grant access. Includes each member's last submitted pick."""
+    manager can grant access. Includes each member's last submitted pick.
+    `surface` narrows the roster to that portal's roles; the search then also
+    finds people who currently hold another role, so they can be moved."""
     _require_manager()
+    only = SURFACE_ROLES.get((surface or "").strip().lower())
     users = frappe.get_all(
         "User", filters={"enabled": 1, "user_type": "System User"},
         fields=["name", "full_name", "custom_logistics_role"],
@@ -220,9 +228,15 @@ def team_members(q=""):
                "role": role, "source": source,
                "hidden": pages_map.get(u.name, []),
                "lastPick": str(last_pick.get(u.name) or "")[:10]}
-        if role or source == "blocked":
+        hit = ql and (ql in u.name.lower() or ql in (u.full_name or "").lower())
+        if only is not None:
+            if role in only:
+                members.append(row)
+            elif hit:
+                matches.append(row)  # carries the role they hold now, if any
+        elif role or source == "blocked":
             members.append(row)
-        elif ql and (ql in u.name.lower() or ql in (u.full_name or "").lower()):
+        elif hit:
             matches.append(row)
 
     order = {"manager": 0, "dispatcher": 1, "picker": 2, "packer": 3, "returns": 4, "": 5}

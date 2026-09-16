@@ -303,8 +303,9 @@ def check_parcel(order):
     """Ask the carrier about ONE parcel now: write its current status through
     the same path the webhook uses, and return the carrier's own log for the
     page. Any portal role — the person holding the phone needs the truth."""
-    from logistics_portal.api.permissions import require_portal_user
-    require_portal_user()
+    from logistics_portal.api.auth import resolve_role
+    if not resolve_role(frappe.session.user):
+        frappe.throw("lp:shipTeamOnly", frappe.PermissionError)
     order = (order or "").strip()
     if not frappe.db.exists("Sales Order", order):
         frappe.throw("Unknown order.")

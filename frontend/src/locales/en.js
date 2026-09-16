@@ -1347,6 +1347,7 @@ export default {
       roleSet: "Role set", accessRemoved: "Access removed", roleFail: "Couldn't update role",
       targetSaved: "Daily target updated", targetUnit: "orders / person", targetFail: "Couldn't save target",
       kToday: "Logged today", kMembers: "On the team", thTotal: "Total",
+      hasRoleHint: "Already holds another portal role; picking one here moves them.", noTrackingYet: "Nobody holds the tracking role yet. Grant it below in Roles & access.",
     },
     set: {
       sub: "Manage your profile and preferences.",

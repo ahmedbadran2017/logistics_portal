@@ -72,7 +72,7 @@
               </tr>
             </tbody>
           </table>
-          <div v-if="day && !day.team.length" class="text-center text-[12.5px] text-stone-400 py-8">{{ t('oclk.teamQuiet') }}</div>
+          <div v-if="day && !day.team.length" class="text-center text-[12.5px] text-stone-400 py-8">{{ day.teamSize === 0 ? t('px.team.noTrackingYet') : t('oclk.teamQuiet') }}</div>
         </div>
       </div>
     </template>
@@ -232,7 +232,10 @@
         <div v-for="m in mgmt.matches" :key="'m-' + m.user" class="flex items-center gap-3 px-4 py-2.5 bg-[var(--accent-50)]/30">
           <span class="w-8 h-8 rounded-full grid place-items-center text-white text-[11px] font-semibold flex-shrink-0 bg-stone-400">{{ initials(m.name) }}</span>
           <div class="min-w-0 flex-1">
-            <div class="text-[12.5px] font-semibold text-stone-900 truncate">{{ m.name }}</div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[12.5px] font-semibold text-stone-900 truncate">{{ m.name }}</span>
+              <span v-if="m.role" class="text-[9.5px] font-semibold uppercase text-stone-500 bg-stone-100 rounded px-1 py-0.5" :title="t('px.team.hasRoleHint')">{{ t('roles.' + m.role, m.role) }}</span>
+            </div>
             <div class="text-[11px] text-stone-400 truncate">{{ m.user }}</div>
           </div>
           <select class="role-select" :disabled="savingRole === m.user" :value="''"
@@ -329,7 +332,7 @@ let mqTimer = null;
 
 async function loadMgmt() {
   try {
-    const r = await api("auth.team_members", { q: mq.value });
+    const r = await api("auth.team_members", { q: mq.value, surface: SURFACE || "" });
     if (r && Array.isArray(r.members)) {
       mgmt.value = r;
       targetEdit.value = r.target;
@@ -343,7 +346,7 @@ function onMemberSearch() {
   clearTimeout(mqTimer);
   mqTimer = setTimeout(async () => {
     try {
-      const r = await api("auth.team_members", { q: mq.value });
+      const r = await api("auth.team_members", { q: mq.value, surface: SURFACE || "" });
       if (r && Array.isArray(r.members)) mgmt.value = { ...mgmt.value, ...r };
     } catch (_) {}
   }, 350);

@@ -1347,6 +1347,7 @@ export default {
       roleSet: "Rôle défini", accessRemoved: "Accès retiré", roleFail: "Mise à jour du rôle impossible",
       targetSaved: "Objectif quotidien mis à jour", targetUnit: "commandes / personne", targetFail: "Enregistrement de l'objectif impossible",
       kToday: "Enregistré aujourd'hui", kMembers: "Dans l'équipe", thTotal: "Total",
+      hasRoleHint: "A déjà un autre rôle dans le portail ; en choisir un ici le déplace.", noTrackingYet: "Personne n'a encore le rôle suivi. Attribuez-le ci-dessous dans Rôles & accès.",
     },
     set: {
       sub: "Gérez votre profil et vos préférences.",
