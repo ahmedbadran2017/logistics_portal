@@ -1046,6 +1046,14 @@ _ALERTS = {
         "ar": ("طرود اتسلّمت ومفيش أي تحديث من الكاريير",
                "{n} طرد اتسلّم من أكتر من يومين ونسختنا من حالة الكاريير ما اتحركتش. راجع مزامنة حالة الكاريير في إعدادات المتابعة الأول؛ اللي يفضل Pending بعد المزامنة هو طرد الكاريير فعلًا ما سكنه."),
     },
+    "carrier_unack": {
+        "en": ("Parcels we handed over that the carrier has not acknowledged",
+               "{n} parcels ({value} MAD) were scanned onto a manifest more than a day ago and the carrier still shows them as awaiting pickup. Oldest: {shipment}, {hours}h. The manifest is our proof — open a claim with the carrier for each one."),
+        "fr": ("Colis remis que le transporteur n'a pas confirmés",
+               "{n} colis ({value} MAD) scannés sur un manifeste il y a plus d'un jour sont toujours « en attente de ramassage » chez le transporteur. Le plus ancien : {shipment}, {hours} h. Le manifeste est notre preuve — ouvrez une réclamation pour chacun."),
+        "ar": ("طرود سلّمناها والكاريير ما أكّدش استلامها",
+               "{n} طرد ({value} درهم) اتسكنوا على مانيفست من أكتر من يوم والكاريير لسه بيقول إنهم في انتظار الاستلام. الأقدم: {shipment}، {hours} ساعة. المانيفست هو دليلنا، افتح مطالبة مع الكاريير لكل واحد."),
+    },
     "chase": {
         "en": ("Parcels past the chase line with the carrier",
                "{n} parcels moving for more than {days} days beyond the city promise — not late, lost. Chase them with the carrier."),

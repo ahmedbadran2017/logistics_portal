@@ -82,6 +82,180 @@ def _resync(from_date, to_date):
                               "company": "Justyol Morocco"})
 
 
+# ── Two-sided reconciliation: our door scan against the carrier's record ──
+#
+# Ahmed, 2026-09-16: "sometimes we hand the goods to the carrier and they
+# get lost there — the match has to run from both sides." Four outcomes for
+# every parcel of the last days:
+#
+#   ours + theirs      clean.
+#   ours, not theirs   we scanned it onto a manifest, the carrier still says
+#                      'En Attente Ramassage' after the grace: the parcel is
+#                      lost between the door and their hub. This is the claim
+#                      list — the manifest is our proof, the carrier owes an
+#                      answer. Alert to dispatch + manager.
+#   theirs, not ours   the carrier is moving or has delivered a parcel that
+#                      never met our door scanner (measured: 13 of 76 in the
+#                      handover zone, 12 of them one exchange list handed over
+#                      four days before its pick list existed). The parcel is
+#                      out; the record is closed with a reconstructed manifest
+#                      so the order ships and invoices like any other, and the
+#                      leak stays visible as a count — it is a discipline
+#                      fault even when the parcel arrives.
+#   neither            still in the building: the handover zone's job.
+
+_RECON = "lp_carrier_recon"
+_RECON_DAYS = 7
+_UNACK_GRACE_H = 24         # the carrier collects in the evening; judge next day
+_LEAK_MIN_AGE_H = 3          # printed this long ago and the carrier already has it
+_WAITING = ("En Attente Ramassage", "En attente de récupération", "")
+
+
+def _carrier_statuses(awbs):
+    from codx_erp.codx_erp.report.cathedis_status_comparison.cathedis_status_comparison import (
+        fetch_cathedis_statuses_by_awb)
+    return fetch_cathedis_statuses_by_awb([a for a in awbs if a])
+
+
+def _manifested_rows(days):
+    return frappe.db.sql(
+        """SELECT sh.name AS shipment, sh.pickup_date, sh.modified AS closed_at,
+                  dn.name AS dn, dn.custom_awb AS awb, dn.customer_name AS customer,
+                  dn.grand_total AS value, dn.custom_track_shipment_status AS our_status,
+                  (SELECT dni.against_sales_order FROM `tabDelivery Note Item` dni
+                   WHERE dni.parent = dn.name AND dni.against_sales_order IS NOT NULL LIMIT 1) AS so
+           FROM `tabShipment` sh
+           JOIN `tabShipment Delivery Note` sdn ON sdn.parent = sh.name
+           JOIN `tabDelivery Note` dn ON dn.name = sdn.delivery_note AND dn.docstatus = 1
+           WHERE sh.docstatus = 1 AND sh.delivery_customer = 'CATHEDIS'
+             AND sh.pickup_date >= DATE_SUB(CURDATE(), INTERVAL %s DAY)
+             AND COALESCE(dn.custom_awb, '') <> ''""", (days,), as_dict=True)
+
+
+def _unmanifested_rows():
+    """Printed parcels the door never scanned (the handover zone's waiting set)."""
+    return frappe.db.sql(
+        """SELECT DISTINCT so.name AS so, so.customer_name AS customer, so.custom_awb AS awb,
+                  dn.name AS dn, dn.grand_total AS value, pl.name AS pick_list,
+                  GREATEST(so.modified, dn.creation) AS printed_at
+           FROM `tabPick List` pl
+           JOIN `tabPick List Item` pli ON pli.parent = pl.name
+           JOIN `tabSales Order` so ON so.name = pli.sales_order
+           JOIN `tabDelivery Note Item` dni ON dni.against_sales_order = so.name
+           JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
+           WHERE pl.docstatus = 1 AND pl.creation >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+             AND so.custom_logistics_status = 'Label Printed'
+             AND COALESCE(so.custom_sales_status, '') <> 'Cancelled'
+             AND COALESCE(dn.custom_awb, '') <> ''
+             AND NOT EXISTS (SELECT 1 FROM `tabShipment Delivery Note` sdn
+                             JOIN `tabShipment` sh ON sh.name = sdn.parent AND sh.docstatus < 2
+                             WHERE sdn.delivery_note = dn.name)""", as_dict=True)
+
+
+def reconcile(days=_RECON_DAYS):
+    """Compute the four-way match and store it for the pages. Returns it."""
+    from frappe.utils import time_diff_in_hours
+    now = now_datetime()
+    ours = _manifested_rows(days)
+    theirs_only_cands = _unmanifested_rows()
+    statuses = _carrier_statuses([r.awb for r in ours] + [r.awb for r in theirs_only_cands])
+
+    manifests, unack = {}, []
+    for r in ours:
+        m = manifests.setdefault(r.shipment, {"shipment": r.shipment, "date": str(r.pickup_date or "")[:10],
+                                              "parcels": 0, "acknowledged": 0, "waiting": 0, "unacknowledged": 0,
+                                              "notFound": 0})
+        m["parcels"] += 1
+        st = statuses.get(r.awb)
+        age_h = time_diff_in_hours(now, r.closed_at) if r.closed_at else 0
+        if st is None:
+            m["notFound"] += 1
+            st = "(not found)"
+        if st in _WAITING or st == "(not found)":
+            if age_h >= _UNACK_GRACE_H:
+                m["unacknowledged"] += 1
+                unack.append({"shipment": r.shipment, "date": m["date"], "order": r.so or "", "dn": r.dn,
+                              "awb": r.awb, "customer": r.customer or "", "value": float(r.value or 0),
+                              "carrier": st, "hours": int(age_h)})
+            else:
+                m["waiting"] += 1
+        else:
+            m["acknowledged"] += 1
+
+    leaked = []
+    for r in theirs_only_cands:
+        st = statuses.get(r.awb)
+        if not st or st in _WAITING:
+            continue
+        age_h = time_diff_in_hours(now, r.printed_at) if r.printed_at else 0
+        if age_h < _LEAK_MIN_AGE_H:
+            continue
+        leaked.append({"order": r.so, "dn": r.dn, "awb": r.awb, "customer": r.customer or "",
+                       "value": float(r.value or 0), "pickList": r.pick_list, "carrier": st,
+                       "hours": int(age_h), "exchange": str(r.so).endswith("-ex")})
+
+    unack.sort(key=lambda x: (-x["hours"], x["shipment"]))
+    out = {"at": str(now)[:19], "days": days, "graceH": _UNACK_GRACE_H,
+           "manifests": sorted(manifests.values(), key=lambda m: m["date"], reverse=True),
+           "unacknowledged": unack[:300], "unackN": len(unack),
+           "unackValue": round(sum(x["value"] for x in unack)),
+           "leaked": leaked[:300], "leakedN": len(leaked)}
+    frappe.db.set_default(_RECON, json.dumps(out, default=str))
+    return out
+
+
+@frappe.whitelist()
+def reconciliation():
+    """The stored match for the manifest page (computed by the hourly run)."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("packer", "dispatcher", "manager"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    raw = frappe.db.get_default(_RECON)
+    try:
+        return json.loads(raw) if raw else {}
+    except Exception:
+        return {}
+
+
+def close_leaks(leaked):
+    """The parcels the carrier has but our door never scanned: one
+    reconstructed Cathedis manifest, submitted, so the orders ship and
+    invoice like every other parcel — with the reconstruction named on it."""
+    if not leaked:
+        return None
+    from logistics_portal.api.shipping import _new_manifest_shell, _bust_ship_caches
+    from logistics_portal.api.locks import named_lock
+    dns = []
+    for x in leaked:
+        if frappe.db.sql("""SELECT 1 FROM `tabShipment Delivery Note` sdn JOIN `tabShipment` sh ON sh.name = sdn.parent
+                            WHERE sdn.delivery_note = %s AND sh.docstatus < 2 LIMIT 1""", (x["dn"],)):
+            continue
+        dns.append(x)
+    if not dns:
+        return None
+    with named_lock("manifest", timeout=30):
+        sh = _new_manifest_shell()
+        for x in dns:
+            sh.append("shipment_delivery_note", {"delivery_note": x["dn"], "grand_total": x["value"]})
+        sh.value_of_goods = round(sum(x["value"] for x in dns), 2)
+        sh.flags.ignore_permissions = True
+        sh.insert(ignore_permissions=True)
+        sh.add_comment("Comment", f"Reconstructed from the carrier's own scans on {nowdate()}: "
+                                  f"{len(dns)} parcels the carrier is moving or has delivered that never met the "
+                                  f"door scanner. Orders: " + ", ".join(x["order"] for x in dns[:40]))
+        sh.submit()
+        frappe.db.commit()
+    for x in dns:
+        try:
+            frappe.get_doc("Sales Order", x["order"]).add_comment(
+                "Comment", f"Handover recorded from the carrier's scan ({x['carrier']}), not from our door — "
+                           f"the parcel left without a manifest scan · {sh.name}")
+        except Exception:
+            pass
+    _bust_ship_caches()
+    return sh.name
+
+
 def run(force=False):
     """Scheduled hourly. One runner at a time; the window is the last
     _DAYS days of orders — the same window the hand-run report used."""
@@ -100,8 +274,27 @@ def run(force=False):
                     "inserted": int(res.get("inserted") or 0),
                     "skipped": int(res.get("skipped") or 0),
                     "errors": len(res.get("errors") or []) if isinstance(res.get("errors"), list) else int(res.get("errors") or 0),
-                    "pendingBefore": before, "pendingAfter": _pending_count(),
-                    "seconds": int((now_datetime() - started).total_seconds())})
+                    "pendingBefore": before, "pendingAfter": _pending_count()})
+        # Then the match from both sides, and its two consequences.
+        try:
+            rec = reconcile()
+            frappe.db.commit()
+            out["unacknowledged"] = rec["unackN"]
+            out["leaked"] = rec["leakedN"]
+            if rec["leaked"]:
+                out["reconstructed"] = close_leaks(rec["leaked"])
+                rec = reconcile()
+                frappe.db.commit()
+            if rec["unackN"]:
+                from logistics_portal.api.shipments import _emit
+                oldest = rec["unacknowledged"][0]
+                _emit("carrier_unack", {"n": rec["unackN"], "value": rec["unackValue"],
+                                        "shipment": oldest["shipment"], "hours": oldest["hours"]},
+                      severity="critical", cooldown_h=6, audience=("dispatcher", "manager"))
+        except Exception:
+            frappe.db.rollback()
+            frappe.log_error(frappe.get_traceback()[-2500:], "carrier_sync.reconcile")
+        out["seconds"] = int((now_datetime() - started).total_seconds())
     except Exception as e:
         frappe.db.rollback()
         out.update({"ok": False, "error": str(e)[:300],

@@ -130,6 +130,53 @@
           </div>
         </div>
 
+        <!-- Two-sided reconciliation: our door scan against the carrier's
+             record, per manifest. Red = we handed it over, the carrier never
+             acknowledged it (the claim list). Grey = the carrier has a parcel
+             our door never scanned (closed automatically, kept as a count). -->
+        <div v-if="recon && recon.manifests && recon.manifests.length" class="bg-white rounded-xl ring-1 overflow-hidden"
+             :class="recon.unackN ? 'ring-rose-200/70' : 'ring-stone-200/70'">
+          <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+            <Icon name="scan-barcode" :size="14" :class="recon.unackN ? 'text-rose-600' : 'text-stone-400'" />
+            <span class="text-[12.5px] font-bold text-stone-900">{{ t('mani.rcTitle') }}</span>
+            <span v-if="recon.unackN" class="text-[11px] font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200/70 rounded-md px-1.5 py-0.5 tabular-nums">{{ recon.unackN }} {{ t('mani.rcUnack') }} · {{ fmtMAD(recon.unackValue) }} MAD</span>
+            <span v-if="recon.leakedN" class="text-[11px] font-semibold text-stone-600 bg-stone-100 ring-1 ring-stone-200 rounded-md px-1.5 py-0.5 tabular-nums">{{ recon.leakedN }} {{ t('mani.rcLeaked') }}</span>
+            <span class="ms-auto text-[10.5px] text-stone-400 tabular-nums">{{ t('mani.rcAt') }} {{ recon.at }}</span>
+          </div>
+          <p class="px-4 py-2 text-[11.5px] text-stone-500 border-b border-stone-50">{{ t('mani.rcHint').replace('{h}', recon.graceH || 24) }}</p>
+          <div class="divide-y divide-stone-100">
+            <div v-for="m in recon.manifests" :key="m.shipment" class="px-4 py-2 flex items-center gap-3 text-[12px]">
+              <span class="font-mono font-semibold text-stone-900 w-[92px]">{{ m.shipment }}</span>
+              <span class="text-stone-500 w-[78px]">{{ m.date }}</span>
+              <span class="flex-1 h-1.5 rounded-full bg-stone-100 overflow-hidden flex">
+                <span class="h-full bg-emerald-500" :style="{ width: (m.parcels ? m.acknowledged / m.parcels * 100 : 0) + '%' }" />
+                <span class="h-full bg-amber-400" :style="{ width: (m.parcels ? m.waiting / m.parcels * 100 : 0) + '%' }" />
+                <span class="h-full bg-rose-500" :style="{ width: (m.parcels ? m.unacknowledged / m.parcels * 100 : 0) + '%' }" />
+              </span>
+              <span class="tabular-nums text-emerald-700 w-[64px] text-end">{{ m.acknowledged }}/{{ m.parcels }}</span>
+              <span v-if="m.waiting" class="tabular-nums text-amber-700 w-[52px] text-end">{{ m.waiting }} {{ t('mani.rcWait') }}</span>
+              <span v-else class="w-[52px]" />
+              <span class="tabular-nums font-bold w-[44px] text-end" :class="m.unacknowledged ? 'text-rose-700' : 'text-stone-300'">{{ m.unacknowledged || '' }}</span>
+            </div>
+          </div>
+          <div v-if="recon.unacknowledged && recon.unacknowledged.length" class="border-t border-rose-100 bg-rose-50/40">
+            <div class="px-4 py-2 text-[11.5px] font-bold text-rose-700 flex items-center gap-2">
+              {{ t('mani.rcClaim') }}
+              <button class="ms-auto h-7 px-2.5 rounded-lg text-[11px] font-semibold text-rose-700 bg-white ring-1 ring-rose-200 hover:bg-rose-100" @click="copyClaim">{{ t('mani.rcCopy') }}</button>
+            </div>
+            <div class="max-h-[240px] overflow-y-auto divide-y divide-rose-100/60">
+              <div v-for="u in recon.unacknowledged" :key="u.dn" class="px-4 py-1.5 flex items-center gap-3 text-[11.5px]">
+                <span class="font-mono text-stone-800 w-[110px]">{{ u.awb }}</span>
+                <span class="font-mono text-stone-500 w-[90px]">{{ u.order }}</span>
+                <span class="text-stone-600 flex-1 truncate">{{ u.customer }}</span>
+                <span class="font-mono text-stone-400 w-[80px]">{{ u.shipment }}</span>
+                <span class="tabular-nums text-rose-700 w-[44px] text-end">{{ u.hours }}h</span>
+                <span class="tabular-nums text-stone-700 w-[60px] text-end">{{ fmtMAD(u.value) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- recent manifests -->
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
           <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold text-stone-700">{{ t("mani.recent") }}</div>
@@ -276,6 +323,18 @@ const readyCount = ref(0); // ready-to-ship parcels waiting to be scanned onto t
 const pool = ref([]);
 const notLabeled = ref(0);
 const gaps = ref({ lists: [], parcels: 0, short: 0 }); // printed parcels off every manifest, by list
+// Our door scan vs the carrier's record, computed hourly by carrier_sync.
+const recon = ref(null);
+async function loadRecon() {
+  try { recon.value = await api("carrier_sync.reconciliation"); } catch (_) { recon.value = null; }
+}
+async function copyClaim() {
+  const rows = (recon.value?.unacknowledged || []).map((u) => [u.awb, u.order, u.customer, u.shipment, u.date, `${u.hours}h`, u.value].join("\t"));
+  try {
+    await navigator.clipboard.writeText(["AWB\tOrder\tCustomer\tManifest\tDate\tSince\tValue", ...rows].join("\n"));
+    success(t("mani.rcCopied"), `${rows.length}`);
+  } catch (_) { warn(t("mani.rcCopyFail"), ""); }
+}
 
 const totalValue = computed(() => parcels.value.reduce((s, p) => s + Number(p.value || 0), 0));
 
@@ -451,6 +510,7 @@ async function loadManifest() {
 onMounted(() => {
   timer = setInterval(() => (now.value = new Date()), 30000);
   loadManifest();
+  loadRecon();
 });
 onUnmounted(() => timer && clearInterval(timer));
 </script>
