@@ -256,6 +256,83 @@ def close_leaks(leaked):
     return sh.name
 
 
+# ── Webhook replay: the carrier DID tell us, our door slammed on the name ──
+#
+# Measured 2026-09-16: Cathedis pushes every status change to
+# ecommerce_integrations' webhook, for every order. The handler prefixes a
+# '#' to any order name that lacks one — right for Shopify orders
+# ('#260009'), wrong for 'J-006902' and 'SAL-ORD-2026-03307' — and answers
+# 404 'Sales Order not found'. Three days: 3,727 pushes rejected, 3,308 of
+# them J- orders, 409 SAL-ORD; every '#' order accepted. Each rejected call
+# is kept whole in Shipment Delivery Logs, so the status the carrier sent
+# can be applied after the fact, here, without asking the carrier again —
+# and keeps being applied hourly until the handler itself is fixed.
+
+_REPLAY_MARK = " | replayed by portal"
+
+
+def _resolve_order_name(raw):
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    if frappe.db.exists("Sales Order", s):
+        return s
+    if s.startswith("#") and frappe.db.exists("Sales Order", s[1:]):
+        return s[1:]
+    if not s.startswith("#") and frappe.db.exists("Sales Order", "#" + s):
+        return "#" + s
+    return None
+
+
+def replay_rejected_webhooks(hours=48, limit=2000):
+    """Apply the carrier pushes the webhook turned away. Newest per order
+    wins (a parcel's status is its latest event); each log row is marked so
+    it is never replayed twice. Returns counts."""
+    rows = frappe.db.sql(
+        """SELECT name, body, creation FROM `tabShipment Delivery Logs`
+           WHERE author = 'Cathedis Webhook API'
+             AND subject LIKE 'Cathedis Shipment Webhook: Failed%%'
+             AND summary LIKE 'Sales Order not found%%'
+             AND summary NOT LIKE %s
+             AND creation >= DATE_SUB(NOW(), INTERVAL %s HOUR)
+           ORDER BY creation DESC LIMIT %s""",
+        ("%" + _REPLAY_MARK + "%", int(hours), int(limit)), as_dict=True)
+    if not rows:
+        return {"seen": 0, "applied": 0, "unresolved": 0}
+    from ecommerce_integrations.ecommerce_integrations.api.shipment_tracking import (
+        _apply_tracking_update_from_webhook)
+    applied, unresolved, done_orders = 0, 0, set()
+    for r in rows:
+        try:
+            body = json.loads(r.body or "{}")
+            payload = body.get("payload") if isinstance(body, dict) else None
+            if not isinstance(payload, dict):
+                continue
+            so = _resolve_order_name(payload.get("sales_order"))
+            if not so:
+                unresolved += 1
+                continue
+            if so in done_orders:
+                # An older push for an order whose latest push already
+                # landed: nothing to apply, but marked so it is not re-read.
+                frappe.db.set_value("Shipment Delivery Logs", r.name, "summary",
+                                    (frappe.db.get_value("Shipment Delivery Logs", r.name, "summary") or "")
+                                    + _REPLAY_MARK + " (superseded)", update_modified=False)
+                continue
+            payload["sales_order"] = so
+            _apply_tracking_update_from_webhook(so, payload.get("tracking_number"), payload)
+            done_orders.add(so)
+            frappe.db.set_value("Shipment Delivery Logs", r.name, "summary",
+                                (frappe.db.get_value("Shipment Delivery Logs", r.name, "summary") or "")
+                                + _REPLAY_MARK, update_modified=False)
+            applied += 1
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+            frappe.log_error(frappe.get_traceback()[-1500:], f"carrier_sync.replay {r.name}")
+    return {"seen": len(rows), "applied": applied, "unresolved": unresolved}
+
+
 def run(force=False):
     """Scheduled hourly. One runner at a time; the window is the last
     _DAYS days of orders — the same window the hand-run report used."""
@@ -268,6 +345,12 @@ def run(force=False):
     out = {"startedAt": str(started)[:19], "ok": False}
     try:
         before = _pending_count()
+        # First what the carrier already told us and the webhook refused.
+        try:
+            out["replay"] = replay_rejected_webhooks()
+        except Exception:
+            frappe.db.rollback()
+            frappe.log_error(frappe.get_traceback()[-2000:], "carrier_sync.replay")
         res = _resync(add_days(nowdate(), -_DAYS), nowdate()) or {}
         frappe.db.commit()
         out.update({"ok": True, "processed": int(res.get("processed") or 0),
