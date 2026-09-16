@@ -139,6 +139,11 @@ scheduler_events = {
             # asked, thank or ticket, expire the silent ones.
             "logistics_portal.api.feedback.run_replies",
         ],
+        # Carrier status pull: the Cathedis resync the team used to run by
+        # hand, hourly at :20, so 'Pending' means the carrier said so.
+        "20 * * * *": [
+            "logistics_portal.api.carrier_sync.run",
+        ],
         # Audit rule engine: scan recent docs against thresholds every 10 minutes.
         "*/10 * * * *": [
             "logistics_portal.api.audit.run_rule_engine",

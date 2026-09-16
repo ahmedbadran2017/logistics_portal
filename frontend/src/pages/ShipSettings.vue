@@ -123,6 +123,34 @@
         <span class="text-[11.5px] text-stone-500 flex-1 min-w-[220px]">{{ t('oclk.setSnoozeHint') }}</span>
       </section>
 
+      <!-- Carrier status sync: the hand-run Desk resync, on a clock. Without
+           it half of each day's parcels stay 'Pending' in our book while the
+           carrier delivers them (measured 2026-09-16), and the tracking board
+           blames the carrier for a gap that is ours. -->
+      <section v-if="s.isAdmin" class="sh-card rounded-2xl p-4 space-y-2.5">
+        <div class="flex items-center gap-2 flex-wrap">
+          <Icon name="refresh-cw" :size="15" class="text-stone-400" />
+          <span class="text-[13px] font-semibold text-stone-900">{{ t('oclk.csTitle') }}</span>
+          <button class="ms-auto inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[11.5px] font-semibold ring-1 transition-colors"
+                  :class="cs.on ? 'text-emerald-700 bg-emerald-50 ring-emerald-200' : 'text-stone-600 bg-white ring-stone-200'"
+                  :disabled="csBusy" @click="toggleCs">
+            <Icon :name="cs.on ? 'check-circle' : 'circle'" :size="12" />{{ cs.on ? t('oclk.on', 'on') : t('oclk.off', 'off') }}
+          </button>
+          <button class="h-8 px-3 rounded-lg text-[11.5px] font-semibold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-50"
+                  :disabled="csBusy" @click="runCs">{{ t('oclk.csRun') }}</button>
+        </div>
+        <p class="text-[11.5px] text-stone-500">{{ t('oclk.csHint').replace('{d}', cs.days || 21) }}</p>
+        <div class="flex items-center gap-4 flex-wrap text-[12px] tabular-nums">
+          <span class="font-bold" :class="cs.pending ? 'text-amber-700' : 'text-emerald-700'">{{ cs.pending }} <span class="font-normal text-stone-500">{{ t('oclk.csPending') }}</span></span>
+          <span v-if="cs.last" class="text-stone-600">
+            {{ t('oclk.csLast') }} {{ cs.last.startedAt }} ·
+            <template v-if="cs.last.ok">{{ cs.last.processed }} {{ t('oclk.csProcessed') }} · {{ cs.last.inserted }} {{ t('oclk.csInserted') }} · {{ cs.last.errors }} {{ t('oclk.csErrors') }} · {{ cs.last.seconds }}s</template>
+            <span v-else class="text-rose-600 font-mono">{{ cs.last.error || cs.last.reason }}</span>
+          </span>
+          <span v-else class="text-stone-400">{{ t('oclk.csNever') }}</span>
+        </div>
+      </section>
+
       <!-- Who may change all of this: managers always, plus the leads named here. -->
       <section v-if="s.isOpsAdmin" class="sh-card rounded-2xl p-4 space-y-2">
         <span class="text-[13px] font-semibold text-stone-900">{{ t('oclk.admins') }}</span>
@@ -169,6 +197,28 @@ const unlisted = computed(() => (tuner.value?.cities || []).filter((m) => !(m.ci
 function acceptAll() { for (const m of suggestions.value) s.value.cityDays[m.city] = m.suggested; }
 async function loadTuner() {
   try { tuner.value = await api("shipments.city_promises", { weeks: 4 }); } catch (_) { tuner.value = null; }
+}
+
+// ── carrier status sync ──────────────────────────────────────────────────
+const cs = ref({ on: true, last: null, pending: 0, days: 21 });
+const csBusy = ref(false);
+async function loadCs() {
+  try { cs.value = await api("carrier_sync.status"); } catch (_) { /* not an admin: the section is hidden anyway */ }
+}
+async function toggleCs() {
+  csBusy.value = true;
+  try { cs.value = await apiPost("carrier_sync.set_enabled", { on: cs.value.on ? 0 : 1 }); }
+  catch (e) { warn(t("oclk.saveFail"), String(e.message || e)); }
+  csBusy.value = false;
+}
+async function runCs() {
+  csBusy.value = true;
+  try {
+    await apiPost("carrier_sync.run_now");
+    success(t("oclk.csQueued"), "");
+    setTimeout(loadCs, 90000);
+  } catch (e) { warn(t("oclk.saveFail"), String(e.message || e)); }
+  csBusy.value = false;
 }
 
 function toggleRest(i) {
@@ -218,7 +268,7 @@ onUnmounted(() => window.removeEventListener("beforeunload", beforeUnload));
 
 async function load() {
   loading.value = true;
-  try { s.value = await api("shipments.settings"); admins.value = (s.value.admins || []).join(", "); snap.value = payload(); loadError.value = ""; loadTuner(); }
+  try { s.value = await api("shipments.settings"); admins.value = (s.value.admins || []).join(", "); snap.value = payload(); loadError.value = ""; loadTuner(); if (s.value.isAdmin) loadCs(); }
   catch (e) { s.value = null; loadError.value = String(e?.message || e); }
   loading.value = false;
 }

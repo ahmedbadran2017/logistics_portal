@@ -1039,12 +1039,12 @@ _ALERTS = {
                "{n} أوردر Pending من أكتر من {h} ساعة من غير أي مكالمة مسجلة. الأقدم مستني من {oldest} ساعة."),
     },
     "no_scan": {
-        "en": ("Parcels manifested but never scanned by the carrier",
-               "{n} parcels were handed over more than two days ago and the carrier has no scan for them. Either they never left the building or the handover was lost — check the sort wall, then the carrier."),
-        "fr": ("Colis manifestés mais jamais scannés par le transporteur",
-               "{n} colis remis il y a plus de deux jours sans aucun scan du transporteur. Soit ils n'ont jamais quitté l'entrepôt, soit la remise a été perdue — vérifiez le mur de tri, puis le transporteur."),
-        "ar": ("طرود اتسجلت في المانيفست والكارير عمره ما سكنها",
-               "{n} طرد اتسلّم للكارير من أكتر من يومين ومافيش ولا سكان. يا اتسابت في المخزن يا التسليم ضاع — راجع حيطة الفرز، وبعدين الكارير."),
+        "en": ("Parcels handed over with no carrier update",
+               "{n} parcels were handed over more than two days ago and our copy of the carrier status never moved. Check the carrier status sync in Tracking settings first; what stays Pending after a sync is a parcel the carrier truly never scanned."),
+        "fr": ("Colis remis sans aucune mise à jour du transporteur",
+               "{n} colis remis il y a plus de deux jours dont notre statut transporteur n'a jamais bougé. Vérifiez d'abord la synchronisation du statut dans les paramètres du suivi ; ce qui reste en attente après une synchro est un colis que le transporteur n'a réellement jamais scanné."),
+        "ar": ("طرود اتسلّمت ومفيش أي تحديث من الكاريير",
+               "{n} طرد اتسلّم من أكتر من يومين ونسختنا من حالة الكاريير ما اتحركتش. راجع مزامنة حالة الكاريير في إعدادات المتابعة الأول؛ اللي يفضل Pending بعد المزامنة هو طرد الكاريير فعلًا ما سكنه."),
     },
     "chase": {
         "en": ("Parcels past the chase line with the carrier",
