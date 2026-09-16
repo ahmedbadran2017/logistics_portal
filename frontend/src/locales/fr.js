@@ -1127,6 +1127,8 @@ export default {
   },
   trk: {
     fullHistory: "Historique complet",
+    checkCarrier: "Vérifier chez le transporteur", checking: "Interrogation du transporteur…", carrierSays: "Le transporteur dit",
+    noTracking: "Pas encore de numéro de suivi transporteur sur cette commande", checkFail: "Transporteur injoignable",
     title: "Suivi", subtitle: "colis expédiés sur les {n} derniers jours",
     loadFail: "Impossible de charger le suivi",
     openErp: "Ouvrir dans l’ERP", timeline: "Chronologie", lastUpdate: "dernière mise à jour",

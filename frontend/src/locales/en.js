@@ -1127,6 +1127,8 @@ export default {
   },
   trk: {
     fullHistory: "Full history",
+    checkCarrier: "Check with carrier", checking: "Asking the carrier…", carrierSays: "Carrier says",
+    noTracking: "No carrier tracking number on this order yet", checkFail: "Couldn't reach the carrier",
     title: "Tracking", subtitle: "parcels shipped in the last {n} days",
     loadFail: "Couldn't load tracking",
     openErp: "Open in ERP", timeline: "Timeline", lastUpdate: "last update",

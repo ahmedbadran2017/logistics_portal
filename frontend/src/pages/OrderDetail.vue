@@ -229,9 +229,31 @@
 
         <!-- The parcel's clock: where it is, what it was promised, every hand it passed -->
         <div v-if="isLive && journey && journey.found" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
-          <div class="flex items-center justify-between gap-2 mb-3">
+          <div class="flex items-center justify-between gap-2 mb-3 flex-wrap">
             <div class="text-[13px] font-semibold text-stone-900">{{ t("od.journey") }}</div>
-            <span class="text-[10px] font-bold rounded-full px-2 py-0.5" :class="JSTAGE_CLS[journey.row.stage] || 'bg-stone-100 text-stone-600'">{{ t('oclk.s_' + journey.row.stage, journey.row.stage) }}</span>
+            <div class="flex items-center gap-2">
+              <button v-if="journey.row.stage === 'with_carrier' || journey.row.stage === 'failed' || journey.row.stage === 'delivered'"
+                      class="h-7 px-2.5 rounded-lg text-[11px] font-semibold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-50 inline-flex items-center gap-1"
+                      :disabled="checking" @click="checkCarrier">
+                <Icon name="refresh-cw" :size="11" :class="checking ? 'animate-spin' : ''" />{{ checking ? t('trk.checking') : t('trk.checkCarrier') }}
+              </button>
+              <span class="text-[10px] font-bold rounded-full px-2 py-0.5" :class="JSTAGE_CLS[journey.row.stage] || 'bg-stone-100 text-stone-600'">{{ t('oclk.s_' + journey.row.stage, journey.row.stage) }}</span>
+            </div>
+          </div>
+          <div v-if="carrierCheck" class="mb-3 rounded-xl ring-1 overflow-hidden" :class="carrierCheck.ok ? 'ring-sky-200/70' : 'ring-amber-200/70'">
+            <div class="px-3 py-2 flex items-center gap-2 text-[12px]" :class="carrierCheck.ok ? 'bg-sky-50/60' : 'bg-amber-50/60'">
+              <span class="font-semibold text-stone-800">{{ t('trk.carrierSays') }}</span>
+              <span v-if="carrierCheck.ok" class="font-bold text-sky-800">{{ carrierCheck.carrierStatus || carrierCheck.status || '—' }}</span>
+              <span v-else class="text-amber-800">{{ t('trk.noTracking') }}</span>
+              <span class="ms-auto text-[10.5px] text-stone-400 tabular-nums" dir="ltr">{{ carrierCheck.checkedAt }}</span>
+            </div>
+            <div v-if="carrierCheck.events && carrierCheck.events.length" class="divide-y divide-stone-100 max-h-[200px] overflow-y-auto">
+              <div v-for="(e, i) in carrierCheck.events" :key="i" class="px-3 py-1.5 flex items-start gap-2 text-[11.5px]">
+                <span class="font-mono text-stone-400 tabular-nums flex-shrink-0" dir="ltr">{{ e.at.slice(5) }}</span>
+                <span class="text-stone-800 flex-1 min-w-0" dir="auto">{{ e.text }}</span>
+                <span class="text-stone-400 truncate max-w-[140px]">{{ e.who }}</span>
+              </div>
+            </div>
           </div>
           <ol class="flex items-start justify-between gap-1" dir="ltr">
             <li v-for="(st, i) in JSTEPS" :key="st.key" class="flex-1 min-w-0 text-center">
@@ -490,6 +512,27 @@ const jRemain = computed(() => {
   const txt = h >= 48 ? Math.floor(h / 24) + t("oclk.dShort") : h + t("oclk.hShort");
   return (r.late ? "+" : "") + txt;
 });
+
+// Ask the carrier about this parcel now (same write path as the webhook).
+const checking = ref(false);
+const carrierCheck = ref(null);
+async function checkCarrier() {
+  checking.value = true;
+  try {
+    const res = await apiPost("carrier_sync.check_parcel", { order: props.name });
+    carrierCheck.value = res;
+    if (res.ok) {
+      success(t("trk.carrierSays"), res.carrierStatus || res.status || "");
+      api("shipments.journey", { order: props.name }).then((j) => { if (j && j.found) journey.value = j; }).catch(() => {});
+    } else {
+      warn(t("trk.noTracking"), props.name);
+    }
+  } catch (e) {
+    warn(t("trk.checkFail"), String(e.message || e));
+  } finally {
+    checking.value = false;
+  }
+}
 
 // Live order from `orders.detail`; demo/fabricated data stays as fallback.
 const liveOrder = ref(null);

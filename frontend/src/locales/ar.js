@@ -1127,6 +1127,8 @@ export default {
   },
   trk: {
     fullHistory: "الهيستوري الكامل",
+    checkCarrier: "اسأل الكاريير دلوقتي", checking: "بنسأل الكاريير…", carrierSays: "الكاريير بيقول",
+    noTracking: "مفيش رقم تتبع كاريير على الأوردر دا لسه", checkFail: "ما قدرناش نوصل للكاريير",
     title: "التتبع", subtitle: "طرود شُحنت في آخر {n} يومًا",
     loadFail: "تعذّر تحميل التتبع",
     openErp: "فتح في ERP", timeline: "الخط الزمني", lastUpdate: "آخر تحديث",

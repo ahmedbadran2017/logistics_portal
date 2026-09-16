@@ -256,6 +256,91 @@ def close_leaks(leaked):
     return sh.name
 
 
+# ── One parcel, right now ─────────────────────────────────────────────────
+
+def _carrier_events(logs_info, limit=12):
+    """Cathedis' own log for one parcel, newest first, as short lines:
+    status changes, hub receipts, driver assignment, calls, messages."""
+    import re
+    out = []
+    for entry in (logs_info or {}).get("data", []) or []:
+        for lg in (entry.get("values") or {}).get("logs", []) or []:
+            at = (lg.get("createdOn") or "")[:16].replace("T", " ")
+            subject = (lg.get("subject") or "").strip()
+            body = lg.get("body") or ""
+            text = ""
+            if body.startswith("{"):
+                try:
+                    b = json.loads(body)
+                    for tr in b.get("tracks", []) or []:
+                        if tr.get("name") == "deliveryStatus":
+                            text = f"{tr.get('oldValue') or ''} → {tr.get('value') or ''}".strip(" →")
+                        elif tr.get("name") == "appointmentDate" and not text:
+                            text = f"Appointment {tr.get('value') or ''}"
+                        elif tr.get("name") == "returnStatus" and not text:
+                            text = f"Return {tr.get('value') or ''}"
+                    if b.get("title") == "Record created" and text:
+                        text = f"Created · {text}"
+                    elif not text and b.get("title") and b["title"] != "Record updated":
+                        text = b["title"]
+                except Exception:
+                    text = ""
+            elif body and len(body) < 160:
+                text = body.strip()
+            generic = subject in ("Record updated", "Record created", "")
+            line = text if (generic or not subject) else subject
+            if not generic and text and text not in subject:
+                line = f"{subject} · {text}"
+            line = re.sub(r"\s+", " ", line or "").strip()
+            if line:
+                out.append({"at": at, "who": (lg.get("author") or "").strip(), "text": line[:160]})
+    out.sort(key=lambda x: x["at"], reverse=True)
+    return out[:limit]
+
+
+@frappe.whitelist(methods=["POST"])
+def check_parcel(order):
+    """Ask the carrier about ONE parcel now: write its current status through
+    the same path the webhook uses, and return the carrier's own log for the
+    page. Any portal role — the person holding the phone needs the truth."""
+    from logistics_portal.api.permissions import require_portal_user
+    require_portal_user()
+    order = (order or "").strip()
+    if not frappe.db.exists("Sales Order", order):
+        frappe.throw("Unknown order.")
+    trk = frappe.db.get_value("Sales Order", order, "custom_tracking_number") or frappe.db.sql(
+        """SELECT dn.custom_tracking_number FROM `tabDelivery Note` dn
+           JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
+           WHERE dni.against_sales_order = %s AND dn.docstatus = 1
+             AND COALESCE(dn.custom_tracking_number, '') <> ''
+           ORDER BY dn.creation DESC LIMIT 1""", (order,))
+    trk = trk[0][0] if isinstance(trk, (list, tuple)) and trk else trk
+    trk = str(trk or "").strip()
+    if not trk:
+        return {"ok": False, "reason": "no_tracking"}
+    from ecommerce_integrations.tasks.tracking_shipment import resync_sales_order_tracking
+    from ecommerce_integrations.shipping.cathedis import CathedisShipping
+    res = resync_sales_order_tracking(order, trk) or {}
+    frappe.db.commit()
+    cat = CathedisShipping()
+    events = []
+    try:
+        events = _carrier_events(cat.get_delivery_logs(trk).get("logs_info"))
+    except Exception:
+        events = []
+    carrier_name = frappe.db.get_value("Shipment Tracking", {"sales_order": order}, "delivery_status_name",
+                                       order_by="creation desc") or ""
+    status = frappe.db.get_value("Sales Order", order, "custom_track_shipment_status") or ""
+    try:
+        from logistics_portal.api.shipments import invalidate_cache
+        invalidate_cache()
+    except Exception:
+        pass
+    return {"ok": True, "order": order, "tracking": trk, "status": status,
+            "carrierStatus": (carrier_name or "").strip(), "changed": res.get("status") == "inserted",
+            "events": events, "checkedAt": str(now_datetime())[:16]}
+
+
 # ── Webhook replay: the carrier DID tell us, our door slammed on the name ──
 #
 # Measured 2026-09-16: Cathedis pushes every status change to

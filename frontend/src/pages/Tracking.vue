@@ -53,6 +53,27 @@
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70">
         <div class="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
           <div><div class="text-[13px] font-semibold text-stone-900">{{ t("trk.timeline") }}</div><div class="text-[11px] text-stone-400">{{ tlParcel.carrier }} · {{ t("trk.lastUpdate") }} {{ tlParcel.updated || "—" }}</div></div>
+          <!-- Ask the carrier about THIS parcel now: writes the status through
+               the same path the webhook uses and shows the carrier's own log. -->
+          <button v-if="tlParcel.order" class="h-8 px-3 rounded-lg text-[11.5px] font-semibold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-50 inline-flex items-center gap-1.5"
+                  :disabled="checking" @click="checkCarrier">
+            <Icon name="refresh-cw" :size="12" :class="checking ? 'animate-spin' : ''" />{{ checking ? t('trk.checking') : t('trk.checkCarrier') }}
+          </button>
+        </div>
+        <div v-if="carrierCheck" class="mx-4 mt-3 rounded-xl ring-1 overflow-hidden" :class="carrierCheck.ok ? 'ring-sky-200/70' : 'ring-amber-200/70'">
+          <div class="px-3 py-2 flex items-center gap-2 text-[12px]" :class="carrierCheck.ok ? 'bg-sky-50/60' : 'bg-amber-50/60'">
+            <span class="font-semibold text-stone-800">{{ t('trk.carrierSays') }}</span>
+            <span v-if="carrierCheck.ok" class="font-bold text-sky-800">{{ carrierCheck.carrierStatus || carrierCheck.status || '—' }}</span>
+            <span v-else class="text-amber-800">{{ t('trk.noTracking') }}</span>
+            <span class="ms-auto text-[10.5px] text-stone-400 tabular-nums" dir="ltr">{{ carrierCheck.checkedAt }}</span>
+          </div>
+          <div v-if="carrierCheck.events && carrierCheck.events.length" class="divide-y divide-stone-100 max-h-[220px] overflow-y-auto">
+            <div v-for="(e, i) in carrierCheck.events" :key="i" class="px-3 py-1.5 flex items-start gap-2 text-[11.5px]">
+              <span class="font-mono text-stone-400 tabular-nums flex-shrink-0" dir="ltr">{{ e.at.slice(5) }}</span>
+              <span class="text-stone-800 flex-1 min-w-0" dir="auto">{{ e.text }}</span>
+              <span class="text-stone-400 truncate max-w-[140px]">{{ e.who }}</span>
+            </div>
+          </div>
         </div>
         <div class="p-4">
           <!-- the full history when the parcel has an order behind it; the
@@ -288,11 +309,38 @@ import JourneyTimeline from "@/components/JourneyTimeline.vue";
 import {
   TRACK_STATES, TRACK_LABEL, SLA, SLA_LABEL, CARRIER, fmtMAD,
 } from "@/lib/handoffData";
-import { api } from "@/lib/resource";
+import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
+import { useToast } from "@/composables/useToast";
 
 const router = useRouter();
 const { t } = useI18n();
+const { success, warn } = useToast();
+
+// ── ask the carrier about the open parcel ──────────────────────────
+const checking = ref(false);
+const carrierCheck = ref(null);
+async function checkCarrier() {
+  const p = tlParcel.value;
+  if (!p || !p.order) return;
+  checking.value = true;
+  try {
+    const res = await apiPost("carrier_sync.check_parcel", { order: p.order });
+    carrierCheck.value = res;
+    if (res.ok) {
+      success(t("trk.carrierSays"), res.carrierStatus || res.status || "");
+      // The status may have moved: reread the parcel's story.
+      try { const j = await api("shipments.journey", { order: p.order }); journey.value = j && j.found ? j : journey.value; } catch (_) {}
+      load(true);
+    } else {
+      warn(t("trk.noTracking"), p.order);
+    }
+  } catch (e) {
+    warn(t("trk.checkFail"), String(e.message || e));
+  } finally {
+    checking.value = false;
+  }
+}
 const t2 = t;
 function trackLabel(k) { return t("track." + k, TRACK_LABEL[k] || k); }
 
@@ -340,6 +388,7 @@ const journey = ref(null);
 const journeyLoading = ref(false);
 watch(tlParcel, async (p) => {
   journey.value = null;
+  carrierCheck.value = null;
   if (!p || !p.order) return;
   journeyLoading.value = true;
   try { const j = await api("shipments.journey", { order: p.order }); journey.value = j && j.found ? j : null; }
