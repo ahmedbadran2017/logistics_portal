@@ -210,6 +210,42 @@
         </template>
       </section>
 
+      <!-- Double counts: units a posted count added on top of its own pull.
+           The source is fixed at the count; this clears what already landed. -->
+      <section v-if="dbl === null || dbl.total" class="bg-white rounded-xl ring-1 overflow-hidden"
+               :class="dbl && dbl.units ? 'ring-rose-200/70' : 'ring-stone-200/70'">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('cc.dblTitle') }}</span>
+          <span v-if="dbl" class="text-[11px] tabular-nums font-bold" :class="dbl.units ? 'text-rose-700' : 'text-stone-400'">{{ fmt(dbl.units) }} {{ t('recv.units') }}</span>
+        </div>
+        <p class="px-4 py-2 text-[11.5px] text-stone-500 border-b border-stone-50">{{ t('cc.dblHint') }}</p>
+        <div v-if="dblLoading" class="p-3 space-y-2">
+          <div v-for="n in 3" :key="n" class="h-[34px] rounded-lg bg-stone-50 ring-1 ring-stone-200/60 animate-pulse" />
+        </div>
+        <template v-else-if="dbl && dbl.rows.length">
+          <div class="max-h-[320px] overflow-y-auto divide-y divide-stone-50">
+            <div v-for="(r, i) in dbl.rows" :key="r.reco + r.itemCode + i" class="px-4 py-1.5 flex items-center gap-3 text-[11.5px]">
+              <span class="font-mono font-semibold text-stone-800 w-[76px] truncate flex-shrink-0">{{ r.warehouse.replace(' - JM', '') }}</span>
+              <span class="font-mono text-stone-700 flex-1 truncate" :title="r.name">{{ r.sku || r.itemCode }}</span>
+              <span class="text-stone-400 tabular-nums flex-shrink-0">{{ t('cc.dblCounted') }} {{ r.counted }} · {{ t('cc.dblBook') }} {{ r.bookNow }}</span>
+              <span class="font-bold tabular-nums w-[64px] text-end flex-shrink-0"
+                    :class="r.target === null ? 'text-amber-700' : 'text-rose-700'">
+                {{ r.target === null ? t('cc.dblWalk') : '−' + r.phantom + ' → ' + r.target }}
+              </span>
+            </div>
+          </div>
+          <div class="px-4 py-2.5 border-t border-stone-100 flex items-center gap-3 flex-wrap">
+            <span class="text-[11.5px] text-stone-500 tabular-nums">{{ dbl.total }} {{ t('cc.lines') }} · {{ fmt(dbl.units) }} {{ t('recv.units') }} · {{ fmt(dbl.value) }} MAD</span>
+            <button v-if="dbl.fixable" class="ms-auto h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white transition-colors disabled:opacity-50"
+                    :class="dblArmed ? 'bg-rose-600 hover:bg-rose-700' : 'bg-stone-900 hover:bg-stone-800'"
+                    :disabled="dblBusy" @click="fixDouble">
+              {{ dblBusy ? t('cc.ghostBusy') : dblArmed ? t('cc.ghostSure') : t('cc.dblFix').replace('{n}', fmt(dbl.fixableUnits)) }}
+            </button>
+          </div>
+        </template>
+        <div v-else class="px-4 py-6 text-center text-[12px] text-emerald-700">{{ t('cc.dblNone') }}</div>
+      </section>
+
       <!-- Daily rhythm: only real once sessions exist, so it hides until then -->
       <section v-if="data.daily.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
         <div class="text-[12px] font-semibold text-stone-900 mb-2.5">{{ t('cc.daily') }}</div>
@@ -289,6 +325,46 @@ async function clearGhosts() {
   }
 }
 
+// ── Double counts (a count that posted on top of its own pull) ───────────
+const dbl = ref(null);
+const dblLoading = ref(true);
+const dblArmed = ref(false);
+const dblBusy = ref(false);
+let dblDisarm = null;
+async function loadDbl() {
+  dblLoading.value = true;
+  try {
+    dbl.value = await api("cycle_count.double_counts", { days: 30 });
+  } catch (_) {
+    dbl.value = { rows: [], total: 0, units: 0, value: 0, fixable: 0, fixableUnits: 0 };
+  } finally {
+    dblLoading.value = false;
+  }
+}
+async function fixDouble() {
+  if (!dblArmed.value) {
+    dblArmed.value = true;
+    clearTimeout(dblDisarm);
+    dblDisarm = setTimeout(() => (dblArmed.value = false), 5000);
+    return;
+  }
+  dblArmed.value = false;
+  dblBusy.value = true;
+  try {
+    const res = await apiPost("cycle_count.fix_double_counts", { days: 30 });
+    success(t("cc.dblDone").replace("{n}", fmt(res.units)).replace("{r}", (res.recos || []).length),
+            (res.recos || []).map((r) => `${r.shelf.replace(" - JM", "")} · ${r.name}`).join(" · "));
+    if (res.failed && res.failed.length) {
+      warn(t("cc.ghostFail"), res.failed.map((f) => `${f.shelf}: ${f.reason}`).join(" · "));
+    }
+    await Promise.all([loadDbl(), load()]);
+  } catch (e) {
+    warn(t("cc.ghostFail"), String(e.message || e));
+  } finally {
+    dblBusy.value = false;
+  }
+}
+
 const data = ref(null);
 const loading = ref(true);
 const days = ref(30);
@@ -332,5 +408,5 @@ async function load() {
 }
 function setDays(d) { days.value = d; load(); }
 function setSource(sc) { source.value = sc; load(); }
-onMounted(() => { load(); loadGhost(); });
+onMounted(() => { load(); loadGhost(); loadDbl(); });
 </script>

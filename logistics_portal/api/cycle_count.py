@@ -1182,10 +1182,41 @@ def _release_stale_reservations(doc):
     return released
 
 
+def _own_touched(doc):
+    """The (item, warehouse) pairs on this draft whose shelf OUR OWN count
+    vouchers moved since it was written — a pull, a triage move.
+
+    It changes nothing for a plain item (a reconciliation sets that bin to
+    the counted number outright), and everything for a batch-tracked one. A
+    counted line names its batches in a bundle built when the draft was
+    written, and ERPNext reconciles ONLY the batches that bundle names. A
+    pull then lands units under a batch the bundle never heard of, so the
+    count's whole quantity posts ON TOP of them instead of including them.
+
+    Measured 2026-09-16: 14 lines across 8 counts put 29 units on the book
+    that the floor never saw — E4A/WN-BG-144-brn, two bags found, book left
+    at three. Rebuilding the bundle against the shelf as it stands now is
+    the whole fix: the reconciliation then argues with every batch there.
+    """
+    if not doc.items:
+        return set()
+    whs = list({r.warehouse for r in doc.items if r.warehouse})
+    if not whs:
+        return set()
+    rows = frappe.db.sql(
+        f"""SELECT DISTINCT item_code, warehouse FROM `tabStock Ledger Entry`
+            WHERE warehouse IN %s AND is_cancelled = 0
+              AND voucher_no IN {_own_sql()} AND creation > %s""",
+        (whs, doc.creation))
+    return {(r[0], r[1]) for r in rows}
+
+
 def _apply_drift(doc):
     """Right before posting: move each line's quantity forward by the
     movements since the count, so a pick made after the walk is not undone.
-    A batch line gets its bundle rebuilt for the new quantity."""
+    A batch line gets its bundle rebuilt for the new quantity — and also
+    when only our own pull moved the shelf, which changes no quantity but
+    does change which batches the line has to argue with."""
     notes = []
     # The "current" bundle ERPNext attached at draft time froze each batch's
     # quantity as of the count; a pick since then leaves it stale, and the
@@ -1198,25 +1229,37 @@ def _apply_drift(doc):
             stale.append(r.current_serial_and_batch_bundle)
             r.current_serial_and_batch_bundle = None
             r.current_qty = 0
+    touched = _own_touched(doc)
+    rebuilt = []
     for r in doc.items:
         d = _drift(r.item_code, r.warehouse, doc.creation)
-        if not d:
+        batched = bool(frappe.get_cached_value("Item", r.item_code, "has_batch_no"))
+        pulled = batched and (r.item_code, r.warehouse) in touched
+        if not d and not pulled:
             continue
         new = max(0.0, float(r.qty or 0) + d)
-        notes.append(f"{r.item_code}: counted {int(r.qty or 0)}, {'+' if d > 0 else ''}{int(d)} since → {int(new)}")
-        if r.get("serial_and_batch_bundle"):
-            old = r.serial_and_batch_bundle
+        if d:
+            notes.append(f"{r.item_code}: counted {int(r.qty or 0)}, {'+' if d > 0 else ''}{int(d)} since → {int(new)}")
+        elif pulled:
+            rebuilt.append(r.item_code)
+        if batched:
+            old = r.get("serial_and_batch_bundle")
             b = _batch_bundle(r.item_code, r.warehouse, int(new), doc.company) or {}
-            r.serial_and_batch_bundle = b.get("bundle")
-            if b.get("batch_no"):
+            if b.get("bundle"):
+                r.serial_and_batch_bundle = b["bundle"]
+                r.use_serial_batch_fields = 0
+                r.batch_no = None
+            elif b.get("batch_no"):
+                r.serial_and_batch_bundle = None
                 r.use_serial_batch_fields = 1
                 r.batch_no = b["batch_no"]
-            try:
-                frappe.delete_doc("Serial and Batch Bundle", old, force=1, ignore_permissions=True)
-            except Exception:
-                pass
+            if old and old != r.get("serial_and_batch_bundle"):
+                try:
+                    frappe.delete_doc("Serial and Batch Bundle", old, force=1, ignore_permissions=True)
+                except Exception:
+                    pass
         r.qty = new
-    if notes or stale:
+    if notes or stale or rebuilt:
         doc.flags.ignore_permissions = True
         doc.save(ignore_permissions=True)
         for b in stale:
@@ -1227,6 +1270,10 @@ def _apply_drift(doc):
                 pass
     if notes:
         doc.add_comment("Comment", "Adjusted for movements since the count: " + "; ".join(notes)[:1800])
+    if rebuilt:
+        doc.add_comment("Comment", "Batches re-read after the pull, so the counted units include the "
+                                   "pulled ones instead of landing on top of them: "
+                                   + ", ".join(sorted(set(rebuilt)))[:1600])
     return notes
 
 
@@ -1940,6 +1987,191 @@ def clear_ghosts(shelves=0):
             frappe.db.commit()
             frappe.log_error(f"{e}\n\n{frappe.get_traceback()[-1800:]}", f"cycle_count.clear_ghosts {source}")
             failed.append({"source": source, "reason": _reason(e)})
+    for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    return {"ok": True, "recos": recos, "lines": done_lines, "units": done_units, "failed": failed}
+
+
+# ---------------------------------------------------------------------------
+# Double counts — the units a posted count added on top of its own pull.
+#
+# Until _own_touched was written, a batch-tracked line kept the bundle built
+# when its draft was written. The pull then landed the book's units on the
+# shelf under other batches, the reconciliation reconciled only the batches
+# it had named, and the counted quantity went on ON TOP. Two bags found,
+# three on the book. The source is fixed; these are the units already posted.
+#
+# The correction is the same arithmetic, backwards: the shelf should hold
+# what the counter wrote plus whatever genuinely moved since. A bin the floor
+# has since walked again is left alone — that walk already re-anchored it.
+# ---------------------------------------------------------------------------
+
+_DOUBLE_MARK = "Double count corrected by"
+
+
+def _double_rows(days=30):
+    days = min(max(int(days or 30), 1), 120)
+    since = frappe.utils.add_days(nowdate(), -days)
+    raw = frappe.db.sql(
+        """SELECT sr.name AS reco, sr.creation, sri.item_code, sri.warehouse,
+                  sri.qty AS counted, sle.qty_after_transaction AS book_after,
+                  sle.creation AS posted_at, it.custom_sku AS sku,
+                  COALESCE(NULLIF(it.item_name, ''), it.name) AS iname,
+                  COALESCE(b.actual_qty, 0) AS book_now, b.valuation_rate AS rate
+           FROM `tabStock Reconciliation Item` sri
+           JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent AND sr.docstatus = 1
+           JOIN `tabStock Ledger Entry` sle ON sle.voucher_no = sr.name
+                AND sle.item_code = sri.item_code AND sle.warehouse = sri.warehouse
+                AND sle.is_cancelled = 0
+           LEFT JOIN `tabItem` it ON it.name = sri.item_code
+           LEFT JOIN `tabBin` b ON b.item_code = sri.item_code AND b.warehouse = sri.warehouse
+           WHERE sr.creation >= %s AND sri.qty > 0
+             AND EXISTS (SELECT 1 FROM `tabComment` c WHERE c.reference_doctype = 'Stock Reconciliation'
+                         AND c.reference_name = sr.name AND c.content LIKE 'Portal cycle count%%')
+             AND NOT EXISTS (SELECT 1 FROM `tabComment` c2 WHERE c2.reference_doctype = 'Stock Reconciliation'
+                             AND c2.reference_name = sr.name AND c2.content LIKE %s)
+           ORDER BY sr.creation""",
+        (since, _DOUBLE_MARK + "%"), as_dict=True)
+    # A batch reconciliation posts a PAIR of ledger rows (the batches out,
+    # the counted ones in). The shelf's truth is the last of them.
+    last = {}
+    for r in raw:
+        k = (r.reco, r.item_code, r.warehouse)
+        if k not in last or r.posted_at > last[k].posted_at:
+            last[k] = r
+    rows = list(last.values())
+    if not rows:
+        return since, []
+    # A shelf the floor walked AGAIN after the bad post is already re-anchored
+    # to what is there — G7C was re-counted 51 seconds later, and "correcting"
+    # it would take a unit the second walk had just confirmed. The test is the
+    # walk itself, not a clock: a session on that shelf whose own draft is a
+    # different count (a walk's own session names the count it produced).
+    walks = {}
+    for w, c, draft in frappe.db.sql(
+            """SELECT warehouse, creation, draft FROM `tabLP Count Session`
+               WHERE creation >= %s ORDER BY creation""", (since,)):
+        walks.setdefault(w, []).append((c, draft or ""))
+    out = []
+    for r in rows:
+        phantom = float(r.book_after or 0) - float(r.counted or 0)
+        if phantom <= 0:
+            continue
+        if any(c > r.creation and d != r.reco for c, d in walks.get(r.warehouse, ())):
+            continue
+        book_now = float(r.book_now or 0)
+        target = book_now - phantom
+        out.append({
+            "reco": r.reco, "at": str(r.creation)[:16], "warehouse": r.warehouse,
+            "itemCode": r.item_code, "sku": r.sku or "", "name": r.iname,
+            "counted": int(float(r.counted or 0)), "bookAfter": int(float(r.book_after or 0)),
+            "phantom": int(phantom), "bookNow": int(book_now),
+            "target": int(target) if target >= 0 else None,
+            "value": round(phantom * float(r.rate or 0)),
+        })
+    out.sort(key=lambda x: -x["phantom"])
+    return since, out
+
+
+@frappe.whitelist()
+def double_counts(days=30):
+    """Manager: posted counts whose book ended ABOVE what the counter wrote,
+    and what the shelf should hold instead. `target` is None where the units
+    have since been picked away — those bins need a walk, not arithmetic."""
+    _control_gate()
+    since, rows = _double_rows(days)
+    fixable = [r for r in rows if r["target"] is not None]
+    return {"since": str(since)[:10], "rows": rows[:60], "total": len(rows),
+            "units": sum(r["phantom"] for r in rows),
+            "value": sum(r["value"] for r in rows),
+            "fixable": len(fixable),
+            "fixableUnits": sum(r["phantom"] for r in fixable),
+            "recount": sorted({r["warehouse"] for r in rows if r["target"] is None})}
+
+
+@frappe.whitelist(methods=["POST"])
+def fix_double_counts(days=30):
+    """Manager: post the corrections — one Stock Reconciliation per shelf,
+    each line set to what the count actually found plus what moved since.
+    Recomputed at click time, and the count that caused it is marked so the
+    same units can never be corrected twice."""
+    if not _is_manager():
+        frappe.throw("Only a manager can correct counts.", frappe.PermissionError)
+    _since, rows = _double_rows(days)
+    rows = [r for r in rows if r["target"] is not None and r["target"] != r["bookNow"]]
+    if not rows:
+        return {"ok": True, "recos": [], "lines": 0, "units": 0, "failed": []}
+    by_shelf = {}
+    for r in rows:
+        by_shelf.setdefault(r["warehouse"], []).append(r)
+    recos, done_lines, done_units, failed = [], 0, 0, []
+    for shelf, items in by_shelf.items():
+        lines, made, minted = [], [], []
+        company = frappe.db.get_value("Warehouse", shelf, "company") \
+            or frappe.defaults.get_global_default("company")
+        try:
+            for r in items:
+                b = frappe.db.get_value("Bin", {"item_code": r["itemCode"], "warehouse": shelf},
+                                        ["actual_qty", "valuation_rate"], as_dict=True)
+                if not b or int(float(b.actual_qty or 0)) != r["bookNow"]:
+                    continue    # the shelf moved while the panel was open
+                rate = float((b.valuation_rate or 0)) or _rate_for(r["itemCode"], b)[0]
+                row = {"item_code": r["itemCode"], "warehouse": shelf, "qty": r["target"],
+                       "valuation_rate": rate, "allow_zero_valuation_rate": 1}
+                bb = _batch_bundle(r["itemCode"], shelf, r["target"], company)
+                if bb and bb.get("bundle"):
+                    made.append(bb["bundle"])
+                    row["serial_and_batch_bundle"] = bb["bundle"]
+                elif bb and bb.get("batch_no"):
+                    minted.append(bb["batch_no"])
+                    row["use_serial_batch_fields"] = 1
+                    row["batch_no"] = bb["batch_no"]
+                lines.append(row)
+            if not lines:
+                continue
+            doc = frappe.get_doc({
+                "doctype": "Stock Reconciliation", "purpose": "Stock Reconciliation",
+                "posting_date": nowdate(), "posting_time": nowtime(), "company": company,
+                "expense_account": frappe.db.get_value("Company", company, "stock_adjustment_account"),
+                "cost_center": frappe.db.get_value("Company", company, "cost_center"),
+                "items": lines,
+            })
+            doc.flags.ignore_permissions = True
+            doc.insert(ignore_permissions=True)
+            units = sum(r["phantom"] for r in items)
+            doc.add_comment("Comment",
+                            f"Portal correction on {shelf}: {len(lines)} lines, {int(units)}u that a count "
+                            f"posted on top of its own pull instead of counting them among it "
+                            f"· by {frappe.session.user}")
+            doc.submit()
+            frappe.db.commit()
+            for name in sorted({r["reco"] for r in items}):
+                try:
+                    frappe.get_doc("Stock Reconciliation", name).add_comment(
+                        "Comment", f"{_DOUBLE_MARK} {doc.name}: the batch bundle this count carried did not "
+                                   f"name the batches its pull had just brought in, so its units posted twice.")
+                except Exception:
+                    pass
+            frappe.db.commit()
+            recos.append({"name": doc.name, "shelf": shelf, "lines": len(lines),
+                          "units": int(units), "value": round(float(doc.difference_amount or 0))})
+            done_lines += len(lines)
+            done_units += int(units)
+        except Exception as e:
+            frappe.db.rollback()
+            for x in made:
+                try:
+                    frappe.delete_doc("Serial and Batch Bundle", x, force=1, ignore_permissions=True)
+                except Exception:
+                    pass
+            for x in minted:
+                try:
+                    frappe.delete_doc("Batch", x, force=1, ignore_permissions=True)
+                except Exception:
+                    pass
+            frappe.db.commit()
+            frappe.log_error(f"{e}\n\n{frappe.get_traceback()[-1800:]}", f"cycle_count.fix_double_counts {shelf}")
+            failed.append({"shelf": shelf, "reason": _reason(e)})
     for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
         frappe.cache().delete_value(k)
     return {"ok": True, "recos": recos, "lines": done_lines, "units": done_units, "failed": failed}

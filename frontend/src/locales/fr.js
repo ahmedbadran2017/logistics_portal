@@ -480,6 +480,7 @@ export default {
     newBins: "{n} emplacements ont reçu du stock après le figeage — ils relèvent de la campagne suivante.",
   },
   cc: {
+    dblTitle: "Comptés deux fois", dblHint: "Un comptage dont le rappel a ramené des unités sous un lot que sa ligne ne nommait pas a posté toute sa quantité par-dessus. La cause est corrigée ; voici les unités déjà au livre.", dblCounted: "trouvé", dblBook: "livre", dblWalk: "à recompter", dblFix: "Corriger {n} unités", dblNone: "Chaque comptage correspond à ce que son compteur a écrit.", dblDone: "{n} unités corrigées sur {r} étagères",
     ghostTitle: "Doublons fantômes du stock trouvé",
     ghostHint: "Unités que les comptages de cette campagne ont trouvées en rayon et passées en gain, alors que le livre les garde encore dans un entrepôt fermé ou une zone d'attente. Le nettoyage retire exactement ces unités de la source, pour que rien n'existe deux fois. Les nouveaux comptages tirent de la source automatiquement.",
     ghostShelves: "inclure les rayons non comptés",

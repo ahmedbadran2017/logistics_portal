@@ -480,6 +480,7 @@ export default {
     newBins: "{n} bins took stock after the scope was frozen — they belong to the next campaign.",
   },
   cc: {
+    dblTitle: "Counted twice", dblHint: "A count whose pull landed units under a batch its line never named posted its whole quantity on top of them. The source is fixed; these are the units already on the book.", dblCounted: "found", dblBook: "book", dblWalk: "needs a walk", dblFix: "Correct {n} units", dblNone: "Every count agrees with what its counter wrote.", dblDone: "{n} units corrected on {r} shelves",
     ghostTitle: "Ghost twins of found stock",
     ghostHint: "Units this campaign's counts found on shelves and posted as gains, while the book still holds them in a closed warehouse or a parking zone. Clearing removes exactly those units from the source, so nothing exists twice. New counts pull from the source automatically.",
     ghostShelves: "include uncounted shelves",
