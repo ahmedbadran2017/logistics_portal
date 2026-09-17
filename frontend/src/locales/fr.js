@@ -2191,6 +2191,7 @@ export default {
     saveFail: "Échec de l'enregistrement",
   },
   rs: {
+    freshN: "{n} nouveautés du transporteur — appuyez pour charger",
     again: "Échec à nouveau après Relivrer", againHint: "Vous aviez déjà décidé Relivrer ; le transporteur a réessayé et échoué — une nouvelle décision est nécessaire",
     actReship: "Réexpédier", actReturnHint: "Demander le retour du colis — un motif est enregistré",
     reasonLabels: { "Client injoignable": "Client injoignable", "Refuse le colis": "Refuse le colis", "Adresse introuvable": "Adresse introuvable",

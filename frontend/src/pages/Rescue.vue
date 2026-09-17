@@ -105,6 +105,14 @@
       </div>
     </div>
 
+    <!-- something new landed while the agent was reading -->
+    <Transition name="rsslide">
+      <button v-if="freshN" class="w-full mb-2.5 h-11 rounded-2xl text-[13px] font-bold text-white bg-rose-600 hover:bg-rose-700 shadow-sm inline-flex items-center justify-center gap-2 transition-colors"
+              @click="applyFresh()">
+        <Icon name="bell" :size="15" />{{ t('rs.freshN').replace('{n}', freshN) }}
+      </button>
+    </Transition>
+
     <!-- rows -->
     <div v-if="loading" class="space-y-2.5">
       <div v-for="n in 6" :key="n" class="h-[76px] rounded-2xl rs-shimmer" />
@@ -454,12 +462,43 @@ async function load() {
   }
 }
 onMounted(load);
-// Background refresh, same contract as the Confirmation queue.
-const pollTimer = setInterval(() => {
-  if (document.visibilityState === "visible" && !loading.value
-      && !reasonFor.value) load();
-}, 120000);
-onUnmounted(() => { clearInterval(pollTimer); clearTimeout(qTimer); });
+
+// ── the heartbeat ─────────────────────────────────────────────────────────
+// Cathedis batches their pushes every ten minutes, so the carrier's word is
+// already up to ten minutes old when it lands; the screen must not add "and
+// then until somebody presses refresh" on top of that. This asks a 1 ms
+// question every thirty seconds and shows a pill when the answer changes —
+// instead of the old blind two-minute full reload, which cost 350 ms, could
+// not tell the agent that anything HAD arrived, and swapped the list out
+// from under their thumb mid-read.
+const freshN = ref(0);
+let pulseSince = "";
+
+function canAutoApply() {
+  // Only when nothing is open and the agent is at the top of the list. A
+  // list that jumps while someone is reading or typing is worse than stale.
+  return !loading.value && !busy.value && page.value === 1
+    && !reasonFor.value && !detailFor.value && !deskFor.value && !editFor.value
+    && window.scrollY < 80;
+}
+
+async function beat() {
+  if (document.visibilityState !== "visible" || loading.value) return;
+  try {
+    const r = await api("rescue.pulse", { tab: tab.value, since: pulseSince });
+    pulseSince = r.now || pulseSince;
+    const moved = r.depth != null && data.value?.counts
+      && r.depth !== data.value.counts[tab.value];
+    if (!r.n && !moved) return;
+    if (canAutoApply()) { load(); freshN.value = 0; return; }
+    freshN.value += r.n || (moved ? 1 : 0);
+  } catch { /* a heartbeat that throws must never break the screen */ }
+}
+
+function applyFresh() { freshN.value = 0; window.scrollTo({ top: 0 }); load(); }
+
+const pulseTimer = setInterval(beat, 30000);
+onUnmounted(() => { clearInterval(pulseTimer); clearTimeout(qTimer); });
 
 const detailFor = ref("");
 const detail = ref(null);

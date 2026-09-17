@@ -2190,6 +2190,7 @@ export default {
     saveFail: "Couldn't save",
   },
   rs: {
+    freshN: "{n} new from the carrier — tap to load",
     again: "Failed again after Redeliver", againHint: "You already decided Redeliver on this parcel; the carrier tried again and failed — it needs a new decision",
     actReship: "Reship", actReturnHint: "Ask for the parcel back — a reason is recorded",
     reasonLabels: { "Client injoignable": "Customer unreachable", "Refuse le colis": "Refuses the parcel", "Adresse introuvable": "Address not found",

@@ -1284,6 +1284,50 @@ def timeline(dn, limit=40):
     }
 
 
+# The carrier's own words for a parcel that hit a wall. Narrower than
+# _CARRIER_LIKE on purpose: "Out for delivery" is movement, not a problem,
+# and a heartbeat that flashes on movement teaches the team to ignore it.
+_PROBLEM_LIKE = ("Customer unreachable%", "Customer cancelled%",
+                 "The customer has cancelled%", "Cancelled on site%",
+                 "Cancellation Reason%", "The driver%", "Justyol has requested%")
+
+
+@frappe.whitelist()
+def pulse(tab="exceptions", days=30, since=""):
+    """Has anything happened since the screen last looked?
+
+    Deliberately tiny — one indexed count on the comment table, measured at
+    1 ms against the 350 ms a board reload costs. The screen used to reload
+    itself whole every two minutes, which was expensive, blind (no way to
+    know something HAD arrived) and rude: the list changed under the agent's
+    thumb mid-read. This answers the question instead, and the screen decides
+    what to do with the answer.
+
+    Two signals, because two different things move a queue. `n` is new
+    carrier trouble. `depth` is the tab's depth from the shared 60-second
+    cache, which also catches a colleague taking or deciding a parcel — the
+    row leaving someone else's list is invisible to the carrier feed."""
+    role = _gate()
+    since = str(since or "")[:19]
+    if not re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$", since):
+        since = str(add_to_date(now_datetime(), minutes=-10))[:19]
+    ors = " OR ".join(f"content LIKE '{_sql_like(p)}'" for p in _PROBLEM_LIKE)
+    row = frappe.db.sql(
+        f"""SELECT COUNT(*) n, MAX(creation) at FROM `tabComment`
+            WHERE comment_type = 'Comment' AND reference_doctype = 'Sales Order'
+              AND creation > %(s)s AND ({ors})""",
+        {"s": since}, as_dict=True)[0]
+    days = min(max(int(days or 30), 1), 90)
+    depth = None
+    try:
+        if tab in _allowed_tabs(role) and tab != "mine":
+            depth = int(_cached_counts(days).get(tab) or 0)
+    except Exception:
+        depth = None
+    return {"n": int(row.n or 0), "at": str(row.at or "")[:19],
+            "depth": depth, "now": _site_now()}
+
+
 @frappe.whitelist()
 def my_day(days=1):
     """The agent's own craft, measured in it: how much they took, how much
