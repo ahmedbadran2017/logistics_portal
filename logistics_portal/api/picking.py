@@ -3272,31 +3272,51 @@ def label_pdf(order):
 
 
 def _fetch_carrier_label(order):
-    """Pull the label PDF from the carrier and attach it. Returns the bytes, or
-    None when there is nothing real to fetch."""
-    url = _real_label_url(frappe.db.get_value("Sales Order", order, "custom_label_url"))
-    if not url:
-        return None
+    """Have the carrier render this parcel's label, keep it, and return it.
+
+    Deliberately not a plain GET of custom_label_url: that URL sits behind the
+    carrier's session, so an unauthenticated fetch comes back a login page and
+    never a PDF. The integration's own client holds the session.
+
+    It also holds the fix for the cause. The render call wants the delivery id
+    as an INTEGER; handed the tracking number as a string, Cathedis answers
+    with a Java cast error, and the integration then stores its own bare base
+    address as the parcel's "label URL" — which is how five of 8,570 AWBs in
+    thirty days ended up looking labelled with no label behind them
+    (2026-09-17). Asking again, correctly, is all it takes.
+    """
     try:
-        import requests
-        res = requests.get(url, timeout=12)
-        body = res.content or b""
-        if res.status_code != 200 or not body.startswith(b"%PDF"):
-            return None
+        trk = int(str(frappe.db.get_value(
+            "Sales Order", order, "custom_tracking_number") or "").strip())
     except Exception:
         return None
     try:
-        f = frappe.get_doc({
-            "doctype": "File", "file_name": f"Label-{order.replace('#', '')}.pdf",
-            "attached_to_doctype": "Sales Order", "attached_to_name": order,
-            "is_private": 1, "content": body,
-        })
-        f.flags.ignore_permissions = True
-        f.insert(ignore_permissions=True)
+        from ecommerce_integrations.shipping.cathedis import CathedisShipping
+        carrier = CathedisShipping()
+        carrier.authenticate()
+        res = carrier.print_shipping_label(trk) or {}
+        view = (((res.get("label_data") or {}).get("data") or [{}])[0].get("view") or {})
+        views = view.get("views") or []
+        path = (views[0].get("name") if views else "") or ""
+        if not path:
+            return None
+        url = carrier.api_endpoint.rstrip("/") + "/" + path.lstrip("/")
+        # The integration's own downloader: it carries the session cookie and
+        # attaches the File exactly the way every other label was attached.
+        carrier._download_and_attach_label(
+            frappe.get_doc("Sales Order", order), url,
+            f"Label-{order.replace('#', '')}.pdf")
         frappe.db.commit()
     except Exception:
-        frappe.db.rollback()   # serving the label matters more than storing it
-    return body
+        frappe.db.rollback()
+        return None
+    fname = _label_file(order)
+    if not fname:
+        return None
+    try:
+        return frappe.get_doc("File", fname).get_content()
+    except Exception:
+        return None
 
 
 def _tote_for(pick_list, order):
