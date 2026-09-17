@@ -1022,6 +1022,14 @@ _ALERTS = {
         "ar": ("المانيفست اتقفل وفي طرود مطبوعة اتسابت",
                "{n} طرد مطبوع من {lists} قائمة ما اتسكنوش على {shipment}. لسه جوه المخزن — افتح جزء التسليم في حيطة الفرز: {names}"),
     },
+    "cf_stock_gap": {
+        "en": ("Orders you confirmed cannot be shipped",
+               "{n} confirmed orders ({value} MAD) are waiting on stock the shelf does not have, the oldest {d} days. Open Out of stock in the confirmation board and call the customers — {customer} ({order}) first."),
+        "fr": ("Des commandes confirmées ne peuvent pas être expédiées",
+               "{n} commandes confirmées ({value} MAD) attendent un stock qui n'existe pas, la plus ancienne depuis {d} jours. Ouvrez Rupture de stock et appelez les clients — {customer} ({order}) en premier."),
+        "ar": ("أوردرات اتأكدت ومش قادرين نشحنها",
+               "{n} أوردر مؤكد ({value} درهم) مستنيين بضاعة مش موجودة على الرف، أقدمهم من {d} يوم. افتح قسم «نفاد المخزون» في بورد الكونفيرميشن وكلّم العملاء — ابدأ بـ{customer} ({order})."),
+    },
     "pack_short": {
         "en": ("A piece is missing at the packing desk",
                "{order}: {sku} was counted onto the sort wall but is not in the slot. The parcel is held at packing until someone finds it."),

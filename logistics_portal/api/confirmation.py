@@ -2756,6 +2756,145 @@ def run_alerts():
                   audience="confirmation")
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "confirmation.run_alerts")
+    run_stock_gap_alert()
+
+
+# ---------------------------------------------------------------------------
+# The stock gap — orders this lane PROMISED that the warehouse cannot ship.
+#
+# A confirmation is a promise made on the phone: the customer said yes and was
+# told it is coming. When the shelf turns out to be empty the order does not
+# fail loudly — it sits in the picking pool marked "out of stock" and nobody
+# tells the person who made the promise. Measured 2026-09-17: 79 confirmed
+# orders were in that state, the oldest six days old, and not one of their
+# customers had been called back.
+#
+# So this is the other half of the confirm button. The agent who said yes is
+# the one shown the gap, with the customer's number in the same row, because
+# the only useful action here is a call: offer a swap, agree to wait, or
+# cancel honestly. Anything else leaves a customer waiting for a parcel that
+# was never going to come.
+# ---------------------------------------------------------------------------
+
+def _gap_rows(me=None, days=45, limit=60):
+    """Confirmed orders with no pick list whose lines the floor cannot cover."""
+    from logistics_portal.api.picking import availability, _LINE_CODE, _LINE_NAME, _LINE_NEED, _LINE_JOIN
+    vals = {"co": _CO, "days": min(max(int(days or 45), 1), 180)}
+    scope = ""
+    if me:
+        scope = " AND so.custom_allocated_to = %(me)s"
+        vals["me"] = me
+    rows = frappe.db.sql(
+        f"""SELECT so.name AS `order`, so.customer_name AS customer, so.grand_total AS total,
+                   so.creation, so.custom_customer_phone AS phone,
+                   so.custom_shipping_phone AS phone2, so.custom_allocated_to AS agent,
+                   TIMESTAMPDIFF(HOUR, so.creation, NOW()) AS age_h,
+                   {_LINE_CODE} AS item_code, {_LINE_NAME} AS item_name, {_LINE_NEED} AS need
+            FROM `tabSales Order` so
+            JOIN `tabSales Order Item` soi ON soi.parent = so.name {_LINE_JOIN}
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND so.custom_sales_status = 'Confirmed'
+              AND so.custom_logistics_status = 'Pending'
+              AND so.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY){scope}
+              AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
+                              JOIN `tabPick List` p ON p.name = pli.parent
+                              WHERE pli.sales_order = so.name AND p.docstatus < 2)
+            ORDER BY so.creation""", vals, as_dict=True)
+    if not rows:
+        return []
+    codes = list({r.item_code for r in rows if r.item_code})
+    if not codes:
+        return []
+    _totals, _sre, free = availability(codes)
+    orders = {}
+    for r in rows:
+        need = float(r.need or 0)
+        if need <= 0:
+            continue
+        o = orders.setdefault(r.order, {
+            "order": r.order, "customer": r.customer or "", "total": float(r.total or 0),
+            "phone": (r.phone or r.phone2 or "").strip(), "agent": r.agent or "",
+            # The floor's clock runs two hours behind the stored one, so a
+            # fresh order can measure as negative hours old. Nobody needs to
+            # read "-2h waiting".
+            "ageH": max(0, int(r.age_h or 0)), "short": []})
+        have = float(free(r.order, r.item_code) or 0)
+        if have + 0.001 < need:
+            # A bundle's components arrive as separate rows of the same item:
+            # one line per missing PIECE, not one per row of the join.
+            hit = next((x for x in o["short"] if x["itemCode"] == r.item_code), None)
+            if hit:
+                hit["need"] = max(hit["need"], int(need))
+                continue
+            sku = frappe.db.get_value("Item", r.item_code, "custom_sku") or r.item_code
+            o["short"].append({
+                "itemCode": r.item_code, "sku": sku, "name": r.item_name or sku,
+                "need": int(need), "have": int(max(0, have)),
+                "eta": _incoming_eta(r.item_code),
+            })
+    out = [o for o in orders.values() if o["short"]]
+    # Oldest promise first: the customer who has waited longest is owed the
+    # call first, and the money is only a tie-breaker.
+    out.sort(key=lambda x: (-x["ageH"], -x["total"]))
+    return out[:min(max(int(limit or 60), 1), 200)]
+
+
+def _incoming_eta(item_code):
+    """Is more of this on its way? The answer decides what the agent says:
+    a date means "it is late", nothing means "it is not coming"."""
+    row = frappe.db.sql(
+        """SELECT MIN(COALESCE(poi.schedule_date, po.schedule_date)) AS d,
+                  SUM(poi.qty - poi.received_qty) AS q
+           FROM `tabPurchase Order Item` poi
+           JOIN `tabPurchase Order` po ON po.name = poi.parent
+           WHERE poi.item_code = %s AND po.docstatus = 1
+             AND po.status NOT IN ('Closed', 'Completed', 'Cancelled')
+             AND poi.received_qty < poi.qty""", (item_code,), as_dict=True)
+    if not row or not row[0].q:
+        return None
+    return {"date": str(row[0].d or "")[:10], "qty": int(float(row[0].q or 0))}
+
+
+@frappe.whitelist()
+def stock_gap(days=45, limit=60, as_user=None):
+    """The agent's own promises the warehouse cannot keep. A manager (or a
+    section admin) sees the whole lane, and may look through one agent's eyes
+    with `as_user`, the same way the board does."""
+    role = _gate()
+    mine_only = role != "manager" and not _is_cf_admin()
+    me = frappe.session.user
+    as_user = (as_user or "").strip()
+    if as_user and not mine_only:
+        me, mine_only = as_user, True
+    rows = _gap_rows(me if mine_only else None, days=days, limit=limit)
+    return {
+        "rows": rows, "n": len(rows),
+        "value": round(sum(r["total"] for r in rows)),
+        "oldestH": max([r["ageH"] for r in rows], default=0),
+        "scope": "mine" if mine_only else "team",
+        "reasons": reason_options(),
+    }
+
+
+def run_stock_gap_alert():
+    """Page the lane when promises start piling up against an empty shelf."""
+    try:
+        from logistics_portal.api.shipments import _emit
+        now = _clock.floor_now()
+        if not (8 <= now.hour < 22):
+            return
+        rows = _gap_rows(None, days=45, limit=200)
+        if len(rows) < 5:
+            return
+        oldest = max(r["ageH"] for r in rows)
+        _emit("cf_stock_gap",
+              {"n": len(rows), "d": max(1, oldest // 24),
+               "value": round(sum(r["total"] for r in rows)),
+               "order": rows[0]["order"], "customer": rows[0]["customer"]},
+              severity="critical" if oldest >= 72 else "warning",
+              cooldown_h=6, audience=("confirmation", "manager"))
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "confirmation.run_stock_gap_alert")
 
 
 @frappe.whitelist()

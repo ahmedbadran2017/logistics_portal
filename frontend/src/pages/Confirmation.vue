@@ -27,6 +27,80 @@
       </div>
     </header>
 
+    <!-- The stock gap. A confirmation is a promise made on the phone; when the
+         shelf turns out to be empty, the agent who made it is the one who has
+         to call back. So it sits ABOVE the queues, not behind a tab: this is
+         work already owed, not work waiting to be found. -->
+    <section v-if="gap && gap.n" class="rounded-2xl ring-1 ring-rose-200 bg-rose-50/50 overflow-hidden">
+      <button class="w-full px-4 py-3 flex items-center gap-3 text-start" @click="gapOpen = !gapOpen">
+        <span class="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0">
+          <Icon name="package-x" :size="17" />
+        </span>
+        <span class="min-w-0 flex-1">
+          <span class="block text-[13.5px] font-bold text-rose-900">{{ t('cf.gapTitle').replace('{n}', gap.n) }}</span>
+          <span class="block text-[11.5px] text-rose-700/80 mt-0.5">{{ t('cf.gapSub') }}</span>
+        </span>
+        <span class="text-[11.5px] tabular-nums font-semibold text-rose-700 hidden sm:block">
+          {{ fmtMAD(gap.value) }} MAD · {{ t('cf.gapOldest').replace('{d}', Math.max(1, Math.round(gap.oldestH / 24))) }}
+        </span>
+        <Icon :name="gapOpen ? 'chevron-up' : 'chevron-down'" :size="16" class="text-rose-400 shrink-0" />
+      </button>
+      <div v-if="gapOpen" class="bg-white/70 divide-y divide-rose-100 max-h-[460px] overflow-y-auto">
+        <div v-for="r in gap.rows" :key="r.order" class="px-4 py-3">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-[13px] font-semibold text-stone-900 truncate max-w-[200px]" dir="auto">{{ r.customer }}</span>
+            <RouterLink :to="{ name: 'OrderDetail', params: { name: r.order } }"
+                        class="font-mono text-[11px] text-stone-400 hover:text-[var(--accent-600)]">{{ r.order }}</RouterLink>
+            <span class="text-[10.5px] font-bold rounded-full px-2 py-0.5"
+                  :class="r.ageH >= 72 ? 'text-rose-700 bg-rose-100' : 'text-amber-700 bg-amber-100'">
+              {{ t('cf.gapWaiting').replace('{h}', r.ageH >= 48 ? Math.round(r.ageH / 24) + 'd' : r.ageH + 'h') }}
+            </span>
+            <span class="ms-auto text-[12.5px] font-bold tabular-nums text-stone-700">{{ fmtMAD(r.total) }}<span class="text-[10px] font-normal text-stone-400"> MAD</span></span>
+          </div>
+          <!-- what to tell the customer, in one line per missing piece -->
+          <div class="mt-2 space-y-1">
+            <div v-for="it in r.short" :key="it.itemCode" class="flex items-center gap-2 text-[11.5px]">
+              <Icon name="package-x" :size="12" class="text-rose-400 shrink-0" />
+              <span class="text-stone-700 truncate flex-1 min-w-0" dir="auto">{{ it.name }}</span>
+              <span class="font-mono text-[10.5px] text-stone-400 shrink-0">{{ it.sku }}</span>
+              <span class="font-semibold tabular-nums text-rose-700 shrink-0">{{ it.have }}/{{ it.need }}</span>
+              <span v-if="it.eta" class="text-[10.5px] text-emerald-700 bg-emerald-50 rounded px-1.5 py-0.5 shrink-0 whitespace-nowrap">
+                {{ t('cf.gapEta').replace('{d}', it.eta.date || '?') }}
+              </span>
+              <span v-else class="text-[10.5px] text-stone-500 bg-stone-100 rounded px-1.5 py-0.5 shrink-0 whitespace-nowrap">{{ t('cf.gapNoEta') }}</span>
+            </div>
+          </div>
+          <!-- the only useful action here is a call -->
+          <div class="mt-2.5 flex items-center gap-2 flex-wrap">
+            <a v-if="r.phone" :href="'tel:' + r.phone"
+               class="h-8 px-3 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 inline-flex items-center gap-1.5">
+              <Icon name="phone" :size="13" />{{ t('cf.gapCall') }}
+            </a>
+            <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" rel="noopener"
+               class="h-8 px-3 rounded-lg text-[12px] font-semibold text-emerald-700 bg-white ring-1 ring-emerald-200 hover:bg-emerald-50 inline-flex items-center gap-1.5">
+              <Icon name="message-circle" :size="13" />WhatsApp
+            </a>
+            <span v-if="r.phone" class="font-mono text-[11.5px] text-stone-500" dir="ltr">{{ r.phone }}</span>
+            <button class="ms-auto h-8 px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5"
+                    :class="gapCancelFor === r.order ? 'text-white bg-rose-600' : 'text-rose-600 bg-white ring-1 ring-rose-200 hover:bg-rose-50'"
+                    @click="gapCancelFor = gapCancelFor === r.order ? '' : r.order">
+              <Icon name="circle-x" :size="13" />{{ t('rs.actCancel') }}
+            </button>
+          </div>
+          <div v-if="gapCancelFor === r.order" class="mt-2 bg-rose-50 rounded-xl p-2.5 flex items-center gap-2 flex-wrap">
+            <button v-for="rs in (gap.reasons || [])" :key="rs"
+                    class="h-7 px-2.5 rounded-full text-[11.5px] font-medium ring-1 transition-all"
+                    :class="gapReason === rs ? 'text-white bg-rose-600 ring-rose-600' : 'text-rose-700 bg-white ring-rose-200 hover:bg-rose-100'"
+                    @click="gapReason = rs">{{ rs }}</button>
+            <button class="h-8 px-3 rounded-lg text-[12px] font-semibold text-white bg-rose-600 disabled:opacity-50"
+                    :disabled="!gapReason || gapBusy === r.order" @click="gapCancel(r)">
+              {{ gapBusy === r.order ? '…' : t('cf.cancelConfirm') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- segmented queues + search — one sticky toolbar, tabs scroll in one
          line instead of wrapping into a two-row wall -->
     <div class="sticky top-[41px] z-10 -mx-2 px-2 py-1.5 rounded-xl flex items-center gap-3 flex-wrap lg:flex-nowrap"
@@ -499,6 +573,31 @@ const TAB_KEYS = ["pending", "dna", "followup", "monitor",
 // is the primary memory (shareable, survives reload, back/forward honest);
 // sessionStorage is the fallback for arriving with a bare URL, e.g. from the
 // sidebar. Session, not local: a fresh login should start fresh.
+// ── the stock gap: promises the warehouse cannot keep ───────────────────
+const gap = ref(null);
+const gapOpen = ref(true);
+const gapCancelFor = ref("");
+const gapReason = ref("");
+const gapBusy = ref("");
+async function loadGap() {
+  try { gap.value = await api("confirmation.stock_gap"); } catch (_) { gap.value = null; }
+}
+async function gapCancel(r) {
+  gapBusy.value = r.order;
+  try {
+    await apiPost("confirmation.act", { order: r.order, action: "cancel", note: gapReason.value });
+    success(t("cf.done_cancel"), r.order);
+    gap.value = { ...gap.value, rows: gap.value.rows.filter((x) => x.order !== r.order),
+                  n: gap.value.n - 1 };
+    gapCancelFor.value = ""; gapReason.value = "";
+    load();
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    gapBusy.value = "";
+  }
+}
+
 const SNAP_KEY = "lp_cf_state";
 function snapshot() {
   try {
@@ -617,6 +716,7 @@ async function load(opts) {
 }
 onMounted(load);
 onMounted(loadPins);
+onMounted(loadGap);
 // Query changes no longer remount the page (the router keys by name+params
 // for cheap navigation) — honour ?tab= deep links reactively instead.
 watch(() => route.query.tab, (v) => {
