@@ -160,6 +160,18 @@ def _gate():
     return role
 
 
+def _allowed_tabs(role):
+    """"Not Delivered" is a CONFIRMATION queue, not a carrier one: it is an
+    order the shop never got out the door, worked by the people who own the
+    customer conversation. It sat in this screen because both lanes read the
+    same rescue endpoint — 154 of the 247 decisions logged in the last two
+    weeks landed there, which is confirmation's work recorded under tracking.
+    The tracking lane now sees only what the carrier is holding."""
+    if role == "tracking":
+        return [t for t in TABS if t != "notdelivered"]
+    return list(TABS)
+
+
 # ── section settings + admins (same pattern as the confirmation section) ──
 _RS_KEY = "lp_rescue_settings"
 _RS_DEFAULTS = {
@@ -367,9 +379,12 @@ def _bust():
 def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
     """The four rescue queues + counts + my day, one call. `reason` narrows
     the parcel queues by the carrier's last word: rescuable | cancelled."""
-    _gate()
-    if tab not in TABS:
-        tab = "exceptions"
+    role = _gate()
+    tabs = _allowed_tabs(role)
+    # Gate the DATA, not just the chip: a tab hidden from the nav that still
+    # answers on a hand-typed request is not hidden at all.
+    if tab not in tabs:
+        tab = tabs[0]
     reason = reason if reason in ("rescuable", "cancelled") else ""
     days = min(max(int(days or 30), 1), 90)
     limit = min(max(int(limit or 30), 1), 100)
@@ -489,7 +504,7 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
     now = str(now_datetime())
     sla_h = _rs_settings().get("slaTriageH", 24)
     return {
-        "tab": tab, "counts": counts, "total": int(total or 0),
+        "tab": tab, "tabs": tabs, "counts": counts, "total": int(total or 0),
         "rows": [{
             "id": r.dn or r.so_name, "dn": r.dn or "", "order": r.so_name or "",
             "customer": r.customer or "", "total": float(r.total or 0),

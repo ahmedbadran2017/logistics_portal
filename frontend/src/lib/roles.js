@@ -283,7 +283,9 @@ export const ROLE_CONFIG = {
           { to: "ShipBoard", label: "nav.shipBoard", icon: "gauge" },
           { to: "ShipBlocked", label: "nav.shipBlocked", icon: "package-x" },
           { to: "Rescue", label: "nav.failedDeliveries", icon: "route" },
-          { to: "ShipFeedback", label: "nav.shipFeedback", icon: "message-circle" },
+          // The post-delivery WhatsApp loop is CUSTOMER SERVICE work — the
+          // answer becomes a CS ticket and a human calls. It stays on the
+          // manager's shell until the CS portal exists to carry it.
         ],
       },
       {

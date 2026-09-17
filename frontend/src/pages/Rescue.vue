@@ -306,13 +306,19 @@ const VERDICT_CLS = {
   returned: "text-stone-600 bg-stone-100 ring-stone-200", other: "text-stone-600 bg-stone-100 ring-stone-200",
 };
 function setReason(r) { verdictF.value = r; page.value = 1; load(); }
-const TABS = [
+const ALL_TABS = [
   { key: "exceptions", label: "rs.tabExceptions", icon: "alert-triangle", onColor: "bg-rose-100 text-rose-700" },
   { key: "failed", label: "rs.tabFailed", icon: "alert-circle", onColor: "bg-amber-100 text-amber-700" },
   { key: "notdelivered", label: "rs.tabNotDelivered", icon: "package", onColor: "bg-violet-100 text-violet-700" },
   { key: "stale", label: "rs.tabStale", icon: "clock", onColor: "bg-sky-100 text-sky-700" },
   { key: "backlog", label: "rs.tabBacklog", icon: "archive", onColor: "bg-stone-200 text-stone-700" },
 ];
+// The server decides which queues this lane owns — Not Delivered is
+// confirmation's, so the tracking team never sees the chip OR the data.
+const TABS = computed(() => {
+  const ok = data.value?.tabs;
+  return ok ? ALL_TABS.filter((t) => ok.includes(t.key)) : ALL_TABS;
+});
 
 const tab = ref("exceptions");
 const q = ref("");

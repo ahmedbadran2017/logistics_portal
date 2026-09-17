@@ -115,11 +115,22 @@ def get_settings():
 
 
 def _gate():
-    from logistics_portal.api.shipments import _gate as g
-    return g()
+    """Customer service work, on the manager's shell for now.
+
+    The loop asks a delivered customer one question and turns an unhappy
+    answer into a CS ticket for a human to call — that is the CS lane's job,
+    not the carrier lane's. The tracking team was carrying the screen only
+    because it shipped before CS had a portal of its own; when that portal
+    exists, add "cs" here and move the nav entry with it."""
+    from logistics_portal.api.auth import resolve_role
+    role = resolve_role(frappe.session.user)
+    if role not in ("manager", "cs"):
+        frappe.throw("lp:shipTeamOnly", frappe.PermissionError)
+    return role
 
 
 def _admin_gate():
+    _gate()
     from logistics_portal.api.shipments import _admin_gate as g
     return g()
 
