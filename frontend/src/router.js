@@ -158,9 +158,44 @@ const routes = [
   { path: "/:pathMatch(.*)*", redirect: "/" },
 ];
 
+// ── where the app left off ────────────────────────────────────────────────
+// The PWA's start_url is /home, so every cold start — Android killing the
+// installed app on a PDA, the phone being locked long enough, a tab reopened
+// — landed the person on the role's home screen and threw away the queue,
+// the tab and the page they were working. sessionStorage cannot help: it
+// dies with exactly the tab we are trying to survive.
+const _LAST_KEY = "lp_last_route:" + PORTAL_BASE;
+// A new shift starts at home. Coming back from lunch, or from the camera
+// app, does not.
+const _LAST_MAX_MS = 10 * 60 * 60 * 1000;
+
+function rememberRoute(fullPath, name) {
+  // Home is a resolver, Login is a door, and a hidden page would bounce on
+  // the way back in — none of them are a place to return to.
+  if (!name || name === "Home" || name === "Home2" || name === "Login") return;
+  try {
+    localStorage.setItem(_LAST_KEY, JSON.stringify({ p: fullPath, t: Date.now() }));
+  } catch (_) { /* private mode: the app simply forgets, as before */ }
+}
+
+function lastRoute() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(_LAST_KEY) || "null");
+    if (!raw || !raw.p || Date.now() - (raw.t || 0) > _LAST_MAX_MS) return "";
+    return String(raw.p);
+  } catch (_) { return ""; }
+}
+
 function roleRedirect(to, from, next) {
   const { role, hiddenPages } = useAuth();
-  next({ name: homeRouteFor(role.value, hiddenPages.value, SURFACE) });
+  const home = { name: homeRouteFor(role.value, hiddenPages.value, SURFACE) };
+  // Only on a COLD start. `from.name` is empty only for the first navigation
+  // of a page load; pressing Home in the nav must still go home, or the
+  // button would look broken.
+  if (from.name) { next(home); return; }
+  const back = lastRoute();
+  if (!back || back === to.fullPath) { next(home); return; }
+  next(back);
 }
 
 const router = createRouter({
@@ -223,6 +258,9 @@ router.onError((err) => {
     }
   }
 });
-router.afterEach(() => sessionStorage.removeItem("lp_asset_reload"));
+router.afterEach((to) => {
+  sessionStorage.removeItem("lp_asset_reload");
+  rememberRoute(to.fullPath, to.name);
+});
 
 export default router;

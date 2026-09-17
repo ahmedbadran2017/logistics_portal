@@ -40,7 +40,7 @@
           class="rs-seg-btn"
           :class="tab === tb.key ? 'rs-seg-on' : ''"
           :aria-pressed="tab === tb.key"
-          @click="tab = tb.key; page = 1; load()"
+          @click="goTab(tb.key)"
         >
           <Icon :name="tb.icon" :size="14" />
           <span>{{ t(tb.label) }}</span>
@@ -344,6 +344,7 @@
 
 <script setup>
 import { computed, onMounted, ref, onUnmounted } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { IS_SHIP } from "@/lib/portal";
 import { api, apiPost } from "@/lib/resource";
@@ -352,6 +353,8 @@ import { useToast } from "@/composables/useToast";
 
 const { t } = useI18n();
 const { success, warn } = useToast();
+const route = useRoute();
+const router = useRouter();
 const showLegend = ref(false);
 const VERDICT_BG = {
   cancelled: "bg-rose-50/70", unreachable: "bg-amber-50/70", appointment: "bg-emerald-50/70",
@@ -367,7 +370,7 @@ const LEGEND = [
 
 // The carrier's last word splits the exceptions: a call can save a parcel
 // the customer did not cancel; the rest is a return to confirm.
-const verdictF = ref("rescuable");
+const verdictF = ref(String(route.query.reason ?? "rescuable"));
 const hasVerdict = computed(() => tab.value === "exceptions" || tab.value === "failed");
 const canBulk = computed(() => tab.value === "backlog" || (hasVerdict.value && verdictF.value === "cancelled"));
 const VERDICT_CLS = {
@@ -391,9 +394,13 @@ const TABS = computed(() => {
   return ok ? ALL_TABS.filter((t) => ok.includes(t.key)) : ALL_TABS;
 });
 
-const tab = ref("exceptions");
-const q = ref("");
-const page = ref(1);
+// The queue, the page and the search live in the URL. Without that, Back
+// from an order — and the cold-start restore — brought the agent to the
+// list's first page of the first tab, which is "somewhere else" to anyone
+// who was on page 4 of Failed.
+const tab = ref(String(route.query.tab || "exceptions"));
+const q = ref(String(route.query.q || ""));
+const page = ref(Math.max(1, parseInt(route.query.p, 10) || 1));
 const pageSize = 30;
 const data = ref(null);
 const rows = ref([]);
@@ -441,7 +448,28 @@ function debouncedLoad() {
   qTimer = setTimeout(() => { page.value = 1; load(); }, 350);
 }
 
+function syncUrl() {
+  const query = {};
+  if (tab.value !== "exceptions") query.tab = tab.value;
+  if (page.value > 1) query.p = String(page.value);
+  if (q.value.trim()) query.q = q.value.trim();
+  if (verdictF.value !== "rescuable") query.reason = verdictF.value;
+  const now = JSON.stringify(query);
+  if (now === JSON.stringify(route.query)) return;
+  // replace, not push: paging through a list must not bury the way back to
+  // the screen the agent came from under twenty history entries.
+  router.replace({ query }).catch(() => {});
+}
+
+function goTab(key) {
+  if (tab.value === key) return;
+  tab.value = key;
+  page.value = 1;
+  load();
+}
+
 async function load() {
+  syncUrl();
   loading.value = true;
   selected.value = new Set();
   try {
