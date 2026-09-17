@@ -64,6 +64,7 @@ export const ROLE_CONFIG = {
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
           { to: "CycleCount", label: "nav.count", icon: "list-checks" },
+          { to: "ZoneSurvey", label: "nav.zoneSurvey", icon: "map-pin" },
           { to: "CountControl", label: "nav.countControl", icon: "clipboard-check" },
           { to: "Slotting", label: "nav.slotting", icon: "layout-grid" },
           { to: "VelocityBoard", label: "nav.velocity", icon: "zap" },
@@ -132,6 +133,7 @@ export const ROLE_CONFIG = {
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
           { to: "CycleCount", label: "nav.count", icon: "list-checks" },
+          { to: "ZoneSurvey", label: "nav.zoneSurvey", icon: "map-pin" },
           { to: "Slotting", label: "nav.slotting", icon: "layout-grid" },
         ],
       },
@@ -162,6 +164,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "Queue", label: "nav.queue", icon: "list-checks" },
           { to: "CycleCount", label: "nav.count", icon: "list-checks" },
+          { to: "ZoneSurvey", label: "nav.zoneSurvey", icon: "map-pin" },
           { to: "Manifest", label: "nav.manifest", icon: "package-check" },
           { to: "PackStation", label: "nav.pack", icon: "tag" },
           { to: "PackDesk", label: "nav.packing", icon: "package-check" },

@@ -220,6 +220,26 @@ _SO_SHORT_FIELDS = [
 ]
 
 
+_WAREHOUSE_FIELDS = [
+    # The zone survey's stamp: this shelf was seen by two people on this date,
+    # and this is where it falls in the walk. The order is not decoration —
+    # the picking engine sorts a list's lines alphabetically and calls it a
+    # walk; with a real sequence the pick path stops being a guess.
+    {"fieldname": "custom_seen_at", "label": "Seen On Floor", "fieldtype": "Datetime",
+     "read_only": 1, "no_copy": 1, "hidden": 1},
+    {"fieldname": "custom_walk_order", "label": "Walk Order", "fieldtype": "Int",
+     "default": "0", "read_only": 1, "no_copy": 1, "hidden": 1},
+]
+
+
+def ensure_warehouse_fields():
+    try:
+        from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+        create_custom_fields({"Warehouse": _WAREHOUSE_FIELDS}, ignore_validate=True)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_warehouse_fields")
+
+
 def ensure_pick_fields():
     try:
         from frappe.custom.doctype.custom_field.custom_field import create_custom_fields

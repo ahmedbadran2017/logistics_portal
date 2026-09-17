@@ -120,6 +120,8 @@ const routes = [
       // The packing desk is its own screen: the sort wall is a WALL (a big
       // screen with slots), this is one parcel in two hands on a PDA.
       { path: "packing", name: "PackDesk", component: () => import("@/pages/PackDesk.vue") },
+      // Walking a zone to find out which shelves are real, and in what order.
+      { path: "zone-survey", name: "ZoneSurvey", component: () => import("@/pages/ZoneSurvey.vue") },
       { path: "tracking", name: "Tracking", component: () => import("@/pages/Tracking.vue") },
       { path: "exceptions", name: "Exceptions", component: () => import("@/pages/Exceptions.vue") },
       { path: "carriers", name: "Carriers", component: () => import("@/pages/Carriers.vue") },
