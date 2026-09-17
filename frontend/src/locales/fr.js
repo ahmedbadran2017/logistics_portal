@@ -2276,6 +2276,9 @@ export default {
     thRescueRate: "Taux de sauvetage",
   },
   rss: {
+    tClaim: "Une prise expire après",
+    tLine: "Les files commencent le",
+    lineHint: "Les colis expédiés avant cette date restent dans l'Historique, traités en masse. Laissez vide pour tout afficher.",
     title: "Sauvetage — réglages du service",
     intro: "Minuterie de rappel, motifs de retour/annulation et administrateurs du service.",
     reasonsTitle: "Motifs de retour / annulation",

@@ -11,6 +11,8 @@ Production workload at build time: 3,678 untriaged Delivery Exceptions +
 1,166 Failed Attempts + 658 parcels silently stuck in transit >7 days.
 """
 
+import re
+
 import frappe
 
 
@@ -89,12 +91,16 @@ def run_alerts():
                 FROM `tabDelivery Note` dn {_SO_JOIN}
                 WHERE dn.docstatus = 1 AND dn.company = %(co)s
                   AND dn.custom_track_shipment_status IN %(tracks)s
-                  AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+                  AND dn.posting_date >= %(line)s
                   AND {_RETURNED}
                   AND {_untriaged_cond()}
                   AND {ev} >= DATE_SUB(%(snow)s, INTERVAL %(m)s MINUTE)
                 ORDER BY {ev} DESC LIMIT 60""",
             {"co": _CO, "m": _ALERT_WINDOW_MIN, "snow": _site_now(),
+             # Page only about parcels the team can actually open. Without
+             # this the alert would name a parcel that lives in the backlog
+             # and the agent would click through to nothing.
+             "line": _start_line() or str(add_to_date(now_datetime(), days=-30))[:10],
              "tracks": tuple(_DN_TRACK.values())}, as_dict=True)
         if not rows:
             return
@@ -174,7 +180,17 @@ def _allowed_tabs(role):
 
 # ── section settings + admins (same pattern as the confirmation section) ──
 _RS_KEY = "lp_rescue_settings"
+# The day this lane started working inside the portal. Everything the
+# carrier was already holding before it was settled with Cathedis directly,
+# over months of daily calls that left no record here — so the queues were
+# opening on a pile of work that was finished, and the team learned to
+# scroll past it. Before the line is history (the Backlog tab, still worked
+# in bulk); after it is the live desk. Blank turns the line off.
+_START_LINE = "2026-09-15"
+
 _RS_DEFAULTS = {
+    "startLine": _START_LINE,
+    "claimHours": 4,
     "retryDna": 6,
     "slaTriageH": 24,   # a failing parcel untouched longer than this is late
     "reasons": ["Client injoignable", "Refuse le colis", "Adresse introuvable",
@@ -195,6 +211,12 @@ def _rs_settings():
         except Exception:
             pass
     return out
+
+
+def _start_line():
+    """The date the live queues begin. Empty = no line."""
+    v = str(_rs_settings().get("startLine") or "").strip()[:10]
+    return v if re.match(r"^\d{4}-\d{2}-\d{2}$", v or "") else ""
 
 
 def _is_rs_admin():
@@ -226,12 +248,17 @@ def save_rs_settings(settings=None):
         settings = _json.loads(settings)
     settings = settings or {}
     out = dict(_rs_settings())
-    for k in ("retryDna", "slaTriageH"):
+    for k in ("retryDna", "slaTriageH", "claimHours"):
         if k in settings:
             v = int(settings[k])
             if not (1 <= v <= 168):
                 frappe.throw(f"{k} must be between 1 and 168 hours.")
             out[k] = v
+    if "startLine" in settings:
+        line = str(settings["startLine"] or "").strip()[:10]
+        if line and not re.match(r"^\d{4}-\d{2}-\d{2}$", line):
+            frappe.throw("The start line must be a date (YYYY-MM-DD) or empty.")
+        out["startLine"] = line
     if "reasons" in settings:
         reasons = [str(r).strip()[:60] for r in (settings["reasons"] or []) if str(r).strip()]
         if not reasons:
@@ -326,21 +353,37 @@ def _dn_where(tab, vals, reason=""):
             "dn.custom_rescue_by = %(me)s",
             "COALESCE(dn.custom_rescue_at,'1900-01-01') >= %(claimcut)s"] + extra)
     if tab == "backlog":
-        # The pile OLDER than the working window — 17k untriaged parcels were
-        # invisible when every queue clipped at `days`. Worked by bulk triage.
+        # Everything BEFORE the start line — history, worked in bulk when
+        # there is time. It used to mean "older than the working window",
+        # which was the same thing while no line existed; with a line, that
+        # definition would leave every parcel shipped between the line and
+        # the window edge in NEITHER queue, i.e. gone from the portal. The
+        # backlog is the other side of the line, whatever the window says.
         vals["backtracks"] = _BACKLOG_TRACKS
         _claim_vals(vals)
+        line = _start_line()
+        if line:
+            vals["line"] = line
+            before = "dn.posting_date < %(line)s"
+        else:
+            before = "dn.posting_date < DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"
         return " AND ".join([
             "dn.docstatus = 1", "dn.company = %(co)s",
             "COALESCE(dn.custom_exception_action,'') = ''",
             _claim_cond(),
             "dn.custom_track_shipment_status IN %(backtracks)s",
-            "dn.posting_date < DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"] + extra)
+            before] + extra)
     conds = ["dn.docstatus = 1", "dn.company = %(co)s",
              _untriaged_cond(),
              _claim_cond(),
              "dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"]
     _claim_vals(vals)
+    # The line wins over the day window whenever it is the later of the two,
+    # which is the whole point of drawing it.
+    line = _start_line()
+    if line:
+        vals["line"] = line
+        conds.append("dn.posting_date >= %(line)s")
     if tab in _DN_TRACK:
         conds.append("dn.custom_track_shipment_status = %(track)s")
         vals["track"] = _DN_TRACK[tab]

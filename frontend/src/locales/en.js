@@ -2275,6 +2275,9 @@ export default {
     thRescueRate: "Rescue rate",
   },
   rss: {
+    tClaim: "A claim expires after",
+    tLine: "Queues start from",
+    lineHint: "Parcels shipped before this date stay in Backlog, worked in bulk. Leave empty to show everything.",
     title: "Rescue — section settings",
     intro: "Retry timer, return/cancel reasons and who administers this section.",
     reasonsTitle: "Return / cancel reasons",
