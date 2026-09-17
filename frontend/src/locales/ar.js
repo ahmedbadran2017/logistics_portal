@@ -320,6 +320,7 @@ export default {
     recheck: "جرّب تحقق من البوليصة تاني",
     rechecking: "بيتحقق…",
     labelArrived: "البوليصة وصلت — بتطبع",
+    printFail: "ما اتطبعش حاجة",
     stillNoLabel: "البوليصة لسه موصلتش — الديسباتشر يصلّح المدينة ويعيد الـAWB.",
     wallDone: "الصندوق اتفرز بالكامل 🎉",
     printAgain: "اطبع البوليصة تاني",

@@ -348,6 +348,7 @@ import Icon from "@/components/ui/Icon.vue";
 import ScanInput from "@/components/ui/ScanInput.vue";
 import PlLife from "@/components/ui/PlLife.vue";
 import { api, apiPost } from "@/lib/resource";
+import { printParcelLabel } from "@/lib/labelPrint";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
 import { useAuth } from "@/composables/useAuth";
@@ -685,24 +686,13 @@ async function printLate(r) {
   }
 }
 
-function printLabel(order, onSpooled) {
+// Never print what we have not checked is a label: the endpoint answers a
+// throw with an HTML error page, and the old iframe printed it (a Python
+// traceback on a roll of thermal labels, 2026-09-17). printParcelLabel
+// fetches, verifies the bytes are a PDF, and prints from a blob.
+async function printLabel(order, onSpooled) {
   if (!order) return;
-  const url = `/api/method/logistics_portal.api.picking.label_pdf?order=${encodeURIComponent(order)}`;
-  try {
-    let f = document.getElementById("lp-print-frame");
-    if (!f) { f = document.createElement("iframe"); f.id = "lp-print-frame"; f.style.display = "none"; document.body.appendChild(f); }
-    f.onload = () => {
-      const w = f.contentWindow;
-      try {
-        if (onSpooled) {
-          const done = () => { w.removeEventListener("afterprint", done); onSpooled(); };
-          w.addEventListener("afterprint", done);
-        }
-        w.focus();
-        w.print();
-      } catch (e) { window.open(url, "_blank"); }
-    };
-    f.src = url;
-  } catch (e) { window.open(url, "_blank"); }
+  const r = await printParcelLabel(order, { onSpooled });
+  if (!r.ok) warn(t("sort.printFail"), `${order} · ${r.reason || ""}`);
 }
 </script>

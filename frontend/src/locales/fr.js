@@ -320,6 +320,7 @@ export default {
     recheck: "Revérifier l'étiquette",
     rechecking: "Vérification…",
     labelArrived: "Étiquette arrivée — impression",
+    printFail: "Rien imprimé",
     stillNoLabel: "Étiquette toujours absente — le dispatcher doit corriger la ville / relancer l'AWB.",
     wallDone: "Bac entièrement trié 🎉",
     printAgain: "Réimprimer l'étiquette",

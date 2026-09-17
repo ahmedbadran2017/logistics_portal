@@ -320,6 +320,7 @@ export default {
     recheck: "Check for the label again",
     rechecking: "Checking…",
     labelArrived: "Label arrived — printing",
+    printFail: "Nothing printed",
     stillNoLabel: "Label still not back — dispatcher must fix the city / retry the AWB.",
     wallDone: "Tote fully sorted 🎉",
     printAgain: "Print label again",

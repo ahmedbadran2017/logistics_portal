@@ -132,6 +132,7 @@
 import { ref, computed, onMounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { LABEL_QUEUE as DEMO_LABEL_QUEUE, CHANNELS, SLA, SLA_LABEL, CARRIER, WAREHOUSE, CITY, fmtMAD } from "@/lib/handoffData.js";
+import { printParcelLabel } from "@/lib/labelPrint";
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
 import { useI18n } from "@/composables/useI18n";
@@ -201,14 +202,9 @@ function printAll() {
 // Same-origin label print (see PackStation): stream the stored label PDF via
 // picking.label_pdf so the hidden iframe can print it — the raw carrier URL is
 // cross-origin and a browser won't print a cross-origin frame.
-function printLabel(order) {
+async function printLabel(order) {
   if (!order) return;
-  const url = `/api/method/logistics_portal.api.picking.label_pdf?order=${encodeURIComponent(order)}`;
-  try {
-    let f = document.getElementById("lp-print-frame");
-    if (!f) { f = document.createElement("iframe"); f.id = "lp-print-frame"; f.style.display = "none"; document.body.appendChild(f); }
-    f.onload = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { window.open(url, "_blank"); } };
-    f.src = url;
-  } catch (e) { window.open(url, "_blank"); }
+  const r = await printParcelLabel(order);
+  if (!r.ok) warn(t("sort.printFail"), `${order} · ${r.reason || ""}`);
 }
 </script>

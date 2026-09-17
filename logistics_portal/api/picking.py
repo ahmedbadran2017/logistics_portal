@@ -2855,7 +2855,7 @@ def recheck_label(pick_list, order):
         return {"ok": False, "reason": "not_sorted"}
     awb, lbl = frappe.db.get_value(
         "Sales Order", order, ["custom_awb", "custom_label_url"]) or (None, None)
-    if not (awb or lbl):
+    if not has_label(order):
         return {"ok": False, "reason": "no_label_yet"}
     frappe.db.sql(
         """UPDATE `tabSales Order` SET custom_logistics_status = 'Label Printed'
@@ -3037,14 +3037,20 @@ def _late_label_rows(limit=100):
            JOIN `tabPick List Item` pli ON pli.sales_order = so.name
            JOIN `tabPick List` p ON p.name = pli.parent AND p.docstatus < 2
            WHERE so.docstatus = 1 AND so.company = %s
-             AND so.custom_logistics_status = 'Label Generated'
+             AND (so.custom_logistics_status = 'Label Generated'
+                  OR (so.custom_logistics_status = 'Label Printed'
+                      AND COALESCE(LENGTH(so.custom_label_url), 0) < %s
+                      AND NOT EXISTS (SELECT 1 FROM `tabFile` f
+                                      WHERE f.attached_to_doctype = 'Sales Order'
+                                        AND f.attached_to_name = so.name
+                                        AND f.file_name LIKE '%%.pdf')))
              AND (COALESCE(so.custom_awb, '') != ''
                   OR COALESCE(so.custom_label_url, '') != '')
            GROUP BY so.name, so.customer_name, so.custom_awb,
                     so.custom_label_url, so.modified
            HAVING SUM(pli.qty) - SUM(COALESCE(pli.custom_sorted_qty, 0)) <= 0
            ORDER BY so.modified
-           LIMIT %s""", ("Justyol Morocco", int(limit)), as_dict=True)
+           LIMIT %s""", ("Justyol Morocco", _LABEL_URL_MIN, int(limit)), as_dict=True)
 
 
 @frappe.whitelist()
@@ -3169,7 +3175,8 @@ def sort_scan(pick_list, code, prefer=None):
     if left <= 0:
         awb, lbl = frappe.db.get_value(
             "Sales Order", row.so, ["custom_awb", "custom_label_url"])
-        if not (awb or lbl):
+        # An AWB alone is not a label: the sticker is what goes on the box.
+        if not has_label(row.so):
             # All items are sorted, but this parcel has NO carrier label — its
             # AWB never came back (measured root cause: a shipping CITY entered
             # in Arabic that Cathedis can't match). Do NOT flip it to 'Label
@@ -3194,6 +3201,40 @@ def sort_scan(pick_list, code, prefer=None):
     return result
 
 
+# The carrier sometimes answers the label request with nothing but its own
+# base address — no report path, no PDF behind it. Measured 2026-09-17: 5 of
+# 8,570 AWBs in 30 days (0.1%), every one of them already flipped to 'Label
+# Printed'. The portal treated "has a URL" as "has a label", the sorter hit
+# print, the endpoint threw, and the station printed the error page onto the
+# label roll. A real Cathedis label URL runs ~121 characters and carries a
+# report path; the useless ones are ~30 and carry none.
+_LABEL_URL_MIN = 45
+
+
+def _real_label_url(url):
+    """A label URL you can actually fetch a label from."""
+    u = (url or "").strip()
+    return u if (len(u) >= _LABEL_URL_MIN and u.count("/") > 3) else ""
+
+
+def _label_file(order):
+    """The newest label PDF attached to this order, if any."""
+    return frappe.db.get_value(
+        "File", {"attached_to_doctype": "Sales Order", "attached_to_name": order,
+                 "file_name": ["like", "%Label%.pdf"]},
+        "name", order_by="creation desc") or frappe.db.get_value(
+        "File", {"attached_to_doctype": "Sales Order", "attached_to_name": order,
+                 "file_name": ["like", "%.pdf"]},
+        "name", order_by="creation desc")
+
+
+def has_label(order):
+    """Is there a label for this parcel — a stored PDF or a fetchable URL?"""
+    if _label_file(order):
+        return True
+    return bool(_real_label_url(frappe.db.get_value("Sales Order", order, "custom_label_url")))
+
+
 @frappe.whitelist()
 def label_pdf(order):
     """Stream a parcel's carrier label PDF from the portal's OWN origin so the
@@ -3210,20 +3251,52 @@ def label_pdf(order):
     order = (order or "").strip()
     if not order:
         frappe.throw("No order.")
-    # The newest label PDF attached to this order (prefer the Cathedis label).
-    fname = frappe.db.get_value(
-        "File", {"attached_to_doctype": "Sales Order", "attached_to_name": order,
-                 "file_name": ["like", "%Label%.pdf"]},
-        "name", order_by="creation desc") or frappe.db.get_value(
-        "File", {"attached_to_doctype": "Sales Order", "attached_to_name": order,
-                 "file_name": ["like", "%.pdf"]},
-        "name", order_by="creation desc")
+    fname = _label_file(order)
+    content = None
     if not fname:
-        frappe.throw("No label attached to this order yet.")
-    content = frappe.get_doc("File", fname).get_content()
+        # Not stored locally. If the carrier gave a real URL, fetch it once and
+        # keep it, so the next print is same-origin like every other label.
+        content = _fetch_carrier_label(order)
+        if content is None:
+            # Deliberately NOT frappe.throw: a throw renders an HTML error
+            # page, and this endpoint's answer goes to a thermal printer. The
+            # station checks the content type and prints nothing on this path.
+            frappe.local.response.http_status_code = 404
+            return {"ok": False, "order": order,
+                    "reason": "No label for this parcel yet — retry the AWB from the orders board."}
+    if content is None:
+        content = frappe.get_doc("File", fname).get_content()
     frappe.local.response.filename = order.replace("#", "") + ".pdf"
     frappe.local.response.filecontent = content
     frappe.local.response.type = "pdf"
+
+
+def _fetch_carrier_label(order):
+    """Pull the label PDF from the carrier and attach it. Returns the bytes, or
+    None when there is nothing real to fetch."""
+    url = _real_label_url(frappe.db.get_value("Sales Order", order, "custom_label_url"))
+    if not url:
+        return None
+    try:
+        import requests
+        res = requests.get(url, timeout=12)
+        body = res.content or b""
+        if res.status_code != 200 or not body.startswith(b"%PDF"):
+            return None
+    except Exception:
+        return None
+    try:
+        f = frappe.get_doc({
+            "doctype": "File", "file_name": f"Label-{order.replace('#', '')}.pdf",
+            "attached_to_doctype": "Sales Order", "attached_to_name": order,
+            "is_private": 1, "content": body,
+        })
+        f.flags.ignore_permissions = True
+        f.insert(ignore_permissions=True)
+        frappe.db.commit()
+    except Exception:
+        frappe.db.rollback()   # serving the label matters more than storing it
+    return body
 
 
 def _tote_for(pick_list, order):
