@@ -25,6 +25,13 @@ INDEXES = [
     # The packing desk reads a parcel's progress back out of its own scans on
     # every piece; without this it is a full scan of the event table per scan.
     ("LP Scan Event", ["sales_order", "station"], "lp_scan_so_idx"),
+    # The rescue card reads a parcel's whole story on open, and the agent's
+    # own day reads their events back by name — both on every page load.
+    ("LP Rescue Event", ["parcel"], "lp_resc_parcel_idx"),
+    ("LP Rescue Event", ["agent", "creation"], "lp_resc_agent_idx"),
+    # The shared queues now exclude anything somebody is holding, so the
+    # claim column sits in the WHERE of every rescue page.
+    ("Delivery Note", ["custom_rescue_by", "custom_rescue_at"], "lp_dn_resc_idx"),
     # Board counts + intake filter Confirmed orders by creation window.
     ("Sales Order", ["custom_sales_status", "creation"], "lp_so_sales_creation_idx"),
     # Contact Center my-day tallies filter Comments by owner+today, and the
@@ -218,6 +225,32 @@ _SO_SHORT_FIELDS = [
     {"fieldname": "custom_short_picked_at", "label": "Short Picked At",
      "fieldtype": "Datetime", "read_only": 1, "no_copy": 1, "hidden": 1},
 ]
+
+
+_DN_RESCUE_FIELDS = [
+    # The rescue desk's ownership. A parcel in a shared queue belongs to
+    # nobody until someone takes it; then it leaves everyone else's list and
+    # appears in theirs. The stamp is what expires the claim — a promise to
+    # finish, not a reservation, so an agent who goes home holding thirty
+    # parcels does not take them with him.
+    {"fieldname": "custom_rescue_by", "label": "Rescue Held By", "fieldtype": "Data",
+     "read_only": 1, "no_copy": 1, "hidden": 1},
+    {"fieldname": "custom_rescue_at", "label": "Rescue Held At", "fieldtype": "Datetime",
+     "read_only": 1, "no_copy": 1, "hidden": 1},
+    # Cathedis said they would look at it by this date. Until then the parcel
+    # sleeps: an escalated parcel that keeps shouting every morning teaches
+    # the team to stop reading the queue at all.
+    {"fieldname": "custom_rescue_wait_until", "label": "Waiting On Carrier Until",
+     "fieldtype": "Datetime", "read_only": 1, "no_copy": 1, "hidden": 1},
+]
+
+
+def ensure_rescue_fields():
+    from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+    try:
+        create_custom_fields({"Delivery Note": _DN_RESCUE_FIELDS}, ignore_validate=True)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "install.ensure_rescue_fields")
 
 
 _WAREHOUSE_FIELDS = [

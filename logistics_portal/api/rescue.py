@@ -21,7 +21,7 @@ def _site_now():
     return str(now_datetime())[:19]
 from frappe.utils import add_to_date, now_datetime
 
-TABS = ("exceptions", "failed", "notdelivered", "stale", "backlog")
+TABS = ("mine", "exceptions", "failed", "notdelivered", "stale", "backlog")
 # Morocco only. The instance also carries China / Maslak / Holding, whose
 # orders share this database. Carrier exceptions happen to be Morocco-only in
 # practice (Cathedis is the Moroccan carrier), but the SO-backed "Not
@@ -268,6 +268,7 @@ _DN_SELECT = """
            COALESCE(so.custom_call_attempts, 0) AS attempts,
            so.custom_next_call_at AS next_call,
            dn.custom_exception_action AS prior_action, dn.custom_exception_actioned_at AS prior_at,
+           {claim_cols}
            """ + _last_event_sql("content") + """ AS last_event,
            """ + _last_event_sql("creation") + """ AS last_event_at,
            DATEDIFF(CURDATE(), dn.posting_date) AS age_d,
@@ -315,18 +316,31 @@ def _dn_where(tab, vals, reason=""):
         # NOT (NULL LIKE ...) is NULL, which a WHERE reads as false and
         # silently dropped 686 such parcels from the rescuable list.
         extra.append("(" + _last_event_sql() + " IS NULL OR NOT " + _cancelled_cond() + ")")
+    if tab == "mine":
+        if not _has_claim_fields():
+            return "1 = 0"
+        vals["me"] = frappe.session.user
+        vals["claimcut"] = _claim_cutoff()
+        return " AND ".join([
+            "dn.docstatus = 1", "dn.company = %(co)s",
+            "dn.custom_rescue_by = %(me)s",
+            "COALESCE(dn.custom_rescue_at,'1900-01-01') >= %(claimcut)s"] + extra)
     if tab == "backlog":
         # The pile OLDER than the working window — 17k untriaged parcels were
         # invisible when every queue clipped at `days`. Worked by bulk triage.
         vals["backtracks"] = _BACKLOG_TRACKS
+        _claim_vals(vals)
         return " AND ".join([
             "dn.docstatus = 1", "dn.company = %(co)s",
             "COALESCE(dn.custom_exception_action,'') = ''",
+            _claim_cond(),
             "dn.custom_track_shipment_status IN %(backtracks)s",
             "dn.posting_date < DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"] + extra)
     conds = ["dn.docstatus = 1", "dn.company = %(co)s",
              _untriaged_cond(),
+             _claim_cond(),
              "dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"]
+    _claim_vals(vals)
     if tab in _DN_TRACK:
         conds.append("dn.custom_track_shipment_status = %(track)s")
         vals["track"] = _DN_TRACK[tab]
@@ -336,6 +350,16 @@ def _dn_where(tab, vals, reason=""):
         vals["tracks"] = _STALE_TRACKS
         vals["staledays"] = _STALE_DAYS
     return " AND ".join(conds + extra)
+
+
+_CLAIM_COLS = ("dn.custom_rescue_by AS held_by, dn.custom_rescue_at AS held_at, "
+               "dn.custom_rescue_wait_until AS wait_until,")
+_NO_CLAIM_COLS = ("NULL AS held_by, NULL AS held_at, NULL AS wait_until,")
+
+
+def _dn_select():
+    return _DN_SELECT.replace(
+        "{claim_cols}", _CLAIM_COLS if _has_claim_fields() else _NO_CLAIM_COLS)
 
 
 def _cached_counts(days):
@@ -363,6 +387,17 @@ def _cached_counts(days):
     except Exception:
         pass
     return counts
+
+
+def _mine_count(days):
+    """Outside the shared cache on purpose: this depth belongs to one person,
+    and a cached one would show an agent somebody else's pile."""
+    if not _has_claim_fields():
+        return 0
+    v = {"days": days}
+    where = _dn_where("mine", v)
+    return int(frappe.db.sql(
+        f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} WHERE {where}", v)[0][0])
 
 
 def _bust():
@@ -394,6 +429,7 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
     # The four queue depths cost ~0.6 s together (a correlated last-event
     # read per parcel); a decision busts them, otherwise a minute is fine.
     counts = _cached_counts(days)
+    counts["mine"] = _mine_count(days)
     # The split that decides whether a call can save anything, for the two
     # queues a call is made from. Cached: it is a correlated read per parcel.
     if tab in ("exceptions", "failed"):
@@ -478,7 +514,7 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
                     if tab in ("exceptions", "failed", "stale")
                     else "dn.posting_date")
         rows = frappe.db.sql(
-            _DN_SELECT + f" WHERE {where} ORDER BY {order_by}"
+            _dn_select() + f" WHERE {where} ORDER BY {order_by}"
                          " LIMIT %(limit)s OFFSET %(offset)s", vals, as_dict=True)
 
     # The floor's today (api/clock) — the site date rolls at 22:00 Morocco
@@ -516,6 +552,11 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
             # The carrier's word lands here within minutes, so a parcel whose
             # event is an hour old is still a live call, not a queue entry.
             "fresh": bool(_fresh_ev(getattr(r, "last_event_at", None))),
+            "heldBy": (getattr(r, "held_by", "") or "").split("@")[0]
+                      if str(getattr(r, "held_at", "") or "")[:19] >= _claim_cutoff() else "",
+            "heldMine": bool(getattr(r, "held_by", "") == frappe.session.user
+                             and str(getattr(r, "held_at", "") or "")[:19] >= _claim_cutoff()),
+            "waitUntil": str(getattr(r, "wait_until", "") or "")[:16],
             "verdict": _verdict(getattr(r, "last_event", "") or ""),
             "again": bool(getattr(r, "prior_action", None)),
             "priorAt": str(getattr(r, "prior_at", "") or "")[:16],
@@ -665,6 +706,15 @@ def act(id=None, action=None, note=None):
             doc.db_set("custom_exception_action", dn_action, update_modified=False)
             doc.db_set("custom_exception_actioned_at", now, update_modified=False)
         doc.add_comment("Comment", tag)
+        # A decision ends the holding — the parcel is finished, not owned —
+        # and joins the same trail as the notes and the carrier calls, so the
+        # card reads as one story instead of two.
+        if _has_claim_fields():
+            frappe.db.set_value("Delivery Note", dn,
+                                {"custom_rescue_by": "", "custom_rescue_at": None,
+                                 "custom_rescue_wait_until": None},
+                                update_modified=False)
+        _log(dn, order, "decision", f"{action}" + (f" — {note}" if note else ""))
 
     # Order-side record + state. Attribution: a rescue touch must NOT steal
     # the confirming agent's credit — custom_allocated_to feeds the done tabs,
@@ -899,7 +949,7 @@ def dashboard():
 
     # The ten longest-waiting untouched failures — the call list.
     oldest = frappe.db.sql(
-        _DN_SELECT + """ WHERE dn.docstatus = 1 AND dn.company = %(co)s
+        _dn_select() + """ WHERE dn.docstatus = 1 AND dn.company = %(co)s
               AND COALESCE(dn.custom_exception_action,'') = ''
               AND dn.custom_track_shipment_status IN
                   ('Delivery Exception', 'Failed Attempt')
@@ -922,3 +972,325 @@ def dashboard():
         } for r in oldest],
         "serverNow": str(now_datetime())[:19],
     }
+
+
+# ══ The desk: who is holding this parcel, and what has been done to it ═════
+#
+# Audited 2026-09-17 before writing any of this. In thirty days exactly ONE
+# parcel was decided by two different people, so this is not a collision
+# guard — agents were not stepping on each other. What was missing is every
+# other thing a desk needs: nobody could see who was holding what, an agent
+# had no list of their own work, a parcel escalated to Cathedis kept
+# screaming in the queue with no way to say "they are looking at it until
+# Thursday", and the entire conversation with the carrier — the actual daily
+# job — lived in WhatsApp and died there. The decision trail itself was
+# honest (93 of 93 decisions wrote both the comment and the field); it just
+# stopped at the decision and recorded nothing on the way to it.
+
+RESCUE_DT = "LP Rescue Event"
+# claim / release / takeover / note / carrier / wait / decision
+_EV_KINDS = ("claim", "release", "takeover", "note", "carrier", "wait", "decision")
+
+
+def ensure_doctype():
+    """The desk's witness. Custom doctype: lives in the DB, no schema files,
+    safe to run on every migrate."""
+    try:
+        if frappe.db.exists("DocType", RESCUE_DT):
+            return
+        frappe.get_doc({
+            "doctype": "DocType", "name": RESCUE_DT, "module": "Core",
+            "custom": 1, "naming_rule": "Autoincrement", "autoname": "autoincrement",
+            "fields": [
+                {"fieldname": "parcel", "fieldtype": "Data", "label": "Parcel",
+                 "in_standard_filter": 1},
+                {"fieldname": "so", "fieldtype": "Data", "label": "Order",
+                 "in_standard_filter": 1},
+                {"fieldname": "kind", "fieldtype": "Data", "label": "Kind",
+                 "in_standard_filter": 1},
+                {"fieldname": "agent", "fieldtype": "Data", "label": "Agent",
+                 "in_standard_filter": 1},
+                {"fieldname": "text", "fieldtype": "Small Text", "label": "Text"},
+                # A carrier promise with a date: the parcel sleeps until then.
+                {"fieldname": "due", "fieldtype": "Datetime", "label": "Follow up"},
+            ],
+            "permissions": [{"role": "System Manager", "read": 1, "write": 1, "create": 1}],
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "rescue.ensure_doctype")
+
+
+def _log(parcel, order, kind, text="", due=None):
+    """Never let bookkeeping break the action it is recording."""
+    try:
+        frappe.get_doc({
+            "doctype": RESCUE_DT, "parcel": parcel or "", "so": order or "",
+            "kind": kind, "agent": frappe.session.user, "text": (text or "")[:1000],
+            "due": due,
+        }).insert(ignore_permissions=True)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "rescue._log")
+
+
+def _claim_h():
+    """How long a claim survives without a decision. An agent who goes home
+    holding thirty parcels must not take them with him."""
+    try:
+        return min(max(int(_rs_settings().get("claimHours") or 4), 1), 24)
+    except Exception:
+        return 4
+
+
+def _claim_cutoff():
+    return str(add_to_date(now_datetime(), hours=-_claim_h()))[:19]
+
+
+def _has_claim_fields():
+    try:
+        return frappe.get_meta("Delivery Note").has_field("custom_rescue_by")
+    except Exception:
+        return False
+
+
+def _claim_cond(alias="dn"):
+    """A shared queue shows only work nobody has taken.
+
+    Deliberately blind to WHO holds it, mine included: the moment I claim a
+    parcel it leaves this queue and appears in "Mine", which is the whole
+    point — one parcel, one place. It also keeps the team-wide depths
+    shareable; a per-agent condition would have made the cached counts show
+    whoever happened to warm them. A parcel asleep on a carrier promise is
+    out of every queue until the promise falls due."""
+    if not _has_claim_fields():
+        return "1 = 1"
+    return (f"(COALESCE({alias}.custom_rescue_by,'') = '' "
+            f" OR COALESCE({alias}.custom_rescue_at, '1900-01-01') < %(claimcut)s) "
+            f"AND ({alias}.custom_rescue_wait_until IS NULL "
+            f"     OR {alias}.custom_rescue_wait_until <= %(snow)s)")
+
+
+def _claim_vals(vals):
+    vals["claimcut"] = _claim_cutoff()
+    vals.setdefault("snow", _site_now())
+    return vals
+
+
+def _holder(dn):
+    """(who, since) — empty when nobody holds it or the claim went stale."""
+    if not _has_claim_fields():
+        return ("", "")
+    row = frappe.db.get_value("Delivery Note", dn,
+                              ["custom_rescue_by", "custom_rescue_at"], as_dict=True)
+    if not row or not row.custom_rescue_by:
+        return ("", "")
+    if str(row.custom_rescue_at or "")[:19] < _claim_cutoff():
+        return ("", "")
+    return (row.custom_rescue_by, str(row.custom_rescue_at or "")[:16])
+
+
+def _set_claim(dn, who, at=None):
+    frappe.db.set_value("Delivery Note", dn, {
+        "custom_rescue_by": who or "",
+        "custom_rescue_at": at,
+    }, update_modified=False)
+
+
+def _order_of(dn):
+    return frappe.db.sql("""SELECT MIN(against_sales_order) FROM `tabDelivery Note Item`
+                           WHERE parent = %s""", (dn,))[0][0] or ""
+
+
+def _check_parcel(dn):
+    """Rescue-queue parcels only, this company only — an id off the wire must
+    not become a write on someone else's document."""
+    if not frappe.db.exists("Delivery Note", dn):
+        frappe.throw("Unknown parcel.")
+    if frappe.db.get_value("Delivery Note", dn, "company") != _CO:
+        frappe.throw("Unknown parcel.")
+    return dn
+
+
+@frappe.whitelist(methods=["POST"])
+def claim(dn):
+    """Take the parcel. It leaves everyone else's queue and joins mine.
+
+    Serialized on the parcel: two agents pressing at the same instant must
+    not both be told yes. GET_LOCK spans workers; a Python lock would not."""
+    _gate()
+    dn = _check_parcel((dn or "").strip())
+    if not _has_claim_fields():
+        return {"ok": False, "reason": "no_fields"}
+    from logistics_portal.api.locks import named_lock
+    with named_lock(f"rescue_claim_{dn}"):
+        who, since = _holder(dn)
+        me = frappe.session.user
+        if who and who != me:
+            return {"ok": False, "reason": "taken", "by": who, "at": since}
+        if who == me:
+            return {"ok": True, "by": me, "at": since, "already": True}
+        now = now_datetime()
+        _set_claim(dn, me, now)
+        # Commit INSIDE the lock. The named lock serializes the two workers,
+        # but an uncommitted write is invisible to the next transaction under
+        # REPEATABLE READ — without this the second agent would read an empty
+        # holder and both would be told the parcel is theirs.
+        frappe.db.commit()
+    _log(dn, _order_of(dn), "claim")
+    _bust()
+    return {"ok": True, "by": frappe.session.user, "at": str(now)[:16]}
+
+
+@frappe.whitelist(methods=["POST"])
+def release(dn, reason=""):
+    """Put it back in the pool — the honest move when you cannot finish it."""
+    _gate()
+    dn = _check_parcel((dn or "").strip())
+    if not _has_claim_fields():
+        return {"ok": False, "reason": "no_fields"}
+    who, _since = _holder(dn)
+    if who and who != frappe.session.user and not _is_rs_admin():
+        return {"ok": False, "reason": "taken", "by": who}
+    _set_claim(dn, "", None)
+    _log(dn, _order_of(dn), "release", reason)
+    _bust()
+    return {"ok": True}
+
+
+@frappe.whitelist(methods=["POST"])
+def take_over(dn, reason=""):
+    """A lead moving work off someone — with a reason, on the record. The
+    reason is not decoration: an unexplained hand-off is the one thing that
+    makes a claim system feel like surveillance instead of a desk."""
+    _gate()
+    if not _is_rs_admin():
+        frappe.throw("Only a lead can take a parcel from another agent.",
+                     frappe.PermissionError)
+    dn = _check_parcel((dn or "").strip())
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw("Say why you are taking it over.")
+    who, _since = _holder(dn)
+    _set_claim(dn, frappe.session.user, now_datetime())
+    _log(dn, _order_of(dn), "takeover", f"from {who or '—'}: {reason}")
+    _bust()
+    return {"ok": True, "from": who}
+
+
+@frappe.whitelist(methods=["POST"])
+def note(dn, text=""):
+    """A line of what happened. Kept on our own witness rather than as a
+    Comment: this is what the agent's day is counted from, and Comments do
+    not answer 'how many, by whom, today' without scanning free text."""
+    _gate()
+    dn = _check_parcel((dn or "").strip())
+    text = (text or "").strip()
+    if not text:
+        frappe.throw("Nothing to save.")
+    _log(dn, _order_of(dn), "note", text)
+    return {"ok": True}
+
+
+@frappe.whitelist(methods=["POST"])
+def carrier_log(dn, asked="", answer="", days=0):
+    """What we asked Cathedis and what they said — the daily job, recorded.
+
+    `days` parks the parcel on their answer: it leaves every queue until the
+    promise falls due, then comes back by itself. Without this an escalated
+    parcel keeps shouting every morning, so the team learns to ignore the
+    queue — the exact failure that made this pile 2,019 deep."""
+    _gate()
+    dn = _check_parcel((dn or "").strip())
+    asked, answer = (asked or "").strip(), (answer or "").strip()
+    if not (asked or answer):
+        frappe.throw("Nothing to save.")
+    days = min(max(int(days or 0), 0), 14)
+    due = None
+    if days:
+        due = add_to_date(now_datetime(), days=days)
+        if _has_claim_fields():
+            frappe.db.set_value("Delivery Note", dn,
+                                {"custom_rescue_wait_until": due},
+                                update_modified=False)
+    body = (f"→ {asked}" if asked else "") + (f"\n← {answer}" if answer else "")
+    _log(dn, _order_of(dn), "carrier", body, due)
+    _bust()
+    return {"ok": True, "due": str(due)[:16] if due else ""}
+
+
+@frappe.whitelist()
+def timeline(dn, limit=40):
+    """Everything this parcel has been through, ours and the carrier's."""
+    _gate()
+    dn = (dn or "").strip()
+    order = _order_of(dn) if frappe.db.exists("Delivery Note", dn) else dn
+    limit = min(max(int(limit or 40), 1), 100)
+    rows = frappe.db.sql(
+        f"""SELECT kind, agent, text, due, creation FROM `tab{RESCUE_DT}`
+            WHERE parcel = %(dn)s OR (so = %(o)s AND %(o)s <> '')
+            ORDER BY creation DESC LIMIT %(l)s""",
+        {"dn": dn, "o": order, "l": limit}, as_dict=True) if frappe.db.exists("DocType", RESCUE_DT) else []
+    who, since = _holder(dn) if dn else ("", "")
+    return {
+        "holder": who, "holderAt": since, "mine": who == frappe.session.user,
+        "events": [{
+            "kind": r.kind, "agent": (r.agent or "").split("@")[0],
+            "text": r.text or "", "due": str(r.due or "")[:16],
+            "at": str(r.creation or "")[:16],
+        } for r in rows],
+    }
+
+
+@frappe.whitelist()
+def my_day(days=1):
+    """The agent's own craft, measured in it: how much they took, how much
+    they closed, and how long a parcel sits in their hands before it moves.
+    Holding is not working — the gap between claims and decisions is the
+    number a lead should look at."""
+    _gate()
+    days = min(max(int(days or 1), 1), 30)
+    me = frappe.session.user
+    since = str(add_to_date(now_datetime(), days=-days))[:19]
+    if not frappe.db.exists("DocType", RESCUE_DT):
+        return {"kinds": {}, "holding": 0, "oldestH": 0}
+    rows = frappe.db.sql(
+        f"""SELECT kind, COUNT(*) n FROM `tab{RESCUE_DT}`
+            WHERE agent = %(me)s AND creation >= %(s)s GROUP BY kind""",
+        {"me": me, "s": since}, as_dict=True)
+    holding, oldest = 0, 0
+    if _has_claim_fields():
+        r = frappe.db.sql(
+            """SELECT COUNT(*) n, MIN(custom_rescue_at) oldest FROM `tabDelivery Note`
+               WHERE custom_rescue_by = %(me)s AND COALESCE(custom_rescue_at,'1900-01-01') >= %(c)s""",
+            {"me": me, "c": _claim_cutoff()}, as_dict=True)[0]
+        holding = int(r.n or 0)
+        if r.oldest:
+            oldest = max(0, int((now_datetime() - r.oldest).total_seconds() // 3600))
+    return {"kinds": {r.kind: int(r.n) for r in rows},
+            "holding": holding, "oldestH": oldest}
+
+
+def release_stale_claims():
+    """Scheduled hourly: hand back what nobody is actually working.
+
+    A claim is a promise to finish, not a reservation. Anything held past the
+    window without a decision goes back to the pool so the queue never quietly
+    empties into private piles."""
+    try:
+        if not _has_claim_fields():
+            return
+        cut = _claim_cutoff()
+        rows = frappe.db.sql(
+            """SELECT name, custom_rescue_by FROM `tabDelivery Note`
+               WHERE COALESCE(custom_rescue_by,'') <> ''
+                 AND COALESCE(custom_rescue_at,'1900-01-01') < %(c)s LIMIT 500""",
+            {"c": cut}, as_dict=True)
+        for r in rows:
+            frappe.db.set_value("Delivery Note", r.name,
+                                {"custom_rescue_by": "", "custom_rescue_at": None},
+                                update_modified=False)
+        if rows:
+            _bust()
+            frappe.db.commit()
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "rescue.release_stale_claims")

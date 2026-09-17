@@ -140,6 +140,11 @@
               <span class="rs-track" :class="trackClass(r.track)">{{ t('track.' + trackKey(r.track), r.track) }}</span>
               <span v-if="r.due" class="rs-due-badge">{{ t('cf.due') }}</span>
               <span v-if="r.again" class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 text-rose-700 bg-rose-50 ring-rose-200" :title="t('rs.againHint')" dir="ltr">{{ t('rs.again') }} {{ (r.priorAt || '').slice(5, 10) }}</span>
+              <span v-if="r.heldBy" class="inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5 ring-1"
+                    :class="r.heldMine ? 'text-teal-700 bg-teal-50 ring-teal-200' : 'text-stone-600 bg-stone-100 ring-stone-200'">
+                <Icon name="user" :size="10" />{{ r.heldMine ? t('rs.heldMine') : r.heldBy }}</span>
+              <span v-if="r.waitUntil" class="inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 text-sky-700 bg-sky-50 ring-sky-200"
+                    :title="t('rs.waitHint')" dir="ltr"><Icon name="hourglass" :size="10" />{{ r.waitUntil.slice(5, 10) }}</span>
               <span class="ms-auto inline-flex items-center gap-1 text-[11.5px] font-semibold tabular-nums rounded-full px-2 py-0.5"
                     :class="r.slaBreached && tab !== 'backlog' ? 'text-rose-700 bg-rose-50 ring-1 ring-rose-200' : 'text-stone-500 bg-stone-100'"
                     :title="r.slaBreached ? t('rs.slaLate') : ''" dir="ltr"><Icon name="clock" :size="11" />{{ r.ageD }}{{ t('cf.days') }}</span>
@@ -188,6 +193,18 @@
                       :class="reasonFor === r.id && reasonAction === 'cancel' ? 'ring-2' : ''" @click="openReason(r, 'cancel')">
                 <Icon name="circle-x" :size="14" /><span class="hidden md:inline">{{ t('rs.actCancel') }}</span>
               </button>
+              <button v-if="!isNdTab && !r.heldMine" class="rs-act rs-act-lbl text-teal-700" :disabled="busy === r.id"
+                      :title="t('rs.takeHint')" @click="take(r)">
+                <Icon name="hand" :size="14" /><span class="hidden md:inline">{{ t('rs.take') }}</span>
+              </button>
+              <button v-if="!isNdTab && r.heldMine" class="rs-act rs-act-lbl text-stone-500" :disabled="busy === r.id"
+                      :title="t('rs.dropHint')" @click="drop(r)">
+                <Icon name="undo-2" :size="14" /><span class="hidden md:inline">{{ t('rs.drop') }}</span>
+              </button>
+              <button v-if="!isNdTab" class="rs-act rs-act-lbl text-sky-700" :disabled="busy === r.id"
+                      :title="t('rs.deskHint')" :class="deskFor === r.id ? 'ring-2' : ''" @click="openDesk(r)">
+                <Icon name="notebook-pen" :size="14" /><span class="hidden md:inline">{{ t('rs.desk') }}</span>
+              </button>
               <span class="ms-auto inline-flex items-center gap-1.5">
                 <a v-if="r.phone" :href="'tel:' + r.phone" :title="r.phone" :aria-label="t('oclk.call')" class="lp-tap rs-contact rs-tel"><Icon name="phone" :size="15" /></a>
                 <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" rel="noopener" title="WhatsApp" aria-label="WhatsApp" class="lp-tap rs-contact rs-wa"><Icon name="message-circle" :size="15" /></a>
@@ -218,6 +235,51 @@
                       :disabled="!reason.trim() || busy === r.id"
                       @click="act(r, reasonAction, reason)">{{ t('rs.confirmDecision') }}</button>
             </div>
+          </div>
+        </Transition>
+
+        <!-- the desk: the story so far, a line about what you just did, and
+             what Cathedis actually said — the part of the job that used to
+             live in WhatsApp and die there -->
+        <Transition name="rsslide">
+          <div v-if="deskFor === r.id" class="bg-sky-50/60 rounded-xl p-3 mt-3 space-y-3">
+            <div v-if="deskLoading" class="text-[12px] text-stone-400 text-center py-3">…</div>
+            <template v-else>
+              <div v-if="desk?.events?.length" class="space-y-1.5 max-h-52 overflow-y-auto">
+                <div v-for="(e, i) in desk.events" :key="i" class="flex items-start gap-2 text-[12px]">
+                  <span class="text-[10px] font-bold rounded px-1.5 py-0.5 shrink-0 mt-px" :class="EV_CLS[e.kind] || EV_CLS.note">{{ t('rs.ev_' + e.kind, e.kind) }}</span>
+                  <span class="text-stone-700 whitespace-pre-line min-w-0 flex-1" dir="auto">{{ e.text || '—' }}</span>
+                  <span class="text-[10.5px] text-stone-400 tabular-nums shrink-0" dir="ltr">{{ e.agent }} · {{ e.at.slice(5) }}</span>
+                </div>
+              </div>
+              <div v-else class="text-[12px] text-stone-400">{{ t('rs.deskEmpty') }}</div>
+
+              <div class="flex items-center gap-2">
+                <input v-model="noteText" :placeholder="t('rs.notePh')" maxlength="500"
+                       class="flex-1 h-9 px-3 rounded-lg bg-white ring-1 ring-sky-200 text-[12.5px] focus:outline-none"
+                       @keyup.enter="saveNote(r)" />
+                <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-40"
+                        :disabled="!noteText.trim() || busy === r.id" @click="saveNote(r)">{{ t('rs.noteSave') }}</button>
+              </div>
+
+              <div class="rounded-lg bg-white ring-1 ring-sky-200 p-2.5 space-y-2">
+                <div class="text-[11px] font-semibold text-sky-800">{{ t('rs.carrierTitle') }}</div>
+                <input v-model="cAsk" :placeholder="t('rs.carrierAskPh')" maxlength="300"
+                       class="w-full h-9 px-3 rounded-lg bg-sky-50/70 ring-1 ring-sky-200 text-[12.5px] focus:outline-none" />
+                <input v-model="cAns" :placeholder="t('rs.carrierAnsPh')" maxlength="300"
+                       class="w-full h-9 px-3 rounded-lg bg-sky-50/70 ring-1 ring-sky-200 text-[12.5px] focus:outline-none" />
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-[11px] text-stone-500">{{ t('rs.carrierWait') }}</span>
+                  <button v-for="d in [0, 1, 2, 3, 7]" :key="d"
+                          class="h-7 px-2.5 rounded-full text-[11.5px] font-medium ring-1 transition-all"
+                          :class="cDays === d ? 'text-white bg-sky-600 ring-sky-600' : 'text-sky-700 bg-white ring-sky-200 hover:bg-sky-50'"
+                          @click="cDays = d">{{ d === 0 ? t('rs.carrierNow') : d + t('cf.days') }}</button>
+                  <button class="ms-auto h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-sky-700 hover:bg-sky-800 disabled:opacity-40"
+                          :disabled="(!cAsk.trim() && !cAns.trim()) || busy === r.id"
+                          @click="saveCarrier(r)">{{ t('rs.carrierSave') }}</button>
+                </div>
+              </div>
+            </template>
           </div>
         </Transition>
 
@@ -307,6 +369,7 @@ const VERDICT_CLS = {
 };
 function setReason(r) { verdictF.value = r; page.value = 1; load(); }
 const ALL_TABS = [
+  { key: "mine", label: "rs.tabMine", icon: "user", onColor: "bg-teal-100 text-teal-700" },
   { key: "exceptions", label: "rs.tabExceptions", icon: "alert-triangle", onColor: "bg-rose-100 text-rose-700" },
   { key: "failed", label: "rs.tabFailed", icon: "alert-circle", onColor: "bg-amber-100 text-amber-700" },
   { key: "notdelivered", label: "rs.tabNotDelivered", icon: "package", onColor: "bg-violet-100 text-violet-700" },
@@ -401,6 +464,99 @@ onUnmounted(() => { clearInterval(pollTimer); clearTimeout(qTimer); });
 const detailFor = ref("");
 const detail = ref(null);
 const detailLoading = ref(false);
+
+// ── the desk: claim, the parcel's story, and the carrier conversation ──
+const deskFor = ref("");
+const desk = ref(null);
+const deskLoading = ref(false);
+const noteText = ref("");
+const cAsk = ref("");
+const cAns = ref("");
+const cDays = ref(0);
+const EV_CLS = {
+  claim: "text-teal-700 bg-teal-50", release: "text-stone-600 bg-stone-100",
+  takeover: "text-amber-700 bg-amber-50", note: "text-sky-700 bg-sky-50",
+  carrier: "text-violet-700 bg-violet-50", wait: "text-sky-700 bg-sky-50",
+  decision: "text-emerald-700 bg-emerald-50",
+};
+
+// Taking a parcel removes it from every shared queue by design, so the row
+// leaves the list under the agent's thumb. Drop it locally instead of
+// reloading: a list that jumps while you are reading it is worse than stale.
+async function take(r) {
+  busy.value = r.id;
+  try {
+    const res = await apiPost("rescue.claim", { dn: r.dn || r.id });
+    if (!res.ok) {
+      warn(t("rs.takenBy").replace("{who}", (res.by || "").split("@")[0]), r.order || r.dn);
+      return;
+    }
+    if (tab.value === "mine") { r.heldBy = t("rs.heldMine"); r.heldMine = true; }
+    else dropRow(r);
+    success(t("rs.tookIt"), r.order || r.dn);
+  } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
+  finally { busy.value = ""; }
+}
+
+async function drop(r) {
+  busy.value = r.id;
+  try {
+    await apiPost("rescue.release", { dn: r.dn || r.id });
+    if (tab.value === "mine") dropRow(r);
+    else { r.heldBy = ""; r.heldMine = false; }
+    success(t("rs.dropped"), r.order || r.dn);
+  } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
+  finally { busy.value = ""; }
+}
+
+function dropRow(r) {
+  rows.value = rows.value.filter((x) => x.id !== r.id);
+  total.value = Math.max(0, total.value - 1);
+  if (data.value?.counts) {
+    data.value.counts[tab.value] = Math.max(0, (data.value.counts[tab.value] || 1) - 1);
+    data.value.counts.mine = (data.value.counts.mine || 0) + 1;
+  }
+}
+
+async function openDesk(r) {
+  if (deskFor.value === r.id) { deskFor.value = ""; return; }
+  deskFor.value = r.id;
+  desk.value = null;
+  noteText.value = ""; cAsk.value = ""; cAns.value = ""; cDays.value = 0;
+  deskLoading.value = true;
+  try {
+    desk.value = await api("rescue.timeline", { dn: r.dn || r.id });
+  } catch (e) { warn(t("mv.loadFail"), String(e.message || e)); }
+  finally { deskLoading.value = false; }
+}
+
+async function saveNote(r) {
+  const text = noteText.value.trim();
+  if (!text) return;
+  busy.value = r.id;
+  try {
+    await apiPost("rescue.note", { dn: r.dn || r.id, text });
+    noteText.value = "";
+    desk.value = await api("rescue.timeline", { dn: r.dn || r.id });
+  } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
+  finally { busy.value = ""; }
+}
+
+async function saveCarrier(r) {
+  if (!cAsk.value.trim() && !cAns.value.trim()) return;
+  busy.value = r.id;
+  try {
+    const res = await apiPost("rescue.carrier_log", {
+      dn: r.dn || r.id, asked: cAsk.value.trim(), answer: cAns.value.trim(), days: cDays.value,
+    });
+    cAsk.value = ""; cAns.value = "";
+    if (res.due) { r.waitUntil = res.due; success(t("rs.carrierParked"), res.due.slice(5, 10)); }
+    else success(t("rs.carrierSaved"), r.order || r.dn);
+    cDays.value = 0;
+    desk.value = await api("rescue.timeline", { dn: r.dn || r.id });
+  } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
+  finally { busy.value = ""; }
+}
 const editFor = ref("");
 const editPhone = ref("");
 const editCity = ref("");

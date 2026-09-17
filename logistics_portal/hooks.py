@@ -95,6 +95,8 @@ after_migrate = [
     "logistics_portal.api.labelprint.ensure_doctype",
     "logistics_portal.api.cycle_count.ensure_doctype",
     "logistics_portal.api.zone_survey.ensure_doctype",
+    "logistics_portal.api.rescue.ensure_doctype",
+    "logistics_portal.install.ensure_rescue_fields",
     "logistics_portal.api.campaign.ensure_doctype",
     "logistics_portal.api.feedback.ensure_doctype",
     "logistics_portal.api.feedback.backfill_phone_keys",
@@ -172,6 +174,11 @@ scheduler_events = {
     "daily_long": [
         # End-of-day narrative digest written by the LLM reviewer.
         "logistics_portal.api.audit.generate_daily_digest",
+    ],
+    "hourly": [
+        # A claim is a promise to finish, not a reservation: anything held
+        # past the window without a decision goes back to the pool.
+        "logistics_portal.api.rescue.release_stale_claims",
     ],
     "hourly_long": [
         # Post-delivery feedback: ask yesterday's deliveries how it went
