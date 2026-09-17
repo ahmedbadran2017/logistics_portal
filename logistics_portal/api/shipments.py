@@ -1022,6 +1022,14 @@ _ALERTS = {
         "ar": ("المانيفست اتقفل وفي طرود مطبوعة اتسابت",
                "{n} طرد مطبوع من {lists} قائمة ما اتسكنوش على {shipment}. لسه جوه المخزن — افتح جزء التسليم في حيطة الفرز: {names}"),
     },
+    "rescue_fresh": {
+        "en": ("The carrier just hit a wall with customers",
+               "{n} parcels failed in the last {m} minutes and nobody has answered them. Newest: {customer} ({order}) — {what}. A call now still saves most of these."),
+        "fr": ("Le transporteur vient d'échouer chez des clients",
+               "{n} colis ont échoué dans les {m} dernières minutes, sans réponse de notre côté. Le plus récent : {customer} ({order}) — {what}. Un appel maintenant en sauve encore la plupart."),
+        "ar": ("الكاريير لسه واقف قدام عملاء",
+               "{n} طرد فشلوا في آخر {m} دقيقة ومحدش رد عليهم. الأحدث: {customer} ({order}) — {what}. مكالمة دلوقتي بتنقذ أغلبهم."),
+    },
     "cf_stock_gap": {
         "en": ("Orders you confirmed cannot be shipped",
                "{n} confirmed orders ({value} MAD) are waiting on stock the shelf does not have, the oldest {d} days. Open Out of stock in the confirmation board and call the customers — {customer} ({order}) first."),

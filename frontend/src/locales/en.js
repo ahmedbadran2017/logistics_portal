@@ -2201,6 +2201,7 @@ export default {
     lg_return: "Send it back to the warehouse; a reason is asked.",
     lg_cancel: "The order is dead; the parcel comes back and the order is cancelled with a reason.",
     reason_rescuable: "A call can save", reason_cancelled: "Cancelled by the customer", reason_all: "All",
+    justNow: "just now",
     lastWord: "The carrier's last word on this parcel",
     legend: "Redeliver = customer reached, the carrier tries again · Reship = new parcel · No answer = retry later · Return = send it back",
     v_cancelled: "customer cancelled", v_unreachable: "unreachable", v_appointment: "appointment set", v_moving: "still moving", v_returned: "returning", v_other: "carrier note",

@@ -137,6 +137,7 @@ scheduler_events = {
             "logistics_portal.api.shipments.run_alerts",
             # Confirmation lane: Pending orders past the first-call target.
             "logistics_portal.api.confirmation.run_alerts",
+        "logistics_portal.api.rescue.run_alerts",
             # Post-delivery feedback: read the replies to the question we
             # asked, thank or ticket, expire the silent ones.
             "logistics_portal.api.feedback.run_replies",

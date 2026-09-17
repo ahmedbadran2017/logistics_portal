@@ -2201,6 +2201,7 @@ export default {
     lg_return: "يرجع للمخزن؛ بيطلب سبب.",
     lg_cancel: "الأوردر مات؛ الطرد يرجع والأوردر يتلغي بسبب.",
     reason_rescuable: "مكالمة ممكن تنقذه", reason_cancelled: "العميل لغى", reason_all: "الكل",
+    justNow: "دلوقتي",
     lastWord: "آخر كلمة من الكارير عن الطرد دا",
     legend: "Redeliver = العميل اتوصلنا له والكارير يحاول تاني · Reship = طرد جديد · No answer = نرجع نكلمه · Return = يرجّعه",
     v_cancelled: "العميل لغى", v_unreachable: "مش بيرد", v_appointment: "في معاد", v_moving: "لسه ماشي", v_returned: "راجع", v_other: "ملاحظة كارير",

@@ -155,7 +155,8 @@
             <div v-if="r.lastEvent" class="mt-2 flex items-center gap-2 flex-wrap rounded-xl px-2.5 py-1.5" :class="VERDICT_BG[r.verdict] || VERDICT_BG.other">
               <span class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 bg-white/70" :class="VERDICT_CLS[r.verdict] || VERDICT_CLS.other">{{ t('rs.v_' + (r.verdict || 'other')) }}</span>
               <span class="text-[12px] text-stone-700 truncate max-w-[520px]" :title="t('rs.lastWord')" dir="auto">{{ r.lastEvent }}</span>
-              <span v-if="r.lastEventAt" class="text-[10.5px] text-stone-400 tabular-nums ms-auto" dir="ltr">{{ r.lastEventAt.slice(5) }}</span>
+              <span v-if="r.fresh" class="text-[10px] font-bold rounded-full px-2 py-0.5 bg-rose-600 text-white animate-pulse">{{ t('rs.justNow') }}</span>
+              <span v-if="r.lastEventAt" class="text-[10.5px] tabular-nums ms-auto" :class="r.fresh ? 'text-rose-600 font-bold' : 'text-stone-400'" dir="ltr">{{ r.lastEventAt.slice(5) }}</span>
             </div>
 
             <!-- the decisions, by name, and the ways to reach the customer -->
