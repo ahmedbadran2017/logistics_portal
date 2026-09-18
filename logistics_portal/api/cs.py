@@ -622,3 +622,89 @@ def wake_due():
             _bust()
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "cs.wake_due")
+
+
+_STALE_CLOSE = "Closed: the conversation went quiet"
+
+
+@frappe.whitelist()
+def close_stale(days=30, apply=0, limit=1000):
+    """Close requests whose conversation has been silent for a month.
+
+    The first intake produced 607 requests, and that number is honest about
+    the handoff backlog but dishonest about the work: measured 2026-09-18,
+    337 of them sit on conversations whose last message is older than thirty
+    days — the oldest from 18 June. A customer who has not written since
+    June is not waiting for an answer, and a queue that opens on 607 rows
+    teaches a new team to scroll rather than work.
+
+    Age alone decides it. The obvious alternative was to also judge the
+    TEXT — close the ones that only say "Salam" or "[audio]" — and that was
+    the wrong instinct: a real complaint can be four words, and being
+    silently closed is a much worse failure than being read and dismissed.
+    Silence for a month is evidence; brevity is not.
+
+    Read-only unless `apply` is set, because this writes a resolution onto
+    hundreds of live rows."""
+    _desk_gate()
+    days = min(max(int(days or 30), 7), 365)
+    limit = min(max(int(limit or 1000), 1), 5000)
+    cut = str(add_to_date(now_datetime(), days=-days))[:19]
+    rows = frappe.db.sql(
+        f"""SELECT r.name, c.last_message_at FROM `tab{DT}` r
+            JOIN `tabJoyAgent Conversation` c ON c.name = r.conversation
+            WHERE r.state = 'new'
+              AND (c.last_message_at IS NULL OR c.last_message_at < %(cut)s)
+            ORDER BY c.last_message_at LIMIT %(l)s""",
+        {"cut": cut, "l": limit}, as_dict=True)
+    total = int(frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tab{DT}` r
+            JOIN `tabJoyAgent Conversation` c ON c.name = r.conversation
+            WHERE r.state = 'new'
+              AND (c.last_message_at IS NULL OR c.last_message_at < %(cut)s)""",
+        {"cut": cut})[0][0] or 0)
+    if not int(apply or 0):
+        return {"ok": True, "applied": 0, "matched": total, "days": days,
+                "oldest": str(rows[0].last_message_at or "")[:10] if rows else "",
+                "sample": [r.name for r in rows[:5]]}
+    now = now_datetime()
+    done = 0
+    for r in rows:
+        try:
+            frappe.db.set_value(DT, r.name, {
+                "state": "done", "resolved_at": now, "resolved_by": "system",
+                "resolution": f"{_STALE_CLOSE} ({days}d silent)",
+            }, update_modified=False)
+            done += 1
+        except Exception:
+            continue
+    frappe.db.commit()
+    _bust()
+    return {"ok": True, "applied": done, "matched": total, "left": max(0, total - done)}
+
+
+def close_stale_daily():
+    """Keep it closed, not just clean it once. A conversation that goes
+    quiet for a month while nobody answered has stopped being work whether
+    it arrived today or in June."""
+    try:
+        if not frappe.db.exists("DocType", DT):
+            return
+        cut = str(add_to_date(now_datetime(), days=-30))[:19]
+        rows = frappe.db.sql(
+            f"""SELECT r.name FROM `tab{DT}` r
+                JOIN `tabJoyAgent Conversation` c ON c.name = r.conversation
+                WHERE r.state = 'new'
+                  AND (c.last_message_at IS NULL OR c.last_message_at < %(cut)s)
+                LIMIT 500""", {"cut": cut})
+        now = now_datetime()
+        for (n,) in rows:
+            frappe.db.set_value(DT, n, {
+                "state": "done", "resolved_at": now, "resolved_by": "system",
+                "resolution": f"{_STALE_CLOSE} (30d silent)",
+            }, update_modified=False)
+        if rows:
+            frappe.db.commit()
+            _bust()
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "cs.close_stale_daily")

@@ -166,6 +166,7 @@ scheduler_events = {
     # One alert per local supplier per day: an order nobody ordered, or one
     # past the 3-day promise. Daily on purpose — a per-tick feed gets muted.
     "daily": [
+        "logistics_portal.api.cs.close_stale_daily",
         "logistics_portal.api.orders.local_supply_alerts",
         # Batch holds leak with every shipment, so the count is tracked daily
         # and shouted about when it grows — not discovered from a stuck order.
