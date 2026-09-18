@@ -2004,6 +2004,10 @@ export default {
     "Returned": "Came back",
   },
   ws: {
+    poolBlk_off: "The shared pool is switched off",
+    poolBlk_offshift: "You are clocked out — clock in to take shared work",
+    poolBlk_full: "You already hold the maximum; finish some first",
+    doneToday: "decided today",
     poolShort: "free",
     fromPool: "Picked up from the shared pool",
     poolLeft: "{n} waiting for anyone",

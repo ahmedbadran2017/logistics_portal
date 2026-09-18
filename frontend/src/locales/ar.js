@@ -2004,6 +2004,10 @@ export default {
     "Returned": "رجعت",
   },
   ws: {
+    poolBlk_off: "الحوض المشترك مقفول",
+    poolBlk_offshift: "إنت مسجّل انصراف — سجّل حضور علشان تاخد من الحوض",
+    poolBlk_full: "ماسك الحد الأقصى خلاص؛ خلّص شوية الأول",
+    doneToday: "اتقرروا النهاردة",
     poolShort: "متاح",
     fromPool: "اتاخد من الحوض المشترك",
     poolLeft: "{n} مستنيين أي حد",

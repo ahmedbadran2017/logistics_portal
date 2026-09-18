@@ -67,13 +67,33 @@
       </div>
 
       <!-- work nobody is on. Shown even when the agent has their own queue:
-           the point is that an idle person can SEE there is something. -->
-      <div v-if="poolN" class="flex items-center gap-2 bg-teal-50 rounded-2xl ring-1 ring-teal-200 px-3.5 py-1.5 shadow-sm"
-           :title="t('ws.poolLeft').replace('{n}', poolN)">
-        <span class="w-7 h-7 rounded-lg bg-teal-100 text-teal-600 flex items-center justify-center"><Icon name="users" :size="15" /></span>
-        <div class="leading-tight">
-          <div class="text-[17px] font-extrabold tabular-nums text-teal-600">{{ poolN }}</div>
-          <div class="text-[9.5px] font-semibold uppercase tracking-wide text-teal-500">{{ t('ws.poolShort') }}</div>
+           the point is that an idle person can SEE there is something. The
+           reason travels with the number — 40 waiting behind a dead button
+           reads as a broken portal, and fairly so. -->
+      <div v-if="poolN" class="relative">
+        <button class="flex items-center gap-2 rounded-2xl ring-1 px-3.5 py-1.5 shadow-sm transition-colors"
+                :class="poolBlock ? 'bg-stone-50 ring-stone-200 hover:bg-stone-100' : 'bg-teal-50 ring-teal-200 hover:bg-teal-100'"
+                :title="poolBlock ? t('ws.poolBlk_' + poolBlock) : t('ws.poolLeft').replace('{n}', poolN)"
+                @click="toggleTeam">
+          <span class="w-7 h-7 rounded-lg flex items-center justify-center"
+                :class="poolBlock ? 'bg-stone-200 text-stone-500' : 'bg-teal-100 text-teal-600'">
+            <Icon :name="poolBlock ? 'circle-pause' : 'users'" :size="15" /></span>
+          <div class="leading-tight text-start">
+            <div class="text-[17px] font-extrabold tabular-nums" :class="poolBlock ? 'text-stone-500' : 'text-teal-600'">{{ poolN }}</div>
+            <div class="text-[9.5px] font-semibold uppercase tracking-wide" :class="poolBlock ? 'text-stone-400' : 'text-teal-500'">{{ t('ws.poolShort') }}</div>
+          </div>
+        </button>
+        <!-- who is at their desk and what they are carrying: the question the
+             old three-name rule could not answer -->
+        <div v-if="teamOpen && team.length"
+             class="absolute z-30 mt-2 w-[290px] bg-white rounded-2xl ring-1 ring-stone-200 shadow-xl p-2.5 space-y-1">
+          <div v-for="m in team" :key="m.user" class="flex items-center gap-2 text-[12px] px-1.5 py-1 rounded-lg"
+               :class="m.onShift ? '' : 'opacity-45'">
+            <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="m.onShift ? 'bg-emerald-500' : 'bg-stone-300'" />
+            <span class="min-w-0 flex-1 truncate text-stone-800">{{ m.name }}</span>
+            <span class="tabular-nums text-stone-400" :title="t('ws.poolShort')">{{ m.holding }}</span>
+            <span class="tabular-nums font-semibold text-emerald-600" :title="t('ws.doneToday')">{{ m.doneToday }}</span>
+          </div>
         </div>
       </div>
 
@@ -1031,11 +1051,23 @@ async function serveNext(skipCurrent = false) {
 // The shared pool's depth. Cheap (one indexed count, 12 ms on production),
 // refreshed with the board rather than on its own timer.
 const poolN = ref(0);
+const poolBlock = ref("");
+const team = ref([]);
+const teamOpen = ref(false);
 async function loadPool() {
   try {
     const r = await api("confirmation.pool_depth");
     poolN.value = r.enabled ? (r.n || 0) : 0;
-  } catch { poolN.value = 0; }
+    poolBlock.value = r.block || "";
+  } catch { poolN.value = 0; poolBlock.value = ""; }
+}
+// Leads only — the endpoint refuses everyone else, so a quiet failure here
+// simply means the popover stays empty for an agent.
+async function toggleTeam() {
+  teamOpen.value = !teamOpen.value;
+  if (!teamOpen.value || team.value.length) return;
+  try { team.value = (await api("confirmation.pool_team")).team || []; }
+  catch { team.value = []; }
 }
 
 async function _serve(skipCurrent = false) {

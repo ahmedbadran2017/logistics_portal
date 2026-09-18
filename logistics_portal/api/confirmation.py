@@ -1241,6 +1241,22 @@ _CF_DEFAULTS = {
     # colleagues covering for each other instead of the system stealing work.
     "poolEnabled": True,
     "poolAfterH": 2,      # untouched this long and it belongs to whoever is free
+    # Phase 2. With the Desk rule off, orders arrive belonging to nobody and
+    # the pool is the only way they reach a person — so an UNASSIGNED order
+    # is available at once, not after poolAfterH. Waiting two hours to hand
+    # out work nobody owns would be the old 9.5-hour first touch with extra
+    # steps.
+    #
+    # Presence answers the question the old rule could not: a fixed list of
+    # names keeps feeding someone who went home. The floor already clocks in
+    # and out on HRMS with GPS (247 punches in seven days, IN/OUT clean), and
+    # all four agents have Active employee records, so the portal can simply
+    # read it. It NEVER blocks an agent from their own queue — only from
+    # taking more out of the shared one.
+    "poolPresence": True,
+    # Nobody should be able to hoover the pool. Applies to pool draws only;
+    # their own work is always theirs.
+    "poolMax": 20,
 }
 
 
@@ -1327,6 +1343,13 @@ def save_cf_settings(settings=None):
             out[k] = v
     if "poolEnabled" in settings:
         out["poolEnabled"] = bool(settings["poolEnabled"])
+    if "poolPresence" in settings:
+        out["poolPresence"] = bool(settings["poolPresence"])
+    if "poolMax" in settings:
+        v = int(settings["poolMax"])
+        if not (1 <= v <= 500):
+            frappe.throw("poolMax must be between 1 and 500.")
+        out["poolMax"] = v
     if "dayTargetMode" in settings:
         v = str(settings["dayTargetMode"]).strip().lower()
         if v not in ("auto", "fixed"):
@@ -2515,13 +2538,68 @@ def _last_touch_sql():
 
 
 def _pool_cond():
-    """Work that is waiting for anybody: due now, and untouched long enough
-    that whoever holds it plainly is not on it.
+    """Work that is waiting for anybody.
 
-    `_DUE` already excludes a future next_call_at, which is the promise to a
-    customer, so a scheduled call-back can never be taken from the agent who
+    Two ways in. An order belonging to NOBODY is available at once — with the
+    Desk assignment rule off this is how every new order arrives, and making
+    it wait would just be the old first-touch delay wearing a new name. An
+    order that does belong to someone joins only after it has been quiet
+    longer than poolAfterH, which is the evidence that they are not on it.
+
+    `_DUE` guards both: it excludes a future next_call_at, the promise made
+    to a customer, so a scheduled call-back is never taken from the agent who
     made the promise."""
-    return f"{_DUE} AND COALESCE({_last_touch_sql()}, '1900-01-01') <= %(quiet)s"
+    return (f"{_DUE} AND ("
+            f"COALESCE(so._assign, '', '[]') IN ('', '[]') "
+            f"OR COALESCE({_last_touch_sql()}, '1900-01-01') <= %(quiet)s)")
+
+
+def _on_shift(user):
+    """Is this person at work right now, by the clock they punch themselves?
+
+    Fails OPEN. No employee record and no punch means we do not know, and an
+    absence of evidence must not lock someone out of work — only a punch that
+    actually says OUT does. Attendance is HRMS's to write; the portal only
+    ever reads it (see the attendance note in the project memory)."""
+    try:
+        emp = frappe.db.get_value("Employee", {"user_id": user, "status": "Active"}, "name")
+        if not emp:
+            return True
+        row = frappe.db.sql(
+            """SELECT log_type FROM `tabEmployee Checkin`
+               WHERE employee = %(e)s AND time >= DATE_SUB(%(s)s, INTERVAL 18 HOUR)
+               ORDER BY time DESC LIMIT 1""",
+            {"e": emp, "s": str(now_datetime())[:19]}, as_dict=True)
+        if not row:
+            return True
+        return (row[0].log_type or "IN") != "OUT"
+    except Exception:
+        return True
+
+
+def _holding(user):
+    """How many live orders this person already has in hand."""
+    retry_sts = tuple(v for k, v in QUEUES.items() if k != "pending")
+    return int(frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
+              AND (so.custom_sales_status IN %(sts)s OR so.custom_sales_status = 'Pending')
+              AND so._assign LIKE %(me)s""",
+        {"co": _CO, "sts": retry_sts, "me": f'%"{user}"%'})[0][0] or 0)
+
+
+def _pool_block(user):
+    """Why this person may not draw from the pool right now — "" if they may.
+    Their OWN queue is never affected by any of this."""
+    cfg = _cf_settings()
+    if not cfg.get("poolEnabled"):
+        return "off"
+    if cfg.get("poolPresence") and not _on_shift(user):
+        return "offshift"
+    cap = int(cfg.get("poolMax") or 20)
+    if _holding(user) >= cap:
+        return "full"
+    return ""
 
 
 def _pool_vals(vals):
@@ -2566,20 +2644,52 @@ def _take_from_pool(order):
 
 @frappe.whitelist()
 def pool_depth():
-    """How much work is waiting for anybody. Shown so an idle agent can see
-    there IS something, and a lead can see the lane backing up."""
+    """How much work is waiting for anybody, and whether I may take it.
+
+    The reason travels with the number: an agent who sees 40 waiting and a
+    dead button will decide the portal is broken, and be right to."""
     _gate()
-    vals = _pool_vals({"co": _CO, "now": str(now_datetime())[:19]})
+    me = frappe.session.user
     if not _cf_settings().get("poolEnabled"):
-        return {"n": 0, "enabled": False}
-    retry_sts = tuple(v for k, v in QUEUES.items() if k != "pending")
-    vals["sts"] = retry_sts
+        return {"n": 0, "enabled": False, "block": "off"}
+    vals = _pool_vals({"co": _CO, "now": str(now_datetime())[:19]})
+    vals["sts"] = tuple(v for k, v in QUEUES.items() if k != "pending")
     n = frappe.db.sql(
         f"""SELECT COUNT(*) FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
               AND (so.custom_sales_status IN %(sts)s OR so.custom_sales_status = 'Pending')
               AND {_pool_cond()}""", vals)[0][0]
-    return {"n": int(n or 0), "enabled": True}
+    return {"n": int(n or 0), "enabled": True, "block": _pool_block(me),
+            "holding": _holding(me), "max": int(_cf_settings().get("poolMax") or 20)}
+
+
+@frappe.whitelist()
+def pool_team():
+    """Who is at their desk, what they are holding, what they have decided
+    today. The question the old assignment rule could not answer: a fixed
+    list of three names kept feeding work to whoever was on it, present or
+    not, while somebody clocked in sat with nothing."""
+    role = _gate()
+    if role != "manager" and not _is_cf_admin():
+        frappe.throw("lp:leadsOnly", frappe.PermissionError)
+    d0, d1 = _clock.day_bounds(_clock.floor_today())
+    out = []
+    for u in frappe.get_all("User", filters={"enabled": 1},
+                            fields=["name", "full_name"], limit=200):
+        from logistics_portal.api.auth import resolve_role as _rr
+        if _rr(u.name) not in ("confirmation", "manager"):
+            continue
+        done = int(frappe.db.sql(
+            """SELECT COUNT(*) FROM `tabComment`
+               WHERE owner = %(u)s AND reference_doctype = 'Sales Order'
+                 AND creation BETWEEN %(a)s AND %(b)s
+                 AND (content LIKE 'Confirmation:%%' OR content LIKE 'CC:%%')""",
+            {"u": u.name, "a": d0, "b": d1})[0][0] or 0)
+        out.append({"user": u.name, "name": u.full_name or u.name.split("@")[0],
+                    "onShift": bool(_on_shift(u.name)),
+                    "holding": _holding(u.name), "doneToday": done})
+    out.sort(key=lambda r: (not r["onShift"], -r["holding"]))
+    return {"team": out, "pool": pool_depth()}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -2661,7 +2771,7 @@ def next_order(skip=None, as_user=None):
     # part that is genuinely waiting (see _pool_cond). Oldest wait first, so
     # the pool drains from the end that has been waiting longest rather than
     # the end that is easiest.
-    if mine and not view_as and _cf_settings().get("poolEnabled"):
+    if mine and not view_as and not _pool_block(me):
         _pool_vals(vals)
         vals["sts"] = retry_sts
         for (name,) in frappe.db.sql(

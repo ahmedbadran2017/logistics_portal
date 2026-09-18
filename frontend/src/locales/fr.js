@@ -2005,6 +2005,10 @@ export default {
     "Returned": "Retournée",
   },
   ws: {
+    poolBlk_off: "La file partagée est désactivée",
+    poolBlk_offshift: "Vous êtes pointé sortant — pointez pour prendre du travail partagé",
+    poolBlk_full: "Vous en avez déjà le maximum ; terminez-en d'abord",
+    doneToday: "décidés aujourd'hui",
     poolShort: "libres",
     fromPool: "Pris dans la file partagée",
     poolLeft: "{n} en attente pour tous",
