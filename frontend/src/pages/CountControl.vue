@@ -98,7 +98,7 @@
               {{ z.countedStocked }}/{{ z.stocked }} {{ t('cc.bins') }} · {{ fmt(z.units) }} {{ t('recv.units') }}
             </div>
             <div v-if="z.lastBy" class="text-[10.5px] text-stone-400 mt-0.5 truncate">
-              {{ z.lastAt.slice(5, 10) }} · {{ z.lastBy.split('@')[0] }}
+              {{ local(z.lastAt).slice(5, 10) }} · {{ z.lastBy.split('@')[0] }}
             </div>
             <div v-else class="text-[10.5px] text-stone-300 mt-0.5">{{ t('cc.never') }}</div>
           </div>
@@ -124,7 +124,7 @@
               <div class="min-w-0 flex-1">
                 <div class="text-[12.5px] font-medium text-stone-900 truncate">{{ p.name }}</div>
                 <div class="text-[10.5px] text-stone-400 tabular-nums">
-                  {{ p.last.slice(5, 16) }}
+                  {{ local(p.last).slice(5, 16) }}
                   <span v-if="p.src === 'reco'" class="ms-1 text-amber-600">· {{ t('cc.viaDesk') }}</span>
                 </div>
               </div>
@@ -262,6 +262,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
+import { local } from "@/lib/clock";
 import CountCampaign from "@/components/CountCampaign.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";

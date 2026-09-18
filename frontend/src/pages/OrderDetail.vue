@@ -37,7 +37,7 @@
           <div class="text-[13px] text-stone-600 mt-1 flex items-center gap-2 flex-wrap">
             <span>{{ order.customer }} · {{ shipToLine }}</span>
             <span class="font-mono text-[12px] font-semibold text-stone-900 tabular-nums bg-stone-100 rounded-md px-2 py-0.5">{{ fmtMAD(grand) }} MAD</span>
-            <span v-if="isLive && liveOrder.created" class="text-[11.5px] text-stone-400 tabular-nums">{{ t("od.placed") }} {{ liveOrder.created.slice(5) }}</span>
+            <span v-if="isLive && liveOrder.created" class="text-[11.5px] text-stone-400 tabular-nums">{{ t("od.placed") }} {{ local(liveOrder.created).slice(5) }}</span>
           </div>
         </div>
         <div class="flex items-center gap-2">
@@ -216,7 +216,7 @@
               <div class="min-w-0 flex-1">
                 <div class="flex items-center justify-between gap-2">
                   <span class="text-[12.5px] font-medium truncate" :class="e.bad ? 'text-rose-700' : 'text-stone-900'">{{ e.label }}</span>
-                  <span class="text-[11px] text-stone-400 tabular-nums flex-shrink-0">{{ e.at }}</span>
+                  <span class="text-[11px] text-stone-400 tabular-nums flex-shrink-0">{{ local(e.at) }}</span>
                 </div>
                 <div class="flex items-center gap-1.5 mt-0.5">
                   <span class="text-[11px] text-stone-500 truncate min-w-0">{{ e.actor }}</span>
@@ -245,11 +245,11 @@
               <span class="font-semibold text-stone-800">{{ t('trk.carrierSays') }}</span>
               <span v-if="carrierCheck.ok" class="font-bold text-sky-800">{{ carrierCheck.carrierStatus || carrierCheck.status || '—' }}</span>
               <span v-else class="text-amber-800">{{ t('trk.noTracking') }}</span>
-              <span class="ms-auto text-[10.5px] text-stone-400 tabular-nums" dir="ltr">{{ carrierCheck.checkedAt }}</span>
+              <span class="ms-auto text-[10.5px] text-stone-400 tabular-nums" dir="ltr">{{ local(carrierCheck.checkedAt) }}</span>
             </div>
             <div v-if="carrierCheck.events && carrierCheck.events.length" class="divide-y divide-stone-100 max-h-[200px] overflow-y-auto">
               <div v-for="(e, i) in carrierCheck.events" :key="i" class="px-3 py-1.5 flex items-start gap-2 text-[11.5px]">
-                <span class="font-mono text-stone-400 tabular-nums flex-shrink-0" dir="ltr">{{ e.at.slice(5) }}</span>
+                <span class="font-mono text-stone-400 tabular-nums flex-shrink-0" dir="ltr">{{ local(e.at).slice(5) }}</span>
                 <span class="text-stone-800 flex-1 min-w-0" dir="auto">{{ e.text }}</span>
                 <span class="text-stone-400 truncate max-w-[140px]">{{ e.who }}</span>
               </div>
@@ -263,12 +263,12 @@
                 <span class="h-px flex-1" :class="i < JSTEPS.length - 1 && jReached > i ? 'bg-teal-300' : i < JSTEPS.length - 1 ? 'bg-stone-200' : ''" />
               </div>
               <div class="text-[10px] font-semibold mt-1 truncate" :class="jReached >= i ? 'text-stone-800' : 'text-stone-400'">{{ t('oclk.' + st.label) }}</div>
-              <div class="text-[10px] tabular-nums text-stone-400 truncate">{{ (journey.row[st.at] || '').slice(5) || '—' }}</div>
+              <div class="text-[10px] tabular-nums text-stone-400 truncate">{{ local(journey.row[st.at] || '').slice(5) || '—' }}</div>
             </li>
           </ol>
           <div v-if="journey.row.dueAt" class="mt-3 flex items-center gap-2 text-[11.5px] rounded-lg px-2.5 py-1.5" :class="journey.row.late ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'">
             <Icon :name="journey.row.late ? 'alert-triangle' : 'clock'" :size="13" />
-            <span>{{ t('od.journeyPromise') }} <b dir="ltr">{{ journey.row.dueAt.slice(5) }}</b></span>
+            <span>{{ t('od.journeyPromise') }} <b dir="ltr">{{ local(journey.row.dueAt).slice(5) }}</b></span>
             <span class="ms-auto font-bold tabular-nums" dir="ltr">{{ jRemain }}</span>
           </div>
           <!-- the whole story of this parcel, newest first -->
@@ -390,6 +390,7 @@
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import { local } from "@/lib/clock";
 import JourneyTimeline from "@/components/JourneyTimeline.vue";
 import {
   ORDERS, CHANNELS, STAGE, SLA, STAGE_LABEL, SLA_LABEL, TRACK_LABEL,

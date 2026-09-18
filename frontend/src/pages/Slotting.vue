@@ -272,7 +272,7 @@
           <template v-if="lay.plan">
             <Icon name="check-circle" :size="14" class="text-emerald-600" />
             <span class="text-[12px] text-stone-700">
-              {{ t('slotting.planRunning').replace('{d}', lay.plan.startedAt.slice(0, 16)).replace('{n}', String(lay.plan.skus)) }}
+              {{ t('slotting.planRunning').replace('{d}', local(lay.plan.startedAt).slice(0, 16)).replace('{n}', String(lay.plan.skus)) }}
             </span>
             <span class="text-[12px] font-bold text-emerald-700 tabular-nums">{{ lay.plan.movesSince }} {{ t('slotting.planMoves') }}</span>
             <button class="ms-auto h-8 px-3 rounded-lg text-[12px] font-semibold text-stone-600 hover:bg-stone-100"
@@ -437,6 +437,7 @@
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import { local } from "@/lib/clock";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 

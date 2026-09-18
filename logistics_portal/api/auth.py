@@ -80,13 +80,35 @@ def resolve_zone(user):
     return frappe.db.get_value("User", user, "custom_logistics_zone") or ""
 
 
+def site_utc_offset_min():
+    """Minutes the SITE clock runs ahead of UTC — Istanbul answers +180.
+
+    Every timestamp the portal stores and hands to the SPA is written on this
+    clock, while the floor reads it in Morocco (+60). Printed raw, a carrier
+    event said 21:30 next to a header clock reading 19:30: the same instant,
+    two hours apart, on one screen. The SPA needs this number to put stored
+    times back on the reader's own clock — and it must come from the server,
+    because a hard-coded "minus two" breaks in Ramadan (Morocco shifts, the
+    site's Istanbul does not) and on any laptop that travels.
+
+    Rounded to the nearest quarter hour: every real-world offset is a
+    multiple of 15, and the two clock reads are microseconds apart."""
+    import datetime as _dt
+    try:
+        delta = frappe.utils.now_datetime() - _dt.datetime.utcnow()
+        return int(round(delta.total_seconds() / 900.0)) * 15
+    except Exception:
+        return None
+
+
 @frappe.whitelist(allow_guest=True)
 def get_boot():
     """Return the session user's identity + resolved logistics role for the SPA.
     allow_guest so the pre-login boot returns a clean Guest stub instead of 403."""
     user = frappe.session.user
     if user == "Guest":
-        return {"user": "Guest", "role": None, "roles": [], "full_name": "", "zone": ""}
+        return {"user": "Guest", "role": None, "roles": [], "full_name": "",
+                "zone": "", "tzOffsetMin": site_utc_offset_min()}
 
     # The page template can't reliably inject the CSRF token (sandboxed Jinja),
     # so the SPA fetches it here over GET and uses it for POST writes.
@@ -126,6 +148,7 @@ def get_boot():
         "hiddenPages": hidden_pages(user),
         "ccAdmin": cc_admin,
         "csrf_token": csrf,
+        "tzOffsetMin": site_utc_offset_min(),
     }
 
 

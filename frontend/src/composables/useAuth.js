@@ -1,5 +1,6 @@
 import { ref, computed } from "vue";
 import { api } from "@/lib/resource";
+import { setSiteOffset } from "@/lib/clock";
 
 // Module-level singletons so every component shares one auth state.
 const user = ref(null);        // ERPNext login id (e.g. marouane@justyol.com)
@@ -51,6 +52,9 @@ async function init(force = false) {
   isLoading.value = true;
   try {
     const boot = await api("auth.get_boot");
+    // Before anything renders: stored timestamps are on the site clock
+    // (Istanbul) and must be shown on the reader's. See lib/clock.js.
+    setSiteOffset(boot.tzOffsetMin);
     user.value = boot.user;
     fullName.value = boot.full_name || boot.user;
     role.value = boot.role;

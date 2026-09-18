@@ -71,7 +71,7 @@
                     :class="r.heldMine ? 'text-teal-700 bg-teal-50 ring-teal-200' : 'text-stone-600 bg-stone-100 ring-stone-200'">
                 {{ r.heldMine ? t('rs.heldMine') : r.heldBy }}</span>
               <span v-if="r.waitUntil" class="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-amber-50 text-amber-700 ring-1 ring-amber-200" dir="ltr">
-                <Icon name="hourglass" :size="10" class="inline -mt-px" /> {{ r.waitUntil.slice(5,10) }}</span>
+                <Icon name="hourglass" :size="10" class="inline -mt-px" /> {{ local(r.waitUntil).slice(5,10) }}</span>
               <span class="ms-auto text-[11px] text-stone-400 tabular-nums" dir="ltr">{{ age(r.ageMin) }}</span>
             </div>
             <div class="text-[12.5px] text-stone-700 mt-1 line-clamp-2" dir="auto">{{ r.note || '—' }}</div>
@@ -135,7 +135,7 @@
               </div>
               <div v-for="(e, i) in (desk?.events || [])" :key="'e' + i" class="flex items-start gap-2 text-[12px]">
                 <span class="text-stone-700 min-w-0 flex-1" dir="auto">{{ e.text }}</span>
-                <span class="text-[10.5px] text-stone-400 tabular-nums shrink-0" dir="ltr">{{ e.by }} · {{ e.at.slice(5) }}</span>
+                <span class="text-[10.5px] text-stone-400 tabular-nums shrink-0" dir="ltr">{{ e.by }} · {{ local(e.at).slice(5) }}</span>
               </div>
               <div class="flex items-center gap-2">
                 <input v-model="noteText" :placeholder="t('rs.notePh')" maxlength="400"
@@ -156,6 +156,7 @@
 import { onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import { local } from "@/lib/clock";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
@@ -246,7 +247,7 @@ async function park(r) {
   try {
     const res = await apiPost("cs.wait", { name: r.name, days: 1, who: "customer" });
     r.waitUntil = res.until || "";
-    success(t("rs.carrierParked"), (res.until || "").slice(5, 10));
+    success(t("rs.carrierParked"), local(res.until || "").slice(5, 10));
     load();
   } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
   finally { busy.value = ""; }

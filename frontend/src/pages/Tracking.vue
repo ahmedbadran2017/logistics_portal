@@ -65,11 +65,11 @@
             <span class="font-semibold text-stone-800">{{ t('trk.carrierSays') }}</span>
             <span v-if="carrierCheck.ok" class="font-bold text-sky-800">{{ carrierCheck.carrierStatus || carrierCheck.status || '—' }}</span>
             <span v-else class="text-amber-800">{{ t('trk.noTracking') }}</span>
-            <span class="ms-auto text-[10.5px] text-stone-400 tabular-nums" dir="ltr">{{ carrierCheck.checkedAt }}</span>
+            <span class="ms-auto text-[10.5px] text-stone-400 tabular-nums" dir="ltr">{{ local(carrierCheck.checkedAt) }}</span>
           </div>
           <div v-if="carrierCheck.events && carrierCheck.events.length" class="divide-y divide-stone-100 max-h-[220px] overflow-y-auto">
             <div v-for="(e, i) in carrierCheck.events" :key="i" class="px-3 py-1.5 flex items-start gap-2 text-[11.5px]">
-              <span class="font-mono text-stone-400 tabular-nums flex-shrink-0" dir="ltr">{{ e.at.slice(5) }}</span>
+              <span class="font-mono text-stone-400 tabular-nums flex-shrink-0" dir="ltr">{{ local(e.at).slice(5) }}</span>
               <span class="text-stone-800 flex-1 min-w-0" dir="auto">{{ e.text }}</span>
               <span class="text-stone-400 truncate max-w-[140px]">{{ e.who }}</span>
             </div>
@@ -98,7 +98,7 @@
               </span>
               <div class="min-w-0 flex-1">
                 <div class="text-[13px] font-medium" :class="e.bad ? 'text-rose-700' : e.done ? 'text-stone-900' : 'text-stone-400'">{{ e.label }}</div>
-                <div v-if="e.at" class="text-[11px] text-stone-400 tabular-nums">{{ e.at }}</div>
+                <div v-if="e.at" class="text-[11px] text-stone-400 tabular-nums">{{ local(e.at) }}</div>
               </div>
             </li>
           </ol>
@@ -305,6 +305,7 @@
 import { computed, ref, h, onMounted, onUnmounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import { local } from "@/lib/clock";
 import JourneyTimeline from "@/components/JourneyTimeline.vue";
 import {
   TRACK_STATES, TRACK_LABEL, SLA, SLA_LABEL, CARRIER, fmtMAD,

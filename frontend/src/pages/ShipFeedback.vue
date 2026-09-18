@@ -83,7 +83,7 @@
               <RouterLink :to="{ name: 'OrderDetail', params: { name: r.sales_order } }" class="font-mono text-[12.5px] font-bold text-stone-900 hover:underline" dir="ltr">{{ r.sales_order }}</RouterLink>
               <span class="text-[12px] text-stone-600 truncate" dir="auto">{{ r.customer_name }}</span>
               <span class="text-[11px] text-stone-400" dir="auto">{{ r.city }}</span>
-              <span class="text-[10.5px] text-stone-400 tabular-nums ms-auto" dir="ltr">{{ r.replied_at }}</span>
+              <span class="text-[10.5px] text-stone-400 tabular-nums ms-auto" dir="ltr">{{ local(r.replied_at) }}</span>
             </div>
             <div class="sh-bubble sh-bubble-neg mt-2.5 text-[13px] text-stone-800 max-w-[560px]" dir="auto">{{ r.reply }}</div>
             <div class="flex items-center gap-2 mt-3 flex-wrap">
@@ -139,7 +139,7 @@
                 <span class="sr-only">{{ r.status === 'positive' ? t('dfb.pos') : t('dfb.neg') }}</span>
                 <span class="font-mono text-stone-700 flex-shrink-0" dir="ltr">{{ r.sales_order }}</span>
                 <span class="text-stone-500 truncate flex-1" dir="auto">{{ r.reply }}</span>
-                <span class="text-stone-400 tabular-nums flex-shrink-0" dir="ltr">{{ r.replied_at.slice(5) }}</span>
+                <span class="text-stone-400 tabular-nums flex-shrink-0" dir="ltr">{{ local(r.replied_at).slice(5) }}</span>
               </div>
             </div>
           </section>
@@ -221,6 +221,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
+import { local } from "@/lib/clock";
 import { api, apiPost } from "@/lib/resource";
 import { readStale, writeStale } from "@/lib/swr";
 import { useI18n } from "@/composables/useI18n";

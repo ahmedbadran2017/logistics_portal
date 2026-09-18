@@ -147,12 +147,12 @@
               <span v-else class="font-mono text-[11px] text-stone-400" dir="ltr">{{ r.dn }}</span>
               <span class="rs-track" :class="trackClass(r.track)">{{ t('track.' + trackKey(r.track), r.track) }}</span>
               <span v-if="r.due" class="rs-due-badge">{{ t('cf.due') }}</span>
-              <span v-if="r.again" class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 text-rose-700 bg-rose-50 ring-rose-200" :title="t('rs.againHint')" dir="ltr">{{ t('rs.again') }} {{ (r.priorAt || '').slice(5, 10) }}</span>
+              <span v-if="r.again" class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 text-rose-700 bg-rose-50 ring-rose-200" :title="t('rs.againHint')" dir="ltr">{{ t('rs.again') }} {{ local(r.priorAt || '').slice(5, 10) }}</span>
               <span v-if="r.heldBy" class="inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5 ring-1"
                     :class="r.heldMine ? 'text-teal-700 bg-teal-50 ring-teal-200' : 'text-stone-600 bg-stone-100 ring-stone-200'">
                 <Icon name="user" :size="10" />{{ r.heldMine ? t('rs.heldMine') : r.heldBy }}</span>
               <span v-if="r.waitUntil" class="inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 text-sky-700 bg-sky-50 ring-sky-200"
-                    :title="t('rs.waitHint')" dir="ltr"><Icon name="hourglass" :size="10" />{{ r.waitUntil.slice(5, 10) }}</span>
+                    :title="t('rs.waitHint')" dir="ltr"><Icon name="hourglass" :size="10" />{{ local(r.waitUntil).slice(5, 10) }}</span>
               <span class="ms-auto inline-flex items-center gap-1 text-[11.5px] font-semibold tabular-nums rounded-full px-2 py-0.5"
                     :class="r.slaBreached && tab !== 'backlog' ? 'text-rose-700 bg-rose-50 ring-1 ring-rose-200' : 'text-stone-500 bg-stone-100'"
                     :title="r.slaBreached ? t('rs.slaLate') : ''" dir="ltr"><Icon name="clock" :size="11" />{{ r.ageD }}{{ t('cf.days') }}</span>
@@ -162,14 +162,14 @@
               <span v-if="r.awb" class="font-mono text-[10.5px]" dir="ltr">{{ r.awb }}</span>
               <span v-if="r.city" class="inline-flex items-center gap-1" dir="auto"><Icon name="map-pin" :size="11" class="text-stone-300" />{{ r.city }}</span>
               <span v-if="r.attempts" class="inline-flex items-center gap-1 text-amber-600 font-medium"><Icon name="phone-off" :size="11" />×{{ r.attempts }}</span>
-              <span v-if="r.nextCall" class="text-stone-400" dir="ltr">→ {{ r.nextCall.slice(5) }}</span>
+              <span v-if="r.nextCall" class="text-stone-400" dir="ltr">→ {{ local(r.nextCall).slice(5) }}</span>
             </div>
             <!-- the carrier's last word: the fact the call starts from -->
             <div v-if="r.lastEvent" class="mt-2 flex items-center gap-2 flex-wrap rounded-xl px-2.5 py-1.5" :class="VERDICT_BG[r.verdict] || VERDICT_BG.other">
               <span class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 bg-white/70" :class="VERDICT_CLS[r.verdict] || VERDICT_CLS.other">{{ t('rs.v_' + (r.verdict || 'other')) }}</span>
               <span class="text-[12px] text-stone-700 truncate max-w-[520px]" :title="t('rs.lastWord')" dir="auto">{{ r.lastEvent }}</span>
               <span v-if="r.fresh" class="text-[10px] font-bold rounded-full px-2 py-0.5 bg-rose-600 text-white animate-pulse">{{ t('rs.justNow') }}</span>
-              <span v-if="r.lastEventAt" class="text-[10.5px] tabular-nums ms-auto" :class="r.fresh ? 'text-rose-600 font-bold' : 'text-stone-400'" dir="ltr">{{ r.lastEventAt.slice(5) }}</span>
+              <span v-if="r.lastEventAt" class="text-[10.5px] tabular-nums ms-auto" :class="r.fresh ? 'text-rose-600 font-bold' : 'text-stone-400'" dir="ltr">{{ local(r.lastEventAt).slice(5) }}</span>
             </div>
 
             <!-- the decisions, by name, and the ways to reach the customer -->
@@ -257,7 +257,7 @@
                 <div v-for="(e, i) in desk.events" :key="i" class="flex items-start gap-2 text-[12px]">
                   <span class="text-[10px] font-bold rounded px-1.5 py-0.5 shrink-0 mt-px" :class="EV_CLS[e.kind] || EV_CLS.note">{{ t('rs.ev_' + e.kind, e.kind) }}</span>
                   <span class="text-stone-700 whitespace-pre-line min-w-0 flex-1" dir="auto">{{ e.text || '—' }}</span>
-                  <span class="text-[10.5px] text-stone-400 tabular-nums shrink-0" dir="ltr">{{ e.agent }} · {{ e.at.slice(5) }}</span>
+                  <span class="text-[10.5px] text-stone-400 tabular-nums shrink-0" dir="ltr">{{ e.agent }} · {{ local(e.at).slice(5) }}</span>
                 </div>
               </div>
               <div v-else class="text-[12px] text-stone-400">{{ t('rs.deskEmpty') }}</div>
@@ -350,6 +350,7 @@
 import { computed, onMounted, ref, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import { local } from "@/lib/clock";
 import CsHandover from "@/components/CsHandover.vue";
 import { IS_SHIP, SURFACE } from "@/lib/portal";
 import { api, apiPost } from "@/lib/resource";
@@ -621,7 +622,7 @@ async function parkWithCarrier(r, days) {
   busy.value = r.id;
   try {
     const res = await apiPost("rescue.carrier_log", { dn: r.dn || r.id, days });
-    if (res.due) { r.waitUntil = res.due; success(t("rs.carrierParked"), res.due.slice(5, 10)); }
+    if (res.due) { r.waitUntil = res.due; success(t("rs.carrierParked"), local(res.due).slice(5, 10)); }
     desk.value = await api("rescue.timeline", { dn: r.dn || r.id });
     if (tab.value !== "mine") dropRow(r);
   } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }

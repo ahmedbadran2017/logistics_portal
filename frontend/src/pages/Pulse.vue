@@ -126,7 +126,7 @@
               <span class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 whitespace-nowrap" :class="STAGE_CLS[r.stage]">{{ t('pulse.st_' + r.stage) }}</span>
             </div>
             <div class="text-[11px] text-stone-500 mt-1 tabular-nums" dir="auto">
-              {{ r.orders }} {{ t('pulse.orders') }} · {{ r.qty }} {{ t('pulse.units') }} · <span dir="ltr">{{ r.createdAt.slice(11) }}</span> {{ t('pulse.by') }} {{ r.createdByName }}
+              {{ r.orders }} {{ t('pulse.orders') }} · {{ r.qty }} {{ t('pulse.units') }} · <span dir="ltr">{{ local(r.createdAt).slice(11) }}</span> {{ t('pulse.by') }} {{ r.createdByName }}
             </div>
             <div class="mt-1.5 flex items-center gap-1.5 flex-wrap">
               <span v-if="r.pickerName" class="inline-flex items-center gap-1 text-[10.5px] font-semibold rounded-full px-2 py-0.5 bg-amber-50 text-amber-800 ring-1 ring-amber-200" :title="t('pulse.picker')"><Icon name="user" :size="10" />{{ r.pickerName }}</span>
@@ -151,7 +151,7 @@
                   <div class="text-[10px] font-bold uppercase tracking-wide truncate" :class="r.stage === s.key ? (r.reason ? 'text-rose-600' : 'text-emerald-700') : r.doors[s.key].done ? 'text-stone-600' : 'text-stone-300'">{{ t('pulse.st_' + s.key) }}</div>
                   <div class="text-[10.5px] tabular-nums text-stone-400" dir="ltr">
                     <template v-if="r.doors[s.key].skip">{{ t('pulse.skip') }}</template>
-                    <template v-else-if="r.doors[s.key].at">{{ r.doors[s.key].at.slice(11) }}</template>
+                    <template v-else-if="r.doors[s.key].at">{{ local(r.doors[s.key].at).slice(11) }}</template>
                     <template v-else>—</template>
                     <template v-if="r.doors[s.key].of != null && !r.doors[s.key].skip"> · {{ r.doors[s.key].n }}/{{ r.doors[s.key].of }}</template>
                     <template v-if="r.doors[s.key].min != null && r.doors[s.key].min > 0"> · {{ mins(r.doors[s.key].min) }}</template>
@@ -166,11 +166,11 @@
           <!-- where it stands, for how long, and why that is a problem -->
           <div class="flex-shrink-0 text-end basis-[170px]">
             <div class="text-[20px] font-extrabold tabular-nums leading-none" :class="r.reason ? 'text-rose-600' : 'text-stone-900'" dir="ltr">{{ mins(r.ageMin) }}</div>
-            <div class="text-[10.5px] text-stone-400 mt-0.5">{{ t('pulse.inStage') }} <span dir="ltr">{{ r.since.slice(11) }}</span></div>
+            <div class="text-[10.5px] text-stone-400 mt-0.5">{{ t('pulse.inStage') }} <span dir="ltr">{{ local(r.since).slice(11) }}</span></div>
             <div v-if="r.reason" class="mt-1.5 inline-flex items-center gap-1 text-[10.5px] font-bold rounded-full px-2 py-0.5 bg-rose-50 text-rose-700 ring-1 ring-rose-200">
               <Icon name="alert-triangle" :size="10" />{{ reasonText(r) }}
             </div>
-            <div v-else-if="r.snoozedUntil" class="mt-1.5 inline-flex items-center gap-1 text-[10.5px] font-bold rounded-full px-2 py-0.5 bg-stone-100 text-stone-500 ring-1 ring-stone-200" :title="r.snoozedUntil"><Icon name="circle-pause" :size="10" />{{ t('pulse.snoozedTill') }} <span dir="ltr">{{ r.snoozedUntil.slice(11) }}</span></div>
+            <div v-else-if="r.snoozedUntil" class="mt-1.5 inline-flex items-center gap-1 text-[10.5px] font-bold rounded-full px-2 py-0.5 bg-stone-100 text-stone-500 ring-1 ring-stone-200" :title="local(r.snoozedUntil)"><Icon name="circle-pause" :size="10" />{{ t('pulse.snoozedTill') }} <span dir="ltr">{{ local(r.snoozedUntil).slice(11) }}</span></div>
             <div v-else-if="r.stage === 'shipped'" class="mt-1.5 inline-flex items-center gap-1 text-[10.5px] font-bold rounded-full px-2 py-0.5 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"><Icon name="check" :size="10" />{{ t('pulse.done') }}</div>
             <!-- the actions: hand it over, tap the shoulder, mark it handled, open the door's own screen -->
             <div class="mt-2 flex items-center justify-end gap-1 flex-wrap">
@@ -204,6 +204,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import { local } from "@/lib/clock";
 import { api, apiPost } from "@/lib/resource";
 import { readStale, writeStale } from "@/lib/swr";
 import { useI18n } from "@/composables/useI18n";
@@ -281,7 +282,7 @@ async function doReassign(r, picker) {
 }
 async function doSnooze(r) {
   busy.value = r.name;
-  try { const res = await apiPost("pulse.snooze", { pick_list: r.name, minutes: 30 }); success(t("pulse.snoozed"), `${r.name} · ${res.until.slice(11)}`); await load(); }
+  try { const res = await apiPost("pulse.snooze", { pick_list: r.name, minutes: 30 }); success(t("pulse.snoozed"), `${r.name} · ${local(res.until).slice(11)}`); await load(); }
   catch (e) { warn(t("oclk.saveFail"), String(e?.message || e)); }
   busy.value = "";
 }
@@ -314,7 +315,7 @@ function idleCls(p) {
   return "bg-emerald-50 text-emerald-800 ring-emerald-200";
 }
 function peopleTitle(p) {
-  return Object.entries(p.stations || {}).map(([s, n]) => `${t('pulse.stn_' + s, s)} ${n}`).join(" · ") + (p.lastAt ? ` · ${t('pulse.lastScan')} ${p.lastAt.slice(11)}` : "");
+  return Object.entries(p.stations || {}).map(([s, n]) => `${t('pulse.stn_' + s, s)} ${n}`).join(" · ") + (p.lastAt ? ` · ${t('pulse.lastScan')} ${local(p.lastAt).slice(11)}` : "");
 }
 function doorCls(r, key) {
   const door = r.doors[key];

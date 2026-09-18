@@ -116,7 +116,7 @@
             <div class="text-[12px] text-emerald-600">{{ t('cf.empty') }}</div>
             <!-- honest empty: work IS scheduled, just not due yet -->
             <div v-if="nextDueAt" class="text-[11px] text-amber-600 font-semibold mt-1">
-              {{ t('ws.nextDueAt').replace('{t}', nextDueAt) }}
+              {{ t('ws.nextDueAt').replace('{t}', local(nextDueAt)) }}
             </div>
           </div>
         </div>
@@ -131,7 +131,7 @@
           <span class="inline-flex w-14 h-14 rounded-2xl items-center justify-center bg-amber-100 text-amber-600 mb-3">
             <Icon name="user" :size="26" /></span>
           <div class="text-[15px] font-bold text-stone-900">{{ t('ws.busyTitle').replace('{who}', busyBy) }}</div>
-          <div v-if="busySince" class="text-[12.5px] text-stone-500 mt-1" dir="ltr">{{ busySince.slice(11) }}</div>
+          <div v-if="busySince" class="text-[12.5px] text-stone-500 mt-1" dir="ltr">{{ local(busySince).slice(11) }}</div>
           <div class="text-[12px] text-amber-700 mt-3">{{ t('ws.busyNext') }}</div>
         </div>
 
@@ -168,7 +168,7 @@
                 <span v-if="active.city" class="inline-flex items-center gap-1"><Icon name="map-pin" :size="11" />{{ active.city }}</span>
                 <span v-if="cardAge" class="inline-flex items-center gap-1"><Icon name="clock" :size="11" />{{ cardAge }}</span>
                 <span v-if="cardAttempts" class="text-amber-600 font-medium">×{{ cardAttempts }} {{ t('ws.attempts') }}</span>
-                <span v-if="active.next_call" class="text-stone-400">→ {{ active.next_call.slice(5) }}</span>
+                <span v-if="active.next_call" class="text-stone-400">→ {{ local(active.next_call).slice(5) }}</span>
               </div>
               <!-- "Where is my order?" answered before the customer finishes
                    asking: the warehouse journey, with the live carrier status. -->
@@ -205,7 +205,7 @@
             <div v-for="(a, i) in miniActivity" :key="i" class="flex items-center gap-2 text-[11px] text-stone-600 min-w-0">
               <span class="w-1 h-1 rounded-full bg-stone-300 flex-shrink-0" />
               <span class="truncate" dir="auto">{{ a.text }}</span>
-              <span class="ms-auto flex-shrink-0 text-stone-400 font-mono text-[10px]">{{ a.by }} · {{ a.at.slice(5) }}</span>
+              <span class="ms-auto flex-shrink-0 text-stone-400 font-mono text-[10px]">{{ a.by }} · {{ local(a.at).slice(5) }}</span>
             </div>
             <button class="text-[10.5px] font-semibold text-[var(--accent-600)] hover:underline" @click="toggleActivity">{{ t('ws.moreActivity') }}</button>
           </div>
@@ -349,7 +349,7 @@
             <Icon name="shield-alert" :size="16" />
             <div class="min-w-0 flex-1">
               <div class="text-[12.5px] font-bold">{{ t('ws.blockedTitle') }}</div>
-              <div class="text-[11px] opacity-90 truncate">{{ cust?.flag?.note || t('ws.blockedHint') }} · {{ cust?.flag?.by?.split('@')[0] }} · {{ cust?.flag?.at }}</div>
+              <div class="text-[11px] opacity-90 truncate">{{ cust?.flag?.note || t('ws.blockedHint') }} · {{ cust?.flag?.by?.split('@')[0] }} · {{ local(cust?.flag?.at) }}</div>
             </div>
           </div>
 
@@ -462,7 +462,7 @@
                   <span class="w-1.5 h-1.5 rounded-full bg-stone-300 mt-1.5 flex-shrink-0" />
                   <div class="min-w-0 flex-1">
                     <span class="text-stone-800" dir="auto">{{ a.text }}</span>
-                    <span class="text-stone-400 tabular-nums ms-1.5">{{ a.by }} · {{ a.at.slice(5) }}</span>
+                    <span class="text-stone-400 tabular-nums ms-1.5">{{ a.by }} · {{ local(a.at).slice(5) }}</span>
                   </div>
                 </div>
                 <div v-if="!activity.length" class="text-[12px] text-stone-400 text-center py-2">{{ t('ws.noActivity') }}</div>
@@ -502,7 +502,7 @@
                       :title="o.order"
                       @click="openHistory(o)">
                 <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :class="histDot(o)" />
-                <span class="text-stone-400 flex-shrink-0">{{ o.at.slice(5) }}</span>
+                <span class="text-stone-400 flex-shrink-0">{{ local(o.at).slice(5) }}</span>
                 <span class="text-stone-600 truncate flex-1" :title="o.track || o.status">{{ o.track || o.status }}</span>
                 <span class="font-semibold text-stone-800 flex-shrink-0">{{ Math.round(o.total) }}</span>
                 <Icon name="chevron-right" :size="11"
@@ -529,7 +529,7 @@
               </button>
             </div>
             <div v-if="cust.flag" class="text-[10px] text-stone-400 mt-1.5 truncate">
-              {{ cust.flag.by.split('@')[0] }} · {{ cust.flag.at }}<template v-if="cust.flag.note"> · {{ cust.flag.note }}</template>
+              {{ cust.flag.by.split('@')[0] }} · {{ local(cust.flag.at) }}<template v-if="cust.flag.note"> · {{ cust.flag.note }}</template>
             </div>
           </template>
           <div v-else class="text-[11.5px] text-stone-400">—</div>
@@ -543,8 +543,8 @@
           <div v-else ref="threadBox" class="max-h-[300px] overflow-y-auto space-y-1.5">
             <template v-for="(m, i) in thread" :key="i">
               <!-- day separator whenever the calendar flips -->
-              <div v-if="!i || m.at.slice(0, 10) !== thread[i - 1].at.slice(0, 10)" class="text-center pt-1">
-                <span class="text-[9.5px] font-semibold text-stone-400 bg-stone-100 rounded-full px-2 py-0.5 tabular-nums">{{ m.at.slice(5, 10) }}</span>
+              <div v-if="!i || local(m.at).slice(0, 10) !== local(thread[i - 1].at).slice(0, 10)" class="text-center pt-1">
+                <span class="text-[9.5px] font-semibold text-stone-400 bg-stone-100 rounded-full px-2 py-0.5 tabular-nums">{{ local(m.at).slice(5, 10) }}</span>
               </div>
               <div class="flex" :class="m.in ? 'justify-start' : 'justify-end'">
                 <div class="max-w-[85%] rounded-lg px-2.5 py-1.5 text-[11.5px]"
@@ -556,7 +556,7 @@
                   </div>
                   <template v-if="m.text">{{ m.text }}</template>
                   <div class="text-[9px] tabular-nums mt-0.5" :class="m.in ? 'text-stone-400' : 'text-emerald-700/70'">
-                    {{ m.at.slice(11) }}<template v-if="!m.in"> · Justyol</template>
+                    {{ local(m.at).slice(11) }}<template v-if="!m.in"> · Justyol</template>
                   </div>
                 </div>
               </div>
@@ -574,6 +574,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import { local, nowSite } from "@/lib/clock";
 import CsHandover from "@/components/CsHandover.vue";
 import SkuLookupModal from "@/components/SkuLookupModal.vue";
 import { api, apiPost } from "@/lib/resource";
@@ -889,7 +890,7 @@ async function saveNote() {
   busy.value = true;
   try {
     await apiPost("confirmation.add_note", { order: active.value.name, note: noteText.value.trim() });
-    activity.value = [{ by: "me", text: noteText.value.trim(), at: new Date().toISOString().slice(0, 16).replace("T", " ") }, ...activity.value];
+    activity.value = [{ by: "me", text: noteText.value.trim(), at: nowSite().slice(0, 16) }, ...activity.value];
     noteText.value = "";
     panel.value = "";
     success(t("ws.noteSaved"));

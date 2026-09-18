@@ -90,7 +90,7 @@
               {{ r.message || (r.images ? t('cs.photoMsg') : '') }}
             </div>
             <div class="flex items-center gap-2 text-[10.5px] text-stone-400 tabular-nums mt-0.5">
-              <span>{{ r.lastAt.slice(5) }}</span>
+              <span>{{ local(r.lastAt).slice(5) }}</span>
               <span class="inline-flex items-center gap-1 text-violet-500 font-medium">
                 <Icon :name="threadFor === r.id ? 'chevron-up' : 'chevron-down'" :size="10" />{{ t('cs.thread') }}
               </span>
@@ -117,7 +117,7 @@
                      dir="auto">
                   <span v-if="m.kind === 'image'" class="inline-flex items-center gap-1 text-stone-500"><Icon name="image" :size="12" />{{ t('cs.photoMsg') }}</span>
                   <template v-if="m.text"> {{ m.text }}</template>
-                  <div class="text-[9.5px] text-stone-400 tabular-nums mt-0.5">{{ m.at.slice(5) }}</div>
+                  <div class="text-[9.5px] text-stone-400 tabular-nums mt-0.5">{{ local(m.at).slice(5) }}</div>
                 </div>
               </div>
               <div v-if="!thread.length" class="text-[12px] text-stone-400 text-center py-3">—</div>
@@ -195,7 +195,7 @@
                      dir="auto">
                   <span v-if="m.kind === 'image'" class="inline-flex items-center gap-1 text-stone-500"><Icon name="image" :size="12" />{{ t('cs.photoMsg') }}</span>
                   <template v-if="m.text"> {{ m.text }}</template>
-                  <div class="text-[9.5px] text-stone-400 tabular-nums mt-0.5">{{ m.at.slice(5) }}</div>
+                  <div class="text-[9.5px] text-stone-400 tabular-nums mt-0.5">{{ local(m.at).slice(5) }}</div>
                 </div>
               </div>
               <div v-if="!thread.length" class="text-[12px] text-stone-400 text-center py-3">—</div>
@@ -230,6 +230,7 @@
 <script setup>
 import { computed, defineComponent, h, onMounted, ref, onUnmounted } from "vue";
 import Icon from "@/components/ui/Icon.vue";
+import { local } from "@/lib/clock";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
