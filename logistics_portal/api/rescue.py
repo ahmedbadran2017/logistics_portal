@@ -553,8 +553,12 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason="", surfac
                                  "NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone")
                       + ")")
         # The verdict condition reads the order, so the count needs the join.
-        # Without a search it is the same number for everyone — share it.
-        tk = f"lp_rescue_total:{tab}:{days}:{reason}" if not (q and str(q).strip()) else ""
+        # Shared only when the number really IS the same for everyone: "mine"
+        # is one person's pile and must never ride a team-wide key. It did,
+        # and it showed — a colleague holding 15 parcels had her 15 served to
+        # every other agent's empty Mine tab, pager and all.
+        tk = (f"lp_rescue_total:{tab}:{days}:{reason}"
+              if not (q and str(q).strip()) and tab != "mine" else "")
         total = None
         if tk:
             try:

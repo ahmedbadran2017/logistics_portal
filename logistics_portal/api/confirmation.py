@@ -2673,12 +2673,25 @@ def pool_team():
     if role != "manager" and not _is_cf_admin():
         frappe.throw("lp:leadsOnly", frappe.PermissionError)
     d0, d1 = _clock.day_bounds(_clock.floor_today())
+    # Who is IN this lane. Not "anyone resolve_role calls a manager" — that is
+    # every System Manager in the building, and the first run of this listed
+    # 27 people including HR and the chat bot, at 680 ms. The lane is whoever
+    # carries the explicit role, plus whoever has actually decided something
+    # here lately: the busiest agent on production has no role field set and
+    # would otherwise be missing from her own team's list.
+    from logistics_portal.api.auth import resolve_role as _rr
+    lane = {u.name for u in frappe.get_all(
+        "User", filters={"enabled": 1}, fields=["name"], limit=500)
+        if _rr(u.name) == "confirmation"}
+    lane |= {r[0] for r in frappe.db.sql(
+        """SELECT DISTINCT owner FROM `tabComment`
+           WHERE reference_doctype = 'Sales Order'
+             AND creation >= DATE_SUB(%(s)s, INTERVAL 14 DAY)
+             AND (content LIKE 'Confirmation:%%' OR content LIKE 'CC:%%')""",
+        {"s": str(now_datetime())[:19]})}
     out = []
-    for u in frappe.get_all("User", filters={"enabled": 1},
+    for u in frappe.get_all("User", filters={"enabled": 1, "name": ("in", list(lane) or [""])},
                             fields=["name", "full_name"], limit=200):
-        from logistics_portal.api.auth import resolve_role as _rr
-        if _rr(u.name) not in ("confirmation", "manager"):
-            continue
         done = int(frappe.db.sql(
             """SELECT COUNT(*) FROM `tabComment`
                WHERE owner = %(u)s AND reference_doctype = 'Sales Order'
