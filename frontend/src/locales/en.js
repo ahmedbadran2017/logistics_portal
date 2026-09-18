@@ -2004,6 +2004,8 @@ export default {
     "Returned": "Came back",
   },
   ws: {
+    nextFresh: "Next · {n} new waiting",
+    slaLateShort: "past {h}h",
     freshWaiting: "{n} new — nobody has called them yet",
     poolBlk_notroster: "You are not on confirmation duty — ask a lead to add you",
     offDuty: "not on duty",

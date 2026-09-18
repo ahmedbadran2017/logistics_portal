@@ -2004,6 +2004,8 @@ export default {
     "Returned": "رجعت",
   },
   ws: {
+    nextFresh: "التالي · {n} جديد مستني",
+    slaLateShort: "فاتوا {h} ساعة",
     freshWaiting: "{n} أوردر جديد — محدش كلمهم لسه",
     poolBlk_notroster: "إنت مش في روتيشن الكونفيرميشن — كلّم الlead يضيفك",
     offDuty: "مش في الروتيشن",

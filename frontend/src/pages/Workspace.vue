@@ -1,122 +1,84 @@
 <template>
   <div class="p-4 sm:p-5 max-w-[1500px] mx-auto">
-    <!-- top strip: the day as a scoreboard + the serve button -->
-    <div class="flex items-center gap-3 flex-wrap mb-4">
-      <h1 class="text-[18px] font-bold text-stone-900 tracking-tight me-1">{{ t('ws.title') }}</h1>
+    <!-- ONE thing to press, and a scoreboard that knows it is a scoreboard.
+         This strip had grown to eight elements competing at the same weight:
+         an animated target ring with confetti, three stat cards, a pulsing
+         red alarm, a pool chip with a popover, and the serve button. When
+         everything shouts, nothing does — and the number that mattered (a
+         customer waiting with nobody on them) was one shout among eight. -->
+    <div class="flex items-center gap-3 mb-2">
+      <h1 class="text-[18px] font-bold text-stone-900 tracking-tight">{{ t('ws.title') }}</h1>
 
-      <!-- target ring: the day, as one glance -->
-      <div v-if="board?.myTarget" class="relative flex items-center gap-2.5 bg-white rounded-2xl ring-1 ring-stone-200/70 ps-2 pe-4 py-1.5 shadow-sm"
-           :class="celebrating ? 'ws-ring-hit' : ''">
-        <!-- every decision drops a coin on the scoreboard -->
-        <span v-for="pop in pops" :key="pop.id" class="ws-pop" :class="pop.cls">+1</span>
-        <!-- the one-time burst when the day's target falls -->
-        <span v-if="celebrating" class="ws-burst" aria-hidden="true">
-          <i v-for="n in 14" :key="n" :style="burstStyle(n)" />
-        </span>
-        <svg width="44" height="44" viewBox="0 0 44 44" class="-rotate-90">
-          <circle cx="22" cy="22" r="18" fill="none" stroke="rgb(231 229 228)" stroke-width="5" />
-          <circle cx="22" cy="22" r="18" fill="none" stroke-linecap="round" stroke-width="5"
-                  :stroke="dayPct >= 100 ? 'rgb(16 185 129)' : 'var(--accent-500)'"
-                  :stroke-dasharray="113"
-                  :stroke-dashoffset="113 - Math.min(113, (dayPct / 100) * 113)"
-                  style="transition: stroke-dashoffset .6s ease" />
-        </svg>
-        <div class="leading-tight">
-          <div class="text-[17px] font-extrabold tabular-nums text-stone-900">
-            {{ myTotal }}<span class="text-[11px] font-semibold text-stone-400">/{{ board.myTarget }}</span>
-          </div>
-          <div class="text-[9.5px] font-semibold uppercase tracking-wide" :class="dayPct >= 100 ? 'text-emerald-600' : 'text-stone-400'">
-            {{ dayPct >= 100 ? t('ws.targetHit') : t('ws.today') }}
-          </div>
-        </div>
-      </div>
-
-      <!-- confirmed today -->
-      <div class="flex items-center gap-2 bg-white rounded-2xl ring-1 ring-stone-200/70 px-3.5 py-1.5 shadow-sm">
-        <span class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center"><Icon name="check-circle" :size="15" /></span>
-        <div class="leading-tight">
-          <div class="text-[17px] font-extrabold tabular-nums text-emerald-600">{{ board?.mine?.confirm ?? 0 }}</div>
-          <div class="text-[9.5px] font-semibold uppercase tracking-wide text-stone-400">{{ t('ws.confirmed') }}</div>
-        </div>
-      </div>
-
-      <!-- SLA pulse: my queue against the first-call clock -->
-      <div class="flex items-center gap-2 rounded-2xl ring-1 px-3.5 py-1.5 shadow-sm"
-           :class="slaLate ? 'bg-rose-50 ring-rose-200' : 'bg-white ring-stone-200/70'">
-        <span class="w-7 h-7 rounded-lg flex items-center justify-center"
-              :class="slaLate ? 'bg-rose-100 text-rose-600' : 'bg-emerald-50 text-emerald-600'">
-          <Icon name="shield-alert" :size="15" />
-        </span>
-        <div class="leading-tight">
-          <div class="text-[17px] font-extrabold tabular-nums" :class="slaLate ? 'text-rose-600' : 'text-emerald-600'">
-            {{ slaLate || '✓' }}
-          </div>
-          <div class="text-[9.5px] font-semibold uppercase tracking-wide" :class="slaLate ? 'text-rose-500' : 'text-stone-400'">
-            SLA {{ board?.slaHours || 6 }}h
-          </div>
-        </div>
-      </div>
-
-      <!-- due call-backs -->
-      <div v-if="dueCount" class="flex items-center gap-2 bg-amber-50 rounded-2xl ring-1 ring-amber-200 px-3.5 py-1.5 shadow-sm">
-        <span class="w-7 h-7 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center"><Icon name="clock" :size="15" /></span>
-        <div class="leading-tight">
-          <div class="text-[17px] font-extrabold tabular-nums text-amber-600">{{ dueCount }}</div>
-          <div class="text-[9.5px] font-semibold uppercase tracking-wide text-amber-500">{{ t('ws.dueShort') }}</div>
-        </div>
-      </div>
-
-      <!-- A customer ordered and nobody has spoken to them yet. Ordering new
-           work to the front only helps an agent who presses Next; the one
-           sitting between calls needs telling. -->
-      <button v-if="freshN && freshCanTake"
-              class="w-full sm:w-auto inline-flex items-center gap-2.5 h-12 px-5 rounded-2xl text-[14px] font-bold text-white bg-rose-600 hover:bg-rose-700 shadow-md animate-pulse"
-              :disabled="serving" @click="serveNext(false)">
-        <Icon name="zap" :size="17" />
-        {{ t('ws.freshWaiting').replace('{n}', freshN) }}
-        <span v-if="freshOldest" class="text-[11.5px] font-semibold text-white/80 tabular-nums" dir="ltr">{{ freshOldest }}m</span>
-      </button>
-
-      <!-- work nobody is on. Shown even when the agent has their own queue:
-           the point is that an idle person can SEE there is something. The
-           reason travels with the number — 40 waiting behind a dead button
-           reads as a broken portal, and fairly so. -->
-      <div v-if="poolN" class="relative">
-        <button class="flex items-center gap-2 rounded-2xl ring-1 px-3.5 py-1.5 shadow-sm transition-colors"
-                :class="poolBlock ? 'bg-stone-50 ring-stone-200 hover:bg-stone-100' : 'bg-teal-50 ring-teal-200 hover:bg-teal-100'"
-                :title="poolBlock ? t('ws.poolBlk_' + poolBlock) : t('ws.poolLeft').replace('{n}', poolN)"
-                @click="toggleTeam">
-          <span class="w-7 h-7 rounded-lg flex items-center justify-center"
-                :class="poolBlock ? 'bg-stone-200 text-stone-500' : 'bg-teal-100 text-teal-600'">
-            <Icon :name="poolBlock ? 'circle-pause' : 'users'" :size="15" /></span>
-          <div class="leading-tight text-start">
-            <div class="text-[17px] font-extrabold tabular-nums" :class="poolBlock ? 'text-stone-500' : 'text-teal-600'">{{ poolN }}</div>
-            <div class="text-[9.5px] font-semibold uppercase tracking-wide" :class="poolBlock ? 'text-stone-400' : 'text-teal-500'">{{ t('ws.poolShort') }}</div>
-          </div>
-        </button>
-        <!-- who is at their desk and what they are carrying: the question the
-             old three-name rule could not answer -->
-        <div v-if="teamOpen && team.length"
-             class="absolute z-30 mt-2 w-[290px] bg-white rounded-2xl ring-1 ring-stone-200 shadow-xl p-2.5 space-y-1">
-          <div v-for="m in team" :key="m.user" class="flex items-center gap-2 text-[12px] px-1.5 py-1 rounded-lg"
-               :class="m.onShift ? '' : 'opacity-45'">
-            <!-- solid = a real punch; hollow = no clock record, assumed in -->
-            <span class="w-1.5 h-1.5 rounded-full shrink-0"
-                  :class="!m.onShift ? 'bg-stone-300' : m.punched ? 'bg-emerald-500' : 'ring-1 ring-emerald-400'"
-                  :title="m.punched ? '' : t('ws.noPunch')" />
-            <span class="min-w-0 flex-1 truncate" :class="m.onDuty ? 'text-stone-800' : 'text-stone-400 italic'">{{ m.name }}</span>
-            <span v-if="!m.onDuty" class="text-[9.5px] font-semibold text-stone-400 shrink-0">{{ t('ws.offDuty') }}</span>
-            <span class="tabular-nums text-stone-400" :title="t('ws.poolShort')">{{ m.holding }}</span>
-            <span class="tabular-nums font-semibold text-emerald-600" :title="t('ws.doneToday')">{{ m.doneToday }}</span>
-          </div>
-        </div>
-      </div>
-
-      <button class="ms-auto inline-flex items-center gap-2 h-12 px-6 rounded-2xl text-[14.5px] font-bold text-white shadow-md transition-all hover:shadow-lg disabled:opacity-50"
-              :style="{ background: 'var(--accent-600)' }" :disabled="serving" @click="serveNext(true)">
-        <Icon name="sparkles" :size="16" />{{ serving ? t('ws.serving') : t('ws.next') }}
+      <!-- The alarm IS the button. Two separate things to press, one of them
+           red, made the agent choose; there is only ever one right answer, so
+           there is now only one control. It carries its own reason. -->
+      <button class="ms-auto inline-flex items-center gap-2.5 h-12 px-6 rounded-2xl text-[14.5px] font-bold text-white shadow-md transition-all hover:shadow-lg disabled:opacity-50"
+              :class="freshAlarm ? 'bg-rose-600 hover:bg-rose-700' : ''"
+              :style="freshAlarm ? {} : { background: 'var(--accent-600)' }"
+              :disabled="serving" @click="serveNext(true)">
+        <Icon :name="freshAlarm ? 'zap' : 'sparkles'" :size="17" />
+        <span v-if="serving">{{ t('ws.serving') }}</span>
+        <template v-else-if="freshAlarm">
+          {{ t('ws.nextFresh').replace('{n}', freshN) }}
+          <span class="text-[11.5px] font-semibold text-white/80 tabular-nums" dir="ltr">{{ freshOldest }}m</span>
+        </template>
+        <span v-else>{{ t('ws.next') }}</span>
         <kbd class="text-[10px] font-mono bg-white/20 rounded px-1.5 py-0.5">N</kbd>
       </button>
+    </div>
+
+    <!-- the day, quietly: one line, one weight, nothing animated competing
+         with the control above it -->
+    <div class="flex items-center gap-x-4 gap-y-1.5 flex-wrap mb-4 text-[12px] text-stone-500">
+      <span v-if="board?.myTarget" class="relative inline-flex items-center gap-1.5" :class="celebrating ? 'ws-ring-hit' : ''">
+        <span v-for="pop in pops" :key="pop.id" class="ws-pop" :class="pop.cls">+1</span>
+        <span v-if="celebrating" class="ws-burst" aria-hidden="true"><i v-for="n in 14" :key="n" :style="burstStyle(n)" /></span>
+        <span class="inline-block w-16 h-1.5 rounded-full bg-stone-200 overflow-hidden align-middle">
+          <span class="block h-full rounded-full transition-all duration-500"
+                :class="dayPct >= 100 ? 'bg-emerald-500' : 'bg-[var(--accent-500)]'"
+                :style="{ width: Math.min(100, dayPct) + '%' }" />
+        </span>
+        <b class="tabular-nums" :class="dayPct >= 100 ? 'text-emerald-600' : 'text-stone-800'">{{ myTotal }}</b>
+        <span class="text-stone-400">/{{ board.myTarget }}</span>
+      </span>
+
+      <span class="inline-flex items-center gap-1.5">
+        <Icon name="check-circle" :size="13" class="text-emerald-500" />
+        <b class="tabular-nums text-stone-800">{{ board?.mine?.confirm ?? 0 }}</b> {{ t('ws.confirmed') }}
+      </span>
+
+      <span v-if="slaLate" class="inline-flex items-center gap-1.5 text-rose-600 font-semibold">
+        <Icon name="shield-alert" :size="13" />
+        <b class="tabular-nums">{{ slaLate }}</b> {{ t('ws.slaLateShort').replace('{h}', board?.slaHours || 6) }}
+      </span>
+
+      <span v-if="dueCount" class="inline-flex items-center gap-1.5 text-amber-600">
+        <Icon name="clock" :size="13" />
+        <b class="tabular-nums">{{ dueCount }}</b> {{ t('ws.dueShort') }}
+      </span>
+
+      <!-- the pool is a lead's number: present, never shouting -->
+      <button v-if="poolN" class="inline-flex items-center gap-1.5 hover:text-stone-800 transition-colors"
+              :class="poolBlock ? 'text-stone-400' : 'text-teal-600'"
+              :title="poolBlock ? t('ws.poolBlk_' + poolBlock) : t('ws.poolLeft').replace('{n}', poolN)"
+              @click="toggleTeam">
+        <Icon name="users" :size="13" />
+        <b class="tabular-nums">{{ poolN }}</b> {{ t('ws.poolShort') }}
+      </button>
+
+      <div v-if="teamOpen && team.length"
+           class="absolute z-30 mt-8 w-[290px] bg-white rounded-2xl ring-1 ring-stone-200 shadow-xl p-2.5 space-y-1">
+        <div v-for="m in team" :key="m.user" class="flex items-center gap-2 text-[12px] px-1.5 py-1 rounded-lg"
+             :class="m.onShift ? '' : 'opacity-45'">
+          <span class="w-1.5 h-1.5 rounded-full shrink-0"
+                :class="!m.onShift ? 'bg-stone-300' : m.punched ? 'bg-emerald-500' : 'ring-1 ring-emerald-400'"
+                :title="m.punched ? '' : t('ws.noPunch')" />
+          <span class="min-w-0 flex-1 truncate" :class="m.onDuty ? 'text-stone-800' : 'text-stone-400 italic'">{{ m.name }}</span>
+          <span v-if="!m.onDuty" class="text-[9.5px] font-semibold text-stone-400 shrink-0">{{ t('ws.offDuty') }}</span>
+          <span class="tabular-nums text-stone-400" :title="t('ws.poolShort')">{{ m.holding }}</span>
+          <span class="tabular-nums font-semibold text-emerald-600" :title="t('ws.doneToday')">{{ m.doneToday }}</span>
+        </div>
+      </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_300px] gap-4 items-start">
@@ -1066,6 +1028,9 @@ async function serveNext(skipCurrent = false) {
 // The shared pool's depth. Cheap (one indexed count, 12 ms on production),
 // refreshed with the board rather than on its own timer.
 const freshN = ref(0);
+// The button turns into the alarm only when this agent can actually act on
+// it — a red button that serves somebody else's work is a lie.
+const freshAlarm = computed(() => freshN.value > 0 && freshCanTake.value);
 const freshOldest = ref(0);
 const freshCanTake = ref(true);
 async function loadFresh() {
