@@ -270,6 +270,12 @@
                         :disabled="!noteText.trim() || busy === r.id" @click="saveNote(r)">{{ t('rs.noteSave') }}</button>
               </div>
 
+              <!-- Not every failed parcel is a carrier problem. When it is
+                   the customer's problem, it belongs to the people who own
+                   the customer, and this is the one button that gets it
+                   there without retyping anything. -->
+              <CsHandover :order="r.order" :phone="r.phone" source="tracking" />
+
               <!-- One tap. The conversation itself lives in a WhatsApp group
                    the portal cannot read, and asking anyone to retype it here
                    earned zero entries in a day — the only fact worth keeping
@@ -344,6 +350,7 @@
 import { computed, onMounted, ref, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import CsHandover from "@/components/CsHandover.vue";
 import { IS_SHIP, SURFACE } from "@/lib/portal";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";

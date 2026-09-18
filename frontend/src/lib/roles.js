@@ -246,14 +246,17 @@ export const ROLE_CONFIG = {
   // Contact-center sub-teams (Ahmed 2026-08-27): كونفيرميشن / خدمة عملاء
   // وشكاوى / متابعة الشحنات — each sees only its own lane(s).
   cs: {
-    // Landing = their own dashboard (same rule as confirmation).
-    home: "MyCsDashboard",
+    // The desk IS the job, so it is the landing screen — the same call the
+    // tracking portal made. The old landing was a personal dashboard sitting
+    // in front of a ticket lane that collected eight tickets in a year.
+    home: "CsDesk",
     nav: [
       {
         section: "nav.contactSection",
         items: [
-          { to: "Tickets", label: "nav.tickets", icon: "message-circle" },
+          { to: "CsDesk", label: "nav.csDesk", icon: "message-circle" },
           { to: "Exchanges", label: "nav.exchanges", icon: "refresh-cw" },
+          { to: "Tickets", label: "nav.tickets", icon: "ticket" },
         ],
       },
       {
@@ -364,7 +367,8 @@ const CC_MANAGER = {
         { to: "Workspace", label: "nav.workspace", icon: "sparkles" },
         { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
         { to: "Rescue", label: "nav.rescue", icon: "route" },
-        { to: "Tickets", label: "nav.tickets", icon: "message-circle" },
+        { to: "CsDesk", label: "nav.csDesk", icon: "message-circle" },
+        { to: "Tickets", label: "nav.tickets", icon: "ticket" },
       ],
     },
     {

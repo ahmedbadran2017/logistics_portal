@@ -184,6 +184,7 @@
               <a :href="'tel:' + active.phone" class="ws-contact bg-sky-50 text-sky-700 ring-sky-200" :title="t('ws.call')"><Icon name="phone" :size="16" /></a>
               <a :href="waUrl" target="_blank" class="ws-contact bg-emerald-50 text-emerald-700 ring-emerald-200" title="WhatsApp"><Icon name="message-circle" :size="16" /></a>
               <button class="ws-contact bg-amber-50 text-amber-700 ring-amber-200" :title="t('cf.editContact')" @click="panel = panel === 'contact' ? '' : 'contact'"><Icon name="edit" :size="15" /></button>
+              <button class="ws-contact bg-violet-50 text-violet-700 ring-violet-200" :title="t('cs.handTitle')" @click="panel = panel === 'cs' ? '' : 'cs'"><Icon name="message-circle" :size="15" /></button>
             </div>
           </div>
 
@@ -313,6 +314,16 @@
               <button class="h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50"
                       :disabled="!cancelReason || busy" @click="submitCancel">{{ t('cf.cancelConfirm') }}</button>
             </div>
+          </Transition>
+
+          <!-- Some calls end with a problem that is not a confirmation
+               decision at all — the item is gone, the wrong thing arrived,
+               they want it swapped. Those belong to customer service, and
+               this hands them over without the agent retyping the order. -->
+          <Transition name="ws-slide">
+            <CsHandover v-if="panel === 'cs'" :order="active.name"
+                        :phone="cust?.phone || ''" source="confirmation"
+                        @done="panel = ''" />
           </Transition>
 
           <!-- Blocked customer: the warning IS the interface -->
@@ -545,6 +556,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import CsHandover from "@/components/CsHandover.vue";
 import SkuLookupModal from "@/components/SkuLookupModal.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";

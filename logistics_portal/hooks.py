@@ -96,6 +96,7 @@ after_migrate = [
     "logistics_portal.api.cycle_count.ensure_doctype",
     "logistics_portal.api.zone_survey.ensure_doctype",
     "logistics_portal.api.rescue.ensure_doctype",
+    "logistics_portal.api.cs.ensure_doctype",
     "logistics_portal.install.ensure_rescue_fields",
     "logistics_portal.api.campaign.ensure_doctype",
     "logistics_portal.api.feedback.ensure_doctype",
@@ -140,6 +141,9 @@ scheduler_events = {
             # Confirmation lane: Pending orders past the first-call target.
             "logistics_portal.api.confirmation.run_alerts",
         "logistics_portal.api.rescue.run_alerts",
+        # A conversation the AI handed to a human is a request
+        # nobody could see: 607 of them, 572 never answered.
+        "logistics_portal.api.cs.intake_joyagent",
             # Post-delivery feedback: read the replies to the question we
             # asked, thank or ticket, expire the silent ones.
             "logistics_portal.api.feedback.run_replies",
@@ -179,6 +183,9 @@ scheduler_events = {
         # A claim is a promise to finish, not a reservation: anything held
         # past the window without a decision goes back to the pool.
         "logistics_portal.api.rescue.release_stale_claims",
+        # The CS desk keeps its own promises the same way.
+        "logistics_portal.api.cs.release_stale_claims",
+        "logistics_portal.api.cs.wake_due",
     ],
     "hourly_long": [
         # Post-delivery feedback: ask yesterday's deliveries how it went

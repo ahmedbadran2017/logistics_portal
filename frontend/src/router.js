@@ -54,6 +54,8 @@ const routes = [
           { path: "settings", name: "RescueSettings", component: () => import("@/pages/RescueSettings.vue") },
         ],
       },
+      // Customer service: the desk that receives a problem from anywhere.
+      { path: "cs", name: "CsDesk", component: () => import("@/pages/CsDesk.vue") },
       {
         path: "tickets",
         component: LaneShell,
