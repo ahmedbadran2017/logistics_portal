@@ -89,7 +89,10 @@
              class="absolute z-30 mt-2 w-[290px] bg-white rounded-2xl ring-1 ring-stone-200 shadow-xl p-2.5 space-y-1">
           <div v-for="m in team" :key="m.user" class="flex items-center gap-2 text-[12px] px-1.5 py-1 rounded-lg"
                :class="m.onShift ? '' : 'opacity-45'">
-            <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="m.onShift ? 'bg-emerald-500' : 'bg-stone-300'" />
+            <!-- solid = a real punch; hollow = no clock record, assumed in -->
+            <span class="w-1.5 h-1.5 rounded-full shrink-0"
+                  :class="!m.onShift ? 'bg-stone-300' : m.punched ? 'bg-emerald-500' : 'ring-1 ring-emerald-400'"
+                  :title="m.punched ? '' : t('ws.noPunch')" />
             <span class="min-w-0 flex-1 truncate text-stone-800">{{ m.name }}</span>
             <span class="tabular-nums text-stone-400" :title="t('ws.poolShort')">{{ m.holding }}</span>
             <span class="tabular-nums font-semibold text-emerald-600" :title="t('ws.doneToday')">{{ m.doneToday }}</span>

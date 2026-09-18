@@ -2689,18 +2689,60 @@ def pool_team():
              AND creation >= DATE_SUB(%(s)s, INTERVAL 14 DAY)
              AND (content LIKE 'Confirmation:%%' OR content LIKE 'CC:%%')""",
         {"s": str(now_datetime())[:19]})}
-    out = []
-    for u in frappe.get_all("User", filters={"enabled": 1, "name": ("in", list(lane) or [""])},
-                            fields=["name", "full_name"], limit=200):
-        done = int(frappe.db.sql(
-            """SELECT COUNT(*) FROM `tabComment`
-               WHERE owner = %(u)s AND reference_doctype = 'Sales Order'
-                 AND creation BETWEEN %(a)s AND %(b)s
-                 AND (content LIKE 'Confirmation:%%' OR content LIKE 'CC:%%')""",
-            {"u": u.name, "a": d0, "b": d1})[0][0] or 0)
-        out.append({"user": u.name, "name": u.full_name or u.name.split("@")[0],
-                    "onShift": bool(_on_shift(u.name)),
-                    "holding": _holding(u.name), "doneToday": done})
+    names = sorted(lane)
+    if not names:
+        return {"team": [], "pool": pool_depth()}
+
+    # Three set-based reads, not four per person. The per-person version was
+    # 842 ms for eight people — thirty-two round trips for a popover.
+    users = {u.name: (u.full_name or u.name.split("@")[0]) for u in frappe.get_all(
+        "User", filters={"enabled": 1, "name": ("in", names)},
+        fields=["name", "full_name"], limit=200)}
+    if not users:
+        return {"team": [], "pool": pool_depth()}
+    keys = list(users)
+
+    done = {r[0]: int(r[1]) for r in frappe.db.sql(
+        """SELECT owner, COUNT(*) FROM `tabComment`
+           WHERE owner IN %(u)s AND reference_doctype = 'Sales Order'
+             AND creation BETWEEN %(a)s AND %(b)s
+             AND (content LIKE 'Confirmation:%%' OR content LIKE 'CC:%%')
+           GROUP BY owner""", {"u": tuple(keys), "a": d0, "b": d1})}
+
+    # _assign is a JSON array, so it cannot be grouped in SQL. There are a
+    # couple of hundred open orders — read the column once and count here.
+    retry_sts = tuple(v for k, v in QUEUES.items() if k != "pending")
+    holding = {k: 0 for k in keys}
+    for (assigned,) in frappe.db.sql(
+            f"""SELECT so._assign FROM `tabSales Order` so
+                WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
+                  AND (so.custom_sales_status IN %(sts)s
+                       OR so.custom_sales_status = 'Pending')
+                  AND COALESCE(so._assign, '') <> ''""",
+            {"co": _CO, "sts": retry_sts}):
+        for k in keys:
+            if f'"{k}"' in (assigned or ""):
+                holding[k] += 1
+
+    # Presence: one pass over the punches, newest first, first hit per person
+    # wins. Same fail-open rule as _on_shift — silence is not an OUT.
+    shift = {}
+    for r in frappe.db.sql(
+            """SELECT e.user_id, ci.log_type FROM `tabEmployee Checkin` ci
+               JOIN `tabEmployee` e ON e.name = ci.employee AND e.status = 'Active'
+               WHERE e.user_id IN %(u)s AND ci.time >= DATE_SUB(%(s)s, INTERVAL 18 HOUR)
+               ORDER BY ci.time DESC""",
+            {"u": tuple(keys), "s": str(now_datetime())[:19]}, as_dict=True):
+        shift.setdefault(r.user_id, (r.log_type or "IN") != "OUT")
+
+    # `punched` separates "clocked in" from "we have no punch and assumed so".
+    # Three of the eight on production have no check-in record at all; showing
+    # them with the same green dot as someone who really punched IN would be
+    # the screen asserting something it does not know.
+    out = [{"user": k, "name": users[k], "onShift": bool(shift.get(k, True)),
+            "punched": k in shift,
+            "holding": holding.get(k, 0), "doneToday": done.get(k, 0)}
+           for k in keys]
     out.sort(key=lambda r: (not r["onShift"], -r["holding"]))
     return {"team": out, "pool": pool_depth()}
 

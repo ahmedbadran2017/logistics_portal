@@ -2004,6 +2004,7 @@ export default {
     "Returned": "Came back",
   },
   ws: {
+    noPunch: "no clock record — assumed at work",
     poolBlk_off: "The shared pool is switched off",
     poolBlk_offshift: "You are clocked out — clock in to take shared work",
     poolBlk_full: "You already hold the maximum; finish some first",

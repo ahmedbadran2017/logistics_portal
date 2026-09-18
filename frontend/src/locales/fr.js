@@ -2005,6 +2005,7 @@ export default {
     "Returned": "Retournée",
   },
   ws: {
+    noPunch: "aucun pointage — présence supposée",
     poolBlk_off: "La file partagée est désactivée",
     poolBlk_offshift: "Vous êtes pointé sortant — pointez pour prendre du travail partagé",
     poolBlk_full: "Vous en avez déjà le maximum ; terminez-en d'abord",
