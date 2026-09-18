@@ -1195,7 +1195,7 @@ export default {
     carrierStatus: "Carrier status", sinceShipped: "{n}d since shipped",
     awb: "AWB", trackingNo: "Tracking no", value: "Value", age: "Age",
     trackOn: "Track on Cathedis", call: "Call", whatsapp: "WhatsApp",
-    searchPh: "Search DN, AWB, tracking no, order, customer…",
+    searchPh: "Search DN, AWB, tracking no, order, customer, phone…",
     parcels: "Parcels", active: "active", lastDays: "last {n} days",
     noMatch: "No parcels match.", of: "of",
     shippedHanded: "Shipped — handed to {carrier}",

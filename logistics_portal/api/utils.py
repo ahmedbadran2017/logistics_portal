@@ -4,6 +4,8 @@ Mirrors the supplier_portal pattern: small, dependency-free helpers for
 validation, sanitization, and Frappe-side defensiveness used across the
 api/ modules.
 """
+import re
+
 import frappe
 from frappe import _
 
@@ -88,3 +90,50 @@ def clamp_item_names(doc, method=None):
         limit = frappe.utils.cint(df.get("length")) or 140
         if len(v) > limit:
             row.item_name = v[:limit]
+
+
+# ── phone search ──────────────────────────────────────────────────────────
+# Moroccan numbers reach this database in every shape a human can type.
+# Measured 2026-09-18 over 30 days of orders: 5,598 stored as "+212 …" and
+# ALL of them carry spaces inside the digits ("+212 6 79 48 19 93"), 4,436 as
+# "0…", 599 as "212…", plus "+0661225251" and a handful of others. A plain
+# LIKE on the stored text therefore finds almost nothing — searching that
+# customer's real number returned zero rows.
+#
+# So both sides are reduced to digits and compared by the TAIL. Reducing the
+# column costs a scan, but the screens that use this are already windowed to
+# a couple of thousand parcels: 62 ms measured, against 27 ms for the query
+# with no search at all.
+
+_PHONE_MIN = 4
+
+
+def phone_digits(q):
+    """The national part of whatever the agent typed, or "" if that is not a
+    phone number at all. 0679481993, 212679481993, +212 6 79 48 19 93 and
+    679481993 all reduce to the same thing, which is the point."""
+    raw = str(q or "").strip()
+    if not raw:
+        return ""
+    # A name with a digit in it is not a phone number; anything but digits and
+    # the punctuation people put IN numbers disqualifies the string.
+    if re.search(r"[^0-9+()\-. ]", raw):
+        return ""
+    d = re.sub(r"\D", "", raw)
+    if d.startswith("212"):
+        d = d[3:]
+    d = d.lstrip("0")
+    return d if len(d) >= _PHONE_MIN else ""
+
+
+def phone_tail_sql(col, key="ph"):
+    """Match `col` against the %(key)s param by tail, ignoring formatting.
+
+    `col` is spliced into a COALESCE, so several columns may be passed as one
+    comma-separated string to fall back between them.
+
+    Anchored at the END on purpose: a floating match turns a six-digit query
+    into a hit on the country code — 127605 matched +212760553141 through the
+    "2127605" that a "212" prefix creates. The end of a number is also how
+    people quote one back over the phone."""
+    return f"REGEXP_REPLACE(COALESCE({col}, ''), '[^0-9]', '') LIKE %({key})s"

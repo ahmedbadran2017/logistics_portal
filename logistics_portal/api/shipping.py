@@ -258,10 +258,22 @@ def tracking(days=14, state="", q="", limit=30, offset=0):
 
         qcond = ""
         if q and str(q).strip():
+            from logistics_portal.api.utils import phone_digits, phone_tail_sql
             vals["q"] = f"%{str(q).strip()}%"
-            qcond = """ AND (dn.name LIKE %(q)s OR dn.custom_awb LIKE %(q)s
-                        OR dn.custom_tracking_number LIKE %(q)s OR dn.customer_name LIKE %(q)s
-                        OR dni.so LIKE %(q)s)"""
+            fields = ["dn.name LIKE %(q)s", "dn.custom_awb LIKE %(q)s",
+                      "dn.custom_tracking_number LIKE %(q)s",
+                      "dn.customer_name LIKE %(q)s", "dni.so LIKE %(q)s"]
+            # A customer calls back and gives their number, not a waybill.
+            # Added as an OR rather than a branch because a bare digit string
+            # is just as likely to be the tracking number (8538572) as a
+            # phone — the agent should not have to say which.
+            ph = phone_digits(q)
+            if ph:
+                vals["ph"] = f"%{ph}"
+                # Both phone columns, same fallback order the row itself uses.
+                fields.append(phone_tail_sql(
+                    "NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone"))
+            qcond = " AND (" + " OR ".join(fields) + ")"
 
         so_join = """LEFT JOIN (SELECT parent, MAX(against_sales_order) AS so
                                 FROM `tabDelivery Note Item` GROUP BY parent) dni ON dni.parent = dn.name

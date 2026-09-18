@@ -1195,7 +1195,7 @@ export default {
     carrierStatus: "حالة الناقل", sinceShipped: "{n} يوم منذ الشحن",
     awb: "البوليصة", trackingNo: "رقم التتبع", value: "القيمة", age: "العمر",
     trackOn: "تتبع على كاتيديس", call: "اتصال", whatsapp: "واتساب",
-    searchPh: "بحث: DN · بوليصة · رقم تتبع · طلب · عميل…",
+    searchPh: "بحث: DN · بوليصة · رقم تتبع · طلب · عميل · تليفون…",
     parcels: "الطرود", active: "نشط", lastDays: "آخر {n} يومًا",
     noMatch: "لا طرود مطابقة.", of: "من",
     shippedHanded: "شُحن — سُلِّم إلى {carrier}",

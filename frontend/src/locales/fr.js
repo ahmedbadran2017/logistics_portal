@@ -1195,7 +1195,7 @@ export default {
     carrierStatus: "Statut transporteur", sinceShipped: "{n}j depuis l’expédition",
     awb: "AWB", trackingNo: "N° de suivi", value: "Valeur", age: "Âge",
     trackOn: "Suivre sur Cathedis", call: "Appeler", whatsapp: "WhatsApp",
-    searchPh: "Rechercher BL, AWB, n° de suivi, commande, client…",
+    searchPh: "Rechercher BL, AWB, n° de suivi, commande, client, téléphone…",
     parcels: "Colis", active: "actifs", lastDays: "{n} derniers jours",
     noMatch: "Aucun colis ne correspond.", of: "sur",
     shippedHanded: "Expédié — remis à {carrier}",
