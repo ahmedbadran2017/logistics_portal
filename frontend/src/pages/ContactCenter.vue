@@ -57,7 +57,7 @@
           <div class="flex flex-wrap gap-1.5 mt-3">
             <span class="cco-chip"><b>{{ d.rs.counts.exceptions }}</b> {{ t('rs.tabExceptions') }}</span>
             <span class="cco-chip"><b>{{ d.rs.counts.failed }}</b> {{ t('rs.tabFailed') }}</span>
-            <span class="cco-chip"><b>{{ d.rs.counts.backlog }}</b> {{ t('rs.tabBacklog') }}</span>
+            <span class="cco-chip"><b>{{ d.rs.counts.backlog }}</b> {{ t('rs.tabUnaccounted') }}</span>
           </div>
           <div class="cco-today">
             <span class="text-emerald-600 font-bold tabular-nums">{{ (d.rs.today.redeliver || 0) + (d.rs.today.reship || 0) }}</span> {{ t('cco.savedToday') }}

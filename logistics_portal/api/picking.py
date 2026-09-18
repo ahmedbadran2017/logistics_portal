@@ -3493,15 +3493,42 @@ def report_short_pick(pick_list, order, item_code=None, defer=0):
                    f"pulled off {pick_list}; that shelf is held until it is "
                    f"counted or the belief expires.{owed}")
 
-    # Tell the dispatchers something physical is wrong.
+    # Tell the dispatchers something physical is wrong — ONCE.
+    #
+    # This fired per event per recipient, with none of the unread check or
+    # cooldown that every other alert in the portal has. Measured 2026-09-18:
+    # 3,462 short-pick notifications in seven days, 6,816 notifications in
+    # total, and exactly ONE of them read. A bell that rings 200 times a week
+    # per person is not a bell, and it buried every other alert with it —
+    # order #259453 alone accounted for 55 rings.
+    #
+    # The ringing was honest: that order really was short-picked 55 times.
+    # That is a floor problem, not an alert problem, and it is named in the
+    # subject now so the repeat is the message rather than the noise.
+    _tries = frappe.db.count("Comment", {
+        "reference_doctype": "Sales Order", "reference_name": so_name,
+        "comment_type": "Comment", "content": ("like", "Short pick:%")}) or 1
+    _subject = (f"Short pick ×{_tries}: {so_name}" if _tries > 2
+                else f"Short pick: {so_name}")
+    _quiet = frappe.utils.add_to_date(frappe.utils.now_datetime(), hours=-6)
     dispatchers = [u for u, r in SEED_ROLES.items() if r in ("dispatcher", "manager")]
     for d in dispatchers:
         try:
+            # Still unread, or rung in the last six hours: say nothing.
+            if frappe.db.exists("Notification Log",
+                                {"document_name": so_name, "for_user": d, "read": 0}):
+                continue
+            if frappe.db.exists("Notification Log",
+                                {"document_name": so_name, "for_user": d,
+                                 "creation": (">=", _quiet)}):
+                continue
             frappe.get_doc({
                 "doctype": "Notification Log",
-                "subject": f"Short pick: {so_name}",
+                "subject": _subject,
                 "email_content": f"{user} couldn't find item{what} on the shelf. "
-                                 f"Order pulled off {pick_list}.{owed}",
+                                 f"Order pulled off {pick_list}."
+                                 + (f" This is attempt {_tries}." if _tries > 2 else "")
+                                 + owed,
                 "type": "Alert", "document_type": "Sales Order",
                 "document_name": so_name, "for_user": d,
             }).insert(ignore_permissions=True)

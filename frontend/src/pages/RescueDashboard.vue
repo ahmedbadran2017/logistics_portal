@@ -117,7 +117,7 @@ const cardDefs = [
   { key: "exceptions", label: "rs.tabExceptions", hot: true },
   { key: "failed", label: "rs.tabFailed", hot: true },
   { key: "stale", label: "rs.tabStale", hot: false },
-  { key: "backlog", label: "rs.tabBacklog", hot: false },
+  { key: "backlog", label: "rs.tabUnaccounted", hot: false },
 ];
 
 const ageTotal = computed(() => {

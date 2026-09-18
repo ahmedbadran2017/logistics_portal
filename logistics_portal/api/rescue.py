@@ -360,12 +360,20 @@ def _dn_where(tab, vals, reason=""):
             "dn.custom_rescue_by = %(me)s",
             "COALESCE(dn.custom_rescue_at,'1900-01-01') >= %(claimcut)s"] + extra)
     if tab == "backlog":
-        # Everything BEFORE the start line — history, worked in bulk when
-        # there is time. It used to mean "older than the working window",
-        # which was the same thing while no line existed; with a line, that
-        # definition would leave every parcel shipped between the line and
-        # the window edge in NEITHER queue, i.e. gone from the portal. The
-        # backlog is the other side of the line, whatever the window says.
+        # What is actually UNACCOUNTED FOR before the start line.
+        #
+        # This tab used to hold everything on the other side of the line —
+        # 31,768 parcels, which nobody opened once, and they were right not
+        # to. Audited 2026-09-18: 16,953 of them already have a submitted
+        # return note. They came back months ago; only the tracking status
+        # never caught up. That is a data problem wearing a queue's clothes,
+        # and a queue of 31,768 items teaches people to ignore the tab.
+        #
+        # (The headline number was wrong too, and worse than wrong: summing
+        # grand_total over the pile counted the return notes themselves, one
+        # bucket totalling MINUS 199,215 MAD. Excluding returns and the
+        # already-returned leaves 1,583 parcels and about 294,000 MAD, which
+        # is a real and finite thing somebody can reconcile with Cathedis.)
         vals["backtracks"] = _BACKLOG_TRACKS
         _claim_vals(vals)
         line = _start_line()
@@ -375,7 +383,7 @@ def _dn_where(tab, vals, reason=""):
         else:
             before = "dn.posting_date < DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"
         return " AND ".join([
-            "dn.docstatus = 1", "dn.company = %(co)s",
+            "dn.docstatus = 1", "dn.company = %(co)s", "dn.is_return = 0",
             "COALESCE(dn.custom_exception_action,'') = ''",
             _claim_cond(),
             "dn.custom_track_shipment_status IN %(backtracks)s",
@@ -1275,9 +1283,15 @@ def carrier_log(dn, asked="", answer="", days=0):
     _gate()
     dn = _check_parcel((dn or "").strip())
     asked, answer = (asked or "").strip(), (answer or "").strip()
-    if not (asked or answer):
-        frappe.throw("Nothing to save.")
     days = min(max(int(days or 0), 0), 14)
+    # Parking with no text is the normal case, not an error. The team talks to
+    # Cathedis in a WhatsApp group we cannot read (the Business API has no
+    # groups), and asking them to retype the conversation here got exactly
+    # zero entries in a day of live use. What the portal actually needs from
+    # that group is one fact — this parcel is with them until Thursday — so
+    # that is all it asks for.
+    if not (asked or answer or days):
+        frappe.throw("Nothing to save.")
     due = None
     if days:
         due = add_to_date(now_datetime(), days=days)
@@ -1285,7 +1299,8 @@ def carrier_log(dn, asked="", answer="", days=0):
             frappe.db.set_value("Delivery Note", dn,
                                 {"custom_rescue_wait_until": due},
                                 update_modified=False)
-    body = (f"→ {asked}" if asked else "") + (f"\n← {answer}" if answer else "")
+    body = ((f"→ {asked}" if asked else "") + (f"\n← {answer}" if answer else "")
+            or (f"with Cathedis, {days}d" if days else ""))
     _log(dn, _order_of(dn), "carrier", body, due)
     _bust()
     return {"ok": True, "due": str(due)[:16] if due else ""}
@@ -1385,6 +1400,66 @@ def my_day(days=1):
             oldest = max(0, int((now_datetime() - r.oldest).total_seconds() // 3600))
     return {"kinds": {r.kind: int(r.n) for r in rows},
             "holding": holding, "oldestH": oldest}
+
+
+_SETTLED = "Returned (reconciled)"
+
+
+@frappe.whitelist()
+def settled_backlog(apply=0, limit=2000):
+    """Parcels still flagged as a carrier problem that physically came back.
+
+    A submitted return note against the parcel is the end of its story; the
+    tracking status simply never caught up, and 16,953 of these were sitting
+    in a queue pretending to be work. Stamping the decision takes them out of
+    every rescue query for good — and out of the count that made the tab
+    unreadable.
+
+    Read-only unless `apply` is set, and capped per run: this touches
+    thousands of live documents and nobody should discover the scale of it
+    from the result of a click."""
+    _gate()
+    if not _is_rs_admin():
+        frappe.throw("lp:leadsOnly", frappe.PermissionError)
+    limit = min(max(int(limit or 2000), 1), 5000)
+    rows = frappe.db.sql(
+        """SELECT dn.name, dn.posting_date FROM `tabDelivery Note` dn
+           WHERE dn.docstatus = 1 AND dn.company = %(co)s AND dn.is_return = 0
+             AND COALESCE(dn.custom_exception_action,'') = ''
+             AND dn.custom_track_shipment_status IN %(tracks)s
+             AND EXISTS (SELECT 1 FROM `tabDelivery Note` r
+                         WHERE r.is_return = 1 AND r.return_against = dn.name
+                           AND r.docstatus = 1)
+           ORDER BY dn.posting_date LIMIT %(l)s""",
+        {"co": _CO, "tracks": _BACKLOG_TRACKS, "l": limit}, as_dict=True)
+    total = int(frappe.db.sql(
+        """SELECT COUNT(*) FROM `tabDelivery Note` dn
+           WHERE dn.docstatus = 1 AND dn.company = %(co)s AND dn.is_return = 0
+             AND COALESCE(dn.custom_exception_action,'') = ''
+             AND dn.custom_track_shipment_status IN %(tracks)s
+             AND EXISTS (SELECT 1 FROM `tabDelivery Note` r
+                         WHERE r.is_return = 1 AND r.return_against = dn.name
+                           AND r.docstatus = 1)""",
+        {"co": _CO, "tracks": _BACKLOG_TRACKS})[0][0] or 0)
+    if not int(apply or 0):
+        return {"ok": True, "applied": 0, "matched": total,
+                "wouldStamp": len(rows),
+                "oldest": str(rows[0].posting_date)[:10] if rows else "",
+                "sample": [r.name for r in rows[:5]]}
+    now = now_datetime()
+    done = 0
+    for r in rows:
+        try:
+            frappe.db.set_value("Delivery Note", r.name, {
+                "custom_exception_action": _SETTLED,
+                "custom_exception_actioned_at": now,
+            }, update_modified=False)
+            done += 1
+        except Exception:
+            continue
+    frappe.db.commit()
+    _bust()
+    return {"ok": True, "applied": done, "matched": total, "left": max(0, total - done)}
 
 
 def release_stale_claims():

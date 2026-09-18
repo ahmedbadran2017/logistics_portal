@@ -149,7 +149,13 @@ _DN_EXC_FIELDS = [
     # Exceptions triage: the recorded decision per failed parcel. Turns the
     # exceptions pile into a worked queue (who decided what, when).
     {"fieldname": "custom_exception_action", "label": "Exception Action",
-     "fieldtype": "Select", "options": "\nRedeliver\nReturn Requested\nResolved",
+     # "Returned (reconciled)" is the machine's stamp, not a person's
+     # decision: the parcel already had a submitted return note and only the
+     # tracking status was stale. Kept distinct from "Resolved" so seventeen
+     # thousand bulk stamps can never be mistaken for seventeen thousand
+     # judgements somebody made.
+     "fieldtype": "Select",
+     "options": "\nRedeliver\nReturn Requested\nResolved\nReturned (reconciled)",
      "read_only": 1, "no_copy": 1, "hidden": 1},
     {"fieldname": "custom_exception_actioned_at", "label": "Exception Actioned At",
      "fieldtype": "Datetime", "read_only": 1, "no_copy": 1, "hidden": 1},

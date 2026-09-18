@@ -270,21 +270,19 @@
                         :disabled="!noteText.trim() || busy === r.id" @click="saveNote(r)">{{ t('rs.noteSave') }}</button>
               </div>
 
-              <div class="rounded-lg bg-white ring-1 ring-sky-200 p-2.5 space-y-2">
-                <div class="text-[11px] font-semibold text-sky-800">{{ t('rs.carrierTitle') }}</div>
-                <input v-model="cAsk" :placeholder="t('rs.carrierAskPh')" maxlength="300"
-                       class="w-full h-9 px-3 rounded-lg bg-sky-50/70 ring-1 ring-sky-200 text-[12.5px] focus:outline-none" />
-                <input v-model="cAns" :placeholder="t('rs.carrierAnsPh')" maxlength="300"
-                       class="w-full h-9 px-3 rounded-lg bg-sky-50/70 ring-1 ring-sky-200 text-[12.5px] focus:outline-none" />
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="text-[11px] text-stone-500">{{ t('rs.carrierWait') }}</span>
-                  <button v-for="d in [0, 1, 2, 3, 7]" :key="d"
-                          class="h-7 px-2.5 rounded-full text-[11.5px] font-medium ring-1 transition-all"
-                          :class="cDays === d ? 'text-white bg-sky-600 ring-sky-600' : 'text-sky-700 bg-white ring-sky-200 hover:bg-sky-50'"
-                          @click="cDays = d">{{ d === 0 ? t('rs.carrierNow') : d + t('cf.days') }}</button>
-                  <button class="ms-auto h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-sky-700 hover:bg-sky-800 disabled:opacity-40"
-                          :disabled="(!cAsk.trim() && !cAns.trim()) || busy === r.id"
-                          @click="saveCarrier(r)">{{ t('rs.carrierSave') }}</button>
+              <!-- One tap. The conversation itself lives in a WhatsApp group
+                   the portal cannot read, and asking anyone to retype it here
+                   earned zero entries in a day — the only fact worth keeping
+                   is how long the parcel is theirs. -->
+              <div class="rounded-lg bg-white ring-1 ring-sky-200 p-2.5">
+                <div class="text-[11px] font-semibold text-sky-800 mb-2">{{ t('rs.carrierTitle') }}</div>
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <button v-for="d in [1, 2, 3, 7]" :key="d"
+                          class="h-9 px-3.5 rounded-xl text-[12.5px] font-semibold text-white bg-sky-700 hover:bg-sky-800 disabled:opacity-40"
+                          :disabled="busy === r.id" @click="parkWithCarrier(r, d)">
+                    {{ d }}{{ t('cf.days') }}
+                  </button>
+                  <span class="text-[11px] text-stone-400 ms-1">{{ t('rs.carrierHint') }}</span>
                 </div>
               </div>
             </template>
@@ -385,7 +383,7 @@ const ALL_TABS = [
   { key: "failed", label: "rs.tabFailed", icon: "alert-circle", onColor: "bg-amber-100 text-amber-700" },
   { key: "notdelivered", label: "rs.tabNotDelivered", icon: "package", onColor: "bg-violet-100 text-violet-700" },
   { key: "stale", label: "rs.tabStale", icon: "clock", onColor: "bg-sky-100 text-sky-700" },
-  { key: "backlog", label: "rs.tabBacklog", icon: "archive", onColor: "bg-stone-200 text-stone-700" },
+  { key: "backlog", label: "rs.tabUnaccounted", icon: "circle-alert", onColor: "bg-stone-200 text-stone-700" },
 ];
 // The server decides which queues this lane owns — Not Delivered is
 // confirmation's, so the tracking team never sees the chip OR the data.
@@ -541,9 +539,6 @@ const deskFor = ref("");
 const desk = ref(null);
 const deskLoading = ref(false);
 const noteText = ref("");
-const cAsk = ref("");
-const cAns = ref("");
-const cDays = ref(0);
 const EV_CLS = {
   claim: "text-teal-700 bg-teal-50", release: "text-stone-600 bg-stone-100",
   takeover: "text-amber-700 bg-amber-50", note: "text-sky-700 bg-sky-50",
@@ -593,7 +588,7 @@ async function openDesk(r) {
   if (deskFor.value === r.id) { deskFor.value = ""; return; }
   deskFor.value = r.id;
   desk.value = null;
-  noteText.value = ""; cAsk.value = ""; cAns.value = ""; cDays.value = 0;
+  noteText.value = "";
   deskLoading.value = true;
   try {
     desk.value = await api("rescue.timeline", { dn: r.dn || r.id });
@@ -613,21 +608,19 @@ async function saveNote(r) {
   finally { busy.value = ""; }
 }
 
-async function saveCarrier(r) {
-  if (!cAsk.value.trim() && !cAns.value.trim()) return;
+// Park it on the carrier's promise: leaves every queue until the date, then
+// comes back by itself.
+async function parkWithCarrier(r, days) {
   busy.value = r.id;
   try {
-    const res = await apiPost("rescue.carrier_log", {
-      dn: r.dn || r.id, asked: cAsk.value.trim(), answer: cAns.value.trim(), days: cDays.value,
-    });
-    cAsk.value = ""; cAns.value = "";
+    const res = await apiPost("rescue.carrier_log", { dn: r.dn || r.id, days });
     if (res.due) { r.waitUntil = res.due; success(t("rs.carrierParked"), res.due.slice(5, 10)); }
-    else success(t("rs.carrierSaved"), r.order || r.dn);
-    cDays.value = 0;
     desk.value = await api("rescue.timeline", { dn: r.dn || r.id });
+    if (tab.value !== "mine") dropRow(r);
   } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
   finally { busy.value = ""; }
 }
+
 const editFor = ref("");
 const editPhone = ref("");
 const editCity = ref("");
