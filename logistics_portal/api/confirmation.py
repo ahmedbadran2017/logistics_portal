@@ -2590,7 +2590,26 @@ def _pool_cond():
     `_DUE` guards both: it excludes a future next_call_at, the promise made
     to a customer, so a scheduled call-back is never taken from the agent who
     made the promise."""
-    return (f"{_DUE} AND ("
+    # A parcel somebody took minutes ago is not waiting for anybody.
+    #
+    # This is the bug that put two agents on one customer. Taking from the
+    # pool moved the assignment but left no TOUCH, so the order still read as
+    # "quiet since 1900" and stayed on offer: Khadija took SAL-ORD-2026-03458
+    # at 19:44, Salma was handed the same order at 19:46, Salma's take
+    # stripped Khadija's assignment, and Khadija's Confirm came back "you can
+    # only act on orders assigned to you". Forty-seven live orders were in
+    # that state at once. The five-minute serve lock was the only thing
+    # standing in the way, and it lives in the cache: it dies on a restart
+    # and is deleted outright when an agent skips.
+    #
+    # The durable signal is the assignment's own ToDo — written by
+    # assign_to.add, removed when the assignment is, and already timestamped.
+    # No new field, and it cannot drift from _assign because Frappe writes
+    # them together.
+    held = ("NOT EXISTS (SELECT 1 FROM `tabToDo` t WHERE t.reference_type = 'Sales Order' "
+            "AND t.reference_name = so.name AND t.status = 'Open' "
+            "AND t.creation > %(quiet)s)")
+    return (f"{_DUE} AND {held} AND ("
             f"COALESCE(so._assign, '', '[]') IN ('', '[]') "
             f"OR COALESCE({_last_touch_sql()}, '1900-01-01') <= %(quiet)s)")
 
@@ -2685,9 +2704,11 @@ def _take_from_pool(order):
             pass
         assign_to.add({"doctype": "Sales Order", "name": order,
                        "assign_to": [me], "description": "Confirmation pool"})
-        if prev and prev != me:
-            frappe.get_doc("Sales Order", order).add_comment(
-                "Comment", f"Pool: taken from {prev} · by {me}")
+        # Always, not only when it came off somebody: the take IS the touch,
+        # and an unassigned order taken silently left no evidence at all that
+        # anyone had picked it up.
+        frappe.get_doc("Sales Order", order).add_comment(
+            "Comment", f"Pool: taken{f' from {prev}' if prev and prev != me else ''} · by {me}")
         return prev
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "confirmation._take_from_pool")
