@@ -2004,6 +2004,8 @@ export default {
     "Returned": "Came back",
   },
   ws: {
+    poolBlk_notroster: "You are not on confirmation duty — ask a lead to add you",
+    offDuty: "not on duty",
     noPunch: "no clock record — assumed at work",
     poolBlk_off: "The shared pool is switched off",
     poolBlk_offshift: "You are clocked out — clock in to take shared work",
@@ -2170,6 +2172,9 @@ export default {
     noData: "No decisions in this period yet.",
   },
   cfs: {
+    rosterTitle: "Who is on confirmation duty",
+    rosterHint: "Only these people are handed live customers from the shared pool. Leave empty and everyone with the role is on duty — which includes anyone the seed map calls an agent, so name them here if some of them do other work.",
+    rosterEveryone: "Everyone with the confirmation role",
     targetTitle: "The day's target",
     targetHint: "Auto gives each agent the work actually in front of them today, held inside the band this team's own last 30 days define. Fixed pins everyone to one number.",
     target_auto: "Auto — per agent",

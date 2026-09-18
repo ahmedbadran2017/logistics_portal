@@ -2005,6 +2005,8 @@ export default {
     "Returned": "Retournée",
   },
   ws: {
+    poolBlk_notroster: "Vous n'êtes pas en rotation confirmation — demandez à un responsable",
+    offDuty: "hors rotation",
     noPunch: "aucun pointage — présence supposée",
     poolBlk_off: "La file partagée est désactivée",
     poolBlk_offshift: "Vous êtes pointé sortant — pointez pour prendre du travail partagé",
@@ -2171,6 +2173,9 @@ export default {
     noData: "Aucune décision sur cette période.",
   },
   cfs: {
+    rosterTitle: "Qui est en rotation confirmation",
+    rosterHint: "Seules ces personnes reçoivent des clients depuis la file partagée. Laissez vide et tout le monde ayant le rôle est en rotation — ce qui inclut toute personne que la table d'initialisation appelle agent, alors nommez-les ici si certaines font autre chose.",
+    rosterEveryone: "Tous ceux qui ont le rôle confirmation",
     targetTitle: "L'objectif du jour",
     targetHint: "Auto donne à chaque agent le travail réellement devant lui aujourd'hui, dans la fourchette définie par les 30 derniers jours de cette équipe. Fixe impose un seul chiffre à tous.",
     target_auto: "Auto — par agent",

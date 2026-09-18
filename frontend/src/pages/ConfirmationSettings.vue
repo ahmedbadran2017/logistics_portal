@@ -76,6 +76,29 @@
         </div>
       </div>
 
+      <!-- who is on confirmation duty: the people the shared pool may hand a
+           live customer to. Empty = everyone with the role. -->
+      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 space-y-3">
+        <div class="text-[12px] font-semibold text-stone-900">{{ t('cfs.rosterTitle') }}</div>
+        <p class="text-[11.5px] text-stone-500">{{ t('cfs.rosterHint') }}</p>
+        <div class="flex flex-wrap gap-1.5">
+          <span v-for="(a, i) in s.poolRoster" :key="a"
+                class="inline-flex items-center gap-1.5 h-8 ps-3 pe-1.5 rounded-lg text-[12px] font-mono text-teal-700 bg-teal-50 ring-1 ring-teal-200">
+            {{ a }}
+            <button v-if="s.canEdit" :title="t('common.close')" class="w-5 h-5 rounded hover:bg-rose-100 text-teal-400 hover:text-rose-600 flex items-center justify-center"
+                    @click="s.poolRoster.splice(i, 1); dirty = true"><Icon name="x" :size="11" /></button>
+          </span>
+          <span v-if="!(s.poolRoster || []).length" class="text-[12px] text-stone-400">{{ t('cfs.rosterEveryone') }}</span>
+        </div>
+        <div v-if="s.canEdit" class="flex items-center gap-2">
+          <input v-model="newRoster" :placeholder="t('cfs.adminPh')" type="email"
+                 class="flex-1 h-9 ps-3 pe-3 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] font-mono focus:outline-none"
+                 @keyup.enter="addRoster" />
+          <button class="h-9 px-3 rounded-lg text-[12px] font-semibold text-stone-700 bg-stone-100 hover:bg-stone-200"
+                  @click="addRoster">+ {{ t('cfs.addAdmin') }}</button>
+        </div>
+      </div>
+
       <!-- section admins (portal manager only) -->
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 space-y-3">
         <div class="text-[12px] font-semibold text-stone-900">{{ t('cfs.adminsTitle') }}</div>
@@ -134,6 +157,7 @@ const dirty = ref(false);
 const saving = ref(false);
 const newReason = ref("");
 const newAdmin = ref("");
+const newRoster = ref("");
 
 async function loadSettings() {
   loading.value = true;
@@ -160,6 +184,15 @@ function addReason() {
   newReason.value = "";
   dirty.value = true;
 }
+function addRoster() {
+  const v = newRoster.value.trim().toLowerCase();
+  if (!v || !/^\S+@\S+\.\S+$/.test(v)) return;
+  if (!Array.isArray(s.value.poolRoster)) s.value.poolRoster = [];
+  if (s.value.poolRoster.includes(v)) return;
+  s.value.poolRoster.push(v);
+  newRoster.value = "";
+  dirty.value = true;
+}
 function addAdmin() {
   const v = newAdmin.value.trim().toLowerCase();
   if (!v || !/^\S+@\S+\.\S+$/.test(v) || s.value.admins.includes(v)) return;
@@ -175,6 +208,7 @@ async function save() {
       retryDna: Math.min(720, Math.max(1, parseInt(s.value.retryDna, 10) || 1)), retryFollowup: Math.min(720, Math.max(1, parseInt(s.value.retryFollowup, 10) || 1)),
       retryOnhold: Math.min(720, Math.max(1, parseInt(s.value.retryOnhold, 10) || 1)), slaFirstCallH: Math.min(720, Math.max(1, parseInt(s.value.slaFirstCallH, 10) || 1)),
       reasons: s.value.reasons,
+      poolRoster: s.value.poolRoster || [],
     };
     if (isManager.value) payload.admins = s.value.admins;
     const res = await apiPost("confirmation.save_cf_settings", { settings: payload });

@@ -93,7 +93,8 @@
             <span class="w-1.5 h-1.5 rounded-full shrink-0"
                   :class="!m.onShift ? 'bg-stone-300' : m.punched ? 'bg-emerald-500' : 'ring-1 ring-emerald-400'"
                   :title="m.punched ? '' : t('ws.noPunch')" />
-            <span class="min-w-0 flex-1 truncate text-stone-800">{{ m.name }}</span>
+            <span class="min-w-0 flex-1 truncate" :class="m.onDuty ? 'text-stone-800' : 'text-stone-400 italic'">{{ m.name }}</span>
+            <span v-if="!m.onDuty" class="text-[9.5px] font-semibold text-stone-400 shrink-0">{{ t('ws.offDuty') }}</span>
             <span class="tabular-nums text-stone-400" :title="t('ws.poolShort')">{{ m.holding }}</span>
             <span class="tabular-nums font-semibold text-emerald-600" :title="t('ws.doneToday')">{{ m.doneToday }}</span>
           </div>

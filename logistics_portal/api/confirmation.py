@@ -1257,6 +1257,23 @@ _CF_DEFAULTS = {
     # Nobody should be able to hoover the pool. Applies to pool draws only;
     # their own work is always theirs.
     "poolMax": 20,
+    # WHO is on confirmation duty. Empty = everyone the portal calls a
+    # confirmation agent, which is the safe default and what shipped first.
+    #
+    # It turned out that default is wrong here: the role comes from a
+    # hard-coded seed map, and five people carry it who have never made a
+    # confirmation decision — two of them work social media. The pool would
+    # have handed them live customers.
+    #
+    # Yes, this is a list of names again, which is what the Desk rule was.
+    # The difference is what the list DOES. That one was the assignment, so
+    # being off it meant getting nothing while the work piled into one
+    # person's slice, invisibly, in a record nobody opened. This one only
+    # says who may draw from the shared pool: everyone still sees their own
+    # work, the lead edits it in the portal, and the team panel right next to
+    # it shows who is on duty, who is present and who is idle. A list you can
+    # see and a list you cannot are not the same object.
+    "poolRoster": [],
 }
 
 
@@ -1350,6 +1367,17 @@ def save_cf_settings(settings=None):
         if not (1 <= v <= 500):
             frappe.throw("poolMax must be between 1 and 500.")
         out["poolMax"] = v
+    if "poolRoster" in settings:
+        from logistics_portal.api.auth import resolve_role as _rr
+        roster = [str(a).strip().lower() for a in (settings["poolRoster"] or []) if str(a).strip()]
+        for a in roster:
+            if not frappe.db.exists("User", a):
+                frappe.throw(f"Unknown user: {a}")
+            # A roster entry without a live lane role is a silent no-op — the
+            # gate reads the role first, so the name would simply never match.
+            if _rr(a) not in ("confirmation", "manager"):
+                frappe.throw(f"{a} has no confirmation role.")
+        out["poolRoster"] = roster[:50]
     if "dayTargetMode" in settings:
         v = str(settings["dayTargetMode"]).strip().lower()
         if v not in ("auto", "fixed"):
@@ -2594,6 +2622,9 @@ def _pool_block(user):
     cfg = _cf_settings()
     if not cfg.get("poolEnabled"):
         return "off"
+    roster = cfg.get("poolRoster") or []
+    if roster and user not in roster:
+        return "notroster"
     if cfg.get("poolPresence") and not _on_shift(user):
         return "offshift"
     cap = int(cfg.get("poolMax") or 20)
@@ -2739,8 +2770,11 @@ def pool_team():
     # Three of the eight on production have no check-in record at all; showing
     # them with the same green dot as someone who really punched IN would be
     # the screen asserting something it does not know.
+    roster = _cf_settings().get("poolRoster") or []
     out = [{"user": k, "name": users[k], "onShift": bool(shift.get(k, True)),
             "punched": k in shift,
+            # No roster set = everyone is on duty, which is what the gate does.
+            "onDuty": (not roster) or k in roster,
             "holding": holding.get(k, 0), "doneToday": done.get(k, 0)}
            for k in keys]
     out.sort(key=lambda r: (not r["onShift"], -r["holding"]))
