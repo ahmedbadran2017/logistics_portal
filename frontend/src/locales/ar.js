@@ -2004,6 +2004,7 @@ export default {
     "Returned": "رجعت",
   },
   ws: {
+    freshWaiting: "{n} أوردر جديد — محدش كلمهم لسه",
     poolBlk_notroster: "إنت مش في روتيشن الكونفيرميشن — كلّم الlead يضيفك",
     offDuty: "مش في الروتيشن",
     noPunch: "مفيش تسجيل حضور — مفترض إنه موجود",

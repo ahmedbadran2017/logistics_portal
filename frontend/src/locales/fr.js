@@ -2005,6 +2005,7 @@ export default {
     "Returned": "Retournée",
   },
   ws: {
+    freshWaiting: "{n} nouvelles — personne ne les a encore appelés",
     poolBlk_notroster: "Vous n'êtes pas en rotation confirmation — demandez à un responsable",
     offDuty: "hors rotation",
     noPunch: "aucun pointage — présence supposée",

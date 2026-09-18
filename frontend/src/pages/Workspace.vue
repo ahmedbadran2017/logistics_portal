@@ -66,6 +66,17 @@
         </div>
       </div>
 
+      <!-- A customer ordered and nobody has spoken to them yet. Ordering new
+           work to the front only helps an agent who presses Next; the one
+           sitting between calls needs telling. -->
+      <button v-if="freshN && freshCanTake"
+              class="w-full sm:w-auto inline-flex items-center gap-2.5 h-12 px-5 rounded-2xl text-[14px] font-bold text-white bg-rose-600 hover:bg-rose-700 shadow-md animate-pulse"
+              :disabled="serving" @click="serveNext(false)">
+        <Icon name="zap" :size="17" />
+        {{ t('ws.freshWaiting').replace('{n}', freshN) }}
+        <span v-if="freshOldest" class="text-[11.5px] font-semibold text-white/80 tabular-nums" dir="ltr">{{ freshOldest }}m</span>
+      </button>
+
       <!-- work nobody is on. Shown even when the agent has their own queue:
            the point is that an idle person can SEE there is something. The
            reason travels with the number — 40 waiting behind a dead button
@@ -1054,6 +1065,18 @@ async function serveNext(skipCurrent = false) {
 
 // The shared pool's depth. Cheap (one indexed count, 12 ms on production),
 // refreshed with the board rather than on its own timer.
+const freshN = ref(0);
+const freshOldest = ref(0);
+const freshCanTake = ref(true);
+async function loadFresh() {
+  try {
+    const r = await api("confirmation.fresh_waiting");
+    freshN.value = r.n || 0;
+    freshOldest.value = r.oldestMin || 0;
+    freshCanTake.value = r.canTake !== false;
+  } catch { freshN.value = 0; }
+}
+
 const poolN = ref(0);
 const poolBlock = ref("");
 const team = ref([]);
@@ -1108,6 +1131,7 @@ async function _serve(skipCurrent = false) {
   } finally {
     serving.value = false;
     loadPool();
+    loadFresh();
   }
 }
 
@@ -1264,6 +1288,7 @@ const router = useRouter();
 onMounted(() => {
   loadBoard();
   loadPool();
+  loadFresh();
   // Deep link from the Confirmation board: open THIS order (and, in list
   // mode, THIS queue) instead of whatever serve-next would pick.
   const tb = String(route.query.tab || "");
@@ -1300,9 +1325,17 @@ const planTimer = setInterval(() => {
   if (document.visibilityState === "visible" && !serving.value && !busy.value
       && !cardLoading.value) loadBoard();
 }, 120000);
+// Separate and far more often than the board: a new order's whole value is
+// how fast somebody calls it, and the board reload costs too much to run at
+// this rate. Safe while the agent is on a call — it only lights a button,
+// it never moves the card under them.
+const freshTimer = setInterval(() => {
+  if (document.visibilityState === "visible") { loadFresh(); loadPool(); }
+}, 30000);
 onUnmounted(() => {
   clearTimeout(retryTimer);
   clearInterval(planTimer);
+  clearInterval(freshTimer);
   clearInterval(cardTick);
   window.removeEventListener("keydown", onKey);
   if (active.value) apiPost("confirmation.release_order", { order: active.value.name }).catch(() => {});

@@ -2716,6 +2716,30 @@ def pool_depth():
 
 
 @frappe.whitelist()
+def fresh_waiting():
+    """How many customers have ordered and nobody has spoken to them yet.
+
+    Ordering new work to the front only helps an agent who presses Next. The
+    one sitting between calls with an empty queue never learns that a fresh
+    order landed — so this is the number the screen shouts. One indexed
+    count, cheap enough to ask every half minute."""
+    _gate()
+    if not _cf_settings().get("poolEnabled"):
+        return {"n": 0, "oldestMin": 0}
+    vals = _pool_vals({"co": _CO, "now": str(now_datetime())[:19]})
+    r = frappe.db.sql(
+        f"""SELECT COUNT(*) n, MIN(so.creation) oldest FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
+              AND so.custom_sales_status = 'Pending'
+              AND {_pool_cond()}""", vals, as_dict=True)[0]
+    mins = 0
+    if r.oldest:
+        mins = max(0, int((now_datetime() - r.oldest).total_seconds() // 60))
+    return {"n": int(r.n or 0), "oldestMin": mins,
+            "canTake": not _pool_block(frappe.session.user)}
+
+
+@frappe.whitelist()
 def pool_team():
     """Who is at their desk, what they are holding, what they have decided
     today. The question the old assignment rule could not answer: a fixed
