@@ -66,6 +66,17 @@
         </div>
       </div>
 
+      <!-- work nobody is on. Shown even when the agent has their own queue:
+           the point is that an idle person can SEE there is something. -->
+      <div v-if="poolN" class="flex items-center gap-2 bg-teal-50 rounded-2xl ring-1 ring-teal-200 px-3.5 py-1.5 shadow-sm"
+           :title="t('ws.poolLeft').replace('{n}', poolN)">
+        <span class="w-7 h-7 rounded-lg bg-teal-100 text-teal-600 flex items-center justify-center"><Icon name="users" :size="15" /></span>
+        <div class="leading-tight">
+          <div class="text-[17px] font-extrabold tabular-nums text-teal-600">{{ poolN }}</div>
+          <div class="text-[9.5px] font-semibold uppercase tracking-wide text-teal-500">{{ t('ws.poolShort') }}</div>
+        </div>
+      </div>
+
       <button class="ms-auto inline-flex items-center gap-2 h-12 px-6 rounded-2xl text-[14.5px] font-bold text-white shadow-md transition-all hover:shadow-lg disabled:opacity-50"
               :style="{ background: 'var(--accent-600)' }" :disabled="serving" @click="serveNext(true)">
         <Icon name="sparkles" :size="16" />{{ serving ? t('ws.serving') : t('ws.next') }}
@@ -1017,6 +1028,16 @@ async function serveNext(skipCurrent = false) {
   return _serve(skipCurrent);
 }
 
+// The shared pool's depth. Cheap (one indexed count, 12 ms on production),
+// refreshed with the board rather than on its own timer.
+const poolN = ref(0);
+async function loadPool() {
+  try {
+    const r = await api("confirmation.pool_depth");
+    poolN.value = r.enabled ? (r.n || 0) : 0;
+  } catch { poolN.value = 0; }
+}
+
 async function _serve(skipCurrent = false) {
   serving.value = true;
   try {
@@ -1025,7 +1046,15 @@ async function _serve(skipCurrent = false) {
     // the order left the queue on its own, so no marker.
     const skip = skipCurrent && active.value ? active.value.name : undefined;
     const r = await apiPost("confirmation.next_order", skip ? { skip } : {});
-    if (r.order) await openOrder(r.order);
+    if (r.order) {
+      await openOrder(r.order);
+      // Say where it came from. An order arriving out of a colleague's slice
+      // without a word is the kind of thing a team notices and resents; said
+      // out loud it reads as covering for each other, which is what it is.
+      if (r.fromPool) {
+        success(t("ws.fromPool"), r.tookFrom ? String(r.tookFrom).split("@")[0] : "");
+      }
+    }
     else {
       active.value = null;
       activeRow.value = null;
@@ -1042,6 +1071,7 @@ async function _serve(skipCurrent = false) {
     warn(t("cf.loadFail"), String(e.message || e));
   } finally {
     serving.value = false;
+    loadPool();
   }
 }
 
@@ -1197,6 +1227,7 @@ const route = useRoute();
 const router = useRouter();
 onMounted(() => {
   loadBoard();
+  loadPool();
   // Deep link from the Confirmation board: open THIS order (and, in list
   // mode, THIS queue) instead of whatever serve-next would pick.
   const tb = String(route.query.tab || "");

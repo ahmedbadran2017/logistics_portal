@@ -2004,6 +2004,9 @@ export default {
     "Returned": "Came back",
   },
   ws: {
+    poolShort: "free",
+    fromPool: "Picked up from the shared pool",
+    poolLeft: "{n} waiting for anyone",
     outOfLane: "This order has left the confirmation lane — you're viewing it, not deciding it.",
     jReturned: "Came back",
     oosOne: "Out of stock — one item can't be picked",

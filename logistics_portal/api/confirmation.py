@@ -1226,6 +1226,21 @@ _CF_DEFAULTS = {
     # the desk with no cap and no trail.
     "discountCapPct": 15,
     "discountCapAmt": 50,
+    # ── the shared pool ──
+    # The lane's work is fenced by the Desk's "Sales Person Assignment Rule",
+    # a record with exactly three names in it that nobody opens. Anyone not on
+    # that list gets no orders however free they are, and an order sitting in
+    # a busy agent's slice is invisible to an idle colleague. Measured
+    # 2026-09-18: first touch is 9.5h at the median and 2.4 DAYS at p90, while
+    # 80 of the 138 open orders were due and untouched for over two hours.
+    #
+    # So when an agent's own slice runs dry, serve-next reaches into everyone
+    # else's — but only work that is actually waiting. An order with a
+    # next_call_at in the future is a promise to a customer (58 of those 138)
+    # and is never taken, whoever holds it. That line is what makes this
+    # colleagues covering for each other instead of the system stealing work.
+    "poolEnabled": True,
+    "poolAfterH": 2,      # untouched this long and it belongs to whoever is free
 }
 
 
@@ -1303,12 +1318,15 @@ def save_cf_settings(settings=None):
             if not (0 <= v <= (100 if k == "discountCapPct" else 100000)):
                 frappe.throw(f"{k} out of range.")
             out[k] = v
-    for k in ("retryDna", "retryFollowup", "retryOnhold", "slaFirstCallH"):
+    for k in ("retryDna", "retryFollowup", "retryOnhold", "slaFirstCallH",
+              "poolAfterH"):
         if k in settings:
             v = int(settings[k])
             if not (1 <= v <= 168):
                 frappe.throw(f"{k} must be between 1 and 168 hours.")
             out[k] = v
+    if "poolEnabled" in settings:
+        out["poolEnabled"] = bool(settings["poolEnabled"])
     if "dayTargetMode" in settings:
         v = str(settings["dayTargetMode"]).strip().lower()
         if v not in ("auto", "fixed"):
@@ -2485,6 +2503,85 @@ def my_pins():
 # ── Serve-next: the workspace engine (Phase B) ──────────────────────────────
 
 
+# ── the shared pool ───────────────────────────────────────────────────────
+
+def _last_touch_sql():
+    """When a human last worked this order through the portal. NULL means
+    nobody ever has — the oldest kind of waiting there is."""
+    return ("(SELECT MAX(c.creation) FROM `tabComment` c "
+            "WHERE c.reference_doctype = 'Sales Order' AND c.reference_name = so.name "
+            "AND (c.content LIKE 'Confirmation:%%' OR c.content LIKE 'CC:%%' "
+            "     OR c.content LIKE 'Note —%%'))")
+
+
+def _pool_cond():
+    """Work that is waiting for anybody: due now, and untouched long enough
+    that whoever holds it plainly is not on it.
+
+    `_DUE` already excludes a future next_call_at, which is the promise to a
+    customer, so a scheduled call-back can never be taken from the agent who
+    made the promise."""
+    return f"{_DUE} AND COALESCE({_last_touch_sql()}, '1900-01-01') <= %(quiet)s"
+
+
+def _pool_vals(vals):
+    cfg = _cf_settings()
+    h = min(max(int(cfg.get("poolAfterH") or 2), 1), 168)
+    vals["quiet"] = str(add_to_date(now_datetime(), hours=-h))[:19]
+    return vals
+
+
+def _take_from_pool(order):
+    """Move the ERPNext assignment to the person who just picked this up.
+
+    _assign is what the board filters by and what _own_guard reads, so
+    without this the agent would be handed an order they are not allowed to
+    act on. The handover is written on the order as well: taking a colleague's
+    work silently is the one thing that would make the team distrust this."""
+    try:
+        from frappe.desk.form import assign_to
+        was = frappe.db.get_value("Sales Order", order, "_assign") or ""
+        me = frappe.session.user
+        if f'"{me}"' in was:
+            return ""
+        prev = ""
+        try:
+            import json as _json
+            holders = [u for u in (_json.loads(was) or []) if u]
+            prev = holders[0] if holders else ""
+            for u in holders:
+                assign_to.remove("Sales Order", order, u)
+        except Exception:
+            pass
+        assign_to.add({"doctype": "Sales Order", "name": order,
+                       "assign_to": [me], "description": "Confirmation pool"})
+        if prev and prev != me:
+            frappe.get_doc("Sales Order", order).add_comment(
+                "Comment", f"Pool: taken from {prev} · by {me}")
+        return prev
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "confirmation._take_from_pool")
+        return ""
+
+
+@frappe.whitelist()
+def pool_depth():
+    """How much work is waiting for anybody. Shown so an idle agent can see
+    there IS something, and a lead can see the lane backing up."""
+    _gate()
+    vals = _pool_vals({"co": _CO, "now": str(now_datetime())[:19]})
+    if not _cf_settings().get("poolEnabled"):
+        return {"n": 0, "enabled": False}
+    retry_sts = tuple(v for k, v in QUEUES.items() if k != "pending")
+    vals["sts"] = retry_sts
+    n = frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tabSales Order` so
+            WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
+              AND (so.custom_sales_status IN %(sts)s OR so.custom_sales_status = 'Pending')
+              AND {_pool_cond()}""", vals)[0][0]
+    return {"n": int(n or 0), "enabled": True}
+
+
 @frappe.whitelist(methods=["POST"])
 def next_order(skip=None, as_user=None):
     """Hand the agent the ONE order to work now — due retries first (oldest
@@ -2558,6 +2655,30 @@ def next_order(skip=None, as_user=None):
             if not view_as:
                 cache.set_value(lock, me, expires_in_sec=300)
             return {"order": name}
+
+    # Their own slice is empty. Before telling a free agent there is nothing
+    # to do, look at what the rest of the lane is sitting on — but only the
+    # part that is genuinely waiting (see _pool_cond). Oldest wait first, so
+    # the pool drains from the end that has been waiting longest rather than
+    # the end that is easiest.
+    if mine and not view_as and _cf_settings().get("poolEnabled"):
+        _pool_vals(vals)
+        vals["sts"] = retry_sts
+        for (name,) in frappe.db.sql(
+                f"""SELECT so.name FROM `tabSales Order` so
+                    WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
+                      AND (so.custom_sales_status IN %(sts)s
+                           OR so.custom_sales_status = 'Pending')
+                      AND {_pool_cond()}
+                    ORDER BY {_DUE_AT} LIMIT 25""", vals):
+            if cache.get_value(f"lp_skip_{me}_{name}"):
+                continue
+            lock = f"lp_serve_{name}"
+            if cache.get_value(lock) and cache.get_value(lock) != me:
+                continue
+            cache.set_value(lock, me, expires_in_sec=300)
+            prev = _take_from_pool(name)
+            return {"order": name, "fromPool": True, "tookFrom": prev}
     return {"order": None}
 
 

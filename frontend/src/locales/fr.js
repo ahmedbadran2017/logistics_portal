@@ -2005,6 +2005,9 @@ export default {
     "Returned": "Retournée",
   },
   ws: {
+    poolShort: "libres",
+    fromPool: "Pris dans la file partagée",
+    poolLeft: "{n} en attente pour tous",
     outOfLane: "Cette commande a quitté la file de confirmation — consultation seule.",
     jReturned: "Retournée",
     oosOne: "Rupture de stock — un article ne peut pas être préparé",
