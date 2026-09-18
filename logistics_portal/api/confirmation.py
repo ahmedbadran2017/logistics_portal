@@ -2875,22 +2875,53 @@ def next_order(skip=None, as_user=None):
         return {"order": name, "pinned": True}
 
     retry_sts = tuple(v for k, v in QUEUES.items() if k != "pending")
-    _retry = (f"""SELECT so.name FROM `tabSales Order` so
-                  WHERE so.docstatus = 1 AND so.company = %(co)s
-                    AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
-                    AND {_DUE}{me_q}
-                  ORDER BY {_DUE_AT} LIMIT 25""",
-              {"sts": retry_sts})
-    _fresh = (f"""SELECT so.name FROM `tabSales Order` so
-                  WHERE so.docstatus = 1 AND so.company = %(co)s
-                    AND so.custom_sales_status = 'Pending' AND {_IN_HAND}
-                    AND so.creation >= DATE_SUB(NOW(), INTERVAL 30 DAY){me_q}
-                  ORDER BY so.creation LIMIT 25""", {})
-    # The agent's own list obeys the same rule as the pool, or the two would
-    # disagree about what matters and the agent would meet the new order only
-    # after clearing yesterday's.
-    for sql, extra in ((_fresh, _retry) if _cf_settings().get("poolNewFirst")
-                       else (_retry, _fresh)):
+    # Priority is WHAT the work is, not WHOSE it is.
+    #
+    # The passes used to run "everything of mine, then the pool", so an agent
+    # holding retries never reached the pool's new orders. Measured on
+    # production: the red button told Salma 22 customers were waiting and
+    # then handed her a Follow Up, with 21 more retries to clear before the
+    # pool came into view. The button was honest about the pool and the
+    # server was answering from somewhere else.
+    #
+    # A customer who ordered minutes ago outranks a call-back from yesterday
+    # whoever is holding it, so Pending sweeps own-then-pool before retries
+    # do. Mine still comes before the pool INSIDE each kind: covering for a
+    # colleague should not jump my own queue of the same thing.
+    _own = me_q
+    _retry_own = (f"""SELECT so.name FROM `tabSales Order` so
+                      WHERE so.docstatus = 1 AND so.company = %(co)s
+                        AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
+                        AND {_DUE}{_own}
+                      ORDER BY {_DUE_AT} LIMIT 25""", {"sts": retry_sts})
+    _fresh_own = (f"""SELECT so.name FROM `tabSales Order` so
+                      WHERE so.docstatus = 1 AND so.company = %(co)s
+                        AND so.custom_sales_status = 'Pending' AND {_IN_HAND}
+                        AND so.creation >= DATE_SUB(NOW(), INTERVAL 30 DAY){_own}
+                      ORDER BY so.creation LIMIT 25""", {})
+
+    can_pool = mine and not view_as and not _pool_block(me)
+    if can_pool:
+        _pool_vals(vals)
+    _fresh_pool = (f"""SELECT so.name FROM `tabSales Order` so
+                       WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
+                         AND so.custom_sales_status = 'Pending'
+                         AND {_pool_cond()}
+                       ORDER BY so.creation LIMIT 25""", {})
+    _retry_pool = (f"""SELECT so.name FROM `tabSales Order` so
+                       WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
+                         AND so.custom_sales_status IN %(sts)s
+                         AND {_pool_cond()}
+                       ORDER BY {_DUE_AT} LIMIT 25""", {"sts": retry_sts})
+
+    if _cf_settings().get("poolNewFirst"):
+        passes = [(_fresh_own, 0), (_fresh_pool, 1), (_retry_own, 0), (_retry_pool, 1)]
+    else:
+        passes = [(_retry_own, 0), (_fresh_own, 0), (_retry_pool, 1), (_fresh_pool, 1)]
+
+    for (sql, extra), from_pool in passes:
+        if from_pool and not can_pool:
+            continue
         for (name,) in frappe.db.sql(sql, {**vals, **extra}):
             if cache.get_value(f"lp_skip_{me}_{name}"):
                 continue
@@ -2901,29 +2932,8 @@ def next_order(skip=None, as_user=None):
             # order without locking it away from the agent's own serve flow.
             if not view_as:
                 cache.set_value(lock, me, expires_in_sec=300)
-            return {"order": name}
-
-    # Their own slice is empty. Before telling a free agent there is nothing
-    # to do, look at what the rest of the lane is sitting on — but only the
-    # part that is genuinely waiting (see _pool_cond). Oldest wait first, so
-    # the pool drains from the end that has been waiting longest rather than
-    # the end that is easiest.
-    if mine and not view_as and not _pool_block(me):
-        _pool_vals(vals)
-        vals["sts"] = retry_sts
-        for (name,) in frappe.db.sql(
-                f"""SELECT so.name FROM `tabSales Order` so
-                    WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
-                      AND (so.custom_sales_status IN %(sts)s
-                           OR so.custom_sales_status = 'Pending')
-                      AND {_pool_cond()}
-                    ORDER BY {_serve_order()} LIMIT 25""", vals):
-            if cache.get_value(f"lp_skip_{me}_{name}"):
-                continue
-            lock = f"lp_serve_{name}"
-            if cache.get_value(lock) and cache.get_value(lock) != me:
-                continue
-            cache.set_value(lock, me, expires_in_sec=300)
+            if not from_pool:
+                return {"order": name}
             prev = _take_from_pool(name)
             return {"order": name, "fromPool": True, "tookFrom": prev}
     return {"order": None}
