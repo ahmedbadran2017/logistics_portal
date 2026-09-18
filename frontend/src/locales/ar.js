@@ -2238,7 +2238,7 @@ export default {
     v_cancelled: "العميل لغى", v_unreachable: "مش بيرد", v_appointment: "في معاد", v_moving: "لسه ماشي", v_returned: "راجع", v_other: "ملاحظة كارير",
     title: "الإنقاذ",
     intro: "الطرد خرج والتوصيل بيفشل — اتصل بالعميل وأنقذ البيعة.",
-    searchPh: "طرد، AWB، عميل…",
+    searchPh: "طرد، AWB، عميل، تليفون…",
     tabExceptions: "استثناءات",
     tabFailed: "محاولات فاشلة",
     tabNotDelivered: "لم يُسلَّم",

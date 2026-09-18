@@ -2238,7 +2238,7 @@ export default {
     v_cancelled: "customer cancelled", v_unreachable: "unreachable", v_appointment: "appointment set", v_moving: "still moving", v_returned: "returning", v_other: "carrier note",
     title: "Rescue",
     intro: "The parcel is out and the delivery is failing — call the customer, save the sale.",
-    searchPh: "Parcel, AWB, customer…",
+    searchPh: "Parcel, AWB, customer, phone…",
     tabExceptions: "Exceptions",
     tabFailed: "Failed attempts",
     tabNotDelivered: "Not delivered",

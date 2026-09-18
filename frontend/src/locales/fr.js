@@ -2239,7 +2239,7 @@ export default {
     v_cancelled: "client a annulé", v_unreachable: "injoignable", v_appointment: "rendez-vous pris", v_moving: "en mouvement", v_returned: "en retour", v_other: "note transporteur",
     title: "Sauvetage",
     intro: "Le colis est dehors et la livraison échoue — appelez le client, sauvez la vente.",
-    searchPh: "Colis, AWB, client…",
+    searchPh: "Colis, AWB, client, téléphone…",
     tabExceptions: "Exceptions",
     tabFailed: "Tentatives échouées",
     tabNotDelivered: "Non livrées",

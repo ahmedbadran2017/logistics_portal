@@ -439,6 +439,19 @@ def _cached_counts(days):
     return counts
 
 
+def _q_phone(q, vals, col):
+    """The phone half of a search box, or "" when what was typed is not a
+    number. Moroccan numbers are stored in every shape a person types —
+    55% of them carry spaces INSIDE the digits — so a plain LIKE on the
+    column finds almost nothing; see api/utils.phone_tail_sql."""
+    from logistics_portal.api.utils import phone_digits, phone_tail_sql
+    ph = phone_digits(q)
+    if not ph:
+        return ""
+    vals["ph"] = f"%{ph}"
+    return " OR " + phone_tail_sql(col)
+
+
 def _mine_count(days):
     """Outside the shared cache on purpose: this depth belongs to one person,
     and a cached one would show an agent somebody else's pile."""
@@ -509,8 +522,11 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason="", surfac
         vals["co"] = _CO
         if q and str(q).strip():
             vals["q"] = f"%{str(q).strip()}%"
-            conds.append("""(so.name LIKE %(q)s OR so.customer_name LIKE %(q)s
-                            OR so.custom_customer_phone LIKE %(q)s OR so.custom_awb LIKE %(q)s)""")
+            conds.append("(so.name LIKE %(q)s OR so.customer_name LIKE %(q)s"
+                         " OR so.custom_awb LIKE %(q)s"
+                         + _q_phone(q, vals,
+                                    "NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone")
+                         + ")")
         where = " AND ".join(conds)
         total = frappe.db.sql(
             f"SELECT COUNT(*) FROM `tabSales Order` so WHERE {where}", vals)[0][0]
@@ -531,8 +547,11 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason="", surfac
         where = _dn_where(tab, vals, reason)
         if q and str(q).strip():
             vals["q"] = f"%{str(q).strip()}%"
-            where += """ AND (dn.name LIKE %(q)s OR dn.customer_name LIKE %(q)s
-                         OR dn.custom_awb LIKE %(q)s)"""
+            where += (" AND (dn.name LIKE %(q)s OR dn.customer_name LIKE %(q)s"
+                      " OR dn.custom_awb LIKE %(q)s"
+                      + _q_phone(q, vals,
+                                 "NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone")
+                      + ")")
         # The verdict condition reads the order, so the count needs the join.
         # Without a search it is the same number for everyone — share it.
         tk = f"lp_rescue_total:{tab}:{days}:{reason}" if not (q and str(q).strip()) else ""
