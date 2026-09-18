@@ -18,10 +18,13 @@ import { useI18n } from "@/composables/useI18n";
 // language, so it throws a key ("lp:leadsOnly") and the key is rendered here
 // in whatever the reader has chosen.
 function translateServer(msg) {
-  const m = /^lp:([A-Za-z0-9_]+)$/.exec(msg || "");
+  // "lp:key" or "lp:key|argument" — the argument carries the one fact the
+  // message is useless without, such as WHICH colleague is on the customer.
+  const m = /^lp:([A-Za-z0-9_]+)(?:\|(.*))?$/.exec(msg || "");
   if (!m) return msg;
   const { t } = useI18n();
-  return t("srv." + m[1], msg);
+  const out = t("srv." + m[1], msg);
+  return m[2] ? String(out).replace("{0}", m[2]) : out;
 }
 
 /** Build an Error carrying the server's human message (Frappe packs it into

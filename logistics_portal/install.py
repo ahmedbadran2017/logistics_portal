@@ -224,6 +224,21 @@ _SO_PACK_FIELDS = [
      "read_only": 1, "no_copy": 1, "hidden": 1},
 ]
 
+_SO_CC_OPEN_FIELDS = [
+    # Who has this customer's card open RIGHT NOW. A cache lock used to do
+    # this and it failed in production on 2026-09-18: two agents were handed
+    # the same order ninety seconds apart and both called the customer. The
+    # cache dies on a restart, is deleted when an agent skips, and expires on
+    # a fixed five minutes whether or not the call is still going.
+    #
+    # The stamp is refreshed by the open card itself, so a long call keeps
+    # the lock and a closed laptop loses it within minutes.
+    {"fieldname": "custom_cc_open_by", "label": "CC Open By", "fieldtype": "Data",
+     "read_only": 1, "no_copy": 1, "hidden": 1},
+    {"fieldname": "custom_cc_open_at", "label": "CC Open At", "fieldtype": "Datetime",
+     "read_only": 1, "no_copy": 1, "hidden": 1},
+]
+
 _SO_SHORT_FIELDS = [
     # Set when a picker reports the item physically missing (short pick):
     # batching skips the order for 24h so it doesn't bounce straight back
@@ -283,7 +298,8 @@ def ensure_pick_fields():
     try:
         from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
         create_custom_fields({"Pick List Item": _PLI_FIELDS,
-                              "Sales Order": _SO_SHORT_FIELDS + _SO_CONTACT_FIELDS + _SO_PACK_FIELDS,
+                              "Sales Order": _SO_SHORT_FIELDS + _SO_CONTACT_FIELDS
+                              + _SO_PACK_FIELDS + _SO_CC_OPEN_FIELDS,
                               "Delivery Note": _DN_EXC_FIELDS}, ignore_validate=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_pick_fields")

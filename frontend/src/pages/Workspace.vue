@@ -124,7 +124,18 @@
 
       <!-- CENTER: the active order card — every decision tool in one place -->
       <div>
-        <div v-if="!active && !cardLoading" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-12 text-center">
+        <!-- Somebody else is on this customer. Named, timed, and it moves
+             the agent on by itself — a refusal with nowhere to go is how a
+             portal teaches people to click twice. -->
+        <div v-if="busyBy" class="bg-amber-50 rounded-2xl ring-1 ring-amber-300 p-10 text-center">
+          <span class="inline-flex w-14 h-14 rounded-2xl items-center justify-center bg-amber-100 text-amber-600 mb-3">
+            <Icon name="user" :size="26" /></span>
+          <div class="text-[15px] font-bold text-stone-900">{{ t('ws.busyTitle').replace('{who}', busyBy) }}</div>
+          <div v-if="busySince" class="text-[12.5px] text-stone-500 mt-1" dir="ltr">{{ busySince.slice(11) }}</div>
+          <div class="text-[12px] text-amber-700 mt-3">{{ t('ws.busyNext') }}</div>
+        </div>
+
+        <div v-else-if="!active && !cardLoading" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-12 text-center">
           <span class="inline-flex w-14 h-14 rounded-2xl items-center justify-center bg-[var(--accent-50)] text-[var(--accent-600)] mb-3"><Icon name="sparkles" :size="26" /></span>
           <div class="text-[15px] font-semibold text-stone-900">{{ t('ws.emptyTitle') }}</div>
           <div class="text-[12.5px] text-stone-500 mt-1 max-w-sm mx-auto">{{ t('ws.emptyHint') }}</div>
@@ -326,6 +337,13 @@
                         @done="panel = ''" />
           </Transition>
 
+          <!-- A lead may read a card somebody is working; the decision row
+               below is hidden for them, because acting on it would take the
+               customer out from under the person on the phone. -->
+          <div v-if="readOnly" class="rounded-xl bg-amber-50 ring-1 ring-amber-200 px-3.5 py-2 text-[12px] text-amber-800 flex items-center gap-2">
+            <Icon name="eye" :size="14" />{{ t('ws.readOnly') }}
+          </div>
+
           <!-- Blocked customer: the warning IS the interface -->
           <div v-if="isBlocked" class="rounded-xl bg-rose-600 text-white px-4 py-2.5 flex items-center gap-2.5">
             <Icon name="shield-alert" :size="16" />
@@ -339,7 +357,7 @@
                clickable history lands the agent on delivered / returned /
                cancelled orders, where every one of these posts is rejected
                by the backend; offering them was a guaranteed error toast. -->
-          <div v-if="inLane" class="flex flex-wrap gap-2">
+          <div v-if="inLane && !readOnly" class="flex flex-wrap gap-2">
             <button class="ws-decide flex-[2] min-w-[160px] text-white"
                     :class="isBlocked ? (confirmArmed ? 'bg-rose-600 hover:bg-rose-700' : 'bg-stone-400 hover:bg-stone-500') : 'bg-emerald-600 hover:bg-emerald-700'"
                     :disabled="busy" @click="onConfirm">
@@ -963,9 +981,34 @@ async function openOrder(name) {
   cardSeconds.value = 0;
   clearInterval(cardTick);
   cardTick = setInterval(() => { cardSeconds.value += 1; }, 1000);
+  // Hold it for as long as the call lasts, not for a flat five minutes —
+  // and let go on its own if the laptop closes.
+  clearInterval(holdTimer);
+  holdTimer = setInterval(() => {
+    if (active.value?.name) apiPost("confirmation.hold_open", { order: active.value.name }).catch(() => {});
+  }, 60000);
   cardLoading.value = true;
   const seq = ++openSeq;    // rapid clicks: only the LATEST response paints
   try {
+    // Take the card BEFORE loading it. The block has to be at open, not at
+    // the decision: the old guard refused the button press, which is after
+    // the agent has already phoned a customer their colleague was phoning.
+    const lock = await apiPost("confirmation.open_order", { order: name });
+    if (seq !== openSeq) return;
+    if (lock && lock.ok === false) {
+      busyBy.value = (lock.by || "").split("@")[0];
+      busySince.value = lock.since || "";
+      active.value = null;
+      activeRow.value = null;
+      cardLoading.value = false;
+      // Two seconds, then move them on. Jumping instantly reads as a broken
+      // screen; leaving them on a dead card reads as a broken portal.
+      clearTimeout(busyTimer);
+      busyTimer = setTimeout(() => { busyBy.value = ""; serveNext(false); }, 2000);
+      return;
+    }
+    readOnly.value = !!(lock && lock.readOnly);
+    busyBy.value = "";
     const det = await api("orders.detail", { name });
     if (seq !== openSeq) return;
     if (!det || !det.name) {
@@ -1039,6 +1082,13 @@ async function serveNext(skipCurrent = false) {
 
 // The shared pool's depth. Cheap (one indexed count, 12 ms on production),
 // refreshed with the board rather than on its own timer.
+// Somebody else has this customer's card open.
+const busyBy = ref("");
+const busySince = ref("");
+const readOnly = ref(false);
+let busyTimer = null;
+let holdTimer = null;
+
 const freshN = ref(0);
 // The button turns into the alarm only when this agent can actually act on
 // it — a red button that serves somebody else's work is a lie.
@@ -1314,6 +1364,8 @@ onUnmounted(() => {
   clearInterval(planTimer);
   clearInterval(freshTimer);
   clearInterval(cardTick);
+  clearInterval(holdTimer);
+  clearTimeout(busyTimer);
   window.removeEventListener("keydown", onKey);
   if (active.value) apiPost("confirmation.release_order", { order: active.value.name }).catch(() => {});
 });

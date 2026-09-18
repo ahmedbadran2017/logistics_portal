@@ -1718,6 +1718,7 @@ export default {
     testPh: "06XXXXXXXX", testSend: "Send me a test", testSent: "Test message sent", testFail: "Test send failed",
   },
   srv: {
+    ccBusy: "{0} is on this customer right now",
     shipTeamOnly: "Shipment tracking team only.",
     pairOpen: "This shelf is counted the other way on another pending shelf and the move could not be recorded — resolve the flagged line first, posting now would book a move as a loss plus a find.",
     zeroRate: "Some found units have no valuation rate — set one in the review (Where did it come from?) before posting.",
@@ -2005,6 +2006,9 @@ export default {
     "Returned": "Came back",
   },
   ws: {
+    busyTitle: "{who} is on this customer",
+    busyNext: "Moving you to the next one…",
+    readOnly: "Someone is working this card — you are reading it",
     nextFresh: "Next · {n} new waiting",
     slaLateShort: "past {h}h",
     freshWaiting: "{n} new — nobody has called them yet",

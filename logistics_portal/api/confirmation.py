@@ -831,6 +831,18 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     }
 
 
+def _free_card(order):
+    """A decision ends the hold. Leaving it set would keep the order out of
+    every list for three minutes after it stopped being anybody's work."""
+    try:
+        if order and _has_open_fields():
+            frappe.db.set_value("Sales Order", order,
+                                {"custom_cc_open_by": "", "custom_cc_open_at": None},
+                                update_modified=False)
+    except Exception:
+        pass
+
+
 def _own_guard(role, orders):
     """A plain agent may only act on orders allocated to them; a manager or
     section admin may act on any. Every write path calls this, so the per-agent
@@ -846,6 +858,13 @@ def _own_guard(role, orders):
     # queue's owner) NOR the actor (custom_allocated_to, stamped by act() on the
     # done tabs). Either claim lets them act, so reopening an order they decided
     # still works even when its ERPNext assignment points at someone else.
+    # Somebody is on the phone with this customer right now. _assign says
+    # whose queue it is; this says whose call it is, and only the second one
+    # stops two people talking to the same person at once.
+    for n in names:
+        who, since = _open_holder(n)
+        if who and who != frappe.session.user:
+            frappe.throw(f"lp:ccBusy|{who.split('@')[0]}", frappe.PermissionError)
     foreign = frappe.db.sql(
         """SELECT name FROM `tabSales Order`
            WHERE name IN %(n)s
@@ -978,6 +997,7 @@ def act(order, action, note=None, _bulk=False):
                     + (f" (attempt {attempts})" if action in _RETRY_HOURS else "")
                     + (f" — {note}" if note else "")
                     + f" · by {frappe.session.user}")
+    _free_card(order)
     frappe.db.commit()
     # Decided = out of the serve rotation NOW, not when the lock expires.
     frappe.cache().delete_value(f"lp_serve_{order}")
@@ -2609,7 +2629,7 @@ def _pool_cond():
     held = ("NOT EXISTS (SELECT 1 FROM `tabToDo` t WHERE t.reference_type = 'Sales Order' "
             "AND t.reference_name = so.name AND t.status = 'Open' "
             "AND t.creation > %(quiet)s)")
-    return (f"{_DUE} AND {held} AND ("
+    return (f"{_DUE} AND {held} AND {_open_free_cond()} AND ("
             f"COALESCE(so._assign, '', '[]') IN ('', '[]') "
             f"OR COALESCE({_last_touch_sql()}, '1900-01-01') <= %(quiet)s)")
 
@@ -2674,6 +2694,7 @@ def _serve_order():
 
 
 def _pool_vals(vals):
+    _open_vals(vals)
     cfg = _cf_settings()
     h = min(max(int(cfg.get("poolAfterH") or 2), 1), 168)
     vals["quiet"] = str(add_to_date(now_datetime(), hours=-h))[:19]
@@ -2909,7 +2930,8 @@ def next_order(skip=None, as_user=None):
     # whoever is holding it, so Pending sweeps own-then-pool before retries
     # do. Mine still comes before the pool INSIDE each kind: covering for a
     # colleague should not jump my own queue of the same thing.
-    _own = me_q
+    _own = me_q + " AND " + _open_free_cond()
+    _open_vals(vals)
     _retry_own = (f"""SELECT so.name FROM `tabSales Order` so
                       WHERE so.docstatus = 1 AND so.company = %(co)s
                         AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
@@ -2960,14 +2982,128 @@ def next_order(skip=None, as_user=None):
     return {"order": None}
 
 
+# ── who has the card open ─────────────────────────────────────────────────
+#
+# A cache lock used to be the only answer to "is somebody on this customer",
+# and on 2026-09-18 it failed in the way that matters: two agents were handed
+# the same order ninety seconds apart and both called. In twenty-four hours
+# 22 orders reached two people and 2 customers were actually decided twice,
+# one of them by two agents in the SAME minute.
+#
+# Three things were wrong and all three are fixed here. The lock was in the
+# cache, so a restart or a skip erased it — it is a field now. It expired on
+# a flat five minutes whether or not the call was still going — the open card
+# refreshes it, so a long call holds and a closed laptop lets go. And it was
+# invisible: the other agent saw the order, opened it, phoned the customer,
+# and only met the refusal when they pressed a button. The block is at OPEN
+# now, which is the only place it protects anybody.
+
+_OPEN_TTL_MIN = 3
+
+
+def _open_cut():
+    return str(add_to_date(now_datetime(), minutes=-_OPEN_TTL_MIN))[:19]
+
+
+def _has_open_fields():
+    try:
+        return frappe.get_meta("Sales Order").has_field("custom_cc_open_by")
+    except Exception:
+        return False
+
+
+def _open_holder(order):
+    """(who, since) for a LIVE hold — "" when free or gone stale."""
+    if not _has_open_fields():
+        return ("", "")
+    r = frappe.db.get_value("Sales Order", order,
+                            ["custom_cc_open_by", "custom_cc_open_at"], as_dict=True)
+    if not r or not r.custom_cc_open_by:
+        return ("", "")
+    if str(r.custom_cc_open_at or "")[:19] < _open_cut():
+        return ("", "")
+    return (r.custom_cc_open_by, str(r.custom_cc_open_at or "")[:16])
+
+
+def _open_free_cond(alias="so"):
+    """Rows nobody else has open. Used by every list the order can be
+    reached from — the pool was filtered and the queue list was not, which
+    is exactly how an agent found a colleague's customer to click on."""
+    if not _has_open_fields():
+        return "1 = 1"
+    return (f"(COALESCE({alias}.custom_cc_open_by,'') = '' "
+            f" OR {alias}.custom_cc_open_by = %(me)s "
+            f" OR COALESCE({alias}.custom_cc_open_at,'1900-01-01') < %(opencut)s)")
+
+
+def _open_vals(vals):
+    vals["me"] = frappe.session.user
+    vals["opencut"] = _open_cut()
+    return vals
+
+
+@frappe.whitelist(methods=["POST"])
+def open_order(order):
+    """Take the card. Serialized, and committed inside the lock: the named
+    lock spans workers, but an uncommitted write is invisible to the next
+    transaction and both agents would be told yes."""
+    role = _gate()
+    order = (order or "").strip()
+    if frappe.db.get_value("Sales Order", order, "company") != _CO:
+        frappe.throw("Unknown order.")
+    if not _has_open_fields():
+        return {"ok": True, "fields": False}
+    me = frappe.session.user
+    # A lead looking is not a lead working: the manager sees who holds it and
+    # reads the card, and never takes it away by opening it.
+    if role == "manager" or _is_cf_admin():
+        who, since = _open_holder(order)
+        return {"ok": True, "readOnly": bool(who and who != me),
+                "by": who, "since": since}
+    from logistics_portal.api.locks import named_lock
+    with named_lock(f"cc_open_{order}"):
+        who, since = _open_holder(order)
+        if who and who != me:
+            return {"ok": False, "by": who, "since": since}
+        frappe.db.set_value("Sales Order", order, {
+            "custom_cc_open_by": me, "custom_cc_open_at": now_datetime(),
+        }, update_modified=False)
+        frappe.db.commit()
+    return {"ok": True}
+
+
+@frappe.whitelist(methods=["POST"])
+def hold_open(order):
+    """The open card says it is still here. Called on a timer, so the hold
+    lasts exactly as long as the call does."""
+    _gate()
+    order = (order or "").strip()
+    if not _has_open_fields():
+        return {"ok": True}
+    who, _since = _open_holder(order)
+    me = frappe.session.user
+    if who and who != me:
+        return {"ok": False, "by": who}
+    frappe.db.set_value("Sales Order", order,
+                        {"custom_cc_open_by": me, "custom_cc_open_at": now_datetime()},
+                        update_modified=False)
+    return {"ok": True}
+
+
 @frappe.whitelist(methods=["POST"])
 def release_order(order):
-    """The agent skipped / navigated away — free the serve lock."""
+    """The agent skipped / navigated away — free the serve lock and the card."""
     _gate()
     order = (order or "").strip()
     lock = f"lp_serve_{order}"
     if frappe.cache().get_value(lock) == frappe.session.user:
         frappe.cache().delete_value(lock)
+    if _has_open_fields():
+        who, _s = _open_holder(order)
+        if not who or who == frappe.session.user:
+            frappe.db.set_value("Sales Order", order,
+                                {"custom_cc_open_by": "", "custom_cc_open_at": None},
+                                update_modified=False)
     return {"ok": True}
 
 
@@ -3056,11 +3192,13 @@ def next_up(limit=20, as_user=None):
                     COALESCE(so.custom_call_attempts, 0) attempts,
                     so.custom_next_call_at next_call,
                     GREATEST(0, TIMESTAMPDIFF(HOUR, so.creation, %(now)s)) age_h"""
+    _open_vals(vals)
+    _free = " AND " + _open_free_cond()
     due = frappe.db.sql(
         f"""{sel} FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s
               AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
-              AND {_DUE}{me_q}
+              AND {_DUE}{me_q}{_free}
             ORDER BY {_DUE_AT} LIMIT %(limit)s""",
         {**vals, "sts": retry_sts}, as_dict=True)
     room = max(0, limit - len(due))
@@ -3068,7 +3206,7 @@ def next_up(limit=20, as_user=None):
         f"""{sel} FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s
               AND so.custom_sales_status = 'Pending' AND {_IN_HAND}
-              AND so.creation >= DATE_SUB(NOW(), INTERVAL 30 DAY){me_q}
+              AND so.creation >= DATE_SUB(NOW(), INTERVAL 30 DAY){me_q}{_free}
             ORDER BY so.creation LIMIT %(room)s""",
         {**vals, "room": room}, as_dict=True) if room else []
 

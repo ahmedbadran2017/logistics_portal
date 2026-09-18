@@ -1719,6 +1719,7 @@ export default {
     testPh: "06XXXXXXXX", testSend: "M'envoyer un test", testSent: "Message test envoyé", testFail: "Échec de l'envoi test",
   },
   srv: {
+    ccBusy: "{0} est avec ce client en ce moment",
     shipTeamOnly: "Réservé à l'équipe de suivi des expéditions.",
     pairOpen: "Cette étagère est comptée en sens inverse sur une autre étagère en attente et le déplacement n'a pas pu être enregistré — réglez d'abord la ligne signalée ; valider maintenant passerait un déplacement en perte plus trouvaille.",
     zeroRate: "Certaines unités trouvées n'ont pas de taux de valorisation — fixez-le dans la revue (D'où vient-il ?) avant de valider.",
@@ -2006,6 +2007,9 @@ export default {
     "Returned": "Retournée",
   },
   ws: {
+    busyTitle: "{who} est avec ce client",
+    busyNext: "Passage au suivant…",
+    readOnly: "Quelqu'un travaille cette fiche — vous la consultez",
     nextFresh: "Suivant · {n} en attente",
     slaLateShort: "au-delà de {h}h",
     freshWaiting: "{n} nouvelles — personne ne les a encore appelés",
