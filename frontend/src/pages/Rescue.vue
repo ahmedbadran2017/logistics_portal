@@ -346,7 +346,7 @@
 import { computed, onMounted, ref, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
-import { IS_SHIP } from "@/lib/portal";
+import { IS_SHIP, SURFACE } from "@/lib/portal";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
@@ -476,6 +476,10 @@ async function load() {
     const res = await api("rescue.board", {
       tab: tab.value, q: q.value, limit: pageSize,
       offset: (page.value - 1) * pageSize,
+      // Which door this screen was opened from: Not-Delivered is a
+      // confirmation queue and has no business on the tracking portal,
+      // whoever is looking at it.
+      surface: SURFACE || "",
       reason: hasVerdict.value ? verdictF.value || undefined : undefined,
     });
     data.value = res;
@@ -513,7 +517,7 @@ function canAutoApply() {
 async function beat() {
   if (document.visibilityState !== "visible" || loading.value) return;
   try {
-    const r = await api("rescue.pulse", { tab: tab.value, since: pulseSince });
+    const r = await api("rescue.pulse", { tab: tab.value, since: pulseSince, surface: SURFACE || "" });
     pulseSince = r.now || pulseSince;
     const moved = r.depth != null && data.value?.counts
       && r.depth !== data.value.counts[tab.value];

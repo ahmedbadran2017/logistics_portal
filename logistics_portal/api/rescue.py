@@ -166,14 +166,21 @@ def _gate():
     return role
 
 
-def _allowed_tabs(role):
+def _allowed_tabs(role, surface=""):
     """"Not Delivered" is a CONFIRMATION queue, not a carrier one: it is an
     order the shop never got out the door, worked by the people who own the
     customer conversation. It sat in this screen because both lanes read the
     same rescue endpoint — 154 of the 247 decisions logged in the last two
     weeks landed there, which is confirmation's work recorded under tracking.
-    The tracking lane now sees only what the carrier is holding."""
-    if role == "tracking":
+
+    Gated by the SURFACE first, not only the role. The screen is reachable
+    from three navs: the tracking role's, the tracking manager's, and the
+    confirmation manager's. A role test alone left the queue standing for
+    anyone with "manager" — which is how it was still on the tracking
+    portal after the split. The rule the building actually follows is the
+    door you came in: on /tracking there is no Not-Delivered, whoever you
+    are; on /confirmation there is."""
+    if (surface or "").strip().lower() == "ship" or role == "tracking":
         return [t for t in TABS if t != "notdelivered"]
     return list(TABS)
 
@@ -454,11 +461,11 @@ def _bust():
 
 
 @frappe.whitelist()
-def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason=""):
+def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason="", surface=""):
     """The four rescue queues + counts + my day, one call. `reason` narrows
     the parcel queues by the carrier's last word: rescuable | cancelled."""
     role = _gate()
-    tabs = _allowed_tabs(role)
+    tabs = _allowed_tabs(role, surface)
     # Gate the DATA, not just the chip: a tab hidden from the nav that still
     # answers on a hand-typed request is not hidden at all.
     if tab not in tabs:
@@ -1293,7 +1300,7 @@ _PROBLEM_LIKE = ("Customer unreachable%", "Customer cancelled%",
 
 
 @frappe.whitelist()
-def pulse(tab="exceptions", days=30, since=""):
+def pulse(tab="exceptions", days=30, since="", surface=""):
     """Has anything happened since the screen last looked?
 
     Deliberately tiny — one indexed count on the comment table, measured at
@@ -1320,7 +1327,7 @@ def pulse(tab="exceptions", days=30, since=""):
     days = min(max(int(days or 30), 1), 90)
     depth = None
     try:
-        if tab in _allowed_tabs(role) and tab != "mine":
+        if tab in _allowed_tabs(role, surface) and tab != "mine":
             depth = int(_cached_counts(days).get(tab) or 0)
     except Exception:
         depth = None
