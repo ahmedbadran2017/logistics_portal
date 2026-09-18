@@ -1274,6 +1274,17 @@ _CF_DEFAULTS = {
     # it shows who is on duty, who is present and who is idle. A list you can
     # see and a list you cannot are not the same object.
     "poolRoster": [],
+    # A customer who ordered five minutes ago is the warmest call in the
+    # building; a Did-not-Answer from yesterday is the coldest. The queue was
+    # ordered purely by "who has waited longest", which reads fair and is
+    # exactly backwards: measured 2026-09-18, a brand-new order sat at
+    # position 47 of 47 behind 34 DNAs and 6 follow-ups, so the freshest lead
+    # in the pool was the last one anybody would reach.
+    #
+    # New orders now go first, oldest new first among themselves; everything
+    # else keeps the oldest-waiting order behind them. Set false to go back
+    # to one strict waiting line.
+    "poolNewFirst": True,
 }
 
 
@@ -1367,6 +1378,8 @@ def save_cf_settings(settings=None):
         if not (1 <= v <= 500):
             frappe.throw("poolMax must be between 1 and 500.")
         out["poolMax"] = v
+    if "poolNewFirst" in settings:
+        out["poolNewFirst"] = bool(settings["poolNewFirst"])
     if "poolRoster" in settings:
         from logistics_portal.api.auth import resolve_role as _rr
         roster = [str(a).strip().lower() for a in (settings["poolRoster"] or []) if str(a).strip()]
@@ -2633,6 +2646,14 @@ def _pool_block(user):
     return ""
 
 
+def _serve_order():
+    """One ordering for every queue this lane serves from, so an agent's own
+    list and the shared pool cannot disagree about what matters."""
+    if _cf_settings().get("poolNewFirst"):
+        return f"(so.custom_sales_status = 'Pending') DESC, {_DUE_AT}"
+    return _DUE_AT
+
+
 def _pool_vals(vals):
     cfg = _cf_settings()
     h = min(max(int(cfg.get("poolAfterH") or 2), 1), 168)
@@ -2830,19 +2851,22 @@ def next_order(skip=None, as_user=None):
         return {"order": name, "pinned": True}
 
     retry_sts = tuple(v for k, v in QUEUES.items() if k != "pending")
-    for sql, extra in (
-        (f"""SELECT so.name FROM `tabSales Order` so
-             WHERE so.docstatus = 1 AND so.company = %(co)s
-               AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
-               AND {_DUE}{me_q}
-             ORDER BY {_DUE_AT} LIMIT 25""",
-         {"sts": retry_sts}),
-        (f"""SELECT so.name FROM `tabSales Order` so
-             WHERE so.docstatus = 1 AND so.company = %(co)s
-               AND so.custom_sales_status = 'Pending' AND {_IN_HAND}
-               AND so.creation >= DATE_SUB(NOW(), INTERVAL 30 DAY){me_q}
-             ORDER BY so.creation LIMIT 25""", {}),
-    ):
+    _retry = (f"""SELECT so.name FROM `tabSales Order` so
+                  WHERE so.docstatus = 1 AND so.company = %(co)s
+                    AND so.custom_sales_status IN %(sts)s AND {_IN_HAND}
+                    AND {_DUE}{me_q}
+                  ORDER BY {_DUE_AT} LIMIT 25""",
+              {"sts": retry_sts})
+    _fresh = (f"""SELECT so.name FROM `tabSales Order` so
+                  WHERE so.docstatus = 1 AND so.company = %(co)s
+                    AND so.custom_sales_status = 'Pending' AND {_IN_HAND}
+                    AND so.creation >= DATE_SUB(NOW(), INTERVAL 30 DAY){me_q}
+                  ORDER BY so.creation LIMIT 25""", {})
+    # The agent's own list obeys the same rule as the pool, or the two would
+    # disagree about what matters and the agent would meet the new order only
+    # after clearing yesterday's.
+    for sql, extra in ((_fresh, _retry) if _cf_settings().get("poolNewFirst")
+                       else (_retry, _fresh)):
         for (name,) in frappe.db.sql(sql, {**vals, **extra}):
             if cache.get_value(f"lp_skip_{me}_{name}"):
                 continue
@@ -2869,7 +2893,7 @@ def next_order(skip=None, as_user=None):
                       AND (so.custom_sales_status IN %(sts)s
                            OR so.custom_sales_status = 'Pending')
                       AND {_pool_cond()}
-                    ORDER BY {_DUE_AT} LIMIT 25""", vals):
+                    ORDER BY {_serve_order()} LIMIT 25""", vals):
             if cache.get_value(f"lp_skip_{me}_{name}"):
                 continue
             lock = f"lp_serve_{name}"
