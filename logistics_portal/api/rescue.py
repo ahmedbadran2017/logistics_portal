@@ -654,6 +654,18 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason="", surfac
     }
 
 
+# The carrier's status, read as an answer to "did my rescue work?".
+# Anything unlisted (including no status at all) counts as still open —
+# never as a failure the agent has to wear.
+_OUTCOME = {
+    "Delivered": "landed",
+    "Out For Delivery": "open", "In Transit": "open",
+    "Picked up": "open", "Pending": "open",
+    "Delivery Exception": "failed", "Failed Attempt": "failed",
+    "Return": "failed",
+}
+
+
 @frappe.whitelist()
 def my_report(days=7, frm=None, to=None):
     """The tracking agent's OWN numbers — measured in THEIR craft: rescue
@@ -707,13 +719,155 @@ def my_report(days=7, frm=None, to=None):
             WHERE c.owner = %(me)s AND c.reference_doctype = 'Sales Order'
               AND c.content LIKE 'Rescue: %%' AND {c_rng}""", rng_vals)[0]
 
+    # Where the parcels this agent tried to SAVE actually got to.
+    #
+    # `acted`/`deliveredAfter` above answer a different question — every
+    # order touched, and how many of those are delivered — and the screen
+    # was reading them as a success rate. They cannot be one: the agent's
+    # own return requests sit in that denominator and can never be
+    # delivered. Measured 2026-09-18 on a real week: one agent's card read
+    # "3 of 113" (2.7%) for work that was 3 landed and 5 still moving out
+    # of 12 save attempts. Only the saves belong in this count.
+    save_out = {"n": 0, "landed": 0, "open": 0, "failed": 0}
+    for r in frappe.db.sql(
+            f"""SELECT COALESCE(x.st, '') st, COUNT(*) n FROM (
+                    SELECT c.reference_name so,
+                           MAX(dn.custom_track_shipment_status) st
+                    FROM `tabComment` c
+                    JOIN `tabDelivery Note Item` dni
+                      ON dni.against_sales_order = c.reference_name
+                     AND dni.docstatus = 1
+                    JOIN `tabDelivery Note` dn
+                      ON dn.name = dni.parent AND dn.docstatus = 1
+                    WHERE c.owner = %(me)s
+                      AND c.reference_doctype = 'Sales Order'
+                      AND (c.content LIKE 'Rescue: redeliver%%'
+                           OR c.content LIKE 'Rescue: reship%%')
+                      AND {c_rng}
+                    GROUP BY c.reference_name
+                ) x GROUP BY COALESCE(x.st, '')""", rng_vals, as_dict=True):
+        n = int(r.n or 0)
+        save_out["n"] += n
+        save_out[_OUTCOME.get(r.st, "open")] += n
+
     return {
         "acts": acts,
         "daily": [{"date": d, **v} for d, v in sorted(daily.items())],
         "saveRate": round(saves * 100 / closed) if closed else None,
         "acted": int(outcome[0] or 0),
         "deliveredAfter": int(outcome[1] or 0),
+        "saved": save_out,
     }
+
+
+def _parse_tag(content):
+    """"Rescue: redeliver — note · by x" → ("redeliver", "note")."""
+    body = _clean(content or "").split("Rescue: ", 1)[-1]
+    body = body.split(" · by ", 1)[0]
+    action = body.split(" ", 1)[0].strip("()—-→ ")
+    note = body.split(" — ", 1)[1].strip() if " — " in body else ""
+    return action, note[:120]
+
+
+@frappe.whitelist()
+def my_log(days=7, frm=None, to=None, action="", limit=60, offset=0):
+    """Every decision this agent made, newest first, with WHERE THE PARCEL
+    GOT TO after it.
+
+    The dashboard above counts; this one remembers. An agent who made 223
+    decisions in three days could see totals and a bar chart but had no way
+    to answer "what did I do on this customer, and did it work?" — so the
+    work was invisible the moment it left the queue, and a redeliver that
+    fell over again looked exactly like one that landed.
+
+    Sales Order comments only, the same spine as `mine` and `my_report`:
+    act() writes the identical tag on the parcel AND the order, and counting
+    both doctypes would double every decision. (A DN-queue decision with no
+    linked order writes only the parcel comment and is missed here — rare,
+    and the same gap the counters already carry.)"""
+    _gate()
+    from logistics_portal.api.confirmation import _range
+    rng, rng_vals = _range(days, frm, to)
+    rng_vals = {**rng_vals, "me": frappe.session.user}
+    limit = min(max(int(limit or 60), 1), 200)
+    offset = max(int(offset or 0), 0)
+
+    pat = "Rescue: %"
+    if action and action in ("redeliver", "reship", "returnreq", "dna",
+                             "cancel", "resolve"):
+        pat = f"Rescue: {action}%"
+    rng_vals["pat"] = pat
+    c_rng = rng.format(col="c.creation")
+
+    total = int(frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tabComment` c
+            WHERE c.owner = %(me)s AND c.reference_doctype = 'Sales Order'
+              AND c.content LIKE %(pat)s AND {c_rng}""", rng_vals)[0][0] or 0)
+
+    rows = frappe.db.sql(
+        f"""SELECT c.creation at, c.content, c.reference_name so
+            FROM `tabComment` c
+            WHERE c.owner = %(me)s AND c.reference_doctype = 'Sales Order'
+              AND c.content LIKE %(pat)s AND {c_rng}
+            ORDER BY c.creation DESC
+            LIMIT {limit} OFFSET {offset}""", rng_vals, as_dict=True)
+    if not rows:
+        return {"rows": [], "total": total}
+
+    # Two flat lookups instead of a join: joining Delivery Note Item to a
+    # per-comment query fans out on basket size and would multiply both the
+    # row count and the money.
+    orders = list({r.so for r in rows if r.so})
+    ph = ", ".join(["%s"] * len(orders))
+    so_by = {r.name: r for r in frappe.db.sql(
+        f"""SELECT name, customer_name, custom_shipping_city city,
+                   grand_total total
+            FROM `tabSales Order` WHERE name IN ({ph})""",
+        orders, as_dict=True)}
+    # Latest submitted parcel per order — GROUP_CONCAT ordered by creation,
+    # first element. Statuses carry no commas.
+    dn_by = {r.so: r for r in frappe.db.sql(
+        f"""SELECT dni.against_sales_order so,
+                   SUBSTRING_INDEX(GROUP_CONCAT(dn.name
+                       ORDER BY dn.creation DESC), ',', 1) dn,
+                   SUBSTRING_INDEX(GROUP_CONCAT(
+                       COALESCE(dn.custom_track_shipment_status, '')
+                       ORDER BY dn.creation DESC), ',', 1) st
+            FROM `tabDelivery Note Item` dni
+            JOIN `tabDelivery Note` dn
+              ON dn.name = dni.parent AND dn.docstatus = 1
+            WHERE dni.against_sales_order IN ({ph}) AND dni.docstatus = 1
+            GROUP BY dni.against_sales_order""", orders, as_dict=True)}
+
+    out = []
+    for r in rows:
+        act_name, note = _parse_tag(r.content)
+        so = so_by.get(r.so)
+        parcel = dn_by.get(r.so)
+        st = (parcel.st if parcel else "") or ""
+        # Only a save has a delivery outcome to report. Sending a parcel
+        # back or cancelling an order IS the outcome — painting those
+        # "failed" because the carrier never delivered them would be a lie.
+        # A no-answer is neither: the customer still owes us a call.
+        if act_name in ("redeliver", "reship"):
+            outcome = _OUTCOME.get(st, "open")
+        elif act_name == "dna":
+            outcome = "retry"
+        else:
+            outcome = "closed"
+        out.append({
+            "at": str(r.at)[:19],
+            "action": act_name,
+            "note": note,
+            "order": r.so or "",
+            "dn": (parcel.dn if parcel else "") or "",
+            "customer": (so.customer_name if so else "") or "",
+            "city": ((so.city if so else "") or "").strip().title(),
+            "total": float(so.total or 0) if so else 0.0,
+            "status": st,
+            "outcome": outcome,
+        })
+    return {"rows": out, "total": total}
 
 
 @frappe.whitelist(methods=["POST"])

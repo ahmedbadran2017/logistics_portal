@@ -51,13 +51,20 @@
             <div class="text-[10px] text-stone-400 mt-0.5">{{ t('mdt.kSaveHint') }}<span v-if="deltas.save" class="md-delta ms-1" :class="deltas.save.up ? 'md-up' : 'md-down'">{{ deltas.save.txt }}</span></div>
           </div>
         </div>
+        <!-- Measured against the SAVES, never against every order touched:
+             the agent's own return requests can't be delivered, and with
+             them in the denominator a real week read 3 of 113. -->
         <div class="md-kpi md-in" style="animation-delay: 140ms">
           <div class="md-kpi-l"><Icon name="package-check" :size="12" class="inline -mt-px me-1" />{{ t('mdt.kDelivered') }}</div>
           <div class="flex items-baseline gap-2 mt-1">
-            <span class="text-[26px] font-extrabold tabular-nums text-emerald-600">{{ nDelivered }}</span>
+            <span class="text-[26px] font-extrabold tabular-nums text-emerald-600">{{ nLanded }}</span>
             <span v-if="deltas.delivered" class="md-delta" :class="deltas.delivered.up ? 'md-up' : 'md-down'">{{ deltas.delivered.txt }}</span>
           </div>
-          <div class="text-[11px] text-stone-400 tabular-nums">{{ t('mdt.kDeliveredHint').replace('{n}', String(d.acted)) }}</div>
+          <div class="text-[11px] text-stone-400 tabular-nums">{{ t('mdt.kDeliveredHint').replace('{n}', String(saved.n)) }}</div>
+          <div v-if="saved.open || saved.failed" class="text-[10.5px] tabular-nums mt-1 flex flex-wrap gap-x-2">
+            <span v-if="saved.open" class="text-sky-600">{{ t('mdt.kStillOut').replace('{n}', String(saved.open)) }}</span>
+            <span v-if="saved.failed" class="text-rose-500">{{ t('mdt.kFellAgain').replace('{n}', String(saved.failed)) }}</span>
+          </div>
         </div>
         <div class="md-kpi md-in" style="animation-delay: 210ms">
           <div class="md-kpi-l"><Icon name="rotate-ccw" :size="12" class="inline -mt-px me-1" />{{ t('mdt.kBack') }}</div>
@@ -90,14 +97,60 @@
         </div>
         <div v-else class="text-center text-[12px] text-stone-400 py-8">{{ t('ccd.noData') }}</div>
       </div>
+
+      <!-- The work itself. The cards above count; this remembers — an agent
+           who made 223 decisions in three days could not answer "what did I
+           do on this customer, and did it work?" until this existed. -->
+      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+        <div class="flex items-center gap-2 flex-wrap mb-1">
+          <Icon name="notebook-pen" :size="14" class="text-[var(--accent-600)]" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('mdt.logTitle') }}</span>
+          <span v-if="log.total" class="text-[11px] text-stone-400 tabular-nums">{{ log.total }}</span>
+          <div class="ms-auto flex items-center gap-0.5 bg-stone-100/70 rounded-lg p-0.5">
+            <button v-for="a in LOG_FILTERS" :key="a.k"
+                    class="h-7 px-2.5 rounded-md text-[11px] font-semibold transition-colors"
+                    :class="logAct === a.k ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'"
+                    @click="logAct = a.k; loadLog()">{{ t(a.label) }}</button>
+          </div>
+        </div>
+        <p class="text-[11px] text-stone-400 mb-3">{{ t('mdt.logHint') }}</p>
+
+        <div v-if="logLoading && !log.rows.length" class="space-y-1.5">
+          <span v-for="n in 5" :key="n" class="block h-12 rounded-lg bg-stone-100 animate-pulse" />
+        </div>
+        <div v-else-if="!log.rows.length" class="text-center text-[12px] text-stone-400 py-8">{{ t('mdt.logEmpty') }}</div>
+        <ul v-else class="divide-y divide-stone-100">
+          <li v-for="(r, i) in log.rows" :key="r.at + r.order + i"
+              class="py-2 flex items-center gap-2.5 flex-wrap">
+            <span class="text-[10.5px] text-stone-400 tabular-nums w-[84px] shrink-0" dir="ltr">{{ local(r.at).slice(5, 16) }}</span>
+            <span class="text-[10.5px] font-bold rounded-full px-2 py-0.5 shrink-0" :class="ACT_CLS[r.action] || 'text-stone-600 bg-stone-100'">{{ ACT_LBL[r.action] ? t(ACT_LBL[r.action]) : r.action }}</span>
+            <!-- Shopify order names carry a leading '#'; unstripped it ends
+                 the URL path and the link lands nowhere. -->
+            <RouterLink :to="{ name: 'OrderDetail', params: { name: String(r.order).replace('#', '') } }"
+                        class="text-[12px] font-semibold text-stone-800 hover:text-[var(--accent-600)] truncate max-w-[150px]" dir="ltr">{{ r.order }}</RouterLink>
+            <span class="text-[11.5px] text-stone-500 truncate max-w-[150px]">{{ r.customer }}</span>
+            <span v-if="r.city" class="text-[10.5px] text-stone-400 truncate max-w-[90px]">{{ r.city }}</span>
+            <span v-if="r.note" class="text-[10.5px] text-stone-500 italic truncate max-w-[180px]">{{ r.note }}</span>
+            <span class="ms-auto flex items-center gap-2 shrink-0">
+              <span class="text-[11px] tabular-nums text-stone-400">{{ Math.round(r.total) }}</span>
+              <span class="text-[10.5px] font-bold rounded-full px-2 py-0.5" :class="OUT_CLS[r.outcome]">{{ t(OUT_LBL[r.outcome]) }}</span>
+            </span>
+          </li>
+        </ul>
+        <button v-if="log.rows.length < log.total" :disabled="logLoading"
+                class="mt-3 w-full h-9 rounded-lg text-[12px] font-semibold text-stone-700 bg-stone-100 hover:bg-stone-200 disabled:opacity-50"
+                @click="loadLog(true)">{{ t('mdt.logMore') }}</button>
+      </div>
     </template>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import { RouterLink } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { api } from "@/lib/resource";
+import { local } from "@/lib/clock";
 import { useI18n } from "@/composables/useI18n";
 import { RANGES, windowFor, prevWindowFor, deltaOf, useCountUp } from "@/composables/useRangeDash";
 
@@ -127,13 +180,73 @@ async function load() {
   } finally {
     if (seq === seqN) loading.value = false;
   }
+  loadLog();
 }
 onMounted(load);
+
+// ── the work log ──────────────────────────────────────────────────────────
+const LOG_FILTERS = [
+  { k: "", label: "mdt.logAll" },
+  { k: "redeliver", label: "rs.actRedeliver" },
+  { k: "dna", label: "cf.actDna" },
+  { k: "returnreq", label: "rs.actReturn" },
+  { k: "cancel", label: "cf.actCancel" },
+];
+const ACT_LBL = {
+  redeliver: "rs.actRedeliver", reship: "rs.actReship",
+  returnreq: "rs.actReturn", dna: "cf.actDna",
+  cancel: "cf.actCancel", resolve: "rs.actResolved",
+};
+const ACT_CLS = {
+  redeliver: "text-emerald-700 bg-emerald-50", reship: "text-violet-700 bg-violet-50",
+  returnreq: "text-amber-700 bg-amber-50", dna: "text-sky-700 bg-sky-50",
+  cancel: "text-rose-700 bg-rose-50", resolve: "text-stone-600 bg-stone-100",
+};
+const OUT_LBL = {
+  landed: "mdt.oLanded", open: "mdt.oOpen", failed: "mdt.oFailed",
+  closed: "mdt.oClosed", retry: "mdt.oRetry",
+};
+const OUT_CLS = {
+  landed: "text-emerald-700 bg-emerald-50", open: "text-sky-700 bg-sky-50",
+  failed: "text-rose-700 bg-rose-50", closed: "text-stone-500 bg-stone-100",
+  retry: "text-amber-700 bg-amber-50",
+};
+const PAGE = 40;
+const log = ref({ rows: [], total: 0 });
+const logLoading = ref(false);
+const logAct = ref("");
+
+let logSeq = 0;
+async function loadLog(more = false) {
+  const seq = ++logSeq;
+  logLoading.value = true;
+  try {
+    const [f, t2] = windowFor(range.value);
+    const res = await api("rescue.my_log", {
+      frm: f, to: t2, action: logAct.value,
+      limit: PAGE, offset: more ? log.value.rows.length : 0,
+    });
+    if (seq !== logSeq) return;
+    log.value = more
+      ? { rows: [...log.value.rows, ...(res.rows || [])], total: res.total || 0 }
+      : { rows: res.rows || [], total: res.total || 0 };
+  } catch (_) {
+    // The log is the detail behind the cards, never the reason the page
+    // fails to render — the numbers above still stand on their own.
+    if (seq === logSeq && !more) log.value = { rows: [], total: 0 };
+  } finally {
+    if (seq === logSeq) logLoading.value = false;
+  }
+}
 
 const total = computed(() =>
   Object.values(d.value?.acts || {}).reduce((a, b) => a + (b || 0), 0));
 const nTotal = useCountUp(total);
-const nDelivered = useCountUp(computed(() => d.value?.deliveredAfter || 0));
+// A backend that predates the save-outcome split still answers the old
+// shape; fall back to it rather than rendering zeros.
+const saved = computed(() => d.value?.saved
+  || { n: d.value?.acted || 0, landed: d.value?.deliveredAfter || 0, open: 0, failed: 0 });
+const nLanded = useCountUp(computed(() => saved.value.landed || 0));
 function totalOf(rep) {
   return Object.values(rep?.acts || {}).reduce((a, b) => a + (b || 0), 0);
 }
@@ -142,7 +255,7 @@ const deltas = computed(() => {
   return {
     total: deltaOf(total.value, totalOf(dp.value)),
     save: deltaOf(d.value?.saveRate, dp.value?.saveRate, true),
-    delivered: deltaOf(d.value?.deliveredAfter, dp.value?.deliveredAfter),
+    delivered: deltaOf(saved.value.landed, dp.value?.saved?.landed ?? dp.value?.deliveredAfter),
   };
 });
 const fMax = computed(() =>
