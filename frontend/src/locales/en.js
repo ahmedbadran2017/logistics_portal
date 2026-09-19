@@ -2351,8 +2351,8 @@ export default {
     riskyHint: "Three or more orders and at least two came back or were cancelled — decide how to take this one.",
     kOrders: "Orders", kDelivered: "Landed", kFailed: "Came back",
     kCancelled: "Cancelled", kOpen: "In flight", kSpend: "Lifetime MAD",
-    o_delivered: "Landed", o_failed: "Came back", o_cancelled: "Cancelled",
-    o_open: "In flight", o_unknown: "No trace",
+    o_delivered: "Delivered", o_failed: "Exception", o_cancelled: "Cancelled",
+    o_open: "No status yet", o_unknown: "No trace",
   },
   cs: {
     whichOrder: "Which order?", pickOrder: "Orders on this number",

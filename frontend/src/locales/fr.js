@@ -2352,8 +2352,8 @@ export default {
     riskyHint: "Trois commandes ou plus, dont au moins deux retournées ou annulées — décidez comment traiter celle-ci.",
     kOrders: "Commandes", kDelivered: "Livrées", kFailed: "Retournées",
     kCancelled: "Annulées", kOpen: "En cours", kSpend: "Total MAD",
-    o_delivered: "Livrée", o_failed: "Retournée", o_cancelled: "Annulée",
-    o_open: "En cours", o_unknown: "Sans trace",
+    o_delivered: "Livrée", o_failed: "Exception", o_cancelled: "Annulée",
+    o_open: "Pas encore de statut", o_unknown: "Sans trace",
   },
   cs: {
     whichOrder: "Quelle commande ?", pickOrder: "Commandes sur ce numéro",

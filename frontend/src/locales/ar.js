@@ -2351,8 +2351,8 @@ export default {
     riskyHint: "3 أوردرات أو أكتر ومنهم 2 على الأقل رجعوا أو اتلغوا — قرّر تتعامل مع دي إزاي.",
     kOrders: "أوردرات", kDelivered: "وصلت", kFailed: "رجعت",
     kCancelled: "اتلغت", kOpen: "في الطريق", kSpend: "إجمالي درهم",
-    o_delivered: "وصلت", o_failed: "رجعت", o_cancelled: "اتلغت",
-    o_open: "في الطريق", o_unknown: "مفيش أثر",
+    o_delivered: "اتسلّم", o_failed: "استثناء", o_cancelled: "اتلغت",
+    o_open: "لسه مفيش حالة", o_unknown: "مفيش أثر",
   },
   cs: {
     whichOrder: "أنهي أوردر؟", pickOrder: "أوردرات على الرقم ده",

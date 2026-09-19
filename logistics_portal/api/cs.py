@@ -966,6 +966,19 @@ def _order_row(r):
 # what "failed" means.
 _BAD_TRACK = ("Delivery Exception", "Failed Attempt", "Return")
 
+# The carrier's words -> the key the whole portal already labels parcels by
+# (locales `track.*`, the same map shipping.py uses for the tracking board).
+# This screen first shipped its own vocabulary — "Landed", "In flight" — and
+# the floor reads "Delivered" and "In Transit" everywhere else. One screen
+# inventing its own words for a state the team already names is a screen
+# nobody trusts.
+_TRACK_KEY = {
+    "Pending": "pending", "Picked up": "pickedup", "In Transit": "intransit",
+    "Out For Delivery": "outfordelivery", "Delivered": "delivered",
+    "Delivery Exception": "exception", "Failed Attempt": "failed",
+    "Return": "return", "Returned": "return",
+}
+
 # Past this age, silence from the carrier means the status was never
 # synced, not that the parcel is in flight.
 _STALE_AFTER_D = 60
@@ -1015,6 +1028,7 @@ def customer(phone="", order=""):
     for r in rows:
         row = _order_row(r)
         row["track"] = r.track or ""
+        row["trackKey"] = _TRACK_KEY.get(r.track or "", "")
         row["deliveredAt"] = str(r.delivered_at or "")[:10]
         is_del = (r.track == "Delivered") or bool(r.delivered_at)
         is_can = (r.custom_sales_status or "") == "Cancelled"

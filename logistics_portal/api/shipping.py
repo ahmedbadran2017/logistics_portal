@@ -265,7 +265,18 @@ def tracking(days=14, state="", q="", limit=30, offset=0, widen=0):
         for raw, key in _TRACK_MAP.items():
             raw_by_key.setdefault(key, []).append(raw)
         active = ["Pending", "Picked up", "In Transit", "Out For Delivery", "Delivery Exception", "Failed Attempt"]
-        states = raw_by_key.get(state) if state else active
+        # `active` deliberately leaves out Delivered and Return: the BOARD is
+        # a worklist. A search is not. Dropping the date window alone was not
+        # enough — 688917648's parcel is Delivered, so it stayed invisible
+        # behind this filter after the window came off. An explicit search
+        # with no state chosen looks at every state.
+        all_states = list(_TRACK_MAP.keys())
+        if state:
+            states = raw_by_key.get(state)
+        elif q and str(q).strip():
+            states = all_states
+        else:
+            states = active
         if not states:
             states = active
         vals["states"] = tuple(states)

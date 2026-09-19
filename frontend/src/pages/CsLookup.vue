@@ -115,8 +115,11 @@
           </span>
           <span class="ms-auto flex items-center gap-2 shrink-0">
             <span class="text-[11.5px] tabular-nums text-stone-500">{{ Math.round(r.total) }}</span>
+            <!-- The portal's own words for a parcel state (locales
+                 `track.*`), never this screen's. Colour still comes from the
+                 outcome, because that is meaning, not vocabulary. -->
             <span v-if="r.outcome" class="text-[10.5px] font-bold rounded-full px-2 py-0.5"
-                  :class="OUT_CLS[r.outcome]">{{ t('csl.o_' + r.outcome) }}</span>
+                  :class="OUT_CLS[r.outcome]">{{ stateLabel(r) }}</span>
             <span v-else-if="r.logistics" class="text-[10.5px] text-stone-500 rounded-full px-2 py-0.5 bg-stone-100">
               {{ r.logistics }}</span>
             <button class="h-7 px-2 rounded-lg text-[11px] font-semibold text-stone-600
@@ -249,6 +252,16 @@ const OUT_CLS = {
 };
 function kpi(k) {
   return cust.value?.totals?.[k] ?? 0;
+}
+
+// The carrier's state in the words the rest of the portal uses. Falls back
+// to the outcome only where there is no parcel state to name: a cancelled
+// order never had one, and "no trace" IS the absence of one.
+function stateLabel(r) {
+  if (r.outcome === "cancelled") return t("csl.o_cancelled");
+  if (r.trackKey) return t("track." + r.trackKey, r.track || r.trackKey);
+  if (r.track) return r.track;
+  return t("csl.o_" + r.outcome);
 }
 
 let seq = 0;
