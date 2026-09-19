@@ -708,3 +708,339 @@ def close_stale_daily():
             _bust()
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "cs.close_stale_daily")
+
+
+# ── the lookup: any order, any customer, when the phone rings ─────────────
+#
+# Measured on production before writing this (2026-09-19), because the shape
+# of the answer depended entirely on what the data actually is:
+#
+#   There is no customer entity. 175,711 Customer records carry 267,163
+#   orders — one record per order. Anything keyed on `customer` is empty.
+#
+#   The phone IS the identity: present on 28,675 of 28,702 orders in 90 days
+#   (99.9%) and on all three order sources — Shopify (#), J-, and the
+#   landing/agent SAL-ORD series. `custom_shipping_phone` is not an option:
+#   it is empty on every Shopify order.
+#
+#   53,139 phones carry 2+ orders — 160,302 orders, 60% of everything. So
+#   the repeat customer is the norm here, not the exception.
+#
+#   The same person is stored three ways: +212XXXXXXXXX (65%), 0XXXXXXXXX
+#   (34%), 212XXXXXXXXX. 99.6% of numbers reduce to the same 9 national
+#   digits, and 99.6% of those begin 6 or 7 (Moroccan mobile). Checked 4,000
+#   keys that hold more than one stored form: 3,981 are pure format variants
+#   of one number; the 19 that are not are foreign (+90, +32) or 000000000.
+#   So the last nine digits are a sound identity, and matching the literal
+#   string is not.
+#
+# On speed, all measured warm on the live table (an early 788ms reading was
+# a cold cache and is not the number to design against):
+#
+#   phone match, no ORDER BY          364 ms   type=ALL, one sequential pass
+#   phone match, ORDER BY date DESC   838 ms   type=index on transaction_date
+#   COUNT(*) alone                    270 ms
+#   name prefix, ORDER BY date        4 ms
+#   order number + company            100 ms
+#
+# So the phone branch does NOT sort or count in SQL. With `ORDER BY
+# transaction_date DESC` the optimiser walks the date index and runs the
+# regex row by row looking for a page of matches that mostly is not there —
+# 2.3x the cost of simply reading the table once. A phone has a handful of
+# orders: fetch them unsorted under a cap, then sort and count in Python.
+# That also drops the separate COUNT query, so one 364ms call replaces
+# 838 + 270.
+#
+# An index plus a list of literal phone formats would make it ~5ms, and was
+# rejected: it finds 99.65% and fails SILENTLY on the rest — a new format
+# appears and the agent sees part of a customer's history with nothing to
+# say so. For a desk that answers a person on the phone, 364ms and the whole
+# truth beats 5ms and a quiet lie. The desk is three people and ~130
+# conversations a day: one search every four minutes. There is nothing here
+# to optimise. Revisit if the table doubles — measured, on a staging copy.
+#
+# The frontend must search on SUBMIT, never per keystroke.
+
+_PHONE_DIGITS = "REGEXP_REPLACE(COALESCE(so.custom_customer_phone,''), '[^0-9]', '')"
+_PHONE_KEY = f"RIGHT({_PHONE_DIGITS}, 9)"
+
+
+# One number's whole history, with headroom — the longest seen on
+# production is a few dozen orders. The cap is a floor under the worst
+# case: a junk key like 000000000 must not pull the table into memory.
+_PHONE_CAP = 300
+
+
+def _mine(rows):
+    """Morocco only, newest first — applied in Python on purpose.
+
+    Adding `company = ...` to the phone query flips the optimiser onto the
+    company/date index and costs 3x for a filter that removes 5% of the
+    table (256,790 of 269,308 orders are Justyol Morocco). On a handful of
+    rows it is free here."""
+    rows = [r for r in rows if (r.get("company") or _CO) == _CO]
+    rows.sort(key=lambda r: (str(r.get("transaction_date") or ""), r.get("name") or ""),
+              reverse=True)
+    return rows
+
+
+def _phone_key(q):
+    """The last nine digits of anything that looks like a Moroccan number."""
+    d = re.sub(r"\D", "", str(q or ""))
+    return d[-9:] if len(d) >= 9 else ""
+
+
+@frappe.whitelist()
+def search(q="", limit=25, offset=0):
+    """Find any order by phone, customer name, or order number.
+
+    Not `shipping.tracking`: that board is windowed to the last 14-90 days
+    because 24k stale parcel statuses are history, not work. A customer on
+    the phone asking about an order from March needs the whole table, and
+    needs it whether the parcel ever moved at all.
+
+    Routing a typed string. Both halves of this were wrong on the first
+    pass and both were caught against real order ids:
+
+      contains a letter  an order id ('J-007748', 'SAL-ORD-2026-03373') or,
+                         with no digits at all, a customer name. Letters
+                         settle it: SAL-ORD-2026-03373 carries nine digits
+                         and was being answered as a phone with a confident
+                         zero.
+      9 digits starting  a Moroccan mobile -> phone. Measured over the whole
+      6 or 7             table: the last nine digits begin 6 (234,043) or 7
+                         (30,849) on 99.6% of stored numbers, so the prefix
+                         is what separates a number from a numeral.
+      any other digits   an order number first ('#260443'), and only if that
+                         finds nothing does a 6+ digit string fall back to a
+                         phone tail. Six digits is far more often a short
+                         order number here than half a dictated phone.
+    """
+    _gate()
+    q = (str(q or "")).strip()[:60]
+    if len(q) < 3:
+        return {"rows": [], "total": 0, "mode": "", "hasMore": False}
+    limit = min(max(int(limit or 25), 1), 50)
+    offset = max(int(offset or 0), 0)
+
+    digits = re.sub(r"\D", "", q)
+    has_alpha = bool(re.search(r"[A-Za-z]", q))
+    key = "" if has_alpha else _phone_key(q)
+
+    if key and key[0] in "67":
+        return _by_phone(_PHONE_KEY + " = %(key)s", {"key": key}, key, limit, offset)
+
+    if digits:
+        hit = _cheap(
+            "so.name LIKE %(o)s", {"o": "%" + q.lstrip("#").strip() + "%"},
+            "order", "", limit, offset)
+        if hit["rows"] or has_alpha or len(digits) < 6:
+            return hit
+        # Nothing by order number and enough digits to be half a phone.
+        if key:
+            return _by_phone(_PHONE_KEY + " = %(key)s", {"key": key},
+                             key, limit, offset)
+        return _by_phone(_PHONE_DIGITS + " LIKE %(tail)s",
+                         {"tail": "%" + digits}, "", limit, offset)
+
+    return _cheap("so.customer_name LIKE %(n)s", {"n": q + "%"}, "name",
+                  "ORDER BY so.transaction_date DESC, so.creation DESC",
+                  limit, offset)
+
+
+_SEARCH_COLS = (
+    "so.name, so.customer_name, so.custom_customer_phone phone, "
+    "so.transaction_date, so.grand_total, so.status, so.company, "
+    "so.custom_sales_status, so.custom_logistics_status, "
+    "so.custom_shipping_city city, so.custom_tracking_number awb")
+
+
+def _by_phone(cond, vals, key, limit, offset):
+    """One unsorted capped pass. See the speed note: sorting this branch in
+    SQL costs 2.3x, and one number's whole history fits in the cap, so the
+    sort and the exact count both happen in Python instead."""
+    rows = _mine(frappe.db.sql(
+        "SELECT " + _SEARCH_COLS + " FROM `tabSales Order` so "
+        "WHERE so.docstatus < 2 AND (" + cond + ") LIMIT " + str(_PHONE_CAP),
+        vals, as_dict=True))
+    page = rows[offset:offset + limit]
+    return {"mode": "phone", "key": key, "total": len(rows),
+            "capped": len(rows) >= _PHONE_CAP,
+            "hasMore": offset + limit < len(rows),
+            "rows": [_order_row(r) for r in page]}
+
+
+def _cheap(cond, vals, mode, order_by, limit, offset):
+    """Name and order number are index-friendly (4ms and 100ms measured),
+    and company narrows the order-number scan threefold — the opposite of
+    what it does to the phone branch. No COUNT: a common first name matches
+    thousands and counting them cost more than the page itself, while
+    nobody needs the number. One extra row answers 'is there more'."""
+    vals["co"] = _CO
+    where = "so.docstatus < 2 AND so.company = %(co)s AND (" + cond + ")"
+    rows = frappe.db.sql(
+        "SELECT " + _SEARCH_COLS + " FROM `tabSales Order` so WHERE " + where
+        + " " + order_by + " LIMIT " + str(limit + 1) + " OFFSET " + str(offset),
+        vals, as_dict=True)
+    more = len(rows) > limit
+    rows = rows[:limit]
+    return {"mode": mode, "key": "", "total": offset + len(rows),
+            "capped": False, "hasMore": more,
+            "rows": [_order_row(r) for r in rows]}
+
+
+def _order_row(r):
+    return {
+        "order": r.name, "customer": r.customer_name or "",
+        "phone": (r.phone or "").strip(),
+        "date": str(r.transaction_date or "")[:10],
+        "total": float(r.grand_total or 0),
+        "city": (r.city or "").strip().title(),
+        "awb": r.awb or "",
+        "sales": r.custom_sales_status or "",
+        "logistics": r.custom_logistics_status or "",
+        "status": r.status or "",
+    }
+
+
+# A parcel state that says the delivery went wrong. Same vocabulary the
+# rescue board uses, so a CS agent and a tracking agent never disagree about
+# what "failed" means.
+_BAD_TRACK = ("Delivery Exception", "Failed Attempt", "Return")
+
+# Past this age, silence from the carrier means the status was never
+# synced, not that the parcel is in flight.
+_STALE_AFTER_D = 60
+
+
+@frappe.whitelist()
+def customer(phone="", order=""):
+    """Everything we know about the person on the line.
+
+    Either a phone or an order to take the phone from. Returns the whole
+    order history on that number — never a window — plus what it adds up to,
+    the CS requests already raised, and the conversation if there is one.
+
+    The history is the point: 60% of orders belong to a number that has
+    ordered before, and an agent who cannot see the previous five is
+    answering blind."""
+    _gate()
+    phone = (str(phone or "")).strip()
+    if not phone and order:
+        phone = (frappe.db.get_value("Sales Order", order,
+                                     "custom_customer_phone") or "").strip()
+    key = _phone_key(phone)
+    if not key:
+        return {"found": False, "phone": phone}
+
+    rows = frappe.db.sql(
+        f"""SELECT so.name, so.customer_name, so.custom_customer_phone phone,
+                   so.transaction_date, so.grand_total, so.status, so.company,
+                   so.custom_sales_status, so.custom_logistics_status,
+                   so.custom_shipping_city city, so.custom_tracking_number awb,
+                   so.custom_delivered_at delivered_at,
+                   (SELECT MAX(dn.custom_track_shipment_status)
+                      FROM `tabDelivery Note Item` di
+                      JOIN `tabDelivery Note` dn
+                        ON dn.name = di.parent AND dn.docstatus = 1
+                     WHERE di.against_sales_order = so.name) track
+            FROM `tabSales Order` so
+            WHERE so.docstatus < 2 AND {_PHONE_KEY} = %(key)s
+            LIMIT {_PHONE_CAP}""", {"key": key}, as_dict=True)
+    rows = _mine(rows)
+    if not rows:
+        return {"found": False, "phone": phone, "key": key}
+
+    _stale_cut = str(add_to_date(now_datetime(), days=-_STALE_AFTER_D))[:10]
+    orders, delivered, failed, cancelled, spend, landed = [], 0, 0, 0, 0.0, 0.0
+    unknown = 0
+    for r in rows:
+        row = _order_row(r)
+        row["track"] = r.track or ""
+        row["deliveredAt"] = str(r.delivered_at or "")[:10]
+        is_del = (r.track == "Delivered") or bool(r.delivered_at)
+        is_can = (r.custom_sales_status or "") == "Cancelled"
+        if is_del:
+            row["outcome"] = "delivered"
+        elif is_can:
+            row["outcome"] = "cancelled"
+        elif r.track in _BAD_TRACK:
+            row["outcome"] = "failed"
+        elif not r.track and str(r.transaction_date or "") < _stale_cut:
+            # 23,602 orders older than 60 days carry no carrier status and no
+            # delivery stamp. Calling those "open" would tell an agent a
+            # parcel from last year is still moving. We do not know, and
+            # saying so is the only honest answer.
+            row["outcome"] = "unknown"
+        else:
+            row["outcome"] = "open"
+        orders.append(row)
+        spend += float(r.grand_total or 0)
+        if is_del:
+            delivered += 1
+            landed += float(r.grand_total or 0)
+        elif is_can:
+            cancelled += 1
+        elif r.track in _BAD_TRACK:
+            failed += 1
+        elif row["outcome"] == "unknown":
+            unknown += 1
+
+    n = len(orders)
+    # The one thing worth flagging on sight. Measured over 180 days: 1,275
+    # numbers with 3+ orders and 2+ gone bad account for 5,424 orders, 3,892
+    # of them bad, 1,111,637 MAD. Not a blocklist — the agent decides what to
+    # do with it (ask for prepayment, confirm harder, or nothing).
+    risky = n >= 3 and (failed + cancelled) >= 2
+
+    names = []
+    for r in rows:
+        nm = (r.customer_name or "").strip()
+        if nm and nm.lower() not in [x.lower() for x in names]:
+            names.append(nm)
+
+    reqs = []
+    if frappe.db.exists("DocType", DT):
+        reqs = frappe.db.sql(
+            f"""SELECT name, kind, state, so, note, creation, owner_agent
+                FROM `tab{DT}` WHERE REGEXP_REPLACE(COALESCE(phone,''),'[^0-9]','')
+                                     LIKE %(t)s
+                ORDER BY creation DESC LIMIT 20""",
+            {"t": "%" + key}, as_dict=True)
+
+    # WhatsApp stores 212XXXXXXXXX, so the last nine match. Messenger stores
+    # a 17-digit page-scoped id that is not a phone at all — matching its
+    # tail would hand the agent a stranger's conversation, so the length
+    # guard is doing real work here.
+    conv = frappe.db.sql(
+        """SELECT name, channel, status, last_message_at, summary, unread
+           FROM `tabJoyAgent Conversation`
+           WHERE REGEXP_REPLACE(COALESCE(customer_phone,''),'[^0-9]','') LIKE %(t)s
+             AND LENGTH(REGEXP_REPLACE(COALESCE(customer_phone,''),'[^0-9]','')) <= 13
+           ORDER BY COALESCE(last_message_at, creation) DESC LIMIT 5""",
+        {"t": "%" + key}, as_dict=True)
+
+    return {
+        "found": True, "phone": phone or (rows[0].phone or ""), "key": key,
+        "names": names[:4], "name": names[0] if names else "",
+        "city": (rows[0].city or "").strip().title(),
+        "totals": {
+            "orders": n, "delivered": delivered, "failed": failed,
+            "cancelled": cancelled, "unknown": unknown,
+            "open": n - delivered - failed - cancelled - unknown,
+            "spend": round(spend), "landed": round(landed),
+            "deliveryRate": round(delivered * 100 / n) if n else 0,
+        },
+        "risky": risky,
+        "firstOrder": orders[-1]["date"] if orders else "",
+        "lastOrder": orders[0]["date"] if orders else "",
+        "orders": orders,
+        "requests": [{"name": r.name, "kind": r.kind, "state": r.state,
+                      "order": r.so or "", "note": (r.note or "")[:120],
+                      "at": str(r.creation)[:19], "by": (r.owner_agent or "")}
+                     for r in reqs],
+        "conversations": [{"name": c.name, "channel": c.channel or "",
+                           "status": c.status or "", "unread": int(c.unread or 0),
+                           "at": str(c.last_message_at or "")[:19],
+                           "summary": (c.summary or "")[:160]} for c in conv],
+    }

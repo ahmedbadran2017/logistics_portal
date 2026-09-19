@@ -255,6 +255,7 @@ export const ROLE_CONFIG = {
         section: "nav.contactSection",
         items: [
           { to: "CsDesk", label: "nav.csDesk", icon: "message-circle" },
+          { to: "CsLookup", label: "nav.csLookup", icon: "search" },
           { to: "Exchanges", label: "nav.exchanges", icon: "refresh-cw" },
           { to: "Tickets", label: "nav.tickets", icon: "ticket" },
         ],
