@@ -140,6 +140,13 @@
                   <template v-if="isLive && phone !== '—'">
                     <a :href="'tel:' + phone" class="w-5 h-5 rounded-md bg-stone-100 text-stone-500 hover:bg-emerald-100 hover:text-emerald-700 flex items-center justify-center"><Icon name="phone" :size="11" /></a>
                     <a :href="'https://wa.me/212' + phone.replace(/\D/g,'').replace(/^0/,'')" target="_blank" class="w-5 h-5 rounded-md bg-stone-100 text-stone-500 hover:bg-emerald-100 hover:text-emerald-700 flex items-center justify-center"><Icon name="message-circle" :size="11" /></a>
+                    <!-- The order is one line of a longer story: 60% of
+                         orders come from a number that has ordered before.
+                         Only for the lanes that own the customer — the
+                         backend gate would refuse a picker anyway. -->
+                    <RouterLink v-if="canSeeCustomer" :to="{ name: 'CsLookup', query: { q: phone } }"
+                                :title="t('od.customerHistory')"
+                                class="w-5 h-5 rounded-md bg-stone-100 text-stone-500 hover:bg-violet-100 hover:text-violet-700 flex items-center justify-center"><Icon name="user" :size="11" /></RouterLink>
                   </template>
                 </span></div>
               <div class="flex items-center justify-between gap-2"><span class="text-stone-400">{{ t("od.destination") }}</span><span class="font-medium text-stone-800 text-end truncate">{{ shipToLine }}</span></div>
@@ -388,7 +395,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { useRouter } from "vue-router";
+import { RouterLink, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { local } from "@/lib/clock";
 import JourneyTimeline from "@/components/JourneyTimeline.vue";
@@ -398,6 +405,7 @@ import {
 } from "@/lib/handoffData";
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
+import { useAuth } from "@/composables/useAuth";
 import { useToast } from "@/composables/useToast";
 import { useSkuLink } from "@/composables/useSkuLink";
 
@@ -459,6 +467,10 @@ const props = defineProps({
 });
 
 const router = useRouter();
+// Same set cs._gate() accepts; anyone else gets a link that only throws.
+const { role: myRole } = useAuth();
+const canSeeCustomer = computed(() =>
+  ["cs", "confirmation", "tracking", "manager"].includes(myRole.value));
 const openSku = useSkuLink();
 function goBack() {
   // Return to the list the order was opened from (Orders / Consolidation /

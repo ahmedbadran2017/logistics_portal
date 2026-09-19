@@ -1124,6 +1124,7 @@ export default {
     noOrder: "Aucune commande ne demande cet article", unknown: "Article inconnu",
   },
   od: {
+    customerHistory: "Historique de ce client",
     latest: "dernier",
     tl_confirmed: "Commande confirmée", tl_picklist: "Liste de prélèvement créée", tl_closed: "Colis fermé", tl_manifest: "Sur le manifeste transporteur",
     tl_label: "Étiquette créée chez le transporteur", tl_hub: "Au hub du transporteur", tl_ofd: "En cours de livraison", tl_appointment: "Rendez-vous pris avec le client",

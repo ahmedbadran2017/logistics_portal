@@ -1124,6 +1124,7 @@ export default {
     noOrder: "No order needs this item", unknown: "Unknown item",
   },
   od: {
+    customerHistory: "This customer's history",
     latest: "latest",
     tl_confirmed: "Order confirmed", tl_picklist: "Pick list created", tl_closed: "Parcel closed", tl_manifest: "On the carrier manifest",
     tl_label: "Label created at the carrier", tl_hub: "At a carrier hub", tl_ofd: "Out for delivery", tl_appointment: "Appointment set with the customer",

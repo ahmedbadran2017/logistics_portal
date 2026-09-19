@@ -1124,6 +1124,7 @@ export default {
     noOrder: "مفيش أوردر محتاج القطعة دي", unknown: "قطعة غير معروفة",
   },
   od: {
+    customerHistory: "تاريخ العميل ده",
     latest: "الأحدث",
     tl_confirmed: "الأوردر اتأكد", tl_picklist: "الـ pick list اتعملت", tl_closed: "الطرد اتقفل", tl_manifest: "على مانيفست الكارير",
     tl_label: "اللابل اتعمل عند الكارير", tl_hub: "في هاب الكارير", tl_ofd: "خارج للتوصيل", tl_appointment: "في معاد مع العميل",
