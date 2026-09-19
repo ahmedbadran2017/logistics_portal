@@ -21,15 +21,16 @@
               :class="tab === tb ? 'text-white bg-violet-600' : 'text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50'"
               @click="goTab(tb)">
         {{ t('cs.tab_' + tb) }}
-        <span class="tabular-nums text-[11px]" :class="tab === tb ? 'text-white/75' : 'text-stone-400'">{{ data?.counts?.[tb] ?? '–' }}</span>
+        <span class="tabular-nums text-[11px]" :class="tab === tb ? 'text-white/75' : 'text-stone-400'">{{
+          tb === 'watch' ? (watchN ?? '–') : (data?.counts?.[tb] ?? '–') }}</span>
       </button>
-      <input v-model="q" :placeholder="t('cs.searchPh')"
+      <input v-if="tab !== 'watch'" v-model="q" :placeholder="t('cs.searchPh')"
              class="ms-auto h-9 w-52 px-3 rounded-xl bg-white ring-1 ring-stone-200 text-[12.5px] focus:outline-none"
              @input="debouncedLoad" />
     </div>
 
     <!-- kind filter: six types, a filter row rather than six more tabs -->
-    <div class="flex items-center gap-1.5 flex-wrap mb-3">
+    <div v-if="tab !== 'watch'" class="flex items-center gap-1.5 flex-wrap mb-3">
       <button class="h-7 px-2.5 rounded-full text-[11.5px] font-medium ring-1"
               :class="!kindF ? 'text-white bg-stone-800 ring-stone-800' : 'text-stone-600 bg-white ring-stone-200'"
               @click="kindF = ''; load()">{{ t('cs.allKinds') }}</button>
@@ -42,7 +43,72 @@
       </button>
     </div>
 
-    <div v-if="loading" class="space-y-2.5">
+    <!-- ── the watchlist ────────────────────────────────────────────────
+         Not tickets. Exchanges that went wrong, computed fresh on every
+         load, with the reason on each row. A row becomes a real request
+         the moment someone takes it — which is also the moment it leaves
+         this list. -->
+    <template v-if="tab === 'watch'">
+      <div class="flex items-center gap-1.5 flex-wrap mb-3">
+        <button class="h-7 px-2.5 rounded-full text-[11.5px] font-medium ring-1"
+                :class="!whyF ? 'text-white bg-stone-800 ring-stone-800' : 'text-stone-600 bg-white ring-stone-200'"
+                @click="whyF = ''">{{ t('cs.allKinds') }}</button>
+        <button v-for="w in WHY_ORDER" :key="w"
+                class="h-7 px-2.5 rounded-full text-[11.5px] font-medium ring-1 transition-all"
+                :class="whyF === w ? 'text-white bg-violet-600 ring-violet-600' : WHY_CLS[w]"
+                @click="whyF = whyF === w ? '' : w">
+          {{ t('cs.w_' + w) }}
+          <span v-if="watch?.counts?.[w]" class="tabular-nums ms-1 opacity-70">{{ watch.counts[w] }}</span>
+        </button>
+        <span v-if="watch?.money" class="ms-auto text-[12px] font-semibold text-stone-500 tabular-nums" dir="ltr">
+          {{ watch.money.toLocaleString() }} MAD</span>
+      </div>
+
+      <div v-if="loading" class="space-y-2.5">
+        <div v-for="n in 5" :key="n" class="h-[72px] rounded-2xl bg-white ring-1 ring-stone-200/60 animate-pulse" />
+      </div>
+      <div v-else-if="!watchRows.length" class="rounded-2xl p-12 text-center bg-white ring-1 ring-stone-200/70">
+        <span class="inline-flex w-14 h-14 rounded-2xl items-center justify-center bg-emerald-50 text-emerald-500 mb-3"><Icon name="check-circle" :size="26" /></span>
+        <div class="text-[15px] font-semibold text-stone-800">{{ t('cs.empty') }}</div>
+      </div>
+      <div v-else class="space-y-2">
+        <div v-for="r in watchRows" :key="r.ref" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-3.5">
+          <div class="flex items-start gap-3 flex-wrap">
+            <span class="text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 shrink-0 mt-0.5"
+                  :class="WHY_CLS[r.why]">{{ t('cs.w_' + r.why) }}</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-[14px] font-bold text-stone-900 truncate max-w-[200px]" dir="auto">{{ r.customer || '—' }}</span>
+                <RouterLink v-if="r.order" :to="{ name: 'OrderDetail', params: { name: String(r.order).replace('#','') } }"
+                            class="font-mono text-[11.5px] font-semibold text-stone-500 hover:underline" dir="ltr">{{ r.order }}</RouterLink>
+                <!-- the replacement is a different parcel with a different
+                     fate; showing only the original hides which one failed -->
+                <RouterLink v-if="r.replacement" :to="{ name: 'OrderDetail', params: { name: String(r.replacement).replace('#','') } }"
+                            class="font-mono text-[11px] text-violet-600 hover:underline" dir="ltr">→ {{ r.replacement }}</RouterLink>
+                <span v-if="r.trackKey" class="text-[10.5px] rounded-full px-2 py-0.5 bg-stone-100 text-stone-600">{{ t('track.' + r.trackKey) }}</span>
+              </div>
+              <div class="flex items-center gap-2.5 mt-1 text-[11.5px] text-stone-500 flex-wrap">
+                <span v-if="r.city">{{ r.city }}</span>
+                <span v-if="r.phone" class="font-mono" dir="ltr">{{ r.phone }}</span>
+                <span class="tabular-nums" :class="r.waitD >= 30 ? 'text-rose-600 font-semibold' : ''" dir="ltr">
+                  {{ t('cs.waitedD').replace('{n}', r.waitD) }}</span>
+                <span v-if="r.amount && r.weOwe" class="font-semibold text-amber-700 tabular-nums" dir="ltr">
+                  {{ r.amount }} MAD</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" rel="noopener"
+                 class="h-9 w-9 inline-flex items-center justify-center rounded-lg text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200">
+                <Icon name="message-circle" :size="14" /></a>
+              <button class="h-9 px-3.5 rounded-lg text-[12px] font-bold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40"
+                      :disabled="busy === r.ref" @click="takeWatch(r)">{{ t('cs.takeIt') }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <div v-else-if="loading" class="space-y-2.5">
       <div v-for="n in 5" :key="n" class="h-[92px] rounded-2xl bg-white ring-1 ring-stone-200/60 animate-pulse" />
     </div>
     <div v-else-if="!rows.length" class="rounded-2xl p-12 text-center bg-white ring-1 ring-stone-200/70">
@@ -194,7 +260,7 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { local } from "@/lib/clock";
@@ -207,7 +273,17 @@ const { success, warn } = useToast();
 const route = useRoute();
 const router = useRouter();
 
-const TABS = ["new", "mine", "waiting", "done"];
+// `watch` is not a state of a request — it is work that has no request
+// yet. It sits with the tabs because that is where the team already looks,
+// not because it is the same kind of thing.
+const TABS = ["new", "mine", "waiting", "done", "watch"];
+const WHY_ORDER = ["never_started", "came_back", "never_moved", "refund_unpaid"];
+const WHY_CLS = {
+  never_started: "text-rose-700 bg-rose-50 ring-rose-200",
+  came_back: "text-orange-700 bg-orange-50 ring-orange-200",
+  never_moved: "text-amber-700 bg-amber-50 ring-amber-200",
+  refund_unpaid: "text-sky-700 bg-sky-50 ring-sky-200",
+};
 const KIND_CLS = {
   stock: "text-rose-700 bg-rose-50 ring-rose-200",
   wrong_item: "text-orange-700 bg-orange-50 ring-orange-200",
@@ -232,6 +308,16 @@ const resolution = ref("");
 // thirty of them on the board would make the desk unusable.
 const cand = ref({});
 const candBusy = ref("");
+const watch = ref(null);
+const whyF = ref("");
+// The tab badge must survive leaving the tab, so the count is kept apart
+// from the payload and refreshed whenever the watchlist is read.
+const watchN = ref(null);
+
+const watchRows = computed(() => {
+  const all = watch.value?.rows || [];
+  return whyF.value ? all.filter((r) => r.why === whyF.value) : all;
+});
 
 async function findOrder(r) {
   if (cand.value[r.name]) { delete cand.value[r.name]; cand.value = { ...cand.value }; return; }
@@ -291,6 +377,14 @@ async function load() {
   syncUrl();
   loading.value = true;
   try {
+    if (tab.value === "watch") {
+      // limit 100 is the endpoint's own ceiling; the pile is 533 and the
+      // top of it is the only part anyone will work today.
+      const w = await api("cs.watchlist", { kind: "exchange", limit: 100 });
+      watch.value = w;
+      watchN.value = w.total ?? 0;
+      return;
+    }
     const r = await api("cs.board", { tab: tab.value, kind: kindF.value, q: q.value.trim() });
     data.value = r;
     rows.value = r.rows || [];
@@ -299,6 +393,19 @@ async function load() {
   finally { loading.value = false; }
 }
 function applyFresh() { freshN.value = 0; load(); }
+
+async function takeWatch(r) {
+  busy.value = r.ref;
+  try {
+    const res = await apiPost("cs.take_watch", { kind: "exchange", ref: r.ref });
+    // It is a ticket now, so it no longer belongs on a list of things with
+    // no ticket. Drop it here rather than reloading the whole pile.
+    watch.value = { ...watch.value, rows: (watch.value?.rows || []).filter((x) => x.ref !== r.ref) };
+    watchN.value = Math.max(0, (watchN.value || 1) - 1);
+    success(res.merged ? t("cs.mergedInto") : t("rs.tookIt"), r.customer || r.ref);
+  } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
+  finally { busy.value = ""; }
+}
 
 async function take(r) {
   busy.value = r.name;

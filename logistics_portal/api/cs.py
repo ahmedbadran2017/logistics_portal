@@ -1307,3 +1307,202 @@ def attach_order(name, order):
     frappe.db.commit()
     _bust()
     return {"ok": True, "order": order, "already": False}
+
+
+# ── the second door: work nobody is complaining about ─────────────────────
+#
+# The desk had one source: every request in it came from the AI handoff.
+# I planned two new lists here and only one of them turned out to exist.
+#
+# The one that did NOT: "conversations the AI handed over and no human ever
+# answered". Measured on prod 2026-09-19 — 626 handed-off conversations,
+# and all 626 already carry a request, because `intake_joyagent` makes one.
+# Of the 590 with no human reply, 335 are already closed (close_stale_daily
+# shut them as 30-day silent), 254 are sitting on the board as `new` and 1
+# is open. Zero invisible. A "silent handoffs" list would have been a
+# second window onto the same 254 rows.
+#
+# The one that did: exchanges. 740 unsettled, and they are not one pile —
+# four different things went wrong and each needs a different phone call:
+#
+#   48  never started      the exchange stalled at "Waiting for Cathedis
+#                          API" and no replacement order was ever created.
+#                          Oldest 151 days.
+#   29  never moved        replacement exists with a label, the carrier has
+#                          no scan on it 7+ days later.
+#   38  came back          the replacement's own delivery failed, so the
+#                          customer is out of pocket AND empty-handed.
+#   418 refund unpaid      replacement delivered 8+ days ago, the customer
+#                          is still owed money. The bulk of it, and the
+#                          oldest waits are past three months.
+#   78  under-collected    delivered, the customer owes US. Money, not a
+#                          customer conversation — left off this desk.
+#
+# 533 actionable rows out of 740 unsettled; the rest are either ours to
+# collect or simply not late yet. Reading and ranking all 740 costs 11ms.
+#
+# Under a week old is not late: a refund on a parcel delivered yesterday is
+# just a refund in progress, so `_EX_FRESH_D` holds those back.
+#
+# Not materialised as tickets. 533 rows dropped into a board that holds 254
+# would bury the live work, and an unworked pile rots exactly the way the
+# handoffs rotted inside a field nobody opened. The list is computed live
+# and a row becomes a real request only when an agent takes it — so it
+# shrinks as it is worked and an untouched row costs nothing.
+
+_EX_FRESH_D = 8          # a refund younger than this is not yet late
+_EX_STUCK_D = 7          # a label with no carrier scan this long has stalled
+_EX_SCAN = 800           # rows read before ranking; the whole pile is 740, 11ms
+
+# Why each row is here, worst first. The order is the triage: a customer
+# who got nothing outranks one who is owed money, because they are still
+# waiting for the thing itself.
+_EX_REASON = ("never_started", "came_back", "never_moved", "refund_unpaid")
+
+
+def _live_request_keys():
+    """Orders and phones the desk is already holding, so the watchlist
+    never offers work that is on someone's screen."""
+    if not frappe.db.exists("DocType", DT):
+        return set(), set()
+    rows = frappe.db.sql(
+        f"SELECT so, phone FROM `tab{DT}` WHERE state IN %(live)s",
+        {"live": _LIVE}, as_dict=True)
+    return ({r.so for r in rows if r.so},
+            {_phone_key(r.phone) for r in rows if _phone_key(r.phone)})
+
+
+def _ex_reason(r):
+    """Which of the four things went wrong. None = nothing has, yet."""
+    if r.exchange_status == "Waiting for Cathedis API" or not r.exchange_sales_order:
+        return "never_started"
+    trk = r.track or ""
+    if trk in ("Delivery Exception", "Failed Attempt", "Return"):
+        return "came_back"
+    if trk in ("", "Pending") and (r.ageD or 0) >= _EX_STUCK_D:
+        return "never_moved"
+    if trk == "Delivered" and r.settlement_direction == "Refund to Customer" \
+            and (r.sinceD or 0) >= _EX_FRESH_D:
+        return "refund_unpaid"
+    return None
+
+
+@frappe.whitelist()
+def watchlist(kind="exchange", limit=40, offset=0):
+    """Exchanges that went wrong and nobody has reported."""
+    _gate()
+    limit = min(max(int(limit or 40), 1), 100)
+    offset = max(int(offset or 0), 0)
+    held_orders, held_phones = _live_request_keys()
+
+    rows = frappe.db.sql(
+        """SELECT x.name, x.sales_order, x.exchange_sales_order, x.customer_name,
+                  x.customer_phone, x.exchange_status, x.settlement_direction,
+                  x.difference_amount, x.exchange_city, x.creation,
+                  s.custom_track_shipment_status AS track,
+                  DATEDIFF(NOW(), x.creation) AS ageD,
+                  DATEDIFF(NOW(), COALESCE(s.custom_delivered_at, x.modified)) AS sinceD
+           FROM `tabSales Exchange` x
+           LEFT JOIN `tabSales Order` s ON s.name = x.exchange_sales_order
+           WHERE COALESCE(x.settlement_status,'') <> 'Settled'
+           ORDER BY x.creation ASC
+           LIMIT %(cap)s""", {"cap": _EX_SCAN}, as_dict=True)
+
+    out, counts = [], {k: 0 for k in _EX_REASON}
+    for r in rows:
+        # Money owed to us is a collection, not a customer conversation.
+        why = _ex_reason(r) if r.settlement_direction != "Collect from Customer" \
+            or r.exchange_status == "Waiting for Cathedis API" else None
+        if not why:
+            continue
+        counts[why] += 1
+        if r.sales_order and r.sales_order in held_orders:
+            continue
+        k = _phone_key(r.customer_phone)
+        if k and k in held_phones:
+            continue
+        out.append({
+            "ref": r.name, "why": why,
+            "order": r.sales_order or "",
+            "replacement": r.exchange_sales_order or "",
+            "customer": (r.customer_name or "").strip(),
+            "phone": (r.customer_phone or "").strip(),
+            "city": (r.exchange_city or "").strip().title(),
+            "track": r.track or "", "trackKey": _TRACK_KEY.get(r.track or "", ""),
+            "amount": round(abs(float(r.difference_amount or 0))),
+            "weOwe": r.settlement_direction == "Refund to Customer",
+            "at": str(r.creation)[:19],
+            "ageD": int(r.ageD or 0),
+            # For a refund the clock that matters started at delivery, not
+            # at the exchange: that is how long the customer has waited.
+            "waitD": int(r.sinceD or 0) if why == "refund_unpaid" else int(r.ageD or 0),
+        })
+
+    sev = {k: i for i, k in enumerate(_EX_REASON)}
+    out.sort(key=lambda x: (sev[x["why"]], -x["waitD"]))
+    return {"kind": "exchange", "total": len(out), "counts": counts,
+            "money": sum(x["amount"] for x in out),
+            "capped": len(rows) >= _EX_SCAN,
+            "rows": out[offset:offset + limit]}
+
+
+# What the note should say, so the ticket carries the diagnosis and the
+# next agent does not have to work it out again.
+_EX_NOTE = {
+    "never_started": "Exchange never started — no replacement order was created",
+    "came_back": "The replacement delivery failed — the customer has nothing",
+    "never_moved": "The replacement has a label but the carrier never scanned it",
+    "refund_unpaid": "Replacement delivered and the refund is still unpaid",
+}
+
+
+@frappe.whitelist(methods=["POST"])
+def take_watch(kind="exchange", ref=""):
+    """Turn one watchlist row into a request, held by whoever took it.
+
+    The row becomes a ticket at this moment and not before — that is the
+    whole point of computing the list live."""
+    _gate()
+    x = frappe.db.get_value(
+        "Sales Exchange", ref,
+        ["sales_order", "exchange_sales_order", "customer_phone",
+         "difference_amount", "settlement_direction", "exchange_status",
+         "creation", "modified"], as_dict=True)
+    if not x:
+        frappe.throw("Unknown exchange.")
+
+    trk, since = "", 0
+    if x.exchange_sales_order:
+        g = frappe.db.get_value(
+            "Sales Order", x.exchange_sales_order,
+            ["custom_track_shipment_status", "custom_delivered_at"], as_dict=True) or {}
+        trk = g.get("custom_track_shipment_status") or ""
+        when = g.get("custom_delivered_at") or x.modified
+        since = (now_datetime() - when).days if when else 0
+    why = _ex_reason(frappe._dict({
+        "exchange_status": x.exchange_status,
+        "exchange_sales_order": x.exchange_sales_order,
+        "settlement_direction": x.settlement_direction, "track": trk,
+        "ageD": (now_datetime() - x.creation).days if x.creation else 0,
+        "sinceD": since,
+    })) or "refund_unpaid"
+
+    owed = round(abs(float(x.difference_amount or 0)))
+    note = _EX_NOTE[why] + f" — exchange {ref}"
+    if owed and x.settlement_direction == "Refund to Customer":
+        note += f", {owed} MAD owed to the customer"
+    res = raise_request(kind="exchange", note=note, order=x.sales_order or "",
+                        phone=x.customer_phone or "", source="system")
+    name = res.get("request")
+    # Claim only what we just created. A merge means someone already has
+    # this customer open — the watchlist filter should have hidden the row,
+    # so this is a race, and taking their ticket off them is not the fix.
+    if name and not res.get("merged"):
+        try:
+            claim(name)
+        except Exception:
+            # Holding it is the point, but a claim that fails must not lose
+            # the request we just made.
+            frappe.log_error(frappe.get_traceback()[:2000], "cs.take_watch claim")
+    return {"ok": True, "request": name, "merged": res.get("merged", False),
+            "why": why}
