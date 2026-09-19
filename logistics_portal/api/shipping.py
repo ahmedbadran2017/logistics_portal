@@ -223,7 +223,7 @@ _TRACK_MAP = {
 
 
 @frappe.whitelist()
-def tracking(days=14, state="", q="", limit=30, offset=0):
+def tracking(days=14, state="", q="", limit=30, offset=0, widen=0):
     """Windowed parcel board. Production has ~24k stale DN track statuses that
     never re-sync (avg age 90d), so everything is scoped to a recent
     posting-date window — stale rows are history, not work.
@@ -235,8 +235,22 @@ def tracking(days=14, state="", q="", limit=30, offset=0):
         limit = min(max(int(limit or 30), 1), 100)
         offset = max(int(offset or 0), 0)
 
-        window = "dn.docstatus = 1 AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"
+        # The window keeps 24k stale statuses off the BOARD. A search is not
+        # the board: an agent types a number because a customer is on the
+        # phone about one parcel, and "No parcels match" for an order three
+        # weeks old is a wrong answer, not a filtered one. Reported from the
+        # floor 2026-09-19 with 688917648 — the portal found nothing while
+        # the desk found #256802, delivered 29 August, 21 days out.
+        #
+        # Widened on a MISS, not always: unwindowed costs 2,174ms against
+        # 107ms windowed (the DN->SO join has no help from the posting-date
+        # index), so the normal search stays fast and only the search that
+        # would otherwise have lied pays for the truth. `widened` tells the
+        # screen to say so.
         vals = {"days": days}
+        wide = bool(widen)
+        window = ("dn.docstatus = 1" if wide else
+                  "dn.docstatus = 1 AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)")
 
         counts = {v: 0 for v in ["pending", "pickedup", "intransit", "outfordelivery", "delivered", "exception", "failed", "return"]}
         for r in frappe.db.sql(
@@ -314,8 +328,12 @@ def tracking(days=14, state="", q="", limit=30, offset=0):
             "phone": r.phone or "", "city": (r.city or "").strip().title(),
             "posted": str(r.posted or ""), "updated": str(r.updated or "")[:16],
         } for r in rows]
+        # A search that found nothing inside the window has not answered the
+        # question yet — say the whole table is still worth a look.
+        can_widen = bool(q and str(q).strip()) and not wide and not parcels
         return {"parcels": parcels, "counts": counts, "total": int(total or 0),
-                "days": days, "serverNow": str(frappe.utils.now_datetime())[:19]}
+                "days": days, "widened": wide, "canWiden": can_widen,
+                "serverNow": str(frappe.utils.now_datetime())[:19]}
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.tracking")
         return {}

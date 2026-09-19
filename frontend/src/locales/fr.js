@@ -1188,6 +1188,7 @@ export default {
     dismiss: "Ne plus afficher",
   },
   trk: {
+    widened: "Hors période — trouvé dans l'historique complet.",
     fullHistory: "Historique complet",
     checkCarrier: "Vérifier chez le transporteur", checking: "Interrogation du transporteur…", carrierSays: "Le transporteur dit",
     noTracking: "Pas encore de numéro de suivi transporteur sur cette commande", checkFail: "Transporteur injoignable",

@@ -278,6 +278,9 @@
           <TrackBadge :state="p.track" />
         </div>
         <div v-if="parcels.length === 0" class="text-center text-[12.5px] text-stone-400 py-12">{{ t("trk.noMatch") }}</div>
+        <!-- Found outside the window: say so, or the agent reads an old
+             parcel as if it shipped this week. -->
+        <div v-else-if="widened" class="text-center text-[11.5px] text-amber-700 bg-amber-50/70 py-2">{{ t("trk.widened") }}</div>
         <div v-if="total > pageSize" class="flex items-center justify-between px-4 py-2.5 bg-stone-50/50">
           <span class="text-[11.5px] text-stone-500 tabular-nums">
             {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, total) }} {{ t("trk.of") }} {{ total }}
@@ -397,6 +400,7 @@ watch(tlParcel, async (p) => {
   journeyLoading.value = false;
 });
 const updatedAt = ref(Date.now());
+const widened = ref(false);
 let searchTimer = null;
 
 async function load(keepPage = false) {
@@ -407,16 +411,23 @@ async function load(keepPage = false) {
   // telling a real person their parcel was delivered because the API blinked.
   // An error the agent can see is the only honest failure mode.
   try {
-    const live = await api("shipping.tracking", {
+    const args = {
       days: daysF.value, state: stateF.value || undefined,
       q: q.value.trim() || undefined,
       limit: pageSize, offset: (page.value - 1) * pageSize,
-    });
+    };
+    let live = await api("shipping.tracking", args);
+    // A search that found nothing in the window has not answered the
+    // question. Reported 2026-09-19: 688917648 read "No parcels match"
+    // while the parcel sat 21 days out, delivered. Widening costs 2.2s
+    // against 107ms, so it runs only on the miss — never on the board.
+    if (live.canWiden) live = await api("shipping.tracking", { ...args, widen: 1 });
     mode.value = "live";
     loadError.value = "";
     parcels.value = live.parcels || [];
     counts.value = live.counts || {};
     total.value = live.total ?? (live.parcels || []).length;
+    widened.value = !!live.widened && !!(live.parcels || []).length;
     updatedAt.value = Date.now();
   } catch (e) {
     mode.value = "error";

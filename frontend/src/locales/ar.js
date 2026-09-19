@@ -1188,6 +1188,7 @@ export default {
     dismiss: "ما تعرضش تاني",
   },
   trk: {
+    widened: "مش في الفترة دي — اتلاقى في كل التاريخ.",
     fullHistory: "الهيستوري الكامل",
     checkCarrier: "اسأل الكاريير دلوقتي", checking: "بنسأل الكاريير…", carrierSays: "الكاريير بيقول",
     noTracking: "مفيش رقم تتبع كاريير على الأوردر دا لسه", checkFail: "ما قدرناش نوصل للكاريير",

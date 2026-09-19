@@ -710,6 +710,63 @@ def close_stale_daily():
         frappe.log_error(frappe.get_traceback()[:2000], "cs.close_stale_daily")
 
 
+# ── the numbers we test with ──────────────────────────────────────────────
+#
+# Audited 2026-09-19 because two of them were topping the repeat-customer
+# list. Nine numbers, 342 orders between them, and every one of them is
+# ours: 671111111 carries 174 orders of which 167 are named "test test",
+# 622335522 / 538313250 / 606060606 / 266006969 are 100% test-named, and
+# 442233992 / 612345678 / 022311114 / 600000000 are staff testing under
+# their own names.
+#
+# They are HIDDEN from the browse lists and FLAGGED in search, never
+# hidden from search: an agent who types one of these numbers is testing
+# and should see the answer with a label on it, not an empty screen.
+#
+# The orders themselves are left alone. They carry no delivery note, no
+# invoice, no stock ledger entry, no GL entry and no reservation — 342
+# rows of pure paperwork — so deleting them would be safe but it is also
+# irreversible and it would not stop the next one. A list is reversible
+# and catches the next one for free.
+#
+# Deliberately NOT in this list: 600004834, 600000357 and 600001846 look
+# like test numbers and are real customers (حكيمة الفضيلي, AIT BAADDI
+# MOHAMED, Assia) with no test-named order between them. Pattern-matching
+# the digits would have hidden three real people.
+_TEST_KEY = "lp_test_phones"
+_TEST_SEED = ("671111111", "612345678", "622335522", "538313250",
+              "022311114", "606060606", "600000000", "266006969",
+              "442233992")
+
+
+def test_phones():
+    """The 9-digit keys the floor tests with. Stored as a default so the
+    next one can be added without a deploy."""
+    raw = frappe.db.get_default(_TEST_KEY)
+    if not raw:
+        return set(_TEST_SEED)
+    try:
+        import json as _json
+        got = _json.loads(raw)
+        return {re.sub(r"\D", "", str(x))[-9:] for x in got if str(x).strip()}
+    except Exception:
+        return set(_TEST_SEED)
+
+
+@frappe.whitelist(methods=["POST"])
+def save_test_phones(phones=""):
+    """Replace the list. Section admins and the manager only."""
+    import json as _json
+    _desk_gate()
+    if isinstance(phones, str):
+        phones = _json.loads(phones or "[]")
+    keys = sorted({re.sub(r"\D", "", str(x))[-9:] for x in (phones or [])
+                   if len(re.sub(r"\D", "", str(x))) >= 9})
+    frappe.db.set_default(_TEST_KEY, _json.dumps(keys))
+    frappe.db.commit()
+    return {"ok": True, "phones": keys}
+
+
 # ── the lookup: any order, any customer, when the phone rings ─────────────
 #
 # Measured on production before writing this (2026-09-19), because the shape
@@ -866,6 +923,7 @@ def _by_phone(cond, vals, key, limit, offset):
     page = rows[offset:offset + limit]
     return {"mode": "phone", "key": key, "total": len(rows),
             "capped": len(rows) >= _PHONE_CAP,
+            "isTest": bool(key and key in test_phones()),
             "hasMore": offset + limit < len(rows),
             "rows": [_order_row(r) for r in page]}
 
@@ -1050,6 +1108,7 @@ def customer(phone="", order=""):
 
     return {
         "found": True, "phone": phone or (rows[0].phone or ""), "key": key,
+        "isTest": key in test_phones(),
         "names": names[:4], "name": names[0] if names else "",
         "city": (rows[0].city or "").strip().title(),
         "totals": {
@@ -1105,16 +1164,17 @@ def lists(kind="today", limit=40):
                   AND COALESCE(so.custom_customer_phone,'') <> ''
                   AND {_PHONE_KEY} REGEXP '^[67]'
                 GROUP BY k HAVING n >= 3
-                ORDER BY n DESC LIMIT {limit}""",
+                ORDER BY n DESC LIMIT {limit + len(_TEST_SEED) + 10}""",
             {"co": _CO}, as_dict=True)
+        skip = test_phones()
         return {"kind": "repeat", "rows": [
             {"key": r.k, "phone": r.k, "name": (r.nm or "").strip(),
              "orders": int(r.n or 0), "lastAt": str(r.last_at or "")[:10],
-             "spend": float(r.mad or 0)} for r in rows]}
+             "spend": float(r.mad or 0)} for r in rows if r.k not in skip][:limit]}
 
     # A conversation and a raised request are two different kinds of
     # contact; the desk wants both in one line per person, newest first.
-    seen, out = {}, []
+    seen, out = {k: 1 for k in test_phones()}, []
     for c in frappe.db.sql(
             """SELECT customer_phone p, customer_name nm, channel, unread,
                       COALESCE(last_message_at, creation) at

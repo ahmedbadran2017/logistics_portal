@@ -1188,6 +1188,7 @@ export default {
     dismiss: "Don't show again",
   },
   trk: {
+    widened: "Not in the window — found in the full history.",
     fullHistory: "Full history",
     checkCarrier: "Check with carrier", checking: "Asking the carrier…", carrierSays: "Carrier says",
     noTracking: "No carrier tracking number on this order yet", checkFail: "Couldn't reach the carrier",
