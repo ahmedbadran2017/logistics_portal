@@ -2329,6 +2329,12 @@ export default {
     thWins: "إنجازات",
   },
   csl: {
+    tabToday: "كلمونا النهاردة", tabRepeat: "عملاء متكررين",
+    listEmpty: "محدش لسه.",
+    x_original: "اتستبدلت", x_replacement: "البديل",
+    raise: "حوّل لـCS", raiseHint: "افتح طلب خدمة عملاء على الأوردر ده",
+    raiseTitle: "إيه المشكلة؟", raiseNote: "سطر واحد — العميل قال إيه.",
+    raiseSend: "افتح الطلب", raiseDone: "الطلب اتفتح", raiseMerged: "اتضاف للطلب المفتوح",
     title: "ابحث عن عميل",
     intro: "أي أوردر — بالتليفون أو الاسم أو رقم الأوردر. التاريخ كامل، مش فترة محددة.",
     placeholder: "تليفون، اسم العميل، أو رقم الأوردر…",

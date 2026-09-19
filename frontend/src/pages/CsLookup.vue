@@ -105,12 +105,25 @@
                   :title="t('csl.openCustomer')" @click="openCustomer(r)">{{ r.customer }}</button>
           <span v-else class="text-[12px] text-stone-600 truncate max-w-[160px]">{{ r.customer }}</span>
           <span v-if="r.city" class="text-[10.5px] text-stone-400 truncate max-w-[100px]">{{ r.city }}</span>
+          <!-- An exchange names both sides; say which one this row is and
+               who owes whom, because that is what the caller asks. -->
+          <span v-if="r.exchange"
+                class="inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5
+                       text-violet-700 bg-violet-50 ring-1 ring-violet-200"
+                :title="exTitle(r.exchange)">
+            <Icon name="refresh-cw" :size="10" />{{ t('csl.x_' + r.exchange.side) }}
+          </span>
           <span class="ms-auto flex items-center gap-2 shrink-0">
             <span class="text-[11.5px] tabular-nums text-stone-500">{{ Math.round(r.total) }}</span>
             <span v-if="r.outcome" class="text-[10.5px] font-bold rounded-full px-2 py-0.5"
                   :class="OUT_CLS[r.outcome]">{{ t('csl.o_' + r.outcome) }}</span>
             <span v-else-if="r.logistics" class="text-[10.5px] text-stone-500 rounded-full px-2 py-0.5 bg-stone-100">
               {{ r.logistics }}</span>
+            <button class="h-7 px-2 rounded-lg text-[11px] font-semibold text-stone-600
+                           bg-stone-100 hover:bg-stone-200"
+                    :title="t('csl.raiseHint')" @click="openRaise(r)">
+              <Icon name="message-circle" :size="11" class="inline -mt-px me-0.5" />{{ t('csl.raise') }}
+            </button>
           </span>
         </li>
       </ul>
@@ -125,6 +138,72 @@
       <div class="text-[13px] font-semibold text-stone-600">{{ t('csl.none') }}</div>
       <div class="text-[11.5px] text-stone-400 mt-1">{{ t('csl.noneHint') }}</div>
     </div>
+
+    <!-- Somewhere to start when the screen opens cold. The way in is the
+         search box — an agent always arrives holding a name or a number —
+         so these are short lists of PEOPLE, not a browsable table of
+         175,711 customer records nobody would page through. -->
+    <section v-if="!searched && !loading" class="bg-white rounded-2xl ring-1 ring-stone-200/70 overflow-hidden">
+      <div class="flex items-center gap-1 px-3 py-2 border-b border-stone-100">
+        <button v-for="tb in TABS" :key="tb.k"
+                class="h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors"
+                :class="tab === tb.k ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'"
+                @click="tab = tb.k; loadList()">{{ t(tb.label) }}</button>
+        <span v-if="list.length" class="ms-auto text-[11px] text-stone-400 tabular-nums">{{ list.length }}</span>
+      </div>
+      <div v-if="listLoading" class="p-4 space-y-1.5">
+        <span v-for="n in 6" :key="n" class="block h-10 rounded-lg bg-stone-100 animate-pulse" />
+      </div>
+      <div v-else-if="!list.length" class="p-10 text-center text-[12px] text-stone-400">
+        {{ t('csl.listEmpty') }}
+      </div>
+      <ul v-else class="divide-y divide-stone-100">
+        <li v-for="p in list" :key="p.key"
+            class="px-4 py-2.5 flex items-center gap-3 hover:bg-stone-50/70 cursor-pointer"
+            @click="pick(p)">
+          <span class="text-[12.5px] font-semibold text-stone-800 truncate max-w-[180px]">
+            {{ p.name || t('csl.noName') }}</span>
+          <span class="font-mono text-[11px] text-stone-400 tabular-nums" dir="ltr">{{ p.phone }}</span>
+          <span v-if="p.via" class="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-sky-50 text-sky-700">
+            {{ p.via }}</span>
+          <span v-if="p.unread" class="w-1.5 h-1.5 rounded-full bg-rose-500" />
+          <span class="ms-auto flex items-center gap-2.5 text-[11px] text-stone-400 tabular-nums shrink-0" dir="ltr">
+            <template v-if="p.orders">{{ p.orders }} · {{ Math.round(p.spend) }}</template>
+            <span>{{ p.at ? local(p.at).slice(5, 16) : p.lastAt }}</span>
+          </span>
+        </li>
+      </ul>
+    </section>
+
+    <!-- Raising a request: the kind and one line. Everything else is taken
+         from the order the agent pressed it on. An agent mid-call does not
+         fill a form — that is how the old Issue lane reached eight tickets
+         in a year. -->
+    <div v-if="raise" class="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-stone-900/40 px-4 pb-4 sm:pb-0"
+         @click.self="raise = null">
+      <div class="w-full max-w-sm bg-white rounded-2xl ring-1 ring-stone-200 shadow-xl p-4 space-y-3">
+        <div class="text-[13px] font-bold text-stone-900">{{ t('csl.raiseTitle') }}</div>
+        <div class="font-mono text-[11.5px] text-stone-500" dir="ltr">{{ raise.order }}</div>
+        <div class="flex flex-wrap gap-1.5">
+          <button v-for="k in KINDS" :key="k"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors"
+                  :class="raiseKind === k ? 'bg-[var(--accent-600)] text-white' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'"
+                  @click="raiseKind = k">{{ t('cs.k_' + k, k) }}</button>
+        </div>
+        <textarea v-model="raiseNote" rows="2" :placeholder="t('csl.raiseNote')"
+                  class="w-full rounded-xl bg-stone-50 ring-1 ring-stone-200 px-3 py-2 text-[12.5px]
+                         focus:outline-none focus:ring-2 focus:ring-[var(--accent-500)]" />
+        <div v-if="raiseErr" class="text-[11.5px] text-rose-600">{{ raiseErr }}</div>
+        <div class="flex gap-2">
+          <button class="flex-1 h-9 rounded-lg text-[12.5px] font-semibold bg-stone-100 text-stone-700 hover:bg-stone-200"
+                  @click="raise = null">{{ t('common.cancel') }}</button>
+          <button :disabled="!raiseKind || raiseBusy"
+                  class="flex-1 h-9 rounded-lg text-[12.5px] font-semibold text-white
+                         bg-[var(--accent-600)] hover:bg-[var(--accent-700)] disabled:opacity-40"
+                  @click="sendRaise()">{{ raiseBusy ? '…' : t('csl.raiseSend') }}</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -132,11 +211,13 @@
 import { ref, onMounted, nextTick } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
-import { api } from "@/lib/resource";
+import { api, apiPost } from "@/lib/resource";
 import { local } from "@/lib/clock";
 import { useI18n } from "@/composables/useI18n";
+import { useToast } from "@/composables/useToast";
 
 const { t } = useI18n();
+const { success } = useToast();
 const route = useRoute();
 const router = useRouter();
 
@@ -219,9 +300,83 @@ function openCustomer(row) {
   loadCustomer(row);
 }
 
+// ── the two lists ─────────────────────────────────────────────────────────
+const TABS = [
+  { k: "today", label: "csl.tabToday" },
+  { k: "repeat", label: "csl.tabRepeat" },
+];
+const tab = ref("today");
+const list = ref([]);
+const listLoading = ref(false);
+
+async function loadList() {
+  listLoading.value = true;
+  try {
+    const res = await api("cs.lists", { kind: tab.value, limit: 40 });
+    list.value = res.rows || [];
+  } catch (_) {
+    // A starting point, never the reason the screen fails: the search box
+    // above still works.
+    list.value = [];
+  } finally {
+    listLoading.value = false;
+  }
+}
+
+function pick(p) {
+  q.value = p.phone || p.key;
+  run();
+}
+
+// ── raising a request from an order ───────────────────────────────────────
+const KINDS = ["stock", "wrong_item", "exchange", "late", "damaged", "refund", "other"];
+const raise = ref(null);
+const raiseKind = ref("");
+const raiseNote = ref("");
+const raiseBusy = ref(false);
+const raiseErr = ref("");
+
+function openRaise(row) {
+  raise.value = row;
+  raiseKind.value = row.exchange ? "exchange" : "";
+  raiseNote.value = "";
+  raiseErr.value = "";
+}
+
+async function sendRaise() {
+  if (!raiseKind.value || raiseBusy.value) return;
+  raiseBusy.value = true;
+  raiseErr.value = "";
+  try {
+    const res = await apiPost("cs.raise_request", {
+      kind: raiseKind.value, note: raiseNote.value.trim(),
+      order: raise.value.order, phone: raise.value.phone || "",
+    });
+    // The server merges a repeat into the open one rather than making the
+    // desk reconcile two tickets for one problem — say which happened.
+    success(res.merged ? t("csl.raiseMerged") : t("csl.raiseDone"), res.request || "");
+    const on = raise.value.order;
+    raise.value = null;
+    // Refresh the card so the new request shows in the customer's list —
+    // reading raise.value after nulling it was the bug here.
+    if (cust.value?.found) loadCustomer({ phone: cust.value.phone, order: on });
+  } catch (e) {
+    raiseErr.value = String(e.message || e);
+  } finally {
+    raiseBusy.value = false;
+  }
+}
+
+function exTitle(x) {
+  const dir = x.direction ? ` · ${x.direction}` : "";
+  const diff = x.diff ? ` ${Math.round(Math.abs(x.diff))}` : "";
+  return `${x.other || ""} · ${x.status}${dir}${diff}`;
+}
+
 onMounted(async () => {
   await nextTick();
   box.value?.focus();
   if (q.value.trim().length >= 3) run();
+  else loadList();
 });
 </script>

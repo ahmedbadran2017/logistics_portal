@@ -2329,6 +2329,12 @@ export default {
     thWins: "Wins",
   },
   csl: {
+    tabToday: "Reached us today", tabRepeat: "Keeps coming back",
+    listEmpty: "Nobody yet.",
+    x_original: "exchanged", x_replacement: "replacement",
+    raise: "Hand to CS", raiseHint: "Raise a customer request on this order",
+    raiseTitle: "What is wrong?", raiseNote: "One line — what the customer said.",
+    raiseSend: "Raise it", raiseDone: "Request raised", raiseMerged: "Added to the open one",
     title: "Find a customer",
     intro: "Any order, by phone, name or order number — the whole history, not a window.",
     placeholder: "Phone, customer name, or order number…",

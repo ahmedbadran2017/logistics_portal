@@ -2330,6 +2330,12 @@ export default {
     thWins: "Réussites",
   },
   csl: {
+    tabToday: "Nous ont contactés aujourd'hui", tabRepeat: "Clients fidèles",
+    listEmpty: "Personne pour l'instant.",
+    x_original: "échangée", x_replacement: "remplacement",
+    raise: "Vers le SAV", raiseHint: "Créer une demande client sur cette commande",
+    raiseTitle: "Quel est le problème ?", raiseNote: "Une ligne — ce que le client a dit.",
+    raiseSend: "Créer", raiseDone: "Demande créée", raiseMerged: "Ajoutée à la demande ouverte",
     title: "Trouver un client",
     intro: "Toute commande, par téléphone, nom ou numéro — l'historique complet, sans fenêtre.",
     placeholder: "Téléphone, nom du client, ou numéro de commande…",

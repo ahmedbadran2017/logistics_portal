@@ -999,6 +999,34 @@ def customer(phone="", order=""):
         if nm and nm.lower() not in [x.lower() for x in names]:
             names.append(nm)
 
+    # Exchanges, in one grouped read. A Sales Exchange names both sides —
+    # `sales_order` is what the customer had, `exchange_sales_order` what
+    # replaced it — so a row can be either end of the swap and the agent
+    # needs to know which. 921 of 980 sit at "Label Generated" waiting on
+    # the carrier, and the settlement (who owes whom) is the part a caller
+    # actually asks about.
+    order_ids = [r.name for r in rows]
+    if order_ids:
+        ph = ", ".join(["%s"] * len(order_ids))
+        for x in frappe.db.sql(
+                f"""SELECT name, sales_order, exchange_sales_order, exchange_status,
+                           settlement_status, difference_amount, settlement_direction
+                    FROM `tabSales Exchange`
+                    WHERE sales_order IN ({ph}) OR exchange_sales_order IN ({ph})""",
+                order_ids + order_ids, as_dict=True):
+            for o in orders:
+                if o["order"] in (x.sales_order, x.exchange_sales_order):
+                    o["exchange"] = {
+                        "name": x.name,
+                        "side": "original" if o["order"] == x.sales_order else "replacement",
+                        "other": (x.exchange_sales_order if o["order"] == x.sales_order
+                                  else x.sales_order) or "",
+                        "status": x.exchange_status or "",
+                        "settlement": x.settlement_status or "",
+                        "diff": float(x.difference_amount or 0),
+                        "direction": x.settlement_direction or "",
+                    }
+
     reqs = []
     if frappe.db.exists("DocType", DT):
         reqs = frappe.db.sql(
@@ -1044,3 +1072,78 @@ def customer(phone="", order=""):
                            "at": str(c.last_message_at or "")[:19],
                            "summary": (c.summary or "")[:160]} for c in conv],
     }
+
+
+# ── two short lists, because a list of 175,711 customers is not a screen ──
+#
+# The way into this desk is the search box: an agent always arrives holding
+# a name or a number. These exist for the other case — opening the screen
+# cold and wanting somewhere to start. Both are deliberately short and
+# deliberately about people, not rows.
+
+@frappe.whitelist()
+def lists(kind="today", limit=40):
+    """`today` — everyone who reached us in the last 24 hours.
+       `repeat` — the numbers that keep coming back."""
+    _gate()
+    limit = min(max(int(limit or 40), 1), 100)
+
+    if kind == "repeat":
+        # 266ms measured: one grouped pass over 90 days, not the whole
+        # table. Restricted to keys beginning 6 or 7 — the Moroccan mobile
+        # prefixes, 99.6% of stored numbers — which also drops the foreign
+        # numbers that would otherwise head the list on order count alone.
+        rows = frappe.db.sql(
+            f"""SELECT {_PHONE_KEY} k, COUNT(*) n,
+                       MAX(so.transaction_date) last_at,
+                       ROUND(SUM(so.grand_total)) mad,
+                       SUBSTRING_INDEX(GROUP_CONCAT(so.customer_name
+                           ORDER BY so.transaction_date DESC), ',', 1) nm
+                FROM `tabSales Order` so
+                WHERE so.docstatus = 1 AND so.company = %(co)s
+                  AND so.transaction_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+                  AND COALESCE(so.custom_customer_phone,'') <> ''
+                  AND {_PHONE_KEY} REGEXP '^[67]'
+                GROUP BY k HAVING n >= 3
+                ORDER BY n DESC LIMIT {limit}""",
+            {"co": _CO}, as_dict=True)
+        return {"kind": "repeat", "rows": [
+            {"key": r.k, "phone": r.k, "name": (r.nm or "").strip(),
+             "orders": int(r.n or 0), "lastAt": str(r.last_at or "")[:10],
+             "spend": float(r.mad or 0)} for r in rows]}
+
+    # A conversation and a raised request are two different kinds of
+    # contact; the desk wants both in one line per person, newest first.
+    seen, out = {}, []
+    for c in frappe.db.sql(
+            """SELECT customer_phone p, customer_name nm, channel, unread,
+                      COALESCE(last_message_at, creation) at
+               FROM `tabJoyAgent Conversation`
+               WHERE COALESCE(last_message_at, creation) >= %(s)s
+                 AND LENGTH(REGEXP_REPLACE(COALESCE(customer_phone,''),'[^0-9]','')) <= 13
+               ORDER BY at DESC LIMIT 120""",
+            {"s": str(add_to_date(now_datetime(), hours=-24))[:19]}, as_dict=True):
+        k = _phone_key(c.p)
+        if not k or k in seen:
+            continue
+        seen[k] = 1
+        out.append({"key": k, "phone": (c.p or "").strip(),
+                    "name": (c.nm or "").strip(), "via": c.channel or "chat",
+                    "unread": int(c.unread or 0), "at": str(c.at or "")[:19]})
+
+    if frappe.db.exists("DocType", DT):
+        for r in frappe.db.sql(
+                f"""SELECT phone p, customer_name nm, kind, creation at
+                    FROM `tab{DT}` WHERE creation >= %(s)s AND COALESCE(phone,'') <> ''
+                    ORDER BY creation DESC LIMIT 120""",
+                {"s": str(add_to_date(now_datetime(), hours=-24))[:19]}, as_dict=True):
+            k = _phone_key(r.p)
+            if not k or k in seen:
+                continue
+            seen[k] = 1
+            out.append({"key": k, "phone": (r.p or "").strip(),
+                        "name": (r.nm or "").strip(), "via": r.kind or "request",
+                        "unread": 0, "at": str(r.at or "")[:19]})
+
+    out.sort(key=lambda x: x["at"], reverse=True)
+    return {"kind": "today", "rows": out[:limit]}
