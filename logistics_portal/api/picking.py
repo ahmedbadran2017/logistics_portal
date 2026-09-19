@@ -3098,19 +3098,40 @@ def unclaim_unprinted_labels():
 
 @frappe.whitelist()
 def sort_scan(pick_list, code, prefer=None):
-    """Allocate one scanned unit to an order ON THIS PICK LIST. Routing:
-    the not-yet-full line of that item whose order is CLOSEST to completion,
-    so orders finish (and labels print) as early as possible. When the scan
-    completes an order, its status flips to Label Printed and the label URL
-    is returned for immediate printing.
+    """Allocate one scanned unit to an order ON THIS PICK LIST, so that open
+    boxes CLOSE. When the scan completes an order, its status flips to Label
+    Printed and the label URL is returned for immediate printing.
 
-    `prefer` is the slot the sorter is working in (they just repaired its
-    label, or the wall asked them for its next piece): a tie between two
-    orders wanting the same item goes there first. Then to the order that
-    already HAS a label — its print can fire — before one still waiting for
-    its AWB. PL-56069, 2026-09-15: two orders, one item, one scan; it landed
-    on the neighbour with the label, the sorter repaired the other's city
-    with the box in hand, printed, packed, and the slot stayed 0/1."""
+    Routing, in order:
+
+    1. `prefer` — the slot the sorter is standing in (they just repaired its
+       label, or the wall asked them for its next piece).
+    2. A box already OPEN on this wall, before one nobody has started.
+    3. The order closest to completion, then the one that already HAS a
+       label (its print can fire) before one still waiting for its AWB, then
+       list order.
+
+    Rule 2 was missing and the wall dealt units out like cards. `remaining`
+    counts what the WHOLE order still owes, so a 4-piece order with one
+    piece in its slot (3 owed) always lost to an untouched single-piece
+    neighbour (1 owed) — every time, for every item they shared. Measured
+    over 7 days: 193 of 3,215 scans (6%) opened a new box while an open one
+    on the same wall wanted that exact piece. PL-55956, 12:02:21-12:02:39 —
+    five consecutive scans of one item went to five untouched orders while
+    #259596 sat at 1/4 asking for it. Multi-piece orders held a slot for a
+    median 4 minutes, one for 1h54m, with 26 other scans in between: the
+    sorter walks back to the same slot three or four times and the label
+    cannot print until the last piece finally arrives.
+
+    A single-piece order loses nothing to this: it closes on its one scan
+    whenever that unit turns up. Allocation is still capped by each line's
+    qty, so no order can absorb a piece that is not its own.
+
+    PL-56069, 2026-09-15 keeps its fix: two orders, one item, one scan; it
+    landed on the neighbour with the label, the sorter repaired the other's
+    city with the box in hand, printed, packed, and the slot stayed 0/1.
+    Both were untouched there, so rule 2 ties and the label tier still
+    decides."""
     _sort_gate()
     pick_list = frappe.db.get_value("Pick List", {"name": (pick_list or "").strip()}, "name")
     if not pick_list:
@@ -3139,15 +3160,25 @@ def sort_scan(pick_list, code, prefer=None):
         return {"ok": False, "reason": "done" if on_list else "not_on_list",
                 "itemCode": item_code, "name": r.get("name"), "sku": r.get("sku")}
 
-    # Remaining units per candidate order → route to the order closest to done.
-    remaining = {}
-    for so in {x.so for x in rows}:
-        t = frappe.db.sql(
-            """SELECT SUM(qty) - SUM(COALESCE(custom_sorted_qty,0))
-               FROM `tabPick List Item` WHERE parent = %s AND sales_order = %s""",
-            (pick_list, so))[0][0]
-        remaining[so] = int(t or 0)
-    rows.sort(key=lambda x: (0 if x.so == prefer else 1, remaining.get(x.so, 9999),
+    # How far along each candidate order is, across ALL its lines — one
+    # grouped read, not one per candidate: this runs inside the scan itself,
+    # and six candidates meant six round trips before the sorter saw a slot.
+    cands = sorted({x.so for x in rows})
+    ph = ", ".join(["%s"] * len(cands))
+    remaining, started = {}, {}
+    for t in frappe.db.sql(
+            f"""SELECT sales_order AS so,
+                       SUM(qty) - SUM(COALESCE(custom_sorted_qty,0)) AS few,
+                       SUM(COALESCE(custom_sorted_qty,0)) AS got
+                FROM `tabPick List Item`
+                WHERE parent = %s AND sales_order IN ({ph})
+                GROUP BY sales_order""",
+            [pick_list] + cands, as_dict=True):
+        remaining[t.so] = int(t.few or 0)
+        started[t.so] = int(t.got or 0) > 0
+    rows.sort(key=lambda x: (0 if x.so == prefer else 1,
+                             0 if started.get(x.so) else 1,
+                             remaining.get(x.so, 9999),
                              0 if x.labelled else 1, int(x.idx or 0)))
     row = rows[0]
 
