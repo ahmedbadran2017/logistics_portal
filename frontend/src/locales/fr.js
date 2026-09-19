@@ -2355,6 +2355,10 @@ export default {
     o_open: "En cours", o_unknown: "Sans trace",
   },
   cs: {
+    whichOrder: "Quelle commande ?", pickOrder: "Commandes sur ce numéro",
+    attach: "Celle-ci", attached: "Commande rattachée",
+    noOrderFound: "Aucune commande sur ce numéro — demandez au client.",
+    psidOnly: "Messenger uniquement — aucun numéro à rechercher. Répondez dans la conversation.",
     retype: "Changer le type",
     title: "Service client",
     tab_new: "Nouveau",

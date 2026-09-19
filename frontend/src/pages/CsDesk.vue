@@ -64,6 +64,15 @@
               <span class="text-[14px] font-bold text-stone-900 truncate max-w-[220px]" dir="auto">{{ r.customer || '—' }}</span>
               <RouterLink v-if="r.order" :to="{ name: 'OrderDetail', params: { name: String(r.order).replace('#','') } }"
                           class="font-mono text-[11.5px] font-semibold text-stone-500 hover:underline" dir="ltr">{{ r.order }}</RouterLink>
+              <!-- 505 of 626 requests arrive with a phone and no order, and
+                   on 53% of them the order is already in the table. Asking
+                   the customer for a number we hold is the thing to stop. -->
+              <button v-else class="text-[10.5px] font-semibold rounded-full px-2 py-0.5
+                                    text-violet-700 bg-violet-50 ring-1 ring-violet-200 hover:bg-violet-100"
+                      :disabled="candBusy === r.name" @click="findOrder(r)">
+                <Icon name="search" :size="10" class="inline -mt-px me-0.5" />{{
+                  candBusy === r.name ? '…' : t('cs.whichOrder') }}
+              </button>
               <!-- where the parcel actually is, so "where is my order" never
                    costs the agent a second screen -->
               <span v-if="r.parcel?.track" class="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-sky-50 text-sky-700 ring-1 ring-sky-200">{{ r.parcel.track }}</span>
@@ -80,6 +89,38 @@
             </div>
           </div>
         </div>
+
+        <Transition name="rsslide">
+          <div v-if="cand[r.name]" class="mt-2.5 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-2.5">
+            <!-- A Messenger page id is not a number: nobody can dial it and
+                 there is nothing to look up. Say that instead of an empty
+                 list, so the agent answers in the thread. -->
+            <div v-if="cand[r.name].psid" class="text-[11.5px] text-stone-500">
+              <Icon name="message-circle" :size="12" class="inline -mt-px me-1" />{{ t('cs.psidOnly') }}
+            </div>
+            <div v-else-if="!cand[r.name].rows.length" class="text-[11.5px] text-stone-500">
+              {{ t('cs.noOrderFound') }}
+            </div>
+            <template v-else>
+              <div class="text-[10.5px] font-semibold uppercase tracking-wide text-stone-400 mb-1.5">
+                {{ t('cs.pickOrder') }} · {{ cand[r.name].total }}
+              </div>
+              <ul class="space-y-1">
+                <li v-for="o in cand[r.name].rows" :key="o.order"
+                    class="flex items-center gap-2 text-[11.5px] rounded-lg bg-white ring-1 ring-stone-200/70 px-2 py-1.5">
+                  <span class="font-mono font-semibold text-stone-800" dir="ltr">{{ o.order }}</span>
+                  <span class="text-stone-400 tabular-nums" dir="ltr">{{ local(o.date) }}</span>
+                  <span v-if="o.city" class="text-stone-400 truncate max-w-[90px]">{{ o.city }}</span>
+                  <span v-if="o.logistics" class="text-[10px] rounded-full px-1.5 py-0.5 bg-stone-100 text-stone-600">{{ o.logistics }}</span>
+                  <span class="ms-auto tabular-nums text-stone-500">{{ Math.round(o.total) }}</span>
+                  <button class="h-7 px-2 rounded-lg text-[11px] font-semibold text-white
+                                 bg-violet-600 hover:bg-violet-700 disabled:opacity-40"
+                          :disabled="busy === r.name" @click="attach(r, o.order)">{{ t('cs.attach') }}</button>
+                </li>
+              </ul>
+            </template>
+          </div>
+        </Transition>
 
         <Transition name="rsslide">
           <div v-if="kindFor === r.name" class="mt-2.5 flex flex-wrap gap-1.5">
@@ -186,6 +227,39 @@ const loading = ref(true);
 const busy = ref("");
 const doneFor = ref("");
 const resolution = ref("");
+// Candidate orders for a request that arrived without one. Loaded per
+// ticket on demand: one lookup reads the whole order table (~310ms) and
+// thirty of them on the board would make the desk unusable.
+const cand = ref({});
+const candBusy = ref("");
+
+async function findOrder(r) {
+  if (cand.value[r.name]) { delete cand.value[r.name]; cand.value = { ...cand.value }; return; }
+  candBusy.value = r.name;
+  try {
+    const res = await api("cs.candidates", { name: r.name });
+    cand.value = { ...cand.value, [r.name]: res };
+  } catch (e) {
+    warn(String(e.message || e));
+  } finally {
+    candBusy.value = "";
+  }
+}
+
+async function attach(r, order) {
+  busy.value = r.name;
+  try {
+    await apiPost("cs.attach_order", { name: r.name, order });
+    r.order = order;
+    delete cand.value[r.name];
+    cand.value = { ...cand.value };
+    success(t("cs.attached"), order);
+  } catch (e) {
+    warn(String(e.message || e));
+  } finally {
+    busy.value = "";
+  }
+}
 const kindFor = ref("");
 const deskFor = ref("");
 const desk = ref(null);

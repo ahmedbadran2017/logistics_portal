@@ -2354,6 +2354,10 @@ export default {
     o_open: "In flight", o_unknown: "No trace",
   },
   cs: {
+    whichOrder: "Which order?", pickOrder: "Orders on this number",
+    attach: "This one", attached: "Order attached",
+    noOrderFound: "No order on this number — ask the customer.",
+    psidOnly: "Messenger only — there is no phone number to look up. Answer in the thread.",
     retype: "Change the type",
     title: "Customer service",
     tab_new: "New",

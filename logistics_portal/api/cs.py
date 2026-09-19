@@ -1207,3 +1207,89 @@ def lists(kind="today", limit=40):
 
     out.sort(key=lambda x: x["at"], reverse=True)
     return {"kind": "today", "rows": out[:limit]}
+
+
+# ── the order the customer is calling about ───────────────────────────────
+#
+# Audited 2026-09-19 after a ticket reached the desk reading "customer
+# information not found" and the AI agent asked the customer for their
+# order number. 505 of 626 requests (81%) carry a phone and no order. But
+# the order is usually not missing — it is just not attached:
+#
+#   499 real Moroccan numbers on order-less tickets
+#     96 (19%)  exactly one order on that number — one click attaches it
+#    102 (20%)  two or three — the agent picks
+#     66 (13%)  four or more — the agent picks
+#    235 (47%)  no order at all: an enquiry, or they bought on another number
+#
+# So 264 of them, 53%, could be answered from what we already hold, and we
+# were asking the customer instead.
+#
+# Six tickets carry a Messenger page id in the phone field (17 digits —
+# 39129097766681452 and friends). That is not a number: nobody can call
+# it, and its last nine digits could collide with somebody's real phone.
+# Those are marked, not searched.
+
+_PSID_MIN = 14
+
+
+def _is_psid(phone):
+    """A Messenger page-scoped id parked in the phone field."""
+    return len(re.sub(r"\D", "", str(phone or ""))) >= _PSID_MIN
+
+
+@frappe.whitelist()
+def candidates(name):
+    """Orders on this request's phone, newest first.
+
+    Deliberately NOT on the board: one lookup is ~300ms against the whole
+    order table, and thirty of them would make the desk unusable. The
+    agent opening one ticket pays for one."""
+    _gate()
+    row = frappe.db.get_value(DT, name, ["phone", "so", "customer_name"], as_dict=True)
+    if not row:
+        frappe.throw("Unknown request.")
+    if row.so:
+        return {"attached": row.so, "rows": [], "psid": False}
+    if _is_psid(row.phone):
+        # Nothing to look up and nothing to dial — say so plainly so the
+        # agent answers in the thread instead of hunting for a number.
+        return {"attached": "", "rows": [], "psid": True, "phone": row.phone}
+
+    key = _phone_key(row.phone)
+    if not key:
+        return {"attached": "", "rows": [], "psid": False}
+    rows = _mine(frappe.db.sql(
+        """SELECT so.name, so.customer_name, so.custom_customer_phone phone,
+                  so.transaction_date, so.grand_total, so.status, so.company,
+                  so.custom_sales_status, so.custom_logistics_status,
+                  so.custom_shipping_city city, so.custom_tracking_number awb
+           FROM `tabSales Order` so
+           WHERE so.docstatus < 2 AND """ + _PHONE_KEY + """ = %(key)s
+           LIMIT """ + str(_PHONE_CAP), {"key": key}, as_dict=True))
+    return {"attached": "", "psid": False, "key": key,
+            "rows": [_order_row(r) for r in rows[:8]], "total": len(rows)}
+
+
+@frappe.whitelist(methods=["POST"])
+def attach_order(name, order):
+    """Put the order on the request. The one thing the desk could not do."""
+    _gate()
+    order = (order or "").strip()
+    if frappe.db.get_value("Sales Order", order, "company") != _CO:
+        frappe.throw("Unknown order.")
+    row = frappe.db.get_value(DT, name, ["so", "phone"], as_dict=True)
+    if not row:
+        frappe.throw("Unknown request.")
+    if row.so == order:
+        return {"ok": True, "order": order, "already": True}
+    frappe.db.set_value(DT, name, "so", order, update_modified=True)
+    try:
+        frappe.get_doc(DT, name).add_comment(
+            "Comment", f"Order {order} attached by {frappe.session.user}"
+                       + (f" (was {row.so})" if row.so else ""))
+    except Exception:
+        pass
+    frappe.db.commit()
+    _bust()
+    return {"ok": True, "order": order, "already": False}
