@@ -296,7 +296,8 @@ SELECT so.name, so.customer_name AS customer, so.grand_total AS value,
        cw.lab_t AS labeled_at, cw.hub_t AS hub_at,
        ev.content AS ev_text, cw.ev_t AS ev_at,
        so.custom_tracking_url AS track_url,
-       so.custom_delivered_at AS delivered_at
+       so.custom_delivered_at AS delivered_at,
+       cw.del_t AS delivered_ev, rtn.t AS returned_at
 FROM `tabSales Order` so
 LEFT JOIN `tabAddress` addr
        ON addr.name = COALESCE(NULLIF(so.shipping_address_name, ''), so.customer_address)
@@ -323,12 +324,17 @@ LEFT JOIN (SELECT dni3.against_sales_order so_name,
            FROM `tabDelivery Note Item` dni3 JOIN `tabDelivery Note` d3 ON d3.name = dni3.parent
            WHERE d3.docstatus < 2 AND d3.is_return = 0
            GROUP BY dni3.against_sales_order) trk ON trk.so_name = so.name
+LEFT JOIN (SELECT dnr.against_sales_order so_name, MIN(dr.posting_date) t
+           FROM `tabDelivery Note Item` dnr JOIN `tabDelivery Note` dr ON dr.name = dnr.parent
+           WHERE dr.docstatus = 1 AND dr.is_return = 1
+           GROUP BY dnr.against_sales_order) rtn ON rtn.so_name = so.name
 LEFT JOIN (SELECT reference_name,
                   MIN(CASE WHEN content LIKE 'Newly created parcel%%' THEN creation END) AS lab_t,
                   MIN(CASE WHEN content LIKE 'Shipped to destination hub%%'
                              OR content LIKE 'The parcel is present on Hub%%'
                              OR content LIKE 'Out for delivery%%'
                              OR content LIKE 'Package Delivered%%' THEN creation END) AS hub_t,
+                  MIN(CASE WHEN content LIKE 'Package Delivered%%' THEN creation END) AS del_t,
                   MAX(creation) AS ev_t
            FROM `tabComment`
            WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
@@ -393,13 +399,18 @@ def _refresh_later(days):
 def _rows(days=30):
     """The raw clock rows.
 
+    The key carries a version. The cached rows are a snapshot of the SELECT's
+    columns, so a deploy that adds a witness would otherwise keep serving
+    fifteen minutes of rows that cannot answer the new question — the fix
+    would look dead on arrival. Bump the version whenever the columns change.
+
     Measured on prod 2026-09-14: 2.8 s of SQL for 8,030 rows, and the first
     request of every minute paid it. Now the last answer is served for up to
     fifteen minutes and a worker rebuilds it once it is a minute old — a
     request only computes inline when nothing is cached at all (a restart).
     """
     days = int(days)
-    hit = _cached(f"lp_ship_rows:{days}")
+    hit = _cached(f"lp_ship_rows:v2:{days}")
     if hit is not None:
         if _age_s(hit) > _FRESH_S:
             _refresh_later(days)
@@ -412,7 +423,7 @@ def _refresh_rows(days):
     # was created, so the witness tables need no wider window than the orders.
     rows = frappe.db.sql(_BOARD_SELECT + _BOARD_WHERE,
                          {"co": _CO, "days": days, "vdays": days + 2}, as_dict=True)
-    _store(f"lp_ship_rows:{days}", {"rows": rows})
+    _store(f"lp_ship_rows:v2:{days}", {"rows": rows})
     return rows
 
 
@@ -424,7 +435,7 @@ def _shaped(days, cfg, now):
     at; a promise measured in hours is not hurt by a minute or two of that.
     """
     days = int(days)
-    hit = _cached(f"lp_ship_shaped:{days}")
+    hit = _cached(f"lp_ship_shaped:v2:{days}")
     if hit is not None:
         if _age_s(hit) > _FRESH_S:
             _refresh_later(days)
@@ -434,7 +445,7 @@ def _shaped(days, cfg, now):
 
 def _refresh_shaped(days, cfg, now):
     rows = [_shape(r, cfg, now) for r in _rows(days)]
-    _store(f"lp_ship_shaped:{days}", {"rows": rows, "now": str(now)[:16]})
+    _store(f"lp_ship_shaped:v2:{days}", {"rows": rows, "now": str(now)[:16]})
     return rows
 
 
@@ -456,7 +467,7 @@ def invalidate_cache():
     """After a settings change: forget the shaped answers (they carry the old
     promises) and rebuild in the background; the raw rows are still good."""
     try:
-        for pat in ("lp_ship_shaped:", "lp_ship_blocked:", "lp_ship_tuner:"):
+        for pat in ("lp_ship_shaped:", "lp_ship_blocked:", "lp_ship_tuner:"):  # v-prefixed keys match too
             frappe.cache().delete_keys(pat)   # wildcard delete, site-prefixed once
     except Exception:
         pass
@@ -481,6 +492,16 @@ def _stage_of(r):
     describe exactly those. So: terminal states first, then the carrier,
     then the label, then the pick list, then nothing.
 
+    Two of those witnesses were missing until 2026-09-21, and both failed the
+    same way: the parcel was finished and the board still called it late with
+    the carrier. Measured on the 53 rows of "past the promise" that day, 5
+    were already over — 4 sitting on a submitted return note (the goods were
+    back on our shelves; the tracker still read "Delivery Exception") and 1
+    the carrier had written "Package Delivered" against while leaving its
+    status column on "Pending". Neither the return note nor the carrier's own
+    delivered event was read here, so both parcels kept ageing on a promise
+    nobody was waiting on.
+
     Returns (stage, owner, handed_at_raw, closed_at_raw).
     """
     track = r.track or r.so_track or ""
@@ -488,9 +509,15 @@ def _stage_of(r):
     labeled = r.dn_at or r.labeled_at
     has_label = bool(r.awb or r.so_awb or labeled or lstat in ("Label Generated", "Label Printed"))
 
-    if track in _TERMINAL_OK or r.delivered_at or lstat == "Delivered":
+    # Delivered still wins over a return note, and the order matters: 49 of
+    # these parcels reached the customer on time and came back afterwards.
+    # Judging them by the return alone would move a kept promise into "failed
+    # deliveries" and quietly blame the carrier for a change of mind.
+    if track in _TERMINAL_OK or r.delivered_at or r.get("delivered_ev") or lstat == "Delivered":
         return "delivered", "", r.handed_at or r.hub_at or labeled, labeled
-    if track in _TERMINAL_BAD or lstat == "Returned":
+    # A return note on a parcel that never arrived is the parcel itself, back
+    # on our shelves — harder evidence than a status column nobody updated.
+    if track in _TERMINAL_BAD or lstat == "Returned" or r.get("returned_at"):
         return "failed", "tracking", r.handed_at or r.hub_at or labeled, labeled
     if r.handed_at or r.hub_at or lstat == "Shipped" or track in _CARRIER_MOVING:
         # Manifest first; else the carrier's first scan; else the label —
@@ -512,6 +539,9 @@ def _shape(r, cfg, now):
     stage, owner, handed, closed_raw = _stage_of(r)
     handed = clock.to_floor(handed) if handed else None
     track = (r.track or r.so_track or "")
+    # The carrier does not always write its own status column; when it only
+    # left the event, that event IS the delivery moment.
+    delivered_at = r.delivered_at or r.get("delivered_ev")
 
     wave_id, wave_due = (None, None)
     due, late_min = None, 0
@@ -521,16 +551,16 @@ def _shape(r, cfg, now):
         due = wave_due
     elif stage == "with_carrier":
         due = carrier_due(handed, r.city, cfg)
-    elif stage == "delivered" and handed and r.delivered_at:
+    elif stage == "delivered" and handed and delivered_at:
         # The promise, judged after the fact: did the door come in time?
         d = carrier_due(handed, r.city, cfg)
-        kept = bool(d and clock.to_floor(r.delivered_at) <= d)
+        kept = bool(d and clock.to_floor(delivered_at) <= d)
     if due:
         late_min = int((now - due).total_seconds() / 60)
 
     picked = clock.to_floor(r.picklist_at) if r.picklist_at else None
     closed = clock.to_floor(closed_raw) if closed_raw else None
-    delivered = clock.to_floor(r.delivered_at) if r.delivered_at else None
+    delivered = clock.to_floor(delivered_at) if delivered_at else None
     return {
         "order": r.name, "customer": r.customer or "", "city": (r.city or "").strip(),
         "phone": r.phone or "", "value": round(float(r.value or 0)),
@@ -911,7 +941,7 @@ def blocked(days=30):
     days = min(max(int(days or 30), 1), 90)
     # The stock and city lookups behind the blockers cost a second; the
     # answer is served from the last build and rebuilt by the clock's worker.
-    hit = _cached(f"lp_ship_blocked:{days}")
+    hit = _cached(f"lp_ship_blocked:v2:{days}")
     if hit is not None:
         if _age_s(hit) > _FRESH_S:
             _refresh_later(days)
@@ -931,7 +961,7 @@ def _refresh_blocked(days, cfg, now):
     hit.sort(key=lambda r: (-len(r["why"]), -r["lateMin"]))
     out = {"total": len(hit), "inHouse": len(rows), "groups": groups,
            "fix": _FIX, "rows": hit[:2000], "now": str(now)[:16]}
-    _store(f"lp_ship_blocked:{days}", {"out": out})
+    _store(f"lp_ship_blocked:v2:{days}", {"out": out})
     return out
 
 
@@ -1260,6 +1290,15 @@ def journey(order):
                         AND comment_type = 'Comment' AND (content LIKE 'Shipped to destination hub%%'
                         OR content LIKE 'The parcel is present on Hub%%' OR content LIKE 'Out for delivery%%'
                         OR content LIKE 'Package Delivered%%')""", order)[0]
+    # The same two witnesses the board reads, so one order cannot be finished
+    # on one screen and late with the carrier on the other.
+    raw.delivered_ev = one("""SELECT MIN(creation) FROM `tabComment` WHERE reference_doctype = 'Sales Order'
+                              AND reference_name = %s AND comment_type = 'Comment'
+                              AND content LIKE 'Package Delivered%%'""", order)[0]
+    raw.returned_at = one("""SELECT MIN(d.posting_date) FROM `tabDelivery Note Item` dni
+                             JOIN `tabDelivery Note` d ON d.name = dni.parent
+                             WHERE dni.against_sales_order = %s AND d.docstatus = 1
+                               AND d.is_return = 1""", order)[0]
     # The carrier's last word, so the order page reads it like the board does.
     ev = frappe.db.sql("""SELECT content, creation FROM `tabComment` WHERE reference_doctype = 'Sales Order' AND reference_name = %s
                           AND comment_type = 'Comment' AND (content LIKE 'Newly created%%' OR content LIKE 'Shipped to%%'
