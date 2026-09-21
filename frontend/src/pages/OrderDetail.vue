@@ -430,6 +430,30 @@
         </div>
         <div v-else class="text-[11.5px] text-stone-400">{{ t('od.csNone') }}</div>
 
+        <!-- Urgent — only while the parcel is still ours to hurry. Once it
+             is cut there is nothing on our floor left to push, and a badge
+             that outlives the handover is a badge the floor stops reading. -->
+        <div v-if="canUrgent" class="rounded-xl p-2.5"
+             :class="isUrgent ? 'bg-rose-50 ring-1 ring-rose-300' : 'bg-stone-50 ring-1 ring-stone-200/70'">
+          <div v-if="isUrgent" class="flex items-center gap-2">
+            <Icon name="zap" :size="14" class="text-rose-600 shrink-0" />
+            <div class="min-w-0 flex-1">
+              <div class="text-[12px] font-bold text-rose-800">{{ t('od.urgentOn') }}</div>
+              <div v-if="urgentReason" class="text-[11px] text-rose-700" dir="auto">{{ urgentReason }}</div>
+            </div>
+            <button class="h-8 px-3 rounded-lg text-[11.5px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200"
+                    :disabled="urgentBusy" @click="setUrgent(false)">{{ t('od.urgentOff') }}</button>
+          </div>
+          <div v-else class="flex items-center gap-2">
+            <input v-model="urgentReason" :placeholder="t('od.urgentPh')" maxlength="140"
+                   class="flex-1 h-9 px-3 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] focus:outline-none" />
+            <button class="h-9 px-3.5 rounded-lg text-[12px] font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40 whitespace-nowrap"
+                    :disabled="urgentBusy" @click="setUrgent(true)">
+              <Icon name="zap" :size="13" class="inline -mt-px me-1" />{{ t('od.urgentDo') }}
+            </button>
+          </div>
+        </div>
+
         <CsHandover :order="props.name" :phone="phone" :live="csLive"
                     :source="myRole === 'tracking' ? 'tracking' : myRole === 'confirmation' ? 'confirmation' : ''"
                     @done="loadCs" />
@@ -439,7 +463,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { local } from "@/lib/clock";
@@ -596,6 +620,38 @@ async function checkCarrier() {
 
 // Live order from `orders.detail`; demo/fabricated data stays as fallback.
 const liveOrder = ref(null);
+// Urgent is offered only to the lanes that take the customer's call, and
+// only while the order is still on our floor.
+const URGENT_ROLES = ["cs", "confirmation", "tracking", "manager"];
+const urgentBusy = ref(false);
+// Seeded from the order so reopening the card shows what was said, not a
+// blank box over a live flag.
+const urgentReason = ref("");
+watch(() => order.value?.urgentReason, (v) => {
+  if (v && !urgentReason.value) urgentReason.value = v;
+});
+const isUrgent = computed(() => !!order.value?.urgentAt);
+const canUrgent = computed(() =>
+  URGENT_ROLES.includes(myRole.value)
+  && ["pending", "picking"].includes(order.value?.stage || "pending"));
+
+async function setUrgent(on) {
+  urgentBusy.value = true;
+  try {
+    if (on) {
+      await apiPost("orders.mark_urgent", {
+        order: props.name, reason: urgentReason.value.trim() });
+      if (order.value) order.value.urgentAt = new Date().toISOString();
+      success(t("od.urgentDone"), props.name);
+    } else {
+      await apiPost("orders.clear_urgent", { order: props.name });
+      if (order.value) order.value.urgentAt = "";
+      urgentReason.value = "";
+    }
+  } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
+  finally { urgentBusy.value = false; }
+}
+
 const csRows = ref([]);
 const csLive = ref(0);
 async function loadCs() {
@@ -658,6 +714,8 @@ const order = computed(() => {
     dn: live.dn || "",
     track: normTrack(live.tracking_status) || "",
     city: live.city || "",
+    urgentAt: live.urgentAt || "",
+    urgentBy: live.urgentBy || "",
     picker: "",
   };
 });

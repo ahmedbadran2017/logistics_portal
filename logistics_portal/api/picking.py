@@ -34,6 +34,18 @@ def sync_pick_progress(doc, method=None):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def _urgent_col():
+    """`custom_urgent_at`, or a literal NULL on a site that has not migrated
+    yet. The pool query runs on every batch build and must not be the thing
+    that breaks between a deploy and its migrate."""
+    try:
+        if frappe.get_meta("Sales Order").has_field("custom_urgent_at"):
+            return "so.custom_urgent_at"
+    except Exception:
+        pass
+    return "NULL"
+
+
 def is_stopped(order):
     """True when this order must not move: cancelled by any route, or a live
     stop request against it. Every station that pushes a parcel one step
@@ -2310,7 +2322,8 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
         # production); the correlated probe uses lp_pli_so_idx (58ms, same rows).
         rows = frappe.db.sql(
             f"""SELECT so.name, so.customer_name AS customer, so.grand_total AS total,
-                      so.creation, {_LINE_CODE} AS item_code,
+                      so.creation, {_urgent_col()} AS urgent_at,
+                      {_LINE_CODE} AS item_code,
                       {_LINE_NAME} AS item_name,
                       {_LINE_NEED} AS qty
                FROM `tabSales Order` so
@@ -2332,6 +2345,7 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
             o = orders.setdefault(r.name, {
                 "so": r.name, "customer": r.customer or "", "total": float(r.total or 0),
                 "creation": str(r.creation), "lines": [],
+                "urgent": bool(r.get("urgent_at")),
             })
             o["lines"].append({"sku": r.item_code, "name": r.item_name, "qty": int(r.qty)})
 
@@ -2358,7 +2372,10 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
         # short SKUs named.
         totals = _available_totals(all_skus)
         oos, pool = [], []
-        for o in sorted(orders.values(), key=lambda x: (not x["missed"], x["creation"])):
+        # Urgent first, then missed-cutoff, then oldest. A customer who rang
+        # about a late parcel outranks a cutoff nobody promised them.
+        for o in sorted(orders.values(),
+                        key=lambda x: (not x["urgent"], not x["missed"], x["creation"])):
             need = {}
             for l in o["lines"]:
                 need[l["sku"]] = need.get(l["sku"], 0) + l["qty"]
@@ -2396,7 +2413,8 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
             e.pop("_need", None)
 
         def sort_q(q):
-            return sorted(q, key=lambda o: (not o["missed"], o["creation"]))
+            return sorted(q, key=lambda o: (not o["urgent"], not o["missed"],
+                                            o["creation"]))
 
         def walk_of(o):
             return min(bins[l["sku"]]["walk"] for l in o["lines"])
@@ -2429,9 +2447,11 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
             batches.append({
                 "kind": kind, "label": label,
                 "orders": [{"so": o["so"], "customer": o["customer"],
-                            "missed": o["missed"], "units": o["units"]} for o in chunk],
+                            "missed": o["missed"], "urgent": o["urgent"],
+                            "units": o["units"]} for o in chunk],
                 "lines": lns, "units": units, "aisles": aisles,
                 "late": sum(1 for o in chunk if o["missed"]),
+                "urgent": sum(1 for o in chunk if o["urgent"]),
                 "est": int(round(len(lns) * 1.2 + len(aisles) * 1.5 + len(chunk) * 0.4 + 2)),
             })
 
@@ -2461,7 +2481,8 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
         for o in aisle_pool:
             by_aisle.setdefault(bins[o["lines"][0]["sku"]]["aisle"], []).append(o)
         for aisle, grp in sorted(by_aisle.items()):
-            grp = sorted(grp, key=lambda o: (not o["missed"], walk_of(o)))
+            grp = sorted(grp, key=lambda o: (not o["urgent"], not o["missed"],
+                                             walk_of(o)))
             chunks = _chunk(grp, cap_orders, cap_units, lambda o: o["units"])
             for i, ch in enumerate(chunks):
                 if i == len(chunks) - 1 and len(ch) < MIN_BATCH:
@@ -2821,12 +2842,12 @@ def sorting_detail(pick_list):
                   s.customer_name AS customer, s.custom_logistics_status AS status,
                   s.custom_label_url AS label_url, s.custom_shipping_city AS city,
                   s.custom_awb AS awb, s.custom_sales_status AS sales_status,
-                  s.grand_total AS total
+                  s.grand_total AS total, {U} AS urgent_at
            FROM `tabPick List Item` pli
            LEFT JOIN `tabItem` it ON it.name = pli.item_code
            LEFT JOIN `tabSales Order` s ON s.name = pli.sales_order
            WHERE pli.parent = %s AND pli.sales_order IS NOT NULL
-           ORDER BY pli.sales_order, pli.idx""",
+           ORDER BY pli.sales_order, pli.idx""".replace("{U}", _urgent_col().replace("so.", "s.")),
         (pick_list,), as_dict=True)
     orders = {}
     for r in rows:
@@ -2834,7 +2855,8 @@ def sorting_detail(pick_list):
             "order": r.so, "customer": r.customer or "", "city": r.city or "",
             "status": r.status or "", "labelUrl": r.label_url or "",
             "awb": r.awb or "", "salesStatus": r.sales_status or "",
-            "total": float(r.total or 0), "items": []})
+            "total": float(r.total or 0), "urgent": bool(r.get("urgent_at")),
+            "items": []})
         o["items"].append({
             "itemCode": r.item_code, "sku": r.real_sku or "", "name": r.item_name,
             "qty": int(r.qty or 0), "sorted": int(r.sorted_qty or 0),

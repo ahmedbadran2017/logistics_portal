@@ -58,6 +58,11 @@
               <span class="text-[12.5px] font-medium text-stone-900 truncate max-w-[220px]" :title="b.label">
                 {{ b.kind === 'mono' ? b.label : b.kind === 'mixed' ? '—' : (b.label === 'STG' ? 'Staging' : b.label) }}
               </span>
+              <!-- Urgent before late: a customer who rang about a parcel
+                   outranks a cutoff nobody promised them. -->
+              <span v-if="b.urgent" class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10px] font-bold text-white bg-rose-600 tabular-nums whitespace-nowrap">
+                <Icon name="zap" :size="9" />{{ b.urgent }} {{ t("pl.sbUrgent") }}
+              </span>
               <span v-if="b.late" class="inline-flex items-center px-1.5 h-[18px] rounded text-[10px] font-bold text-rose-600 bg-rose-50 ring-1 ring-rose-200/60 tabular-nums whitespace-nowrap">
                 ⏰ {{ b.late }} {{ t("pl.sbLate") }}
               </span>

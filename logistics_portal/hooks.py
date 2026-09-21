@@ -68,7 +68,13 @@ doc_events = {
         "after_insert": "logistics_portal.api.feedback.stamp_phone_key",
     },
     "Sales Order": {
-        "on_update": "logistics_portal.api.orders.stamp_stage_timestamps",
+        "on_update": [
+            "logistics_portal.api.orders.stamp_stage_timestamps",
+            # An urgent badge on a parcel that already left is noise, and
+            # noise on a priority is how the floor stops believing the next
+            # one. The flag dies at the handover, without anyone remembering.
+            "logistics_portal.api.orders.drop_urgent_on_ship",
+        ],
         # A cancelled order stays cancelled unless a human reopens it —
         # blocks the external WhatsApp flow's Cancelled→Follow Up resurrects
         # (TKT-2609-3709664).

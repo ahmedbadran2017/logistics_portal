@@ -67,6 +67,9 @@ INDEXES = [
     # load for a chip that exists to be looked at constantly. The confirmation
     # workspace orders by the same column, so it pays for that read too.
     ("Sales Order", ["custom_next_call_at"], "lp_so_nextcall_idx"),
+    # Urgent is a handful of rows in a 267k table — exactly the shape an
+    # index is for, and the pick pool asks on every batch build.
+    ("Sales Order", ["custom_urgent_at"], "lp_so_urgent_idx"),
     # My Dashboard reads each agent's decision trail out of `tabVersion` —
     # the desk writes a Version row and no comment, so the Version trail is
     # the only record of half the decisions. That table is 2.95M rows and
@@ -251,6 +254,24 @@ _SO_PACK_FIELDS = [
      "read_only": 1, "no_copy": 1, "hidden": 1},
 ]
 
+# The customer rang, the order is still on our floor, and it is late. One
+# tap says so, and the pick engine reads it.
+#
+# Deliberately NOT a pick list of its own. Building one list per urgent
+# order is the shattering problem in a new hat: a picker walking the whole
+# warehouse for one box is the most expensive pick there is, and the batch
+# engine already runs every fifteen minutes. Urgent jumps the queue inside
+# the next batch — it does not get a batch to itself.
+_SO_URGENT_FIELDS = [
+    {"fieldname": "custom_urgent_at", "label": "Marked Urgent At",
+     "fieldtype": "Datetime", "read_only": 1, "no_copy": 1,
+     "in_standard_filter": 1},
+    {"fieldname": "custom_urgent_by", "label": "Marked Urgent By",
+     "fieldtype": "Data", "read_only": 1, "no_copy": 1},
+    {"fieldname": "custom_urgent_reason", "label": "Urgent Reason",
+     "fieldtype": "Data", "read_only": 1, "no_copy": 1},
+]
+
 _SO_CC_OPEN_FIELDS = [
     # Who has this customer's card open RIGHT NOW. A cache lock used to do
     # this and it failed in production on 2026-09-18: two agents were handed
@@ -326,7 +347,8 @@ def ensure_pick_fields():
         from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
         create_custom_fields({"Pick List Item": _PLI_FIELDS,
                               "Sales Order": _SO_SHORT_FIELDS + _SO_CONTACT_FIELDS
-                              + _SO_PACK_FIELDS + _SO_CC_OPEN_FIELDS,
+                              + _SO_PACK_FIELDS + _SO_CC_OPEN_FIELDS
+                              + _SO_URGENT_FIELDS,
                               "Delivery Note": _DN_EXC_FIELDS}, ignore_validate=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_pick_fields")

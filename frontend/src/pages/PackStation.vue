@@ -187,6 +187,12 @@
                    green = both done. -->
               <!-- Stop comes first in this chain on purpose: whatever else
                    is true of the box, it is not going out. -->
+              <!-- Urgent rides ALONGSIDE the state badge, not instead of
+                   it: a stopped urgent box is still stopped, and the sorter
+                   needs both facts at once. -->
+              <span v-if="o.urgent" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-white bg-rose-600 ring-1 ring-rose-700">
+                <Icon name="zap" :size="10" />{{ t('sort.badgeUrgent') }}
+              </span>
               <span v-if="o.stopped" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-white bg-rose-600 ring-1 ring-rose-700">
                 <Icon name="package-x" :size="10" />{{ t('sort.badgeStopped') }}
               </span>
@@ -672,6 +678,9 @@ async function recheckLabel(o) {
 
 function slotClass(o) {
   if (flash.value === o.order) return "ring-2 ring-[var(--accent-500)] shadow-md";
+  // Urgent is louder than sorted-but-waiting, quieter than stopped: the box
+  // still has to go out, it just has to go out first.
+  if (o.urgent && !o.stopped && !o.printed) return "ring-2 ring-rose-400 bg-rose-50/50";
   // A stopped slot has to be findable across the room without reading it.
   if (o.stopped) return "ring-2 ring-rose-500 bg-rose-50";
   if (o.short) return "ring-rose-300 bg-rose-50/40";                // a manifest left without it

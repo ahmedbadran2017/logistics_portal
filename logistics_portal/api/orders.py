@@ -1814,6 +1814,9 @@ def detail(name):
         "next_call": str(so.get("custom_next_call_at") or "")[:16],
         "payment_collection": so.get("custom_payment_collection") or "",
         "stage": so.get("custom_logistics_status") or "Pending",
+        "urgentAt": str(so.get("custom_urgent_at") or "")[:19],
+        "urgentBy": (so.get("custom_urgent_by") or "").split("@")[0],
+        "urgentReason": so.get("custom_urgent_reason") or "",
         # contact & destination
         "phone": so.get("custom_customer_phone") or so.get("custom_shipping_phone") or "",
         "city": so.get("custom_shipping_city") or addr.get("city") or "",
@@ -2139,3 +2142,111 @@ def restore_resurrected_cancels():
                              "restore_resurrected_cancels")
     frappe.db.set_default("lp_tkt3709664_restored", "1")
     frappe.db.commit()
+
+
+# ── Urgent: the customer rang and the parcel is still on our floor ────────
+#
+# Ahmed, 2026-09-21: "if the order is with us in the warehouse and the
+# customer called and it is late, there should be an Urgent button".
+#
+# Measured the same day: 489 confirmed orders sit unpicked in the warehouse
+# and 89 of them are older than 48 hours. That is the population — small
+# enough for a flag to mean something, which is the whole point. A priority
+# every tenth order carries is not a priority.
+#
+# What it does NOT do is create a pick list. One list per urgent order is
+# the pick-list shattering problem wearing a new hat: a picker walking the
+# whole warehouse for a single box is the most expensive pick in the
+# building. The batch engine already runs every fifteen minutes and already
+# sorts by missed-cutoff; urgent simply sorts above that, inside the next
+# batch, and wears a badge so the floor can see why.
+
+_URGENT_ROLES = ("cs", "confirmation", "tracking", "manager")
+
+
+def _urgent_ready():
+    try:
+        return frappe.get_meta("Sales Order").has_field("custom_urgent_at")
+    except Exception:
+        return False
+
+
+@frappe.whitelist(methods=["POST"])
+def mark_urgent(order, reason=""):
+    """Push one order to the front of the next pick batch.
+
+    Only while it is still OURS. Once the parcel is cut the warehouse has
+    nothing left to hurry, and a flag that survives the handover is a flag
+    the floor learns to ignore."""
+    from logistics_portal.api.auth import resolve_role
+    role = resolve_role(frappe.session.user)
+    if role not in _URGENT_ROLES:
+        frappe.throw("Not authorized to flag an order urgent.",
+                     frappe.PermissionError)
+    order = (order or "").strip()
+    so = frappe.db.get_value(
+        "Sales Order", order,
+        ["company", "docstatus", "custom_sales_status", "custom_logistics_status"],
+        as_dict=True)
+    if not so or so.company != "Justyol Morocco" or so.docstatus != 1:
+        frappe.throw("Unknown order.")
+    if not _urgent_ready():
+        frappe.throw("The urgent flag is not installed on this site yet.")
+    if (so.custom_logistics_status or "") not in ("", "Pending"):
+        frappe.throw(f"lp:urgentGone|{so.custom_logistics_status}")
+    if so.custom_sales_status != "Confirmed":
+        # An unconfirmed order has no place in the pick pool to jump to.
+        frappe.throw(f"lp:urgentNotConfirmed|{so.custom_sales_status or '—'}")
+
+    now = now_datetime()
+    frappe.db.set_value("Sales Order", order, {
+        "custom_urgent_at": now, "custom_urgent_by": frappe.session.user,
+        "custom_urgent_reason": (reason or "").strip()[:140],
+    }, update_modified=True)
+    frappe.get_doc("Sales Order", order).add_comment(
+        "Comment", "Urgent: pushed to the front of the pick queue"
+                   + (f" — {reason.strip()}" if (reason or "").strip() else "")
+                   + f" · by {frappe.session.user}")
+    frappe.db.commit()
+    for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    frappe.cache().delete_keys("lp_suggest")
+    return {"ok": True, "order": order, "at": str(now)[:19]}
+
+
+@frappe.whitelist(methods=["POST"])
+def clear_urgent(order):
+    """Take the flag off — the customer was called back, or it was a
+    mistake. A flag nobody can remove stops being read."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in _URGENT_ROLES + ("dispatcher",):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    order = (order or "").strip()
+    if frappe.db.get_value("Sales Order", order, "company") != "Justyol Morocco":
+        frappe.throw("Unknown order.")
+    if not _urgent_ready():
+        return {"ok": True}
+    frappe.db.set_value("Sales Order", order, {
+        "custom_urgent_at": None, "custom_urgent_by": "",
+        "custom_urgent_reason": "",
+    }, update_modified=True)
+    frappe.get_doc("Sales Order", order).add_comment(
+        "Comment", f"Urgent: cleared · by {frappe.session.user}")
+    frappe.db.commit()
+    frappe.cache().delete_keys("lp_suggest")
+    return {"ok": True}
+
+
+def drop_urgent_on_ship(doc, method=None):
+    """The flag dies when the parcel leaves. Hooked on Sales Order update so
+    nobody has to remember: an urgent badge on a shipped order is noise, and
+    noise on a priority is how the floor stops believing the next one."""
+    try:
+        if not _urgent_ready() or not doc.get("custom_urgent_at"):
+            return
+        if (doc.get("custom_logistics_status") or "") in ("", "Pending"):
+            return
+        doc.db_set("custom_urgent_at", None, update_modified=False)
+        doc.db_set("custom_urgent_by", "", update_modified=False)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "orders.drop_urgent_on_ship")
