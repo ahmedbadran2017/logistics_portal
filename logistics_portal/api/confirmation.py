@@ -1356,6 +1356,30 @@ _CF_DEFAULTS = {
     # dashboard and every historical report already group by). Empty = show
     # them all.
     "reasons": [],
+    # Cancels that are OURS, not the agent's.
+    #
+    # Measured on production over 30 days: of 1,970 cancels charged to the
+    # team, 693 worth 162,659 MAD were an out-of-stock, a duplicate, or bad
+    # data on the order. Scoring an agent on those is scoring them on the
+    # warehouse and the website. Excluding them moves the best agent from
+    # 58.5% to 75.7% and changes who is first.
+    #
+    # A SETTING and not a constant, because the bucketing is a business call
+    # and not a technical one: whether "Modification" is our fault or the
+    # customer changing their mind is Ahmed's to decide, and the answer can
+    # change without a deploy. The default is the three nobody argues about;
+    # Modification is deliberately left OUT of it.
+    #
+    # An empty list is honest too — it means "charge everything to the agent",
+    # which is exactly what the report did before this existed.
+    # All four verified against the field's own 15 options before being
+    # written here — a name that does not match exactly would silently
+    # exclude nothing, and the rate would move for no visible reason.
+    # "Out of stock & Modified" is one order in the window; it is in anyway,
+    # because it is unambiguously a stock failure and costs nothing to be
+    # right about.
+    "ownReasons": ["Out of stock", "Out of stock & Modified",
+                   "Duplicated", "Wrong Info"],
     "admins": [],         # section admins (user emails)
     # Save-the-sale discount caps for a plain agent (managers/section admins
     # are uncapped). Measured need: 438 discount edits/30d were happening on
@@ -1549,6 +1573,16 @@ def save_cf_settings(settings=None):
         if not reasons:
             frappe.throw("Keep at least one cancel reason.")
         out["reasons"] = reasons
+    if "ownReasons" in settings:
+        opts = reason_options()
+        own = [str(r).strip() for r in (settings["ownReasons"] or []) if str(r).strip()]
+        bad = [r for r in own if r not in opts]
+        if bad:
+            frappe.throw("Not a cancellation reason on the Sales Order: "
+                         + ", ".join(bad[:3]))
+        # No floor: clearing it is a real choice — it puts every cancel back
+        # on the agent, which is what the report did before.
+        out["ownReasons"] = own
     if "admins" in settings:
         from logistics_portal.api.auth import resolve_role
         if resolve_role(frappe.session.user) != "manager":
@@ -2017,17 +2051,27 @@ def report(days=7, frm=None, to=None):
     _all_owned = set()
     for _s in owned.values():
         _all_owned |= _s
+    # Absent on a site that never had the desk's Select — every reason then
+    # reads as missing, which is true rather than wrong.
+    _reason_col = ("so.custom_cancellation_reason"
+                   if frappe.get_meta("Sales Order").has_field(
+                       "custom_cancellation_reason") else "NULL")
+    # Cancels that are not the agent's to answer for. Manager-set — see
+    # _CF_DEFAULTS["ownReasons"].
+    _own_rz = set(_cf_settings().get("ownReasons") or [])
     # order -> (status, value, attempts); then outcome from the parcels.
     _o_st, _o_del, _o_fail, _o_coll = {}, set(), set(), {}
     _names = list(_all_owned)
     for _i in range(0, len(_names), 900):
         _chunk = tuple(_names[_i:_i + 900])
         for _r in frappe.db.sql(
-                """SELECT so.name, so.custom_sales_status st, so.grand_total gt,
-                          COALESCE(so.custom_call_attempts, 0) att
-                   FROM `tabSales Order` so WHERE so.name IN %s""",
+                f"""SELECT so.name, so.custom_sales_status st, so.grand_total gt,
+                           COALESCE(so.custom_call_attempts, 0) att,
+                           {_reason_col} rz
+                    FROM `tabSales Order` so WHERE so.name IN %s""",
                 (_chunk,), as_dict=True):
-            _o_st[_r.name] = (_r.st or "", float(_r.gt or 0), int(_r.att or 0))
+            _o_st[_r.name] = (_r.st or "", float(_r.gt or 0), int(_r.att or 0),
+                              (_r.rz or "").strip())
         # One row per ORDER, never per line: joining Delivery Note Item and
         # summing without collapsing first multiplies every money figure by
         # the basket size. An order that failed once and landed on the
@@ -2072,9 +2116,11 @@ def report(days=7, frm=None, to=None):
     for _u, _set in owned.items():
         d = {"orders": 0, "confirm": 0, "cancel": 0, "open": 0, "other": 0,
              "confirmed_value": 0.0, "collected": 0.0, "delivered": 0,
-             "failed": 0, "att_sum": 0}
+             "failed": 0, "att_sum": 0,
+             # Cancels split by whose problem they were.
+             "cx_ours": 0, "cx_ours_value": 0.0, "cx_noreason": 0}
         for _n in _set:
-            st, gt, att = _o_st.get(_n, ("", 0.0, 0))
+            st, gt, att, rz = _o_st.get(_n, ("", 0.0, 0, ""))
             d["orders"] += 1
             d["att_sum"] += att
             if st == "Confirmed":
@@ -2083,6 +2129,16 @@ def report(days=7, frm=None, to=None):
                     d["confirmed_value"] += gt
             elif st == "Cancelled":
                 d["cancel"] += 1
+                if rz in _own_rz:
+                    d["cx_ours"] += 1
+                    if gt <= _SANE_MAX:
+                        d["cx_ours_value"] += gt
+                elif not rz:
+                    # A cancel nobody explained. 326 of them in 30 days on
+                    # production — every one is a hole in the line above, so
+                    # the number is shown per agent rather than totalled into
+                    # a footnote nobody acts on.
+                    d["cx_noreason"] += 1
             elif st in _OPEN_STS:
                 d["open"] += 1
             else:
@@ -2289,6 +2345,22 @@ def report(days=7, frm=None, to=None):
             # the only time anybody needs to see it.
             "other": int(g("other")),
             "confirmRate": round(int(g("confirm")) * 100.0 / handled, 1) if handled else None,
+            # Cancels that were not this person's to answer for: an item we
+            # could not ship, an order placed twice, contact data that was
+            # wrong when it arrived. Which reasons those are is a manager
+            # setting, never a constant in here.
+            "cancelOurs": int(g("cx_ours")),
+            "cancelOursValue": round(float(g("cx_ours_value"))),
+            # The same rate with those taken out of the denominator. Shown
+            # BESIDE the raw one, never instead of it: an agent's real score
+            # and the company's real loss are two different questions and the
+            # screen should not answer one by hiding the other.
+            "adjRate": (round(int(g("confirm")) * 100.0
+                              / (handled - int(g("cx_ours"))), 1)
+                        if handled - int(g("cx_ours")) > 0 else None),
+            # A cancel with no reason recorded. This is the input to the two
+            # numbers above — the emptier it is, the less they can say.
+            "noReason": int(g("cx_noreason")),
             # How many times they had to go back to a customer per order —
             # the real question the "no answer" column was groping at.
             "callsPerOrder": round(calls.get(user, 0) / float(handled), 2) if handled else None,

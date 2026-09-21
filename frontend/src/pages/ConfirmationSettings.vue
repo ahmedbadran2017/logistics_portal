@@ -76,6 +76,23 @@
         </div>
       </div>
 
+      <!-- Which cancels are OURS.
+           Toggles over the real vocabulary rather than a text box: this list
+           moves a number on the leaderboard, so a typo here would silently
+           stop excluding a reason and nobody would know why the rate moved. -->
+      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 space-y-3">
+        <div class="text-[12px] font-semibold text-stone-900">{{ t('cfr.setOwnReasons') }}</div>
+        <p class="text-[11.5px] text-stone-500">{{ t('cfr.setOwnReasonsHint') }}</p>
+        <div class="flex flex-wrap gap-1.5">
+          <button v-for="r in (s.reasonOptions || [])" :key="r" :disabled="!s.canEdit"
+                  class="h-8 px-3 rounded-lg text-[12px] font-medium ring-1 transition-colors disabled:opacity-60"
+                  :class="(s.ownReasons || []).includes(r)
+                    ? 'text-sky-800 bg-sky-50 ring-sky-300'
+                    : 'text-stone-500 bg-white ring-stone-200 hover:bg-stone-50'"
+                  @click="toggleOwn(r)">{{ r }}</button>
+        </div>
+      </div>
+
       <!-- who is on confirmation duty: the people the shared pool may hand a
            live customer to. Empty = everyone with the role. -->
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 space-y-3">
@@ -184,6 +201,14 @@ function addReason() {
   newReason.value = "";
   dirty.value = true;
 }
+function toggleOwn(r) {
+  if (!s.value.canEdit) return;
+  if (!Array.isArray(s.value.ownReasons)) s.value.ownReasons = [];
+  const i = s.value.ownReasons.indexOf(r);
+  if (i >= 0) s.value.ownReasons.splice(i, 1);
+  else s.value.ownReasons.push(r);
+  dirty.value = true;
+}
 function addRoster() {
   const v = newRoster.value.trim().toLowerCase();
   if (!v || !/^\S+@\S+\.\S+$/.test(v)) return;
@@ -208,6 +233,7 @@ async function save() {
       retryDna: Math.min(720, Math.max(1, parseInt(s.value.retryDna, 10) || 1)), retryFollowup: Math.min(720, Math.max(1, parseInt(s.value.retryFollowup, 10) || 1)),
       retryOnhold: Math.min(720, Math.max(1, parseInt(s.value.retryOnhold, 10) || 1)), slaFirstCallH: Math.min(720, Math.max(1, parseInt(s.value.slaFirstCallH, 10) || 1)),
       reasons: s.value.reasons,
+      ownReasons: s.value.ownReasons || [],
       poolRoster: s.value.poolRoster || [],
     };
     if (isManager.value) payload.admins = s.value.admins;

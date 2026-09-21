@@ -151,7 +151,7 @@
           </div>
         </div>
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[980px] text-[12.5px]">
+          <table class="w-full min-w-[1080px] text-[12.5px]">
             <thead>
               <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
                 <th class="text-start px-4 py-2.5">{{ t('cfr.thAgent') }}</th>
@@ -159,6 +159,7 @@
                 <th class="text-end px-2 py-2.5 text-emerald-600">{{ t('cf.actConfirm') }}</th>
                 <th class="text-end px-2 py-2.5 text-rose-500">{{ t('cf.actCancel') }}</th>
                 <th class="text-end px-2 py-2.5" :title="t('cfr.thOpenHint')">{{ t('cfr.thOpen') }}</th>
+                <th class="text-end px-2 py-2.5" :title="t('cfr.thOursHint')">{{ t('cfr.thOurs') }}</th>
                 <th class="text-end px-3 py-2.5">{{ t('cfr.thRate') }}</th>
                 <th class="text-end px-2 py-2.5">{{ t('cfr.thResp') }}</th>
                 <th class="text-end px-2 py-2.5" :title="t('cfr.thCallsHint')">{{ t('cfr.thCalls') }}</th>
@@ -204,6 +205,18 @@
                   what says so instead of letting the rate drift silently.
                --><span v-if="a.other" class="ms-1 text-[10px] font-bold text-rose-600" :title="t('cfr.thOtherHint')">+{{ a.other }}</span>
                 </td>
+                <!-- Not this person's to answer for. The money rides along
+                     in the tooltip because 264 of these are an item we could
+                     not ship, and that is a purchasing number, not a
+                     coaching one. -->
+                <td class="px-2 py-2.5 text-end tabular-nums"
+                    :title="a.cancelOursValue ? fmtMAD(a.cancelOursValue) : ''">
+                  <span :class="a.cancelOurs ? 'text-sky-700 font-semibold' : 'text-stone-300'">{{ a.cancelOurs || '—' }}</span>
+                  <!-- A cancel nobody explained: the hole in the number to
+                       its left, named next to the person who can close it. -->
+                  <span v-if="a.noReason" class="ms-1 text-[10px] font-bold text-amber-600"
+                        :title="t('cfr.thNoReasonHint')">?{{ a.noReason }}</span>
+                </td>
                 <td class="px-3 py-2.5 text-end">
                   <span v-if="a.confirmRate !== null" class="inline-flex items-center justify-end gap-1.5">
                     <span class="w-[42px] h-1.5 rounded-full bg-stone-100 overflow-hidden">
@@ -212,6 +225,10 @@
                             :style="{ width: a.confirmRate + '%' }" />
                     </span>
                     <b class="tabular-nums w-[38px] text-end" :class="rateColor(a.confirmRate, 80, 60, 'text')">{{ a.confirmRate }}%</b>
+                    <b v-if="a.adjRate !== null && a.adjRate !== a.confirmRate"
+                       class="tabular-nums w-[44px] text-end text-[11px] text-sky-700"
+                       :title="t('cfr.thAdjHint')">→{{ a.adjRate }}%</b>
+                    <span v-else class="w-[44px]" />
                   </span>
                   <span v-else class="text-stone-300">—</span>
                 </td>
@@ -387,6 +404,7 @@ const SORTS = [
   { k: "collected", l: "cfr.kCollected" },
   { k: "stickRate", l: "cfr.thStick" },
   { k: "confirmRate", l: "cfr.thRate" },
+  { k: "adjRate", l: "cfr.thAdj" },
 ];
 
 const days = ref(30);
