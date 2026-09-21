@@ -197,7 +197,13 @@
                 <td class="px-2 py-2.5 text-end tabular-nums font-semibold text-stone-900">{{ a.handled }}</td>
                 <td class="px-2 py-2.5 text-end tabular-nums text-emerald-600 font-semibold">{{ a.confirmed || '—' }}</td>
                 <td class="px-2 py-2.5 text-end tabular-nums text-rose-500">{{ a.cancelled || '—' }}</td>
-                <td class="px-2 py-2.5 text-end tabular-nums" :class="a.open ? 'text-amber-600 font-semibold' : 'text-stone-300'">{{ a.open || '—' }}</td>
+                <td class="px-2 py-2.5 text-end tabular-nums" :class="a.open ? 'text-amber-600 font-semibold' : 'text-stone-300'">
+                  {{ a.open || '—' }}<!--
+                  A status none of the buckets claims. Always zero today; if
+                  it ever is not, the row would stop adding up and this is
+                  what says so instead of letting the rate drift silently.
+               --><span v-if="a.other" class="ms-1 text-[10px] font-bold text-rose-600" :title="t('cfr.thOtherHint')">+{{ a.other }}</span>
+                </td>
                 <td class="px-3 py-2.5 text-end">
                   <span v-if="a.confirmRate !== null" class="inline-flex items-center justify-end gap-1.5">
                     <span class="w-[42px] h-1.5 rounded-full bg-stone-100 overflow-hidden">

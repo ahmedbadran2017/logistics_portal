@@ -1582,6 +1582,22 @@ _AUTOMATION_USERS = ("Administrator", "Guest")
 # Decisions that mean somebody actually tried to reach the customer.
 _ATTEMPT_ACTIONS = ("confirm", "cancel", "dna", "followup")
 
+# What counts as HANDLING an order in the section report — deliberately a
+# superset of the line above, and deliberately not the same constant.
+#
+# _ATTEMPT_ACTIONS answers "did somebody try to reach this customer", which is
+# what bumps custom_call_attempts. Marking an order Duplicated is not an
+# attempt to reach anybody, but it IS a decision the agent took on an order
+# they worked — Ahmed settled on 2026-09-16 that a Duplicated order is a
+# parked call rather than a closed one, and act() lets an agent decide one on
+# the spot. Leaving it out would delete that work from the person who did it.
+#
+# `onhold` stays out: the status is retired and nothing new can enter it.
+# "Not Delivered" is absent on purpose too — it is not in the desk action map
+# at all, because nobody SETS it: the carrier does, and the lane then gets the
+# order back as a question to re-decide.
+_HANDLED_ACTIONS = _ATTEMPT_ACTIONS + ("duplicate",)
+
 # A day nobody worked — they cleaned up. Khadija Koutubi's 28 August is the
 # case: 1,659 decisions against a 3-decision median day, an operations
 # cleanup on the Desk that made her look like the team's worst performer at
@@ -1926,7 +1942,7 @@ def report(days=7, frm=None, to=None):
             a[action] += int(r.n or 0)
         if bulk:
             a["bulk"] += int(r.n or 0)
-        if action in _ATTEMPT_ACTIONS:
+        if action in _HANDLED_ACTIONS:
             owned.setdefault(r.owner, set()).add(r.ord)
             calls[r.owner] = calls.get(r.owner, 0) + int(r.n or 0)
 
@@ -1969,7 +1985,7 @@ def report(days=7, frm=None, to=None):
                                                "bulk": 0})
             if action in a:
                 a[action] += 1
-            if action in _ATTEMPT_ACTIONS:
+            if action in _HANDLED_ACTIONS:
                 owned.setdefault(r.owner, set()).add(r.docname)
                 calls[r.owner] = calls.get(r.owner, 0) + 1
             if action in ("confirm", "cancel", "dna"):
@@ -2041,7 +2057,17 @@ def report(days=7, frm=None, to=None):
     # mistaken for. Of one agent's 1,438 orders, 712 carried a "no answer"
     # and 30 were actually still open: the rest were the same orders, called
     # again and closed.
-    _OPEN_STS = ("Pending", "Did not Answer", "Follow Up", "On Hold")
+    # Still open, and the tail belongs here.
+    #
+    # _TAIL_STS ("Duplicated", "Not Delivered") is work the lane has NOT
+    # finished with — Workspace serves both, last, once the live queue is
+    # empty. Filing them anywhere else left the row not adding up: `handled`
+    # counted them and no visible column did, so the confirm rate quietly
+    # dropped for a reason nobody on the screen could see. It is empty on
+    # production today (the eight agent rows all balance exactly), which is
+    # precisely why it had to be closed now rather than after it filled.
+    _OPEN_STS = ("Pending", "Did not Answer", "Follow Up",
+                 "On Hold") + _TAIL_STS
     money = {}
     for _u, _set in owned.items():
         d = {"orders": 0, "confirm": 0, "cancel": 0, "open": 0, "other": 0,
@@ -2254,7 +2280,14 @@ def report(days=7, frm=None, to=None):
             "cancelled": int(g("cancel")),
             # Still genuinely unresolved. NOT the old NO ANSWER column, which
             # counted re-dials: 712 of them against 30 orders actually open.
+            # Includes the tail (Duplicated, Not Delivered) — see _OPEN_STS.
             "open": int(g("open")),
+            # A status no bucket above claims. It should always be zero and it
+            # is on production today; it is emitted rather than dropped so
+            # that a new status can never make a row stop adding up in
+            # silence. The screen shows it only when it is not zero, which is
+            # the only time anybody needs to see it.
+            "other": int(g("other")),
             "confirmRate": round(int(g("confirm")) * 100.0 / handled, 1) if handled else None,
             # How many times they had to go back to a customer per order —
             # the real question the "no answer" column was groping at.
