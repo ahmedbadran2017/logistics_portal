@@ -222,34 +222,12 @@
                 <Icon name="rotate-ccw" :size="14" /><span class="hidden md:inline">{{ t('rs.actReturn') }}</span>
               </button>
 
-              <div class="relative">
-                <button class="rs-act rs-act-lbl text-stone-500" :disabled="busy === r.id" :title="t('rs.more')"
-                        :class="moreFor === r.id ? 'ring-2' : ''"
-                        @click="moreFor = moreFor === r.id ? '' : r.id">
-                  <Icon name="chevron-down" :size="14" /><span class="hidden md:inline">{{ t('rs.more') }}</span>
-                </button>
-                <div v-if="moreFor === r.id"
-                     class="absolute z-20 mt-1 end-0 min-w-[190px] rounded-xl bg-white ring-1 ring-stone-200 shadow-lg p-1.5 space-y-0.5">
-                  <button v-if="!isNdTab" class="rs-more-item text-violet-700" @click="openReason(r, 'reship'); moreFor = ''">
-                    <Icon name="send" :size="14" />{{ t('rs.actReship') }}
-                  </button>
-                  <button v-if="!isNdTab" class="rs-more-item text-sky-700" @click="openReason(r, 'followup'); moreFor = ''">
-                    <Icon name="clock" :size="14" />{{ t('rs.actFollowup') }}
-                  </button>
-                  <button class="rs-more-item text-stone-600" @click="openReason(r, 'cancel'); moreFor = ''">
-                    <Icon name="circle-x" :size="14" />{{ t('rs.actCancel') }}
-                  </button>
-                  <button v-if="!isNdTab && !r.heldMine" class="rs-more-item text-teal-700" @click="take(r); moreFor = ''">
-                    <Icon name="hand" :size="14" />{{ t('rs.take') }}
-                  </button>
-                  <button v-if="!isNdTab && r.heldMine" class="rs-more-item text-stone-500" @click="drop(r); moreFor = ''">
-                    <Icon name="undo-2" :size="14" />{{ t('rs.drop') }}
-                  </button>
-                  <button v-if="!isNdTab" class="rs-more-item text-sky-700" @click="openDesk(r); moreFor = ''">
-                    <Icon name="notebook-pen" :size="14" />{{ t('rs.desk') }}
-                  </button>
-                </div>
-              </div>
+              <button class="rs-act rs-act-lbl text-stone-500" :disabled="busy === r.id"
+                      :class="moreFor === r.id ? 'ring-2' : ''"
+                      @click="moreFor = moreFor === r.id ? '' : r.id">
+                <Icon name="list-checks" :size="14" />
+                <span class="hidden md:inline">{{ t('rs.more') }}</span>
+              </button>
               <span class="ms-auto inline-flex items-center gap-1.5">
                 <a v-if="r.phone" :href="'tel:' + r.phone" :title="r.phone" :aria-label="t('oclk.call')" class="lp-tap rs-contact rs-tel"><Icon name="phone" :size="15" /></a>
                 <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" rel="noopener" title="WhatsApp" aria-label="WhatsApp" class="lp-tap rs-contact rs-wa"><Icon name="message-circle" :size="15" /></a>
@@ -260,6 +238,44 @@
             </div>
           </div>
         </div>
+
+        <!-- The rest of the actions, INLINE.
+             This was a floating dropdown for about an hour and the screen
+             showed why it could not stay: it escaped the card, covered the
+             row beneath it, and the next card's "just now" badge painted
+             straight through it — a later sibling wins that stacking fight
+             however high the z-index goes. Every other panel on this page
+             (the reason, the desk, the edit) expands in place, so this one
+             does too. Nothing overlaps, nothing needs a z-index, and it
+             works the same under a thumb. -->
+        <Transition name="rsslide">
+          <div v-if="moreFor === r.id" class="mt-2.5 flex flex-wrap gap-1.5 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-2">
+            <button v-if="!isNdTab" class="rs-act rs-act-lbl text-violet-700"
+                    @click="openReason(r, 'reship'); moreFor = ''">
+              <Icon name="send" :size="14" />{{ t('rs.actReship') }}
+            </button>
+            <button v-if="!isNdTab" class="rs-act rs-act-lbl text-sky-700"
+                    @click="openReason(r, 'followup'); moreFor = ''">
+              <Icon name="clock" :size="14" />{{ t('rs.actFollowup') }}
+            </button>
+            <button class="rs-act rs-act-lbl text-stone-600"
+                    @click="openReason(r, 'cancel'); moreFor = ''">
+              <Icon name="circle-x" :size="14" />{{ t('rs.actCancel') }}
+            </button>
+            <button v-if="!isNdTab && !r.heldMine" class="rs-act rs-act-lbl text-teal-700"
+                    :disabled="busy === r.id" @click="take(r); moreFor = ''">
+              <Icon name="hand" :size="14" />{{ t('rs.take') }}
+            </button>
+            <button v-if="!isNdTab && r.heldMine" class="rs-act rs-act-lbl text-stone-500"
+                    :disabled="busy === r.id" @click="drop(r); moreFor = ''">
+              <Icon name="undo-2" :size="14" />{{ t('rs.drop') }}
+            </button>
+            <button v-if="!isNdTab" class="rs-act rs-act-lbl text-sky-700"
+                    @click="openDesk(r); moreFor = ''">
+              <Icon name="notebook-pen" :size="14" />{{ t('rs.desk') }}
+            </button>
+          </div>
+        </Transition>
 
         <!-- ONE reason panel, for EVERY decision.
              It opened for cancel and returnreq only, so the board asked
@@ -559,7 +575,10 @@ async function load() {
     loading.value = false;
   }
 }
-onMounted(load);
+onMounted(() => {
+  load();
+  window.addEventListener("keydown", onEsc);
+});
 
 // ── the heartbeat ─────────────────────────────────────────────────────────
 // Cathedis batches their pushes every ten minutes, so the carrier's word is
@@ -600,7 +619,10 @@ async function beat() {
 function applyFresh() { freshN.value = 0; window.scrollTo({ top: 0 }); load(); }
 
 const pulseTimer = setInterval(beat, 30000);
-onUnmounted(() => { clearInterval(pulseTimer); clearTimeout(qTimer); });
+onUnmounted(() => {
+  clearInterval(pulseTimer); clearTimeout(qTimer);
+  window.removeEventListener("keydown", onEsc);
+});
 
 const detailFor = ref("");
 const detail = ref(null);
@@ -774,7 +796,14 @@ const REASON_END = { bg: "bg-rose-50/70", text: "text-rose-700", btn: "bg-rose-6
                      off: "text-rose-700 bg-white ring-rose-200 hover:bg-rose-100" };
 const reasonTone = computed(() => REASON_TONE[reasonAction.value] || REASON_END);
 
+function onEsc(e) {
+  if (e.key !== "Escape") return;
+  if (moreFor.value) { moreFor.value = ""; return; }
+  if (reasonFor.value) reasonFor.value = "";
+}
+
 function openReason(r, action) {
+  moreFor.value = "";
   if (reasonFor.value === r.id && reasonAction.value === action) {
     reasonFor.value = "";
     return;
@@ -951,15 +980,6 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
 }
 .rs-contact:hover { transform: scale(1.06); }
 .rs-tel { color: rgb(var(--text2)); }
-/* One row of the More menu — same height and hit area as the row buttons
-   it was moved out of, so nothing feels demoted by being behind a click. */
-.rs-more-item {
-  display: flex; align-items: center; gap: .5rem;
-  width: 100%; height: 2.25rem; padding: 0 .625rem;
-  border-radius: .5rem; font-size: 12.5px; font-weight: 600;
-  text-align: start;
-}
-.rs-more-item:hover { background: rgb(245 245 244); }
 .rs-tel:hover { color: rgb(4 120 87); box-shadow: inset 0 0 0 1px rgb(110 231 183); }
 .rs-wa { color: rgb(22 163 74); }
 .rs-wa:hover { box-shadow: inset 0 0 0 1px rgb(134 239 172); background: rgb(240 253 244); }
