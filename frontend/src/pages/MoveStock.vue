@@ -29,12 +29,22 @@
       <div v-if="parked.length" class="mt-3 rounded-xl bg-amber-50 ring-1 ring-amber-200/70 p-3">
         <div class="text-[11.5px] font-semibold text-amber-800 mb-1.5">{{ t('mv.parkedTitle') }}</div>
         <div class="flex flex-wrap gap-1.5">
+          <!-- Two different reasons a place is unreachable, and two
+               different jobs. "This screen may not touch it" is a policy a
+               manager can change; a SWITCHED-OFF warehouse is a wall —
+               ERPNext refuses every transaction against one, so no move
+               from it can ever succeed until someone re-enables it. -->
           <span v-for="b in parked" :key="b.warehouse"
-                class="text-[11px] font-mono text-amber-900 bg-white ring-1 ring-amber-200/70 rounded px-2 py-0.5">
-            {{ b.warehouse }} · {{ b.qty }}
+                class="text-[11px] font-mono rounded px-2 py-0.5 ring-1"
+                :class="b.disabled ? 'text-rose-800 bg-rose-50 ring-rose-300 font-semibold'
+                                   : 'text-amber-900 bg-white ring-amber-200/70'">
+            {{ b.warehouse }} · {{ b.qty }}<template v-if="b.disabled"> · {{ t('mv.parkedOff') }}</template>
           </span>
         </div>
         <div class="text-[11px] text-amber-700/80 mt-1.5">{{ t('mv.parkedHint') }}</div>
+        <div v-if="parked.some((b) => b.disabled)" class="text-[11px] font-semibold text-rose-700 mt-1">
+          {{ t('mv.parkedOffHint') }}
+        </div>
       </div>
 
       <!-- Mistyped or half-scanned code: offer the SKU family. -->

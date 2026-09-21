@@ -42,6 +42,16 @@ def _movable_condition(col="name", as_source=False):
     args = ["% - JM"] + list(blocked)
     parts.append(f"{col} NOT IN ({', '.join(['%s'] * len(_BLOCK_EXACT))})")
     args += _BLOCK_EXACT
+    # A DISABLED warehouse is not a policy choice, it is a wall: ERPNext
+    # refuses every stock transaction touching one ("Disabled Warehouse
+    # Returns Adjustment - JM cannot be used"). The queries that read
+    # tabWarehouse already said disabled = 0; the ones that read tabBin
+    # never joined it, so the screen offered Returns Adjustment — 128 units
+    # over 33 SKUs — as both a source and a destination, and every one of
+    # those moves would have failed at submit. Said once, here, so no
+    # caller has to remember it.
+    parts.append(f"{col} NOT IN "
+                 "(SELECT w_d.name FROM `tabWarehouse` w_d WHERE w_d.disabled = 1)")
     return " AND ".join(parts), args
 
 
@@ -135,14 +145,21 @@ def move_lookup(code):
         # warehouse this screen may not touch (Yakuplu, transit, quarantine).
         # Name the place — the operator can then decide, instead of guessing.
         parked = frappe.db.sql(
-            """SELECT warehouse, actual_qty qty FROM `tabBin`
-               WHERE item_code = %s AND actual_qty > 0
-               ORDER BY actual_qty DESC LIMIT 6""", (item_code,), as_dict=True)
+            """SELECT b.warehouse, b.actual_qty qty,
+                      COALESCE(w.disabled, 0) AS off
+               FROM `tabBin` b
+               LEFT JOIN `tabWarehouse` w ON w.name = b.warehouse
+               WHERE b.item_code = %s AND b.actual_qty > 0
+               ORDER BY b.actual_qty DESC LIMIT 6""", (item_code,), as_dict=True)
         return {"ok": False,
                 "reason": "parked" if parked else "no_stock",
                 "itemCode": item_code, "name": r.get("name"), "sku": r.get("sku"),
+                # `off` separates "this screen may not touch it" from
+                # "nothing may touch it until the warehouse is switched back
+                # on" — two different jobs for whoever reads the answer.
                 "parked": [{"warehouse": b.warehouse.replace(" - JM", ""),
-                            "qty": int(b.qty or 0)} for b in parked]}
+                            "qty": int(b.qty or 0),
+                            "disabled": bool(b.off)} for b in parked]}
     image = frappe.db.get_value("Item", item_code, "image") or ""
     return {"ok": True, "itemCode": item_code, "sku": r.get("sku") or "",
             "name": r.get("name") or item_code, "image": image,

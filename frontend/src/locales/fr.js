@@ -686,6 +686,8 @@ export default {
     parkedTitle: "Cet article a du stock — hors du réseau déplaçable",
     parkedHint: "Ces entrepôts sont exclus des transferts (Turquie, transit, quarantaine). Rien à déplacer d'ici.",
     parkedErr: "{n} — stock garé hors du réseau déplaçable",
+    parkedOff: "désactivé",
+    parkedOffHint: "Un entrepôt désactivé refuse tout mouvement. Réactivez-le d'abord dans ERPNext.",
     nearTitle: "Vouliez-vous dire l'un de ceux-ci ?",
     targetHint: "Plan de slotting : placez-le sur une \u00e9tag\u00e8re {z}",
     title: "Déplacer le stock",

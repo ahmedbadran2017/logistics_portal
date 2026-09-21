@@ -686,6 +686,8 @@ export default {
     parkedTitle: "This item has stock — outside the movable network",
     parkedHint: "Those warehouses are excluded from bin-to-bin moves (Turkey, transit, quarantine). Nothing to move from here.",
     parkedErr: "{n} — stock is parked outside the movable network",
+    parkedOff: "switched off",
+    parkedOffHint: "A switched-off warehouse refuses every move. Re-enable it in ERPNext first.",
     nearTitle: "Did you mean one of these?",
     targetHint: "Slotting plan: put it on any {z} shelf",
     title: "Move stock",

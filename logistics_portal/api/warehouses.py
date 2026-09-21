@@ -103,6 +103,14 @@ def pickable_condition(col="warehouse"):
     if zones:
         parts.append(f"{col} NOT IN ({', '.join(['%s'] * len(zones))})")
         args += zones
+    # Stock in a DISABLED warehouse cannot be delivered from, reserved
+    # against, or moved — ERPNext refuses the transaction outright. It had
+    # never been excluded here: Returns Adjustment is disabled, holds 128
+    # units over 33 SKUs, and passed this filter. Nothing was oversold only
+    # because ee's controller happens to veto that same warehouse — luck,
+    # not design, and luck that would end the day someone re-listed it.
+    parts.append(f"{col} NOT IN "
+                 "(SELECT w_d.name FROM `tabWarehouse` w_d WHERE w_d.disabled = 1)")
     return " AND ".join(parts), args
 
 
