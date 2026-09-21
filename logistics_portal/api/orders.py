@@ -28,6 +28,7 @@ STAGE_STAMP = {
     "Label Printed": "custom_labeled_at",
     "Shipped": "custom_shipped_at",
     "Delivered": "custom_delivered_at",
+    "Returned": "custom_returned_at",
 }
 
 

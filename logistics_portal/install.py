@@ -266,6 +266,15 @@ _SO_PACK_FIELDS = [
 # warehouse for one box is the most expensive pick there is, and the batch
 # engine already runs every fifteen minutes. Urgent jumps the queue inside
 # the next batch — it does not get a batch to itself.
+# When the parcel came back through our own door. Written by the returns
+# reconcile, so the correction carries its own date instead of being a status
+# that appeared from nowhere.
+_SO_RETURNED_FIELDS = [
+    {"fieldname": "custom_returned_at", "label": "Returned At",
+     "fieldtype": "Datetime", "read_only": 1, "no_copy": 1,
+     "in_standard_filter": 1},
+]
+
 _SO_URGENT_FIELDS = [
     {"fieldname": "custom_urgent_at", "label": "Marked Urgent At",
      "fieldtype": "Datetime", "read_only": 1, "no_copy": 1,
@@ -404,7 +413,7 @@ def ensure_pick_fields():
                               "Sales Order": _SO_SHORT_FIELDS + _SO_CONTACT_FIELDS
                               + _SO_PACK_FIELDS + _SO_CC_OPEN_FIELDS
                               + _SO_URGENT_FIELDS + _SO_TOUCH_FIELDS
-                              + _SO_SOURCE_FIELDS,
+                              + _SO_SOURCE_FIELDS + _SO_RETURNED_FIELDS,
                               "Delivery Note": _DN_EXC_FIELDS}, ignore_validate=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_pick_fields")

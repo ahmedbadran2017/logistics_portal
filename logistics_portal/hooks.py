@@ -176,6 +176,11 @@ scheduler_events = {
         # hand, hourly at :20, so 'Pending' means the carrier said so.
         "20 * * * *": [
             "logistics_portal.api.carrier_sync.run",
+            # ...and copy "the parcel is back" onto the orders the carrier
+            # never reported, within the last week only. History is a
+            # decision someone makes on purpose, not something a cron
+            # rewrites quietly at twenty past the hour.
+            "logistics_portal.api.returns.reconcile_recent",
         ],
         # Audit rule engine: scan recent docs against thresholds every 10 minutes.
         "*/10 * * * *": [

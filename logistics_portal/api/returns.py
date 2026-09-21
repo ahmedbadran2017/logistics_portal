@@ -85,6 +85,115 @@ def back_in_house(orders):
     return {r.so: str(r.at)[:10] for r in rows}
 
 
+# ── Writing the fact back onto the order ─────────────────────────────────────
+#
+# Phase 1 taught every portal reader to ask the scan directly. This puts the
+# answer back on the order as well, because the portal is not the only reader:
+# the Desk, ops_dashboard and the accounting side all read
+# custom_logistics_status and cannot be taught anything from here.
+#
+# The order's field is a CACHE of the scan, never a rival to it. The scan
+# decides; this only copies. That is why it is safe to re-run and why it never
+# clears a value it did not set.
+
+_RET_STATUS = "Returned"
+
+
+def _reconcile(days=0, limit=500, apply=0, include_delivered=0):
+    """Copy 'the parcel is back' onto the orders that do not say so yet.
+
+    Returns what it did, or would do. `days` limits to recent return
+    shipments, by submission date (0 = all of history). Orders already
+    reading Delivered are held back unless asked for: the parcel did reach
+    the customer and came
+    back afterwards, and flipping those silently would move money out of
+    every delivered-revenue figure in the other apps. They are counted and
+    reported separately so that stays a decision, not a side effect."""
+    limit = min(max(int(limit or 500), 1), 5000)
+    apply = int(apply or 0)
+    include_delivered = int(include_delivered or 0)
+    # Windowed on when the batch was SUBMITTED, not on its posting date: the
+    # posting date is typed by a person and is routinely backdated, and a
+    # batch can sit in draft before anyone submits it. A window on
+    # posting_date would let a late or backdated batch fall through
+    # permanently, which is the exact failure this whole job exists to undo.
+    window = ("AND rs.modified >= DATE_SUB(NOW(), INTERVAL %d DAY)"
+              % int(days)) if int(days or 0) > 0 else ""
+    skip = "" if include_delivered else \
+        "AND COALESCE(so.custom_logistics_status,'') <> 'Delivered'"
+    rows = frappe.db.sql(
+        f"""SELECT so.name, COALESCE(so.custom_logistics_status,'') lstat,
+                   MAX(rs.posting_date) back_at
+            FROM `tabSales Order` so
+            JOIN `tabDelivery Note Item` rdni ON rdni.against_sales_order = so.name
+            JOIN `tabReturn Shipment Item` rsi ON rsi.delivery_note_item = rdni.name
+            JOIN `tabReturn Shipment` rs ON rs.name = rsi.parent
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND rs.docstatus = 1 AND rs.status = 'Returned' AND rsi.actual_qty > 0
+              AND COALESCE(so.custom_logistics_status,'') <> %(ret)s
+              {skip} {window}
+            GROUP BY so.name
+            ORDER BY back_at DESC
+            LIMIT {limit}""",
+        {"co": _CO, "ret": _RET_STATUS}, as_dict=True)
+
+    held = frappe.db.sql(
+        f"""SELECT COUNT(DISTINCT so.name)
+            FROM `tabSales Order` so
+            JOIN `tabDelivery Note Item` rdni ON rdni.against_sales_order = so.name
+            JOIN `tabReturn Shipment Item` rsi ON rsi.delivery_note_item = rdni.name
+            JOIN `tabReturn Shipment` rs ON rs.name = rsi.parent
+            WHERE so.docstatus = 1 AND so.company = %(co)s
+              AND rs.docstatus = 1 AND rs.status = 'Returned' AND rsi.actual_qty > 0
+              AND COALESCE(so.custom_logistics_status,'') = 'Delivered' {window}""",
+        {"co": _CO})[0][0] if not include_delivered else 0
+
+    done = 0
+    if apply:
+        stamp = frappe.get_meta("Sales Order").has_field("custom_returned_at")
+        for r in rows:
+            vals = {"custom_logistics_status": _RET_STATUS}
+            if stamp:
+                vals["custom_returned_at"] = r.back_at
+            # No hooks and no timestamp bump: this is a correction of the
+            # record, not a change to the order, and 6k touched `modified`
+            # values would look like 6k edits to everything downstream.
+            frappe.db.set_value("Sales Order", r.name, vals, update_modified=False)
+            done += 1
+        if done:
+            frappe.db.commit()
+    return {"applied": bool(apply), "matched": len(rows), "written": done,
+            "held_back_delivered": int(held or 0),
+            "sample": [[r.name, r.lstat, str(r.back_at)] for r in rows[:5]]}
+
+
+@frappe.whitelist()
+def reconcile_returned(days=0, limit=500, apply=0, include_delivered=0):
+    """Manual reconcile. Dry by default -- it reports and writes nothing
+    until apply=1, so the number can be read before anything moves."""
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) != "manager":
+        frappe.throw("Reconciling returned orders is manager-only.",
+                     frappe.PermissionError)
+    return _reconcile(days=days, limit=limit, apply=apply,
+                      include_delivered=include_delivered)
+
+
+def reconcile_recent():
+    """Scheduled: keep new returns honest, without ever touching history.
+
+    Bounded to batches submitted in the last 30 days so a scheduled writer
+    can never quietly rewrite the past -- the backlog is a decision someone
+    makes once, on purpose, through reconcile_returned. Thirty days and not
+    seven because the floor submits a batch every one to five days but has
+    gone twelve without one, and a window tighter than the gap is a window
+    that misses whole batches."""
+    try:
+        return _reconcile(days=30, limit=300, apply=1)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "returns.reconcile_recent")
+
+
 @frappe.whitelist()
 def board(tab="awaiting", days=30, q="", limit=30, offset=0):
     """Returns workspace. tab=awaiting → orders flagged Returned with no parcel
