@@ -82,10 +82,17 @@ doc_events = {
             # report as having never touched the order.
             "logistics_portal.api.orders.stamp_first_touch",
         ],
-        # A cancelled order stays cancelled unless a human reopens it —
-        # blocks the external WhatsApp flow's Cancelled→Follow Up resurrects
-        # (TKT-2609-3709664).
-        "validate": "logistics_portal.api.orders.guard_cancelled_resurrect",
+        "validate": [
+            # A cancelled order stays cancelled unless a human reopens it —
+            # blocks the external WhatsApp flow's Cancelled→Follow Up
+            # resurrects (TKT-2609-3709664).
+            "logistics_portal.api.orders.guard_cancelled_resurrect",
+            # Shopify's own source_name, copied off the raw payload the sync
+            # is still holding on the doc. This is what keeps a phone sale out
+            # of the cold-call queue — it has to land in the SAME save the
+            # order arrives in, which is the only moment the payload exists.
+            "logistics_portal.api.orders.stamp_order_source",
+        ],
     },
     "Delivery Note": {
         "validate": [

@@ -107,6 +107,10 @@
                 <span class="text-[12px] font-semibold text-stone-800 truncate">{{ r.customer || r.order }}</span>
                 <span v-if="r.kind !== 'pending'" class="text-[8.5px] font-bold uppercase rounded px-1 py-px flex-shrink-0"
                       :class="KIND_CLS[r.kind]">{{ t('ws.k_' + r.kind) }}</span>
+                <!-- Never handed out by Next; here so the row explains why
+                     it is sitting there and who to ask. -->
+                <span v-if="r.phoneSale" class="text-[8.5px] font-bold uppercase rounded px-1 py-px flex-shrink-0 text-violet-700 bg-violet-100"
+                      :title="r.soldBy ? t('ws.phoneSaleBy').replace('{name}', r.soldBy) : t('ws.phoneSale')">{{ t('ws.kPhone') }}</span>
               </span>
               <span class="block text-[10px] text-stone-400 font-mono truncate">{{ r.order }} · {{ r.ageH }}h<template v-if="r.attempts"> · ×{{ r.attempts }}</template></span>
             </span>
@@ -195,6 +199,24 @@
               <a :href="'tel:' + active.phone" class="ws-contact bg-sky-50 text-sky-700 ring-sky-200" :title="t('ws.call')"><Icon name="phone" :size="16" /></a>
               <a :href="waUrl" target="_blank" class="ws-contact bg-emerald-50 text-emerald-700 ring-emerald-200" title="WhatsApp"><Icon name="message-circle" :size="16" /></a>
               <button class="ws-contact bg-amber-50 text-amber-700 ring-amber-200" :title="t('cf.editContact')" @click="panel = panel === 'contact' ? '' : 'contact'"><Icon name="edit" :size="15" /></button>
+            </div>
+          </div>
+
+          <!-- Somebody here already had this conversation. This sits above
+               everything else on the card because it changes what the agent
+               does next: not "call and ask", but "confirm what a colleague
+               already sold". It is why the order never comes out of the
+               queue on its own. -->
+          <div v-if="active.phoneSale"
+               class="rounded-xl px-3.5 py-3 flex items-start gap-2.5 bg-violet-50 ring-1 ring-violet-300">
+            <span class="w-7 h-7 rounded-lg bg-violet-600 text-white flex items-center justify-center flex-shrink-0">
+              <Icon name="phone" :size="15" />
+            </span>
+            <div class="min-w-0 flex-1">
+              <div class="text-[12.5px] font-bold text-violet-900" dir="auto">
+                {{ active.soldBy ? t('ws.phoneSaleBy').replace('{name}', active.soldBy) : t('ws.phoneSale') }}
+              </div>
+              <div class="text-[11px] text-violet-700 mt-0.5">{{ t('ws.phoneSaleHint') }}</div>
             </div>
           </div>
 

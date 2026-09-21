@@ -2124,6 +2124,11 @@ export default {
     oosN: "Out of stock — {n} items can't be picked",
     offFaceTitle: "In stock, but not on a pick face",
     offFaceHint: "Confirm as normal — the warehouse is told to move it before picking.",
+    // A colleague sold this over the phone. The queue never hands it out.
+    phoneSale: "Sold over the phone by our team",
+    phoneSaleBy: "Sold over the phone by {name}",
+    phoneSaleHint: "The customer already agreed — confirm it, don't call to ask again.",
+    kPhone: "PHONE",
     oosHint: "Offer a swap or a partial order now, or cancel — don't confirm what the warehouse can't ship.",
     oosCheck: "Check the shelf for this item",
     localItem: "local supplier",

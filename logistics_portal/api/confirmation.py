@@ -157,6 +157,39 @@ _DUE_AT = "COALESCE(so.custom_next_call_at, so.creation)"
 _DUE = f"{_DUE_AT} <= %(now)s AND NOT ({_PARKED})"
 
 
+from logistics_portal.api.orders import (  # noqa: E402
+    PHONE_SOURCE as _PHONE_SOURCE, seller_from_tags as _seller_from_tags)
+
+
+def _not_cold():
+    """Work an agent may be HANDED. A phone sale is not.
+
+    One of ours already had this conversation: the order was written as a
+    Shopify draft from the admin, which is what the team does after selling
+    over the phone. Handing it to the queue as Pending phones a customer who
+    said yes minutes ago — Ahmed reported it on 2026-09-21, and it is a real
+    call, to a real person, for the second time.
+
+    Only PENDING is held back, and that is the whole of the rule. The moment
+    a human decides something on a phone order — a Follow Up, a Did not
+    Answer — it is ordinary lane work again and comes back through every
+    pass. Nothing is hidden: the order still counts, still appears in the
+    Pending tab wearing its seller's name, and can still be opened and
+    decided. It is only never THRUST at somebody.
+
+    Keyed on Shopify's source_name, never on the tag. Measured on prod over
+    4,000 tagged orders: 3,086 distinct tag values, 6% of drafts carrying no
+    tag at all, and a seller nobody had listed. See install._SO_SOURCE_FIELDS.
+
+    Degrades open, not shut: before the field exists (or on an order that
+    predates it) the expression is true, so the queue behaves exactly as it
+    does today."""
+    if not frappe.get_meta("Sales Order").has_field("custom_order_source"):
+        return "1 = 1"
+    return ("NOT (so.custom_sales_status = 'Pending' AND "
+            "COALESCE(so.custom_order_source, '') = 'shopify_draft_order')")
+
+
 # ── The day's target ─────────────────────────────────────────────────────
 # A single number for everyone was fiction. Measured over 30 days of live
 # work: the median working day in this lane is 70 decisions, p75 is 91 and
@@ -704,6 +737,8 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     _m = frappe.get_meta("Sales Order")
     reason_col = ("so.custom_cancellation_reason"
                   if _m.has_field("custom_cancellation_reason") else "NULL")
+    src_col = ("so.custom_order_source"
+               if _m.has_field("custom_order_source") else "NULL")
     if not _m.has_field("custom_first_reminder"):
         # A site without the WhatsApp automation's ladder.
         s_r1 = s_r2 = "0"
@@ -727,7 +762,9 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
                    so.custom_awb AS awb,
                    COALESCE({s_r1}, 0) AS r1,
                    COALESCE({s_r2}, 0) AS r2,
-                   {reason_col} AS reason
+                   {reason_col} AS reason,
+                   {src_col} AS src,
+                   so._user_tags AS tags
             FROM `tabSales Order` so {_CITY_JOIN}
             WHERE {where}
             ORDER BY {order_by}
@@ -828,6 +865,10 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
             "track": (r.track or "").strip(),
             "awb": (r.awb or "").strip(),
             "reason": (r.reason or "").strip(),
+            # One of ours already spoke to this customer. The chip is why the
+            # order sits in the tab without ever being handed out.
+            "phoneSale": (r.src or "") == _PHONE_SOURCE,
+            "soldBy": _seller_from_tags(r.tags),
             "cust": hist.get(digits(r.phone)) if r.phone else None,
             # How hard the automation already chased this one.
             "chased": int(r.r2 or 0) and 2 or (int(r.r1 or 0) and 1 or 0),
@@ -2997,6 +3038,7 @@ def pool_depth():
         f"""SELECT COUNT(*) FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
               AND (so.custom_sales_status IN %(sts)s OR so.custom_sales_status = 'Pending')
+              AND {_not_cold()}
               AND {_pool_cond()}""", vals)[0][0]
     return {"n": int(n or 0), "enabled": True, "block": _pool_block(me),
             "holding": _holding(me), "max": int(_cf_settings().get("poolMax") or 20)}
@@ -3018,6 +3060,7 @@ def fresh_waiting():
         f"""SELECT COUNT(*) n, MIN(so.creation) oldest FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
               AND so.custom_sales_status = 'Pending'
+              AND {_not_cold()}
               AND {_pool_cond()}""", vals, as_dict=True)[0]
     mins = 0
     if r.oldest:
@@ -3185,6 +3228,7 @@ def next_order(skip=None, as_user=None):
     _fresh_own = (f"""SELECT so.name FROM `tabSales Order` so
                       WHERE so.docstatus = 1 AND so.company = %(co)s
                         AND so.custom_sales_status = 'Pending' AND {_IN_HAND}
+                        AND {_not_cold()}
                         AND so.creation >= DATE_SUB(NOW(), INTERVAL 30 DAY){_own}
                       ORDER BY so.creation LIMIT 25""", {})
 
@@ -3194,6 +3238,7 @@ def next_order(skip=None, as_user=None):
     _fresh_pool = (f"""SELECT so.name FROM `tabSales Order` so
                        WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
                          AND so.custom_sales_status = 'Pending'
+                         AND {_not_cold()}
                          AND {_pool_cond()}
                        ORDER BY so.creation LIMIT 25""", {})
     _retry_pool = (f"""SELECT so.name FROM `tabSales Order` so

@@ -2121,6 +2121,11 @@ export default {
     oosN: "Rupture de stock — {n} articles ne peuvent pas être préparés",
     offFaceTitle: "En stock, mais pas sur un emplacement de prélèvement",
     offFaceHint: "Confirmez normalement — l'entrepôt est prévenu de le déplacer avant le prélèvement.",
+    // Vendue au téléphone par un collègue. La file ne la distribue jamais.
+    phoneSale: "Vendue au téléphone par notre équipe",
+    phoneSaleBy: "Vendue au téléphone par {name}",
+    phoneSaleHint: "Le client a déjà accepté — confirmez, n'appelez pas pour redemander.",
+    kPhone: "TÉL",
     oosHint: "Proposez un échange ou une commande partielle maintenant, ou annulez — ne confirmez pas ce que l'entrepôt ne peut pas expédier.",
     oosCheck: "Vérifier le stock de cet article",
     localItem: "fournisseur local",

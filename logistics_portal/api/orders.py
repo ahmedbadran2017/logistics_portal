@@ -13,6 +13,80 @@ STAGE_STAMP = {
 }
 
 
+# ── Where the order came from ────────────────────────────────────────────
+#
+# A phone sale is a conversation that already happened. Serving it to the
+# confirmation queue as a cold call phones a customer who has already said
+# yes — to a colleague, minutes earlier.
+#
+# Shopify already answers this on the order: `source_name` is
+# "shopify_draft_order" when the team pushes a draft from the admin (which is
+# how a phone sale is written), and "web" or an app id for a storefront order.
+PHONE_SOURCE = "shopify_draft_order"
+
+# The operational vocabulary of the Shopify tag field. Anything on a phone
+# order that is NOT one of these is a person's name — the seller.
+#
+# A block list, not an allow list, and deliberately: a new seller must appear
+# by itself the day they make their first sale. `nidal` sold four orders this
+# week and was in nobody's list. The cost of the inversion is that an unknown
+# OPERATIONAL tag reads as a name once, which is a wrong word on a chip, not
+# a wrong order in a queue — the queue rule keys on the source field, never
+# on this.
+_OPS_TAGS = {"cod", "express", "picked", "urgent", "checked", "not shipped",
+             "possible-duplicate", "label generated", "out of stock",
+             "virement", "confirmed", "cancelled", "duplicated", "shipped",
+             "delivered", "returned", "local", "ugc"}
+_OPS_PREFIX = ("tel:", "ua:", "via:", "utm", "ref:", "sku:", "coupon:")
+
+
+def seller_from_tags(tags):
+    """The human name on a phone order, or "" when the tag says nothing.
+
+    Never raises and never guesses a user account: this is a word to print
+    next to the customer, so the agent knows who already spoke to them. Who
+    that maps to in ERPNext is a separate question this does not answer —
+    `hajar` is two different colleagues, and an order does not stop being a
+    phone sale because we cannot tell which."""
+    for t in (tags or "").split(","):
+        t = t.strip()
+        if not t:
+            continue
+        lo = t.lower()
+        if lo in _OPS_TAGS or lo.startswith(_OPS_PREFIX):
+            continue
+        return t[:40]
+    return ""
+
+
+def stamp_order_source(doc, method=None):
+    """Copy Shopify's `source_name` onto the order, during the sync's own save.
+
+    ecommerce_integrations hangs the full raw payload on the document
+    (`so.flags.shopiy_order_json`, its spelling) at order.py:244 and saves at
+    :254 — so this runs with the payload in hand, inside the write that was
+    already happening. No second write, no `modified` bump, no call back out
+    to Shopify.
+
+    Write-once: a later portal save must never blank what the sync stamped."""
+    try:
+        if doc.get("custom_order_source"):
+            return
+        raw = doc.flags.get("shopiy_order_json") if doc.flags else None
+        if not raw:
+            return
+        import json
+        src = (json.loads(raw) or {}).get("source_name")
+        if src is None:
+            return
+        if not frappe.get_meta("Sales Order").has_field("custom_order_source"):
+            return
+        doc.custom_order_source = str(src)[:140]
+    except Exception:
+        # Never block a customer's order over a provenance label.
+        pass
+
+
 def stamp_first_touch(doc, method=None):
     """Catch the work done on the ERPNext Desk, where no portal code runs.
 
@@ -1821,6 +1895,11 @@ def detail(name):
         "name": so.name,
         "customer": so.customer_name,
         "channel": so.get("custom_channel"),
+        # Sold on the phone by one of ours — the agent about to dial needs to
+        # see that before they press call, not after the customer says "I
+        # already ordered this with Meriem".
+        "phoneSale": (so.get("custom_order_source") or "") == PHONE_SOURCE,
+        "soldBy": seller_from_tags(so.get("_user_tags")),
         "created": str(so.creation)[:16],
         # money — the real ERPNext numbers, not derived
         "subtotal": so.total,

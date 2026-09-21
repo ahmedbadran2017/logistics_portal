@@ -365,13 +365,42 @@ _SO_TOUCH_FIELDS = [
 ]
 
 
+_SO_SOURCE_FIELDS = [
+    # WHERE the order was placed, straight from Shopify's own `source_name`.
+    #
+    # The lane needs one thing from it: an order a colleague SOLD on the phone
+    # is a conversation that already happened. Serving it to an agent as a
+    # cold call means phoning a customer who has already said yes — Ahmed
+    # reported it 2026-09-21, and it is a real call, to a real person, twice.
+    #
+    # Shopify answers this exactly: a draft order pushed from the admin (which
+    # is how the team writes a phone sale) carries source_name
+    # "shopify_draft_order"; a storefront order carries "web" or the id of the
+    # app that created it. Nothing has to be inferred.
+    #
+    # The Shopify TAG cannot do this job, and that is why the queue rule is
+    # keyed here and not there. Measured on prod over 4,000 tagged orders:
+    # 3,086 distinct tag values, dominated by per-customer `tel:<number>`;
+    # 6% of draft orders carry no tag at all; a new seller (`nidal`) appeared
+    # this week in nobody's list; and `Myral`/`myral` disagree on their own
+    # capitals. The tag is a NAME to show, not a fact to route on.
+    #
+    # Populated inside the sync's own save (see orders.stamp_order_source), so
+    # it costs no extra write and no extra round trip to Shopify.
+    {"fieldname": "custom_order_source", "label": "Order Source",
+     "fieldtype": "Data", "read_only": 1, "no_copy": 1, "hidden": 1,
+     "search_index": 1},
+]
+
+
 def ensure_pick_fields():
     try:
         from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
         create_custom_fields({"Pick List Item": _PLI_FIELDS,
                               "Sales Order": _SO_SHORT_FIELDS + _SO_CONTACT_FIELDS
                               + _SO_PACK_FIELDS + _SO_CC_OPEN_FIELDS
-                              + _SO_URGENT_FIELDS + _SO_TOUCH_FIELDS,
+                              + _SO_URGENT_FIELDS + _SO_TOUCH_FIELDS
+                              + _SO_SOURCE_FIELDS,
                               "Delivery Note": _DN_EXC_FIELDS}, ignore_validate=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_pick_fields")
