@@ -23,7 +23,88 @@ def _site_now():
     return str(now_datetime())[:19]
 from frappe.utils import add_to_date, now_datetime
 
-TABS = ("mine", "exceptions", "failed", "notdelivered", "stale", "backlog")
+# ── what an agent can decide, and what it means on the parcel ────────────
+#
+# `reship` used to stamp "Redeliver" here, which made the two the same word
+# on the Delivery Note. They are not the same thing: a redeliver asks the
+# CARRIER to try the same parcel again, a reship sends a NEW parcel and
+# lets the old one come home. Different money, different watch, and the
+# board could not tell them apart — which is why they could not have
+# separate queues.
+#
+# `followup` is new: the parcel is stuck at the carrier and the job is to
+# chase them. That is not a promise to the customer, so it does not belong
+# with redeliver, and it is not a closure, so it does not belong with
+# resolve. It had nowhere to live, so it was never recorded at all.
+ACTIONS = ("redeliver", "reship", "followup", "returnreq", "dna",
+           "cancel", "resolve")
+
+_DN_ACTION = {
+    "redeliver": "Redeliver",
+    "reship": "Reship",
+    "followup": "Follow Up",
+    "returnreq": "Return Requested",
+    "cancel": "Return Requested",
+    "resolve": "Resolved",
+}
+
+# A decision that PROMISES the customer the parcel is still coming. These
+# are the ones worth watching afterwards — the promise is only worth what
+# happens next.
+_PROMISE = ("Redeliver", "Reship")
+
+# ── the board, in three questions instead of six piles ───────────────────
+#
+# Audited 2026-09-21: six tabs stood over 128 live parcels (89 exceptions +
+# 39 failed). Everything else was either a filter of those (mine, 18), a
+# different team's work (notdelivered, 17), history (backlog, 5,137) or
+# empty (stale, 0). Adding a tab per new action would have made nine.
+#
+# So the tabs answer QUESTIONS and the piles became chips inside them:
+#
+#   todo     who is waiting on me right now
+#   watch    I decided something — did it move?
+#   history  what already ended
+#
+# The internal queue names below are unchanged, so every existing query,
+# count and cache keeps working; this is a routing layer, not a rewrite.
+TABS = ("todo", "watch", "history")
+
+CHIPS = {
+    # "mine" is not a pile, it is a filter — but it is the one an agent
+    # reaches for most, so it keeps a chip rather than becoming a switch
+    # nobody finds.
+    "todo": ("exceptions", "failed", "callback", "stale", "notdelivered", "mine"),
+    "watch": ("promised", "followup"),
+    "history": ("done", "backlog"),
+}
+
+# What each tab opens on when no chip is chosen.
+_TAB_DEFAULT = {"todo": "exceptions", "watch": "promised", "history": "done"}
+
+# Old links, old bookmarks and the pulse poller all still say "exceptions".
+_LEGACY_TAB = {
+    "exceptions": ("todo", "exceptions"), "failed": ("todo", "failed"),
+    "stale": ("todo", "stale"), "notdelivered": ("todo", "notdelivered"),
+    "backlog": ("history", "backlog"), "mine": ("todo", "mine"),
+}
+
+
+def resolve_tab(tab, chip=""):
+    """(tab, chip) from whatever the caller said — new names, old names or
+    nothing. Returns a chip only when it is valid for that tab."""
+    tab = (tab or "").strip().lower()
+    chip = (chip or "").strip().lower()
+    if tab in _LEGACY_TAB:
+        ltab, lchip = _LEGACY_TAB[tab]
+        return ltab, (chip if chip in CHIPS[ltab] else lchip)
+    if tab not in TABS:
+        tab = "todo"
+    return tab, (chip if chip in CHIPS[tab] else "")
+
+
+_ALL_QUEUES = ("mine", "exceptions", "failed", "notdelivered", "stale",
+               "backlog", "promised", "followup", "callback", "done")
 # Morocco only. The instance also carries China / Maslak / Holding, whose
 # orders share this database. Carrier exceptions happen to be Morocco-only in
 # practice (Cathedis is the Moroccan carrier), but the SO-backed "Not
@@ -181,8 +262,8 @@ def _allowed_tabs(role, surface=""):
     door you came in: on /tracking there is no Not-Delivered, whoever you
     are; on /confirmation there is."""
     if (surface or "").strip().lower() == "ship" or role == "tracking":
-        return [t for t in TABS if t != "notdelivered"]
-    return list(TABS)
+        return [t for t in _ALL_QUEUES if t != "notdelivered"]
+    return list(_ALL_QUEUES)
 
 
 # ── section settings + admins (same pattern as the confirmation section) ──
@@ -200,8 +281,34 @@ _RS_DEFAULTS = {
     "claimHours": 4,
     "retryDna": 6,
     "slaTriageH": 24,   # a failing parcel untouched longer than this is late
+    # A promise is not late the day it is made. The clock that matters is
+    # the CARRIER's: how long since anything happened to the parcel after
+    # we told the customer it was coming.
+    "promiseSlaH": 48,
+    # Kept: the vocabulary for ENDING a parcel (return / cancel).
     "reasons": ["Client injoignable", "Refuse le colis", "Adresse introuvable",
                 "Reporté par le client", "Annulé par le client"],
+    # A reason list PER ACTION. One shared list meant the board asked "why?"
+    # on 2 of its 5 actions and threw the answer away on the other 3 — and
+    # the one list it had spoke only the language of cancelling, which is
+    # the wrong vocabulary for a customer who still wants their parcel.
+    "reasonsBy": {
+        "redeliver": ["Le client veut toujours le colis",
+                      "Nouvelle date convenue avec le client",
+                      "Adresse corrigée",
+                      "Transporteur informé",
+                      "Le client passera à l'agence"],
+        "reship": ["Colis perdu par le transporteur",
+                   "Colis endommagé",
+                   "Mauvais article envoyé",
+                   "Retourné — le client le veut encore"],
+        "followup": ["Aucun mouvement chez le transporteur",
+                     "Colis bloqué à l'agence",
+                     "Statut incohérent",
+                     "En attente de réponse du transporteur"],
+        "dna": ["Téléphone éteint", "Ne répond pas", "Faux numéro",
+                "Rappeler plus tard"],
+    },
     "admins": [],
 }
 
@@ -255,7 +362,16 @@ def save_rs_settings(settings=None):
         settings = _json.loads(settings)
     settings = settings or {}
     out = dict(_rs_settings())
-    for k in ("retryDna", "slaTriageH", "claimHours"):
+    if "reasonsBy" in settings and isinstance(settings["reasonsBy"], dict):
+        clean = {}
+        for act_name, lst in settings["reasonsBy"].items():
+            if act_name not in ACTIONS:
+                continue
+            vals = [str(r).strip()[:60] for r in (lst or []) if str(r).strip()]
+            if vals:
+                clean[act_name] = vals[:12]
+        out["reasonsBy"] = clean
+    for k in ("retryDna", "slaTriageH", "claimHours", "promiseSlaH"):
         if k in settings:
             v = int(settings[k])
             if not (1 <= v <= 168):
@@ -331,8 +447,12 @@ def _untriaged_cond():
     Redeliver on 09-10, the carrier tried on 09-12, found nobody, and the
     parcel would have stayed 'handled' for good."""
     ev_at = _last_event_sql("creation")
+    # Reship joins Redeliver here now that it is a word of its own — before
+    # this it WAS "Redeliver" on the parcel and inherited the rule by
+    # accident. Naming it properly would have quietly dropped it out.
     return ("(COALESCE(dn.custom_exception_action,'') = '' OR "
-            "(dn.custom_exception_action = 'Redeliver' AND dn.custom_exception_actioned_at IS NOT NULL "
+            "(dn.custom_exception_action IN ('Redeliver', 'Reship') "
+            "AND dn.custom_exception_actioned_at IS NOT NULL "
             f"AND {ev_at} > dn.custom_exception_actioned_at))")
 
 
@@ -399,6 +519,30 @@ def _dn_where(tab, vals, reason=""):
     if line:
         vals["line"] = line
         conds.append("dn.posting_date >= %(line)s")
+    if tab in ("promised", "followup", "done"):
+        # These are the DECIDED parcels — the exact opposite of the working
+        # queues above, which show only what nobody has touched. `conds`
+        # carries _untriaged_cond, so it is rebuilt rather than extended.
+        base = ["dn.docstatus = 1", "dn.company = %(co)s", _RETURNED]
+        line = _start_line()
+        if line:
+            vals["line"] = line
+            base.append("dn.posting_date >= %(line)s")
+        base.append("dn.custom_exception_actioned_at IS NOT NULL")
+        if tab == "promised":
+            # Still watching: a promise with no verdict yet.
+            base.append("dn.custom_exception_action IN ('Redeliver', 'Reship')")
+            base.append("COALESCE(dn.custom_rescue_outcome,'') = ''")
+        elif tab == "followup":
+            base.append("dn.custom_exception_action = 'Follow Up'")
+            base.append("COALESCE(dn.custom_rescue_outcome,'') = ''")
+        else:
+            # Ended — either the watch settled, or the decision was itself
+            # an ending (returned / resolved).
+            base.append("(COALESCE(dn.custom_rescue_outcome,'') <> '' OR "
+                        "dn.custom_exception_action IN "
+                        "('Return Requested', 'Resolved', 'Returned (reconciled)'))")
+        return " AND ".join(base + extra)
     if tab in _DN_TRACK:
         conds.append("dn.custom_track_shipment_status = %(track)s")
         vals["track"] = _DN_TRACK[tab]
@@ -429,7 +573,8 @@ def _cached_counts(days):
     except Exception:
         pass
     counts = {}
-    for t in ("exceptions", "failed", "stale", "backlog"):
+    for t in ("exceptions", "failed", "stale", "backlog",
+              "promised", "followup", "done"):
         v = {"days": days}
         counts[t] = int(frappe.db.sql(
             f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} WHERE {_dn_where(t, v)}",
@@ -440,6 +585,15 @@ def _cached_counts(days):
              AND custom_sales_status = 'Not Delivered'
              AND creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)""",
         {"days": max(days, 60), "co": _CO})[0][0])
+    # The callback chip counts what is DUE, not what exists: a queue badge
+    # showing 308 when 176 need calling today is a number nobody can act on.
+    counts["callback"] = int(frappe.db.sql(
+        """SELECT COUNT(*) FROM `tabSales Order`
+           WHERE docstatus = 1 AND company = %(co)s
+             AND custom_next_call_at IS NOT NULL
+             AND custom_next_call_at <= %(snow)s
+             AND custom_sales_status NOT IN ('Cancelled', 'Delivered')""",
+        {"co": _CO, "snow": _site_now()})[0][0])
     try:
         frappe.cache().set_value(ck, counts, expires_in_sec=60)
     except Exception:
@@ -482,15 +636,24 @@ def _bust():
 
 
 @frappe.whitelist()
-def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason="", surface=""):
-    """The four rescue queues + counts + my day, one call. `reason` narrows
-    the parcel queues by the carrier's last word: rescuable | cancelled."""
+def board(tab="todo", days=30, q="", limit=30, offset=0, reason="", surface="",
+          chip=""):
+    """One rescue tab + its chips + counts + my day, in one call.
+
+    `tab` is the QUESTION (todo / watch / history) and `chip` is the pile
+    inside it. Old callers still say "exceptions" or "backlog" and are
+    routed by resolve_tab, so bookmarks and the pulse poller keep working.
+    `reason` narrows the parcel queues by the carrier's last word."""
     role = _gate()
-    tabs = _allowed_tabs(role, surface)
-    # Gate the DATA, not just the chip: a tab hidden from the nav that still
-    # answers on a hand-typed request is not hidden at all.
-    if tab not in tabs:
-        tab = tabs[0]
+    tab, chip = resolve_tab(tab, chip)
+    queue = chip or _TAB_DEFAULT[tab]
+    # Gate the DATA, not just the chip: a pile hidden from the nav that
+    # still answers on a hand-typed request is not hidden at all.
+    allowed = _allowed_tabs(role, surface)
+    if queue not in allowed:
+        queue = next((c for c in CHIPS[tab] if c in allowed), None) \
+            or next((c for c in CHIPS["todo"] if c in allowed), "exceptions")
+        chip = queue
     reason = reason if reason in ("rescuable", "cancelled") else ""
     days = min(max(int(days or 30), 1), 90)
     limit = min(max(int(limit or 30), 1), 100)
@@ -503,8 +666,8 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason="", surfac
     counts["mine"] = _mine_count(days)
     # The split that decides whether a call can save anything, for the two
     # queues a call is made from. Cached: it is a correlated read per parcel.
-    if tab in ("exceptions", "failed"):
-        ck = f"lp_rescue_verdict:{tab}:{days}"
+    if queue in ("exceptions", "failed"):
+        ck = f"lp_rescue_verdict:{queue}:{days}"
         split = None
         try:
             split = frappe.cache().get_value(ck, expires=True)
@@ -513,8 +676,8 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason="", surfac
         if not split:
             v = dict(vals)
             canc = int(frappe.db.sql(
-                f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} WHERE {_dn_where(tab, v, 'cancelled')}", v)[0][0])
-            split = {"cancelled": canc, "rescuable": max(0, counts[tab] - canc)}
+                f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} WHERE {_dn_where(queue, v, 'cancelled')}", v)[0][0])
+            split = {"cancelled": canc, "rescuable": max(0, counts[queue] - canc)}
             try:
                 frappe.cache().set_value(ck, split, expires_in_sec=120)
             except Exception:
@@ -522,7 +685,42 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason="", surfac
         counts["cancelled"] = split["cancelled"]
         counts["rescuable"] = split["rescuable"]
 
-    if tab == "notdelivered":
+    if queue == "callback":
+        # 308 orders carry a next-call time and 176 of them are already past
+        # it (measured 2026-09-21). The timer has been written on every
+        # no-answer since the lane opened; no screen has ever shown it, so
+        # two thirds of the callbacks are late and nobody could have known.
+        conds = ["so.docstatus = 1", "so.company = %(co)s",
+                 "so.custom_next_call_at IS NOT NULL",
+                 "so.custom_sales_status NOT IN ('Cancelled', 'Delivered')"]
+        vals["co"] = _CO
+        if q and str(q).strip():
+            vals["q"] = f"%{str(q).strip()}%"
+            conds.append("(so.name LIKE %(q)s OR so.customer_name LIKE %(q)s"
+                         " OR so.custom_awb LIKE %(q)s"
+                         + _q_phone(q, vals,
+                                    "NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone")
+                         + ")")
+        where = " AND ".join(conds)
+        total = frappe.db.sql(
+            f"SELECT COUNT(*) FROM `tabSales Order` so WHERE {where}", vals)[0][0]
+        rows = frappe.db.sql(
+            f"""SELECT so.name AS so_name, so.customer_name AS customer,
+                       so.grand_total AS total, so.custom_awb AS awb,
+                       COALESCE(NULLIF(so.custom_track_shipment_status,''),
+                                so.custom_sales_status) AS track,
+                       NULL AS dn,
+                       COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone) AS phone,
+                       so.custom_shipping_city AS city,
+                       COALESCE(so.custom_call_attempts, 0) AS attempts,
+                       so.custom_next_call_at AS next_call,
+                       DATEDIFF(NOW(), so.creation) AS age_d,
+                       TIMESTAMPDIFF(HOUR, so.creation, %(now)s) AS age_h
+                FROM `tabSales Order` so WHERE {where}
+                ORDER BY so.custom_next_call_at
+                LIMIT %(limit)s OFFSET %(offset)s""",
+            {**vals, "now": _site_now()}, as_dict=True)
+    elif queue == "notdelivered":
         conds = ["so.docstatus = 1", "so.company = %(co)s",
                  "so.custom_sales_status = 'Not Delivered'",
                  "so.creation >= DATE_SUB(NOW(), INTERVAL %(ndays)s DAY)"]
@@ -552,7 +750,7 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason="", surfac
                 ORDER BY COALESCE(so.custom_next_call_at, so.creation)
                 LIMIT %(limit)s OFFSET %(offset)s""", {**vals, "now": _site_now()}, as_dict=True)
     else:
-        where = _dn_where(tab, vals, reason)
+        where = _dn_where(queue, vals, reason)
         if q and str(q).strip():
             vals["q"] = f"%{str(q).strip()}%"
             where += (" AND (dn.name LIKE %(q)s OR dn.customer_name LIKE %(q)s"
@@ -565,8 +763,8 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason="", surfac
         # is one person's pile and must never ride a team-wide key. It did,
         # and it showed — a colleague holding 15 parcels had her 15 served to
         # every other agent's empty Mine tab, pager and all.
-        tk = (f"lp_rescue_total:{tab}:{days}:{reason}"
-              if not (q and str(q).strip()) and tab != "mine" else "")
+        tk = (f"lp_rescue_total:{queue}:{days}:{reason}"
+              if not (q and str(q).strip()) and queue != "mine" else "")
         total = None
         if tk:
             try:
@@ -591,8 +789,15 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason="", surfac
         # (measured on 2,019 live exceptions); worth it for a working queue.
         # ("notdelivered" never reaches here — it is the SO branch above,
         # whose order is a call queue by next_call_at and stays that way.)
+        # The working piles are read newest-trouble-first; the decided ones
+        # are read oldest-promise-first, because a promise nobody has heard
+        # about in four days is the one that needs chasing, not the one made
+        # this morning. (`queue`, not `tab` — a tab is three piles now and
+        # this test silently stopped matching any of them.)
         order_by = ("last_event_at DESC, dn.posting_date DESC"
-                    if tab in ("exceptions", "failed", "stale")
+                    if queue in ("exceptions", "failed", "stale")
+                    else "dn.custom_exception_actioned_at"
+                    if queue in ("promised", "followup")
                     else "dn.posting_date")
         rows = frappe.db.sql(
             _dn_select() + f" WHERE {where} ORDER BY {order_by}"
@@ -621,7 +826,12 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason="", surfac
     now = str(now_datetime())
     sla_h = _rs_settings().get("slaTriageH", 24)
     return {
-        "tab": tab, "tabs": tabs, "counts": counts, "total": int(total or 0),
+        "tab": tab, "chip": chip or _TAB_DEFAULT[tab],
+        "tabs": list(TABS),
+        # Only the chips this door is allowed to open — the Not-Delivered
+        # pile stays off /tracking whoever is looking.
+        "chips": {t: [c for c in CHIPS[t] if c in allowed] for t in TABS},
+        "counts": counts, "total": int(total or 0),
         "rows": [{
             "id": r.dn or r.so_name, "dn": r.dn or "", "order": r.so_name or "",
             "customer": r.customer or "", "total": float(r.total or 0),
@@ -650,6 +860,8 @@ def board(tab="exceptions", days=30, q="", limit=30, offset=0, reason="", surfac
         } for r in rows],
         "mine": mine,
         "reasons": _rs_settings().get("reasons", []),
+        "reasonsBy": _rs_settings().get("reasonsBy", {}),
+        "promiseSlaH": _promise_sla_h(),
         "serverNow": now[:19],
     }
 
@@ -884,7 +1096,7 @@ def act(id=None, action=None, note=None):
     _gate()
     id = (id or "").strip()
     note = (note or "").strip()
-    if action not in ("redeliver", "reship", "returnreq", "dna", "cancel", "resolve"):
+    if action not in ACTIONS:
         frappe.throw("Unknown action.")
 
     is_dn = frappe.db.exists("Delivery Note", id)
@@ -931,15 +1143,18 @@ def act(id=None, action=None, note=None):
               + f" · by {frappe.session.user}"
 
     # Parcel-side record (turns the exceptions pile into a worked queue).
-    if dn and action in ("redeliver", "reship", "returnreq", "cancel", "resolve"):
-        dn_action = {"redeliver": "Redeliver", "reship": "Redeliver",
-                     "returnreq": "Return Requested",
-                     "cancel": "Return Requested",
-                     "resolve": "Resolved"}[action]
+    if dn and action in _DN_ACTION:
+        dn_action = _DN_ACTION[action]
         doc = frappe.get_doc("Delivery Note", dn)
         if frappe.get_meta("Delivery Note").has_field("custom_exception_action"):
             doc.db_set("custom_exception_action", dn_action, update_modified=False)
             doc.db_set("custom_exception_actioned_at", now, update_modified=False)
+            # A new decision reopens the question of how it ends.
+            if frappe.get_meta("Delivery Note").has_field("custom_rescue_outcome"):
+                doc.db_set("custom_rescue_outcome", "", update_modified=False)
+                doc.db_set("custom_rescue_outcome_at", None, update_modified=False)
+        if note and frappe.get_meta("Delivery Note").has_field("custom_exception_reason"):
+            doc.db_set("custom_exception_reason", note[:140], update_modified=False)
         doc.add_comment("Comment", tag)
         # A decision ends the holding — the parcel is finished, not owned —
         # and joins the same trail as the notes and the carrier calls, so the
@@ -988,6 +1203,58 @@ def act(id=None, action=None, note=None):
         pass
     return {"ok": True, "id": id, "action": action, "attempts": attempts,
             "order": order or ""}
+
+
+def settle_outcomes(limit=400):
+    """Stamp how a promise ENDED, once, when it ends.
+
+    The board used to infer the outcome from the live tracking status at
+    read time. That answers "where is it now", not "did the promise hold" —
+    a parcel that failed and was later delivered read `landed`, and the
+    failure it cost us disappeared from history. Measured 2026-09-21: of 83
+    redelivers in 30 days, 31 had failed, 22 had landed and 30 were still
+    moving. None of that was recorded anywhere; it was recomputed on every
+    page load and true only for that second.
+
+    Scheduled. Idempotent — it only ever writes a blank outcome."""
+    try:
+        if not frappe.get_meta("Delivery Note").has_field("custom_rescue_outcome"):
+            return
+        rows = frappe.db.sql(
+            f"""SELECT dn.name, dn.custom_track_shipment_status trk,
+                       dn.custom_return_shipment ret
+                FROM `tabDelivery Note` dn
+                WHERE dn.docstatus = 1 AND dn.company = %(co)s
+                  AND dn.custom_exception_action IN ('Redeliver', 'Reship', 'Follow Up')
+                  AND dn.custom_exception_actioned_at IS NOT NULL
+                  AND COALESCE(dn.custom_rescue_outcome,'') = ''
+                LIMIT {int(limit)}""", {"co": _CO}, as_dict=True)
+        now = now_datetime()
+        done = 0
+        for r in rows:
+            # A parcel physically back in the building is settled whatever
+            # the tracker says — the return note is the harder evidence.
+            if r.ret:
+                out = "returned"
+            else:
+                out = {"Delivered": "landed",
+                       "Return": "returned", "Returned": "returned"}.get(r.trk or "")
+            if not out:
+                continue
+            frappe.db.set_value("Delivery Note", r.name, {
+                "custom_rescue_outcome": out,
+                "custom_rescue_outcome_at": now}, update_modified=False)
+            done += 1
+        if done:
+            frappe.db.commit()
+            _bust()
+        return {"settled": done, "scanned": len(rows)}
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "rescue.settle_outcomes")
+
+
+def _promise_sla_h():
+    return int(_rs_settings().get("promiseSlaH", 48))
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1492,7 +1759,7 @@ _PROBLEM_LIKE = ("Customer unreachable%", "Customer cancelled%",
 
 
 @frappe.whitelist()
-def pulse(tab="exceptions", days=30, since="", surface=""):
+def pulse(tab="todo", days=30, since="", surface="", chip=""):
     """Has anything happened since the screen last looked?
 
     Deliberately tiny — one indexed count on the comment table, measured at
@@ -1519,8 +1786,14 @@ def pulse(tab="exceptions", days=30, since="", surface=""):
     days = min(max(int(days or 30), 1), 90)
     depth = None
     try:
-        if tab in _allowed_tabs(role, surface) and tab != "mine":
-            depth = int(_cached_counts(days).get(tab) or 0)
+        # The screen says which QUESTION it is on; the depth it watches is
+        # the pile inside it. Without this the poller asked for the depth of
+        # "todo", which is not a queue, and silently got None — the board
+        # would never have noticed a colleague clearing a row.
+        ptab, pchip = resolve_tab(tab, chip)
+        queue = pchip or _TAB_DEFAULT[ptab]
+        if queue in _allowed_tabs(role, surface) and queue != "mine":
+            depth = int(_cached_counts(days).get(queue) or 0)
     except Exception:
         depth = None
     return {"n": int(row.n or 0), "at": str(row.at or "")[:19],

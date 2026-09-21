@@ -62,6 +62,11 @@ INDEXES = [
     # _idx carries `creation` as its second column, so it cannot serve this.
     ("Sales Order", ["custom_sales_status", "custom_last_call_at"],
      "lp_so_sales_lastcall_idx"),
+    # The callback queue asks "whose next call is due", and
+    # custom_next_call_at had no index at all — a 452ms count on every board
+    # load for a chip that exists to be looked at constantly. The confirmation
+    # workspace orders by the same column, so it pays for that read too.
+    ("Sales Order", ["custom_next_call_at"], "lp_so_nextcall_idx"),
     # My Dashboard reads each agent's decision trail out of `tabVersion` —
     # the desk writes a Version row and no comment, so the Version trail is
     # the only record of half the decisions. That table is 2.95M rows and
@@ -155,9 +160,31 @@ _DN_EXC_FIELDS = [
      # thousand bulk stamps can never be mistaken for seventeen thousand
      # judgements somebody made.
      "fieldtype": "Select",
-     "options": "\nRedeliver\nReturn Requested\nResolved\nReturned (reconciled)",
+     # Reship used to be stamped "Redeliver" here, which made the two
+     # indistinguishable on the parcel: one asks the CARRIER to try again,
+     # the other sends a WHOLE NEW PARCEL and lets the old one come back.
+     # They cost different money and they are watched differently, so they
+     # get different words. "Follow Up" is the third decision the board
+     # never had: the parcel is stuck at the carrier and the job is to chase
+     # them, which is not the same as promising the customer anything.
+     "options": "\nRedeliver\nReship\nFollow Up\nReturn Requested\nResolved\nReturned (reconciled)",
      "read_only": 1, "no_copy": 1, "hidden": 1},
     {"fieldname": "custom_exception_actioned_at", "label": "Exception Actioned At",
+     "fieldtype": "Datetime", "read_only": 1, "no_copy": 1, "hidden": 1},
+    # Why the agent chose it. The board asked for a reason on 2 of its 5
+    # actions and threw the other 3 away, so "we redelivered 83 parcels"
+    # could never become "and here is why they failed".
+    {"fieldname": "custom_exception_reason", "label": "Exception Reason",
+     "fieldtype": "Data", "read_only": 1, "no_copy": 1, "hidden": 1},
+    # How it ENDED, stamped once when it settles. The outcome used to be
+    # inferred from the live tracking status at read time, which meant a
+    # parcel that failed and was later delivered read "landed" and the
+    # failure vanished from history. A rate you cannot look back on is not
+    # a rate.
+    {"fieldname": "custom_rescue_outcome", "label": "Rescue Outcome",
+     "fieldtype": "Select", "options": "\nlanded\nfailed\nreturned",
+     "read_only": 1, "no_copy": 1, "hidden": 1, "in_standard_filter": 1},
+    {"fieldname": "custom_rescue_outcome_at", "label": "Rescue Outcome At",
      "fieldtype": "Datetime", "read_only": 1, "no_copy": 1, "hidden": 1},
 ]
 

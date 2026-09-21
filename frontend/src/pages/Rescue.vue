@@ -34,6 +34,10 @@
     <!-- queues + search — one sticky toolbar, tabs scroll in one line -->
     <div class="sticky z-10 -mx-2 px-2 py-1.5 rounded-xl flex items-center gap-3 flex-wrap lg:flex-nowrap" :class="IS_SHIP ? 'top-0' : 'top-[41px]'"
          style="background: rgb(var(--bg) / 0.92); backdrop-filter: blur(6px)">
+      <!-- Three questions, not six piles. The audit found six tabs standing
+           over 128 live parcels, and the plan would have made nine. A tab
+           now asks a QUESTION — who needs me, did what I decided move, what
+           already ended — and the piles are chips inside it. -->
       <div class="rs-seg overflow-x-auto flex-shrink min-w-0" style="scrollbar-width: none">
         <button
           v-for="tb in TABS" :key="tb.key"
@@ -45,7 +49,7 @@
           <Icon :name="tb.icon" :size="14" />
           <span>{{ t(tb.label) }}</span>
           <span class="rs-seg-count" :class="tab === tb.key ? tb.onColor : 'bg-stone-200/70 text-stone-500'">
-            {{ data?.counts?.[tb.key] ?? '–' }}
+            {{ tabTotal(tb.key) }}
           </span>
         </button>
       </div>
@@ -61,6 +65,20 @@
                :style="{ '--tw-ring-color': IS_SHIP ? 'rgb(94 234 212)' : 'rgb(125 211 252)' }" />
       </div>
     </div>
+
+    <!-- The piles inside the question. Counts come from the server so a chip
+         never claims a number the list will not show. -->
+    <div v-if="chipsFor.length > 1" class="flex items-center gap-1.5 flex-wrap mb-3">
+      <button v-for="c in chipsFor" :key="c"
+              class="h-8 px-3 rounded-full text-[12px] font-semibold ring-1 transition-all"
+              :class="chip === c ? 'text-white bg-stone-800 ring-stone-800'
+                                 : 'text-stone-600 bg-white ring-stone-200 hover:bg-stone-50'"
+              @click="goChip(c)">
+        {{ t('rs.chip_' + c) }}
+        <span class="tabular-nums ms-1 opacity-70">{{ data?.counts?.[c] ?? '–' }}</span>
+      </button>
+    </div>
+
 
     <!-- the carrier's verdict: what a call can still save, and what is already a return -->
     <div v-if="hasVerdict && data" class="flex items-center gap-2 flex-wrap px-1">
@@ -182,37 +200,56 @@
                   <Icon name="clock" :size="14" /><span class="hidden md:inline">{{ t('cf.actFollowup') }}</span>
                 </button>
               </template>
+              <!-- THREE primary decisions, then everything else behind More.
+                   The audit counted eleven controls on this row, and the plan
+                   would have made thirteen — on a row that already drops its
+                   labels below md, so a phone showed eleven bare icons. The
+                   three that stay are the ones that RESOLVE the parcel. -->
               <template v-else>
-                <button class="rs-act rs-act-save" :disabled="busy === r.id" :title="t('rs.actRedeliverHint')" @click="act(r, 'redeliver')">
+                <button class="rs-act rs-act-save" :disabled="busy === r.id" :title="t('rs.actRedeliverHint')"
+                        :class="reasonFor === r.id && reasonAction === 'redeliver' ? 'ring-2' : ''"
+                        @click="openReason(r, 'redeliver')">
                   <Icon name="refresh-cw" :size="14" class="inline -mt-px me-1" />{{ t('rs.actRedeliver') }}
                 </button>
-                <button class="rs-act rs-act-lbl text-violet-700" :disabled="busy === r.id" :title="t('rs.actReshipHint')" @click="act(r, 'reship')">
-                  <Icon name="send" :size="14" /><span class="hidden md:inline">{{ t('rs.actReship') }}</span>
-                </button>
               </template>
-              <button class="rs-act rs-act-lbl text-amber-700" :disabled="busy === r.id" :title="t('cf.actDna')" @click="act(r, 'dna')">
+              <button class="rs-act rs-act-lbl text-amber-700" :disabled="busy === r.id" :title="t('cf.actDna')"
+                      :class="reasonFor === r.id && reasonAction === 'dna' ? 'ring-2' : ''"
+                      @click="openReason(r, 'dna')">
                 <Icon name="phone-off" :size="14" /><span class="hidden md:inline">{{ t('cf.actDna') }}</span>
               </button>
               <button v-if="!isNdTab" class="rs-act rs-act-lbl text-rose-600" :disabled="busy === r.id" :title="t('rs.actReturnHint')"
                       :class="reasonFor === r.id && reasonAction === 'returnreq' ? 'ring-2' : ''" @click="openReason(r, 'returnreq')">
                 <Icon name="rotate-ccw" :size="14" /><span class="hidden md:inline">{{ t('rs.actReturn') }}</span>
               </button>
-              <button class="rs-act rs-act-lbl text-stone-500" :disabled="busy === r.id" :title="t('rs.actCancel')"
-                      :class="reasonFor === r.id && reasonAction === 'cancel' ? 'ring-2' : ''" @click="openReason(r, 'cancel')">
-                <Icon name="circle-x" :size="14" /><span class="hidden md:inline">{{ t('rs.actCancel') }}</span>
-              </button>
-              <button v-if="!isNdTab && !r.heldMine" class="rs-act rs-act-lbl text-teal-700" :disabled="busy === r.id"
-                      :title="t('rs.takeHint')" @click="take(r)">
-                <Icon name="hand" :size="14" /><span class="hidden md:inline">{{ t('rs.take') }}</span>
-              </button>
-              <button v-if="!isNdTab && r.heldMine" class="rs-act rs-act-lbl text-stone-500" :disabled="busy === r.id"
-                      :title="t('rs.dropHint')" @click="drop(r)">
-                <Icon name="undo-2" :size="14" /><span class="hidden md:inline">{{ t('rs.drop') }}</span>
-              </button>
-              <button v-if="!isNdTab" class="rs-act rs-act-lbl text-sky-700" :disabled="busy === r.id"
-                      :title="t('rs.deskHint')" :class="deskFor === r.id ? 'ring-2' : ''" @click="openDesk(r)">
-                <Icon name="notebook-pen" :size="14" /><span class="hidden md:inline">{{ t('rs.desk') }}</span>
-              </button>
+
+              <div class="relative">
+                <button class="rs-act rs-act-lbl text-stone-500" :disabled="busy === r.id" :title="t('rs.more')"
+                        :class="moreFor === r.id ? 'ring-2' : ''"
+                        @click="moreFor = moreFor === r.id ? '' : r.id">
+                  <Icon name="chevron-down" :size="14" /><span class="hidden md:inline">{{ t('rs.more') }}</span>
+                </button>
+                <div v-if="moreFor === r.id"
+                     class="absolute z-20 mt-1 end-0 min-w-[190px] rounded-xl bg-white ring-1 ring-stone-200 shadow-lg p-1.5 space-y-0.5">
+                  <button v-if="!isNdTab" class="rs-more-item text-violet-700" @click="openReason(r, 'reship'); moreFor = ''">
+                    <Icon name="send" :size="14" />{{ t('rs.actReship') }}
+                  </button>
+                  <button v-if="!isNdTab" class="rs-more-item text-sky-700" @click="openReason(r, 'followup'); moreFor = ''">
+                    <Icon name="clock" :size="14" />{{ t('rs.actFollowup') }}
+                  </button>
+                  <button class="rs-more-item text-stone-600" @click="openReason(r, 'cancel'); moreFor = ''">
+                    <Icon name="circle-x" :size="14" />{{ t('rs.actCancel') }}
+                  </button>
+                  <button v-if="!isNdTab && !r.heldMine" class="rs-more-item text-teal-700" @click="take(r); moreFor = ''">
+                    <Icon name="hand" :size="14" />{{ t('rs.take') }}
+                  </button>
+                  <button v-if="!isNdTab && r.heldMine" class="rs-more-item text-stone-500" @click="drop(r); moreFor = ''">
+                    <Icon name="undo-2" :size="14" />{{ t('rs.drop') }}
+                  </button>
+                  <button v-if="!isNdTab" class="rs-more-item text-sky-700" @click="openDesk(r); moreFor = ''">
+                    <Icon name="notebook-pen" :size="14" />{{ t('rs.desk') }}
+                  </button>
+                </div>
+              </div>
               <span class="ms-auto inline-flex items-center gap-1.5">
                 <a v-if="r.phone" :href="'tel:' + r.phone" :title="r.phone" :aria-label="t('oclk.call')" class="lp-tap rs-contact rs-tel"><Icon name="phone" :size="15" /></a>
                 <a v-if="r.phone" :href="waLink(r.phone)" target="_blank" rel="noopener" title="WhatsApp" aria-label="WhatsApp" class="lp-tap rs-contact rs-wa"><Icon name="message-circle" :size="15" /></a>
@@ -224,23 +261,30 @@
           </div>
         </div>
 
-        <!-- reason panel (return / cancel) -->
+        <!-- ONE reason panel, for EVERY decision.
+             It opened for cancel and returnreq only, so the board asked
+             "why?" on two of its five actions and threw the answer away on
+             the other three — which is why "83 redelivers" could never
+             become "and here is why 31 of them failed". The choices are per
+             action: a customer who still wants their parcel needs different
+             words than one who refused it. -->
         <Transition name="rsslide">
-          <div v-if="reasonFor === r.id" class="space-y-2 bg-rose-50/70 rounded-xl p-2.5 mt-3">
-            <div class="text-[11px] font-semibold text-rose-700">
-              {{ reasonAction === 'cancel' ? t('rs.actCancel') : t('rs.actReturn') }}
+          <div v-if="reasonFor === r.id" class="space-y-2 rounded-xl p-2.5 mt-3" :class="reasonTone.bg">
+            <div class="text-[11px] font-semibold" :class="reasonTone.text">
+              {{ t('rs.pick_' + reasonAction, reasonAction) }}
             </div>
-            <div v-if="data?.reasons?.length" class="flex flex-wrap gap-1.5">
-              <button v-for="rs in data.reasons" :key="rs"
+            <div v-if="reasonChoices.length" class="flex flex-wrap gap-1.5">
+              <button v-for="rs in reasonChoices" :key="rs"
                       class="h-7 px-2.5 rounded-full text-[11.5px] font-medium ring-1 transition-all"
-                      :class="reason === rs ? 'text-white bg-rose-600 ring-rose-600 shadow-sm' : 'text-rose-700 bg-white ring-rose-200 hover:bg-rose-100'"
+                      :class="reason === rs ? reasonTone.on : reasonTone.off"
                       @click="reason = rs">{{ t('rs.reasonLabels.' + rs, rs) }}</button>
             </div>
             <div class="flex items-center gap-2">
-              <input v-model="reason" :placeholder="t('cf.cancelPh')" maxlength="120"
-                     class="flex-1 h-9 ps-3 pe-3 rounded-lg bg-white ring-1 ring-rose-200 text-[12.5px] focus:outline-none" />
-              <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 transition-colors"
-                      :disabled="!reason.trim() || busy === r.id"
+              <input v-model="reason" :placeholder="t('rs.reasonPh')" maxlength="120"
+                     class="flex-1 h-9 ps-3 pe-3 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] focus:outline-none" />
+              <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white disabled:opacity-50 transition-colors"
+                      :class="reasonTone.btn"
+                      :disabled="!reasonReady || busy === r.id"
                       @click="act(r, reasonAction, reason)">{{ t('rs.confirmDecision') }}</button>
             </div>
           </div>
@@ -386,25 +430,31 @@ const VERDICT_CLS = {
 };
 function setReason(r) { verdictF.value = r; page.value = 1; load(); }
 const ALL_TABS = [
-  { key: "mine", label: "rs.tabMine", icon: "user", onColor: "bg-teal-100 text-teal-700" },
-  { key: "exceptions", label: "rs.tabExceptions", icon: "alert-triangle", onColor: "bg-rose-100 text-rose-700" },
-  { key: "failed", label: "rs.tabFailed", icon: "alert-circle", onColor: "bg-amber-100 text-amber-700" },
-  { key: "notdelivered", label: "rs.tabNotDelivered", icon: "package", onColor: "bg-violet-100 text-violet-700" },
-  { key: "stale", label: "rs.tabStale", icon: "clock", onColor: "bg-sky-100 text-sky-700" },
-  { key: "backlog", label: "rs.tabUnaccounted", icon: "circle-alert", onColor: "bg-stone-200 text-stone-700" },
+  { key: "todo", label: "rs.tabTodo", icon: "alert-triangle", onColor: "bg-rose-100 text-rose-700" },
+  { key: "watch", label: "rs.tabWatch", icon: "clock", onColor: "bg-amber-100 text-amber-700" },
+  { key: "history", label: "rs.tabHistory", icon: "check-circle", onColor: "bg-stone-200 text-stone-700" },
 ];
-// The server decides which queues this lane owns — Not Delivered is
+const TABS = computed(() => ALL_TABS);
+
+// The server decides which piles this door may open — Not Delivered is
 // confirmation's, so the tracking team never sees the chip OR the data.
-const TABS = computed(() => {
-  const ok = data.value?.tabs;
-  return ok ? ALL_TABS.filter((t) => ok.includes(t.key)) : ALL_TABS;
-});
+const chipsFor = computed(() => (data.value?.chips || {})[tab.value] || []);
+
+// A tab's badge is the sum of its chips. Showing one chip's number on the
+// tab would have made "todo 89" while 174 callbacks were overdue behind it.
+function tabTotal(key) {
+  const cs = (data.value?.chips || {})[key] || [];
+  const c = data.value?.counts || {};
+  if (!cs.length) return "–";
+  return cs.reduce((a, k) => a + (Number(c[k]) || 0), 0);
+}
 
 // The queue, the page and the search live in the URL. Without that, Back
 // from an order — and the cold-start restore — brought the agent to the
 // list's first page of the first tab, which is "somewhere else" to anyone
 // who was on page 4 of Failed.
-const tab = ref(String(route.query.tab || "exceptions"));
+const tab = ref(String(route.query.tab || "todo"));
+const chip = ref(String(route.query.chip || ""));
 const q = ref(String(route.query.q || ""));
 const page = ref(Math.max(1, parseInt(route.query.p, 10) || 1));
 const pageSize = 30;
@@ -415,6 +465,7 @@ const loading = ref(true);
 const loadError = ref("");
 const busy = ref("");
 const reasonFor = ref("");
+const moreFor = ref("");
 const reasonAction = ref("");
 const reason = ref("");
 const selected = ref(new Set());
@@ -456,7 +507,8 @@ function debouncedLoad() {
 
 function syncUrl() {
   const query = {};
-  if (tab.value !== "exceptions") query.tab = tab.value;
+  if (tab.value !== "todo") query.tab = tab.value;
+  if (chip.value) query.chip = chip.value;
   if (page.value > 1) query.p = String(page.value);
   if (q.value.trim()) query.q = q.value.trim();
   if (verdictF.value !== "rescuable") query.reason = verdictF.value;
@@ -470,6 +522,14 @@ function syncUrl() {
 function goTab(key) {
   if (tab.value === key) return;
   tab.value = key;
+  chip.value = "";          // open the tab on its own default pile
+  page.value = 1;
+  load();
+}
+
+function goChip(key) {
+  if (chip.value === key) return;
+  chip.value = key;
   page.value = 1;
   load();
 }
@@ -480,7 +540,7 @@ async function load() {
   selected.value = new Set();
   try {
     const res = await api("rescue.board", {
-      tab: tab.value, q: q.value, limit: pageSize,
+      tab: tab.value, chip: chip.value, q: q.value, limit: pageSize,
       offset: (page.value - 1) * pageSize,
       // Which door this screen was opened from: Not-Delivered is a
       // confirmation queue and has no business on the tracking portal,
@@ -523,10 +583,14 @@ function canAutoApply() {
 async function beat() {
   if (document.visibilityState !== "visible" || loading.value) return;
   try {
-    const r = await api("rescue.pulse", { tab: tab.value, since: pulseSince, surface: SURFACE || "" });
+    const r = await api("rescue.pulse", {
+      tab: tab.value, chip: chip.value, since: pulseSince, surface: SURFACE || "" });
     pulseSince = r.now || pulseSince;
-    const moved = r.depth != null && data.value?.counts
-      && r.depth !== data.value.counts[tab.value];
+    // Compare against the PILE the screen is showing, not the question it
+    // sits under — a tab is a sum of chips and never a depth of its own.
+    const openChip = data.value?.chip;
+    const moved = r.depth != null && data.value?.counts && openChip
+      && r.depth !== data.value.counts[openChip];
     if (!r.n && !moved) return;
     if (canAutoApply()) { load(); freshN.value = 0; return; }
     freshN.value += r.n || (moved ? 1 : 0);
@@ -679,6 +743,37 @@ async function saveContact(r) {
   }
 }
 
+// The choices for the action being taken. The shared list stays the
+// vocabulary for ENDING a parcel (return / cancel) — it was only ever wrong
+// as the vocabulary for everything else.
+const reasonChoices = computed(() => {
+  const by = data.value?.reasonsBy || {};
+  return by[reasonAction.value] || data.value?.reasons || [];
+});
+// Cancel is the only decision that cannot proceed without a word: it ends
+// the order. The rest are better with one and must not be blocked for want
+// of it — a decision the agent will not record is worse than a blank reason.
+const reasonReady = computed(
+  () => reasonAction.value !== "cancel" || !!reason.value.trim());
+const REASON_TONE = {
+  redeliver: { bg: "bg-emerald-50/70", text: "text-emerald-700", btn: "bg-emerald-600 hover:bg-emerald-700",
+               on: "text-white bg-emerald-600 ring-emerald-600 shadow-sm",
+               off: "text-emerald-700 bg-white ring-emerald-200 hover:bg-emerald-100" },
+  reship: { bg: "bg-violet-50/70", text: "text-violet-700", btn: "bg-violet-600 hover:bg-violet-700",
+            on: "text-white bg-violet-600 ring-violet-600 shadow-sm",
+            off: "text-violet-700 bg-white ring-violet-200 hover:bg-violet-100" },
+  followup: { bg: "bg-sky-50/70", text: "text-sky-700", btn: "bg-sky-600 hover:bg-sky-700",
+              on: "text-white bg-sky-600 ring-sky-600 shadow-sm",
+              off: "text-sky-700 bg-white ring-sky-200 hover:bg-sky-100" },
+  dna: { bg: "bg-amber-50/70", text: "text-amber-800", btn: "bg-amber-600 hover:bg-amber-700",
+         on: "text-white bg-amber-600 ring-amber-600 shadow-sm",
+         off: "text-amber-800 bg-white ring-amber-200 hover:bg-amber-100" },
+};
+const REASON_END = { bg: "bg-rose-50/70", text: "text-rose-700", btn: "bg-rose-600 hover:bg-rose-700",
+                     on: "text-white bg-rose-600 ring-rose-600 shadow-sm",
+                     off: "text-rose-700 bg-white ring-rose-200 hover:bg-rose-100" };
+const reasonTone = computed(() => REASON_TONE[reasonAction.value] || REASON_END);
+
 function openReason(r, action) {
   if (reasonFor.value === r.id && reasonAction.value === action) {
     reasonFor.value = "";
@@ -720,7 +815,14 @@ async function act(r, action, note) {
 // Not Delivered decisions go through confirmation.act, the engine that owns
 // Confirmed / Follow Up — the same one the workspace uses for these rows, so
 // an order lands in the same state whichever screen decided it.
-const isNdTab = computed(() => tab.value === "notdelivered");
+// Which PILE is open, not which question. The Not-Delivered rows are Sales
+// Orders with no parcel behind them, so the parcel-only actions must stay
+// off them — and since the split that is a chip, not a tab.
+const isNdTab = computed(() => (data.value?.chip || "") === "notdelivered");
+// Watch and history are read-only piles: the decision has already been
+// taken, and offering it again is how one parcel gets two of them.
+const isWatchTab = computed(() => tab.value === "watch");
+const isDoneTab = computed(() => tab.value === "history");
 async function decideCf(r, action) {
   if (busy.value) return;
   busy.value = r.id;
@@ -849,6 +951,15 @@ function fmtMAD(v) { return Number(v || 0).toLocaleString("en-US", { maximumFrac
 }
 .rs-contact:hover { transform: scale(1.06); }
 .rs-tel { color: rgb(var(--text2)); }
+/* One row of the More menu — same height and hit area as the row buttons
+   it was moved out of, so nothing feels demoted by being behind a click. */
+.rs-more-item {
+  display: flex; align-items: center; gap: .5rem;
+  width: 100%; height: 2.25rem; padding: 0 .625rem;
+  border-radius: .5rem; font-size: 12.5px; font-weight: 600;
+  text-align: start;
+}
+.rs-more-item:hover { background: rgb(245 245 244); }
 .rs-tel:hover { color: rgb(4 120 87); box-shadow: inset 0 0 0 1px rgb(110 231 183); }
 .rs-wa { color: rgb(22 163 74); }
 .rs-wa:hover { box-shadow: inset 0 0 0 1px rgb(134 239 172); background: rgb(240 253 244); }

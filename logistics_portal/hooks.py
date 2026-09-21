@@ -185,6 +185,8 @@ scheduler_events = {
         # A claim is a promise to finish, not a reservation: anything held
         # past the window without a decision goes back to the pool.
         "logistics_portal.api.rescue.release_stale_claims",
+        # Stamp how each promise ended, so the rate can be looked back on.
+        "logistics_portal.api.rescue.settle_outcomes",
         # The CS desk keeps its own promises the same way.
         "logistics_portal.api.cs.release_stale_claims",
         "logistics_portal.api.cs.wake_due",
