@@ -1951,7 +1951,12 @@ def _do_merge(names, force=0):
             base.set(f, None)
     base.flags.ignore_permissions = True
     base.insert(ignore_permissions=True)
-    base.submit()
+    # Same one line, same reason. The cancel loop below already knew about
+    # TimestampMismatchError and reloads to survive it — the submit right
+    # here did not, and threw first, every time: zero "Merged from" comments
+    # exist on production.
+    from logistics_portal.api.utils import submit_new_sales_order
+    submit_new_sales_order(base)
     base.add_comment("Comment", "Merged from " + ", ".join(names))
 
     for d in docs:
@@ -1997,9 +2002,19 @@ def reship(order):
     work. The original keeps its history and its coming-back parcel (which
     re-enters stock through the RET receiving + restock flow).
     Dispatcher/manager only."""
+    # The SECOND thing wrong with this button, independent of the first.
+    # Reship is reached almost entirely from the rescue board, whose own
+    # gate admits confirmation, tracking and manager — and this list left
+    # TRACKING out. Measured 2026-09-21: of 580 rescue decisions in 30 days,
+    # 517 (89%) were made by the two tracking agents. So the people who do
+    # nearly all of this work were refused by the one action that needed a
+    # role list of its own, on a board they are trusted to run.
+    #
+    # dispatcher stays: reship is also reachable outside the rescue board.
     from logistics_portal.api.auth import resolve_role
-    if resolve_role(frappe.session.user) not in ("dispatcher", "manager", "confirmation"):
-        frappe.throw("Only a dispatcher, manager or rescue agent can reship.",
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager",
+                                                 "confirmation", "tracking"):
+        frappe.throw("Only a dispatcher, tracking or confirmation agent can reship.",
                      frappe.PermissionError)
 
     raw = (order or "").strip()
@@ -2034,7 +2049,12 @@ def reship(order):
             new.set(f, None)
     new.flags.ignore_permissions = True
     new.insert(ignore_permissions=True)
-    new.submit()
+    # Not new.submit(): see submit_new_sales_order. Reship had produced
+    # exactly zero reshipped orders — no "Reshipped as" comment has ever
+    # been written — while redeliver, returnreq and cancel on the same board
+    # worked all along.
+    from logistics_portal.api.utils import submit_new_sales_order
+    submit_new_sales_order(new)
     new.add_comment("Comment", f"Reship of {name} (failed delivery).")
     so.add_comment("Comment", f"Reshipped as {new.name} by {frappe.session.user}.")
 

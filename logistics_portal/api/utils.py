@@ -137,3 +137,44 @@ def phone_tail_sql(col, key="ph"):
     "2127605" that a "212" prefix creates. The end of a number is also how
     people quote one back over the phone."""
     return f"REGEXP_REPLACE(COALESCE({col}, ''), '[^0-9]', '') LIKE %({key})s"
+
+
+def submit_new_sales_order(doc):
+    """Submit a Sales Order that was just inserted, in a way that survives
+    the other apps' hooks.
+
+    THE BUG THIS EXISTS FOR, measured on production 2026-09-21:
+
+    ecommerce_integrations hooks Sales Order `on_update`, which fires inside
+    insert(), and its last line is
+
+        frappe.db.set_value("Sales Order", self.name, "custom_items_count", n)
+
+    with update_modified left at its default True. Document.db_set skips the
+    timestamp while a save is in flight — it checks frappe.flags.currently_saving
+    — but frappe.db.set_value has no such guard, so it stamps a fresh
+    `modified` into the row and leaves the in-memory copy holding the old
+    one. submit() is a SECOND save, so it runs check_if_latest, compares the
+    two, and refuses with "Document has been modified after you have opened
+    it". Deterministic, not intermittent: the hook has no condition beyond
+    "the order has items".
+
+    Every other order flow escapes it by inserting already submitted — one
+    save, so check_if_latest never runs. Only insert-then-submit is exposed,
+    and the portal did that in exactly three places. All three were dead:
+
+        confirmation.amend_order   0 amended orders since it shipped
+        orders.reship              0 "Reshipped as" comments, ever
+        orders._do_merge           0 "Merged from" comments, ever
+
+    while every neighbouring action — redeliver 160, returnreq 230, cancel
+    33 — worked fine. Three separate features, one missing line, and nobody
+    could tell because the error blamed a document conflict.
+
+    The cure is one SELECT: re-read so the doc carries whatever the hooks
+    wrote. Patching a third-party app we do not own was the alternative.
+    """
+    doc.reload()
+    doc.flags.ignore_permissions = True
+    doc.submit()
+    return doc
