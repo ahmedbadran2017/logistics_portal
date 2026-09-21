@@ -2479,6 +2479,8 @@ export default {
     team_warehouse: "Warehouse", team_tracking: "Tracking",
     team_confirmation: "Confirmation", team_finance: "Finance",
     quickTitle: "Hand to customer service",
+    quickShort: "To CS",
+    quickFor: "Hand {o} to customer service",
     quickOrderPh: "Order number (optional)",
     handTitle: "Hand to customer service",
     handPh: "One line — what happened?",

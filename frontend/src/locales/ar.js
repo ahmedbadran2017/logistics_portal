@@ -2475,6 +2475,8 @@ export default {
     team_warehouse: "المخزن", team_tracking: "التتبع",
     team_confirmation: "التأكيد", team_finance: "المالية",
     quickTitle: "حوّل لخدمة العملاء",
+    quickShort: "حوّل",
+    quickFor: "حوّل {o} لخدمة العملاء",
     quickOrderPh: "رقم الأوردر (اختياري)",
     handTitle: "حوّل لخدمة العملاء",
     handPh: "سطر واحد — حصل إيه؟",

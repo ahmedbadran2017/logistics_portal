@@ -50,15 +50,36 @@
          it has to be reachable without hunting for it. The two places it
          used to live were panels buried inside two of the eight surfaces,
          and in the four days they existed no human filed anything. -->
+    <!-- When the page underneath is showing ONE order, this stops being a
+         generic icon and says what it is about to do. It always knew the
+         order — setCsContext publishes it from the workspace, the order page
+         and rescue — it just never said so, and a speech bubble parked next
+         to a bell reads as "notifications", not "hand this customer's
+         problem to CS". That is the whole reason it went unused: the fix is
+         to make the one control speak, not to add a second one beside it. -->
     <button
       v-if="canRaise"
       type="button"
-      :title="t('cs.quickTitle')"
-      :aria-label="t('cs.quickTitle')"
-      class="w-8 h-8 rounded-md text-violet-600 hover:bg-violet-50 hover:text-violet-800 flex items-center justify-center"
+      :title="csOrder ? t('cs.quickFor').replace('{o}', csOrder) : t('cs.quickTitle')"
+      :aria-label="csOrder ? t('cs.quickFor').replace('{o}', csOrder) : t('cs.quickTitle')"
+      class="h-8 rounded-md text-violet-600 flex items-center justify-center transition-all"
+      :class="csOrder
+        ? 'gap-1.5 px-2.5 bg-violet-50 ring-1 ring-violet-200 hover:bg-violet-100'
+        : 'w-8 hover:bg-violet-50 hover:text-violet-800'"
       @click="$emit('open-cs')"
     >
-      <Icon name="message-circle" :size="16" />
+      <Icon name="message-circle" :size="16" class="shrink-0" />
+      <!-- Held back below md: the header is 52px and the label would push
+           the clock and the language pills off a laptop at a narrow window.
+           The tooltip carries the same sentence at every width. -->
+      <!-- SAL-ORD-2026-03498 is eighteen characters; without a ceiling it
+           pushes the clock and the language pills off a 13-inch screen. -->
+      <span v-if="csOrder"
+            class="hidden md:inline-flex items-baseline gap-1 text-[11.5px] font-semibold
+                   max-w-[190px] overflow-hidden">
+        <span class="shrink-0">{{ t('cs.quickShort') }}</span>
+        <span class="font-mono opacity-70 truncate" dir="ltr">{{ csOrder }}</span>
+      </span>
     </button>
 
     <!-- Notification bell -->
@@ -98,6 +119,7 @@ import { useI18n } from "@/composables/useI18n";
 import { useTheme } from "@/composables/useTheme";
 import { homeRouteFor, navItemsFor } from "@/lib/roles";
 import { IS_CC, SURFACE } from "@/lib/portal";
+import { useCsContext } from "@/composables/useCsContext";
 
 defineProps({ unread: { type: Number, default: 0 } });
 defineEmits(["toggle-menu", "open-notif", "open-cs"]);
@@ -108,6 +130,10 @@ const { role, hiddenPages } = useAuth();
 // Every lane may hand a customer's problem to CS — that is the whole point
 // of the change. Only a session with no portal role at all is left out.
 const canRaise = computed(() => !!role.value);
+// What the page underneath is looking at. Cleared on every navigation by the
+// app shell, so the label can never name a customer the agent has left.
+const { csContext } = useCsContext();
+const csOrder = computed(() => csContext.value?.order || "");
 const { t, locale, setLocale } = useI18n();
 const { theme, toggle } = useTheme();
 
