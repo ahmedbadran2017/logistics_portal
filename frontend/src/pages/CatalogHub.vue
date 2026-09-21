@@ -70,6 +70,56 @@
         </span>
       </div>
 
+      <!-- SELLING AIR — the exact mirror of stranded stock below it. That
+           one is real inventory under a listing that cannot sell it; this is
+           a listing still selling inventory that is not there. -->
+      <div v-if="air.rows.length" class="bg-white rounded-xl ring-1 ring-rose-200/70 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+          <Icon name="alert-triangle" :size="14" class="text-rose-600" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('catalog.airTitle') }} ({{ air.rows.length }})</span>
+          <span class="text-[11px] text-stone-400 hidden sm:inline">{{ t('catalog.airHint').replace('{d}', String(air.days)) }}</span>
+          <span class="ms-auto text-[12px] font-semibold text-rose-700 tabular-nums whitespace-nowrap">
+            <template v-if="air.capped">{{ t('catalog.airAtLeast') }} </template>{{ air.orders }} {{ t('catalog.airOrders') }} · {{ fmtMAD(air.mad) }} MAD
+          </span>
+        </div>
+        <div class="divide-y divide-stone-100 max-h-[420px] overflow-y-auto">
+          <div v-for="a in air.rows" :key="a.code" class="px-4 py-2.5 flex items-center gap-3 flex-wrap">
+            <img v-if="a.image" :src="a.image" alt="" loading="lazy" @error="hideImg"
+                 class="w-9 h-9 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50 shrink-0" />
+            <div class="min-w-0 flex-1">
+              <button class="font-mono text-[12px] text-stone-900 hover:underline" @click="openSku(a.sku)">{{ a.sku || a.code }}</button>
+              <div class="text-[11.5px] text-stone-500 truncate max-w-[320px]">{{ a.name }}</div>
+            </div>
+            <!-- Which door it came through. The landing page reads no stock
+                 number at all, so naming the channel is the whole diagnosis
+                 for those rows. -->
+            <span v-for="c in a.channels" :key="c"
+                  class="text-[10.5px] font-semibold rounded-md px-1.5 py-0.5 ring-1"
+                  :class="c === 'Shopify' ? 'text-stone-600 bg-stone-50 ring-stone-200'
+                                          : 'text-violet-700 bg-violet-50 ring-violet-200'">{{ c }}</span>
+            <span v-if="a.dryDays !== null" class="text-[11.5px] tabular-nums whitespace-nowrap"
+                  :class="a.dryDays >= 14 ? 'text-rose-700 font-bold' : 'text-stone-600'">
+              {{ t('catalog.airDry').replace('{n}', String(a.dryDays)) }}
+            </span>
+            <!-- The number Shopify is holding, and how old it is. Not a
+                 verdict — the reader can see for themselves that a figure
+                 five days old on an item dry for twenty is the problem. -->
+            <span v-if="a.neverSynced" class="text-[10.5px] font-semibold rounded-md px-1.5 py-0.5 text-rose-700 bg-rose-50 ring-1 ring-rose-200">
+              {{ t('catalog.airNeverSynced') }}
+            </span>
+            <span v-else-if="a.staleSync" class="text-[10.5px] font-semibold rounded-md px-1.5 py-0.5 text-amber-700 bg-amber-50 ring-1 ring-amber-200 tabular-nums">
+              {{ t('catalog.airStale').replace('{n}', String(Math.round(a.syncAgeH / 24))) }}
+            </span>
+            <span class="text-[12px] tabular-nums text-stone-700 whitespace-nowrap">
+              <b>{{ a.orders }}</b> · {{ fmtMAD(a.mad) }} MAD
+            </span>
+            <span v-if="a.confirmed" class="text-[10.5px] font-semibold rounded-md px-1.5 py-0.5 text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 whitespace-nowrap">
+              {{ t('catalog.airConfirmed').replace('{n}', String(a.confirmed)) }}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <!-- FIX QUEUE: consolidations (ERPNext-side, safe) -->
       <div v-if="fix.consolidations.length" class="bg-white rounded-xl ring-1 ring-emerald-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2">
@@ -183,6 +233,9 @@ const rows = ref([]);
 const fix = ref({ consolidations: [], reactivations: [], unfixable: 0 });
 const health = ref(null);
 const gaps = ref(null);
+const air = ref({ rows: [], orders: 0, mad: 0, days: 7 });
+
+function hideImg(e) { if (e && e.target) e.target.style.display = "none"; }
 const filling = ref(false);
 const armed = ref("");
 const actBusy = ref(false);
@@ -230,18 +283,20 @@ function openSku(sku) {
 
 async function load() {
   loading.value = true;
-  const [o, s, f, h, g] = await Promise.all([
+  const [o, s, f, h, g, sa] = await Promise.all([
     liveOr(null, () => api("catalog_hub.problems.overview")),
     liveOr(null, () => api("catalog_hub.problems.stranded_stock", { limit: 100 })),
     liveOr(null, () => api("catalog_hub.actions.fix_candidates")),
     liveOr(null, () => api("catalog_hub.webhook.sync_health")),
     liveOr(null, () => api("catalog_hub.images.image_gaps")),
+    liveOr(null, () => api("catalog_hub.problems.selling_air", { days: 7 })),
   ]);
   if (o) ov.value = o;
   rows.value = Array.isArray(s) ? s : [];
   if (f && Array.isArray(f.consolidations)) fix.value = f;
   if (h) health.value = h;
   if (g) gaps.value = g;
+  if (sa) air.value = sa;
   loading.value = false;
 }
 
