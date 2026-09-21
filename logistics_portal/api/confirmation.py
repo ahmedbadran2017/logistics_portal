@@ -2193,9 +2193,14 @@ def report(days=7, frm=None, to=None):
                 continue
         else:
             _b = _d
-        _t = trend.setdefault(_u, {}).setdefault(_b, [0, 0])
-        _t[0] += 1
-        _t[1] += 1 if _o_st.get(_n, ("",))[0] == "Confirmed" else 0
+        _st_n = _o_st.get(_n, ("",))[0]
+        _t = trend.setdefault(_u, {}).setdefault(_b, [0, 0, 0])
+        _t[0] += 1                                   # handled
+        _t[1] += 1 if _st_n == "Confirmed" else 0    # confirmed
+        # SETTLED — the order reached a verdict. An order touched an hour ago
+        # and still ringing is in neither column yet, and dividing by it is
+        # how a young bucket is made to look like a collapse.
+        _t[2] += 1 if _st_n in ("Confirmed", "Cancelled") else 0
 
     # ── the AUTOMATION as its own worker ─────────────────────────────────
     # The WhatsApp flow runs as Administrator and it is not a rounding error:
@@ -2359,6 +2364,7 @@ def report(days=7, frm=None, to=None):
                                              # agent may appear in only one of
                                              # the two queries above.
         handled = int(g("orders"))
+        settled = int(g("confirm")) + int(g("cancel"))
         shipped = int(g("delivered")) + int(g("failed"))
         agents.append({
             "agent": user.split("@")[0], "user": user,
@@ -2390,7 +2396,23 @@ def report(days=7, frm=None, to=None):
             # silence. The screen shows it only when it is not zero, which is
             # the only time anybody needs to see it.
             "other": int(g("other")),
-            "confirmRate": round(int(g("confirm")) * 100.0 / handled, 1) if handled else None,
+            # Over SETTLED orders, not over everything touched.
+            #
+            # The trap this closes is the one the funnel taught in the
+            # morning and this table walked into by the afternoon: an order
+            # decided today and still ringing counts in the denominator and
+            # cannot be in the numerator, so the most recent work always
+            # reads worst. Read over everything touched, one agent's current
+            # week showed 38.0% — 20 of her 50 orders simply had no verdict
+            # yet. Over settled orders it is 63.3%, and the "five weeks of
+            # decline" I reported from this number was an artefact of it.
+            #
+            # This is NOT the old confirm/(confirm+cancel), which counted
+            # ACTIONS and let re-dials out of the denominator. `open` here is
+            # the order's own state, it sits in its own column beside this
+            # one, and it is under 3% of a normal agent's window.
+            "settled": settled,
+            "confirmRate": round(int(g("confirm")) * 100.0 / settled, 1) if settled else None,
             # Cancels that were not this person's to answer for: an item we
             # could not ship, an order placed twice, contact data that was
             # wrong when it arrived. Which reasons those are is a manager
@@ -2402,17 +2424,17 @@ def report(days=7, frm=None, to=None):
             # and the company's real loss are two different questions and the
             # screen should not answer one by hiding the other.
             "adjRate": (round(int(g("confirm")) * 100.0
-                              / (handled - int(g("cx_ours"))), 1)
-                        if handled - int(g("cx_ours")) > 0 else None),
+                              / (settled - int(g("cx_ours"))), 1)
+                        if settled - int(g("cx_ours")) > 0 else None),
             # A cancel with no reason recorded. This is the input to the two
             # numbers above — the emptier it is, the less they can say.
             "noReason": int(g("cx_noreason")),
             # Bucketed rate over the window. `rate` is None under the floor —
             # the bucket still reports its volume, so a quiet week reads as
             # quiet rather than as a collapse.
-            "trend": [{"b": _b, "n": _v[0],
-                       "rate": (round(_v[1] * 100.0 / _v[0], 1)
-                                if _v[0] >= _TREND_MIN else None)}
+            "trend": [{"b": _b, "n": _v[0], "open": _v[0] - _v[2],
+                       "rate": (round(_v[1] * 100.0 / _v[2], 1)
+                                if _v[2] >= _TREND_MIN else None)}
                       for _b, _v in sorted((trend.get(user) or {}).items())],
             # How many times they had to go back to a customer per order —
             # the real question the "no answer" column was groping at.

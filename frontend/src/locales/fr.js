@@ -2273,7 +2273,7 @@ export default {
     thHandled: "Traitées",
     thHandledHint: "Commandes distinctes décidées par cette personne. Pas des clics : une commande rappelée deux fois puis confirmée compte pour une.",
     thOpen: "Ouvertes",
-    thOpenHint: "Réellement non résolues — y compris Dupliquée et Non livrée, dont le service n'a pas fini. Ce n'est PAS l'ancien « sans réponse », qui comptait les rappels.",
+    thOpenHint: "Réellement non résolues — y compris Dupliquée et Non livrée, dont le service n'a pas fini. Elles sont EXCLUES du taux à côté : une commande encore en cours n'a pas de verdict, et la diviser ferait paraître le travail le plus récent comme le pire. Ce n'est PAS l'ancien « sans réponse », qui comptait les rappels.",
     thOtherHint: "Commandes dans un statut qu'aucune colonne ne revendique. Cela doit toujours valoir zéro ; si vous le voyez, la ligne ne s'additionne plus.",
     thOurs: "Les nôtres",
     thOursHint: "Annulations dont cet agent n'est pas responsable : article non expédiable, commande passée deux fois, coordonnées erronées à l'arrivée. Les motifs concernés se règlent dans les Paramètres.",

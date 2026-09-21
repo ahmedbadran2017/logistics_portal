@@ -158,7 +158,7 @@
                 <th class="text-end px-2 py-2.5" :title="t('cfr.thHandledHint')">{{ t('cfr.thHandled') }}</th>
                 <th class="text-end px-2 py-2.5 text-emerald-600">{{ t('cf.actConfirm') }}</th>
                 <th class="text-end px-2 py-2.5 text-rose-500">{{ t('cf.actCancel') }}</th>
-                <th class="text-end px-2 py-2.5" :title="t('cfr.thOpenHint')">{{ t('cfr.thOpen') }}</th>
+                <th class="text-end px-2 py-2.5 text-amber-600" :title="t('cfr.thOpenHint')">{{ t('cfr.thOpen') }}</th>
                 <th class="text-end px-2 py-2.5" :title="t('cfr.thOursHint')">{{ t('cfr.thOurs') }}</th>
                 <th class="text-end px-3 py-2.5">{{ t('cfr.thRate') }}</th>
                 <th class="text-end px-2 py-2.5">{{ t('cfr.thResp') }}</th>

@@ -2278,7 +2278,7 @@ export default {
     thHandled: "Handled",
     thHandledHint: "Distinct orders this person decided. Not key-presses: an order called twice and then confirmed is one order.",
     thOpen: "Open",
-    thOpenHint: "Still genuinely unresolved — including Duplicated and Not Delivered, which the lane has not finished with. This is NOT the old \"no answer\" count, which counted re-dials.",
+    thOpenHint: "Still genuinely unresolved — including Duplicated and Not Delivered, which the lane has not finished with. These are OUT of the rate beside it: an order still ringing has no verdict yet, and dividing by it makes the newest work read worst. This is NOT the old \"no answer\" count, which counted re-dials.",
     thOtherHint: "Orders in a status none of these columns claims. This should always be zero; if you can see it, the row no longer adds up.",
     // A cancel that was ours, not theirs — stock, duplicate, bad data.
     thOurs: "Ours",
