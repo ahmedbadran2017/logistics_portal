@@ -24,6 +24,10 @@ export const LANES = [
       { to: "ConfirmationDashboard", label: "nav.cfDashboard", icon: "gauge", admin: true },
       { to: "ConfirmationActivity", label: "nav.cfActivity", icon: "activity", admin: true },
       { to: "ConfirmationReports", label: "nav.cfReports", icon: "trending-up", admin: true },
+      // Agent x city. It sat on the manager's Team matrix next to the
+      // warehouse floor; the section admins who actually read it could not
+      // open that page at all.
+      { to: "ConfirmationMatrix", label: "nav.cfMatrix", icon: "layout-grid", admin: true },
       { to: "ConfirmationSettings", label: "nav.cfSettings", icon: "settings", admin: true },
     ],
   },

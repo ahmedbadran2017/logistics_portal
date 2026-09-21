@@ -41,6 +41,7 @@ const routes = [
           { path: "dashboard", name: "ConfirmationDashboard", component: () => import("@/pages/ConfirmationDashboard.vue") },
           { path: "activity", name: "ConfirmationActivity", component: () => import("@/pages/ConfirmationActivity.vue") },
           { path: "reports", name: "ConfirmationReports", component: () => import("@/pages/ConfirmationReports.vue") },
+          { path: "matrix", name: "ConfirmationMatrix", component: () => import("@/pages/ConfirmationMatrix.vue") },
           // The lane's funnel: what arrived, what survived each step, and
           // where the rest went. The three screens beside it answer the
           // queue, the trail and the per-agent table — none answered this.
