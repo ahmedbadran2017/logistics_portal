@@ -111,6 +111,27 @@ _ALL_QUEUES = ("mine", "exceptions", "failed", "notdelivered", "stale",
 # Delivered" tab is not, so every query here is company-scoped for safety.
 _CO = "Justyol Morocco"
 
+# The carrier's two words for a parcel that did not arrive, and what each
+# actually turns out to mean. Measured 2026-09-21 on the LAST carrier event
+# per parcel (not every comment it ever collected, which is history):
+#
+#   Failed Attempt      534 parcels. 64% say literally "customer
+#                       unreachable", 35% carry no carrier word at all, and
+#                       nothing else reaches 3%. One meaning, no mixture:
+#                       the driver could not get hold of them, so a call is
+#                       the whole job. The screen calls it "Unreachable".
+#
+#   Delivery Exception  1,796 parcels, and a mixture: 38% are a refusal or
+#                       cancellation (437 cancelled by phone, 252 cancelled
+#                       at the door, plus refused-ID and non-compliant),
+#                       36% carry no word, 9% unreachable, 4% a return we
+#                       asked for ourselves, then wrong destination, damaged,
+#                       "already received it". The screen calls it "Refused
+#                       or stuck", and the row shows the carrier's own
+#                       sentence, because here you must read before you call.
+#
+# The keys stay the carrier's words: they are what the tracking column
+# holds, and renaming a database value to suit a label is how the two drift.
 _DN_TRACK = {"exceptions": "Delivery Exception", "failed": "Failed Attempt"}
 _STALE_TRACKS = ("Out For Delivery", "In Transit", "Pending")
 _STALE_DAYS = 7

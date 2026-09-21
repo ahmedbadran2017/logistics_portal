@@ -73,6 +73,7 @@
               class="h-8 px-3 rounded-full text-[12px] font-semibold ring-1 transition-all"
               :class="chip === c ? 'text-white bg-stone-800 ring-stone-800'
                                  : 'text-stone-600 bg-white ring-stone-200 hover:bg-stone-50'"
+              :title="t('rs.chipWhy_' + c, '')"
               @click="goChip(c)">
         {{ t('rs.chip_' + c) }}
         <span class="tabular-nums ms-1 opacity-70">{{ data?.counts?.[c] ?? '–' }}</span>
