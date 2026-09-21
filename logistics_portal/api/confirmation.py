@@ -138,6 +138,21 @@ _ST_ACTION_MAP = {"Confirmed": "confirm", "Cancelled": "cancel",
                   "Did not Answer": "dna", "Follow Up": "followup",
                   "Duplicated": "duplicate"}
 
+# Worked, but never before the live queue.
+#
+# Deliberately NOT added to QUEUES: that map drives the tabs, the retry
+# timers and the holding cap, and these two belong to none of those. They are
+# a TAIL on the serve order — real work an agent should be handed once the
+# live queue is empty, and last every time.
+#
+# Duplicated is here because Ahmed settled it on 2026-09-16: "a Duplicated
+# order is a parked call, not a closed one" — act() already lets an agent
+# decide one on the spot. Not Delivered is here because all 16 live ones
+# carry no parcel at all (logistics status Pending, no AWB, no pick list):
+# the status is a verdict on the CUSTOMER, which makes "does he still want
+# it?" a confirmation question.
+_TAIL_STS = ("Duplicated", "Not Delivered")
+
 _DUE_AT = "COALESCE(so.custom_next_call_at, so.creation)"
 _DUE = f"{_DUE_AT} <= %(now)s AND NOT ({_PARKED})"
 
@@ -2690,14 +2705,17 @@ def _on_shift(user):
 
 
 def _holding(user):
-    """How many live orders this person already has in hand."""
-    retry_sts = tuple(v for k, v in QUEUES.items() if k != "pending")
+    """How many live orders this person already has in hand.
+
+    The tail counts: it is work someone is holding, and leaving it out would
+    make it a way around the pool ceiling rather than the bottom of it."""
+    held_sts = tuple(v for k, v in QUEUES.items() if k != "pending") + _TAIL_STS
     return int(frappe.db.sql(
         f"""SELECT COUNT(*) FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
               AND (so.custom_sales_status IN %(sts)s OR so.custom_sales_status = 'Pending')
               AND so._assign LIKE %(me)s""",
-        {"co": _CO, "sts": retry_sts, "me": f'%"{user}"%'})[0][0] or 0)
+        {"co": _CO, "sts": held_sts, "me": f'%"{user}"%'})[0][0] or 0)
 
 
 def _pool_block(user):
@@ -2779,7 +2797,11 @@ def pool_depth():
     if not _cf_settings().get("poolEnabled"):
         return {"n": 0, "enabled": False, "block": "off"}
     vals = _pool_vals({"co": _CO, "now": str(now_datetime())[:19]})
-    vals["sts"] = tuple(v for k, v in QUEUES.items() if k != "pending")
+    # The tail counts too. A depth of zero while 42 orders sit unreachable is
+    # exactly how this looked to the team: the screen said there was nothing
+    # and the work was simply invisible.
+    vals["sts"] = (tuple(v for k, v in QUEUES.items() if k != "pending")
+                   + _TAIL_STS)
     n = frappe.db.sql(
         f"""SELECT COUNT(*) FROM `tabSales Order` so
             WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
@@ -2989,10 +3011,25 @@ def next_order(skip=None, as_user=None):
                          AND {_pool_cond()}
                        ORDER BY {_DUE_AT} LIMIT 25""", {"sts": retry_sts})
 
+    # The tail. Same shape as the retries, its own status list, and it runs
+    # after everything else whichever way the new-first setting is set — a
+    # customer waiting on a live order always outranks a parked one.
+    _tail_own = (f"""SELECT so.name FROM `tabSales Order` so
+                     WHERE so.docstatus = 1 AND so.company = %(co)s
+                       AND so.custom_sales_status IN %(tail)s AND {_IN_HAND}
+                       AND {_DUE}{_own}
+                     ORDER BY {_DUE_AT} LIMIT 25""", {"tail": _TAIL_STS})
+    _tail_pool = (f"""SELECT so.name FROM `tabSales Order` so
+                      WHERE so.docstatus = 1 AND so.company = %(co)s AND {_IN_HAND}
+                        AND so.custom_sales_status IN %(tail)s
+                        AND {_pool_cond()}
+                      ORDER BY {_DUE_AT} LIMIT 25""", {"tail": _TAIL_STS})
+
     if _cf_settings().get("poolNewFirst"):
         passes = [(_fresh_own, 0), (_fresh_pool, 1), (_retry_own, 0), (_retry_pool, 1)]
     else:
         passes = [(_retry_own, 0), (_fresh_own, 0), (_retry_pool, 1), (_fresh_pool, 1)]
+    passes += [(_tail_own, 0), (_tail_pool, 1)]
 
     for (sql, extra), from_pool in passes:
         if from_pool and not can_pool:
@@ -3100,6 +3137,21 @@ def open_order(order):
         frappe.db.set_value("Sales Order", order, {
             "custom_cc_open_by": me, "custom_cc_open_at": now_datetime(),
         }, update_modified=False)
+        # Ownership is TAKEN by doing the work, not granted in advance.
+        #
+        # Every tab, the search and _own_guard all key on _assign, and the
+        # auto-assignment was the only thing writing it at scale. When it was
+        # switched off on 18 September the share of orders carrying one fell
+        # from 100% to 18% in three days, and three whole tabs emptied:
+        # measured 2026-09-21, 16 of 16 Not Delivered, 26 of 27 Duplicated
+        # and 34 of 54 Follow Up had no assignment, so nobody could see them.
+        #
+        # The fix is not to loosen the guard — showing an agent an order that
+        # would then refuse them is worse than hiding it. It is to let them
+        # acquire the order by opening it. Only when it belongs to NOBODY:
+        # a colleague's order is still theirs, and _own_guard still says so.
+        if not (frappe.db.get_value("Sales Order", order, "_assign") or "").strip(" []"):
+            _take_from_pool(order)
         frappe.db.commit()
     return {"ok": True}
 
