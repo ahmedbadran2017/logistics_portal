@@ -2426,6 +2426,7 @@ export default {
     src_agent: "من الـAI",
     src_social: "من السوشيال",
     src_confirmation: "من الكونفيرميشن",
+    src_warehouse: "من المخزن",
     src_tracking: "من التراكينج",
     src_system: "السيستم لقاها",
     src_feedback: "من رد بعد التسليم",

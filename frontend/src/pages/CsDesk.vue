@@ -149,7 +149,8 @@
                 <Icon name="hourglass" :size="10" class="inline -mt-px" /> {{ local(r.waitUntil).slice(5,10) }}</span>
               <span class="ms-auto text-[11px] text-stone-400 tabular-nums" dir="ltr">{{ age(r.ageMin) }}</span>
             </div>
-            <div class="text-[12.5px] text-stone-700 mt-1 line-clamp-2" dir="auto">{{ r.note || '—' }}</div>
+            <div class="text-[12.5px] text-stone-700 mt-1 line-clamp-2" dir="auto"
+                 :title="r.note || ''">{{ r.note || '—' }}</div>
             <div class="text-[10.5px] text-stone-400 mt-1">
               {{ t('cs.src_' + r.source, r.source) }}<template v-if="r.raisedBy"> · {{ r.raisedBy }}</template>
             </div>
@@ -257,6 +258,16 @@
           <div v-if="deskFor === r.name" class="mt-3 rounded-xl bg-stone-50 p-3 space-y-3">
             <div v-if="deskLoading" class="text-[12px] text-stone-400 text-center py-2">…</div>
             <template v-else>
+              <!-- What the person who handed it over actually wrote. The
+                   card above clamps it to two lines so thirty tickets stay
+                   scannable, and until now those two lines were the ONLY
+                   place it appeared — an agent writing three sentences from
+                   a live call had the rest of them silently dropped on the
+                   floor. The whole note lives here, unclipped. -->
+              <div v-if="desk?.request?.note"
+                   class="rounded-xl bg-white ring-1 ring-stone-200 p-2.5 text-[12.5px] text-stone-800 whitespace-pre-line"
+                   dir="auto">{{ desk.request.note }}</div>
+
               <!-- the customer's own words, when there is a thread -->
               <div v-if="desk?.thread?.length" class="space-y-1 max-h-44 overflow-y-auto">
                 <div v-for="(m, i) in desk.thread" :key="i" class="flex" :class="m.from === 'customer' ? '' : 'justify-end'">

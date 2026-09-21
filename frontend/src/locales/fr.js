@@ -2427,6 +2427,7 @@ export default {
     src_agent: "de l'agent IA",
     src_social: "des réseaux",
     src_confirmation: "de la confirmation",
+    src_warehouse: "depuis l'entrepôt",
     src_tracking: "du suivi",
     src_system: "détecté par le système",
     src_feedback: "d'une réponse après livraison",

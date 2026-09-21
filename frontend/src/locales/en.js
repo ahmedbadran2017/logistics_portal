@@ -2431,6 +2431,7 @@ export default {
     src_social: "from social",
     src_confirmation: "from confirmation",
     src_tracking: "from tracking",
+    src_warehouse: "from the warehouse",
     src_system: "raised by the system",
     src_feedback: "from a delivery reply",
     handAlready: "{n} already open — add to it instead of raising a second",
