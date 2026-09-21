@@ -110,6 +110,37 @@ def day_bounds(day):
     return str(start)[:19], str(add_to_date(start, days=1))[:19]
 
 
+def span(days=30, frm=None, to=None, cap=365):
+    """(start, end) STORED timestamps for a window the reader chose.
+
+    The same contract the confirmation board settled on: `days` is a rolling
+    default, and an explicit from/to overrides it — a manager reviewing last
+    month does not want "the last N days from right now". Either end may be
+    given alone.
+
+    Returns stored-clock strings, so callers keep comparing the column
+    directly and keep their index.
+    """
+    import re
+    ok = lambda d: bool(d and re.match(r"^\d{4}-\d{2}-\d{2}$", str(d).strip()))
+    if ok(frm) or ok(to):
+        first = str(frm).strip()[:10] if ok(frm) else None
+        last = str(to).strip()[:10] if ok(to) else floor_today()
+        if not first:
+            # "up to this date" with no start: keep the rolling width, ending
+            # where they asked, rather than silently scanning all of history.
+            from frappe.utils import add_days
+            first = str(add_days(last, -(min(max(int(days or 30), 1), cap) - 1)))[:10]
+        if first > last:
+            first, last = last, first
+        return day_bounds(first)[0], day_bounds(last)[1], first, last
+    from frappe.utils import add_days
+    n = min(max(int(days or 30), 1), cap)
+    last = floor_today()
+    first = str(add_days(last, -(n - 1)))[:10]
+    return day_bounds(first)[0], day_bounds(last)[1], first, last
+
+
 def sql_local(col):
     """The expression to GROUP BY when bucketing rows into the floor's days.
 

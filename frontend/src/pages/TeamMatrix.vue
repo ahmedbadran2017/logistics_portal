@@ -8,6 +8,12 @@
         </p>
       </div>
       <div class="flex items-center gap-3 flex-wrap">
+        <!-- Both lanes read the SAME window. Before this the floor was
+             locked to thirty rolling days and confirmation to twelve
+             rolling weeks, so the two halves of one page answered over
+             different spans and neither could be pointed at a month that
+             had already passed. -->
+        <DateRange v-model:days="days" v-model:frm="frm" v-model:to="to" @change="load" />
         <div v-if="lane === 'cc'" class="flex items-center gap-1.5">
           <button v-for="b in ['deliver', 'confirm', 'overall']" :key="b"
                   class="h-8 px-3 rounded-lg text-[12px] font-semibold ring-1 transition-colors"
@@ -122,12 +128,18 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
+import DateRange from "@/components/ui/DateRange.vue";
 import { api } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 
 const { t } = useI18n();
 const lane = ref("cc");
 const basis = ref("deliver");
+// 30 rolling days is what the floor half already used; the confirmation
+// half used 84 and nobody could tell, which is half the reason this exists.
+const days = ref(30);
+const frm = ref("");
+const to = ref("");
 const cc = ref(null);
 const fl = ref(null);
 const loading = ref(true);
@@ -174,11 +186,14 @@ const ccHeadline = computed(() => {
 
 async function load() {
   loading.value = true;
+  // The server takes `days` as the rolling default and lets an explicit
+  // from/to override it, so both are always sent and it decides.
+  const win = { days: days.value, frm: frm.value || undefined, to: to.value || undefined };
   try {
     if (lane.value === "cc") {
-      cc.value = await api("contact_center.agent_matrix", { basis: basis.value, weeks: 12 });
+      cc.value = await api("contact_center.agent_matrix", { basis: basis.value, ...win });
     } else {
-      fl.value = await api("scanlog.floor_matrix", { days: 30 });
+      fl.value = await api("scanlog.floor_matrix", win);
     }
   } catch { if (lane.value === "cc") cc.value = null; else fl.value = null; }
   loading.value = false;

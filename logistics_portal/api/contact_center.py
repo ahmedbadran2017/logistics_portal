@@ -1647,16 +1647,25 @@ def team_note(user=None, day=None, text=None):
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def agent_matrix(weeks=12, basis="deliver", cities=8, min_orders=25):
-    """Per agent per city: confirm rate, delivered rate, and a shrunk score."""
+def agent_matrix(weeks=12, basis="deliver", cities=8, min_orders=25,
+                 frm=None, to=None):
+    """Per agent per city: confirm rate, delivered rate, and a shrunk score.
+
+    `weeks` is the rolling default; an explicit from/to overrides it, so the
+    two halves of the Team matrix answer the same question over the same
+    window instead of one reading weeks and the other days."""
     if not _is_any_cc_admin():
         frappe.throw("Section admins only.", frappe.PermissionError)
     from logistics_portal.api.city import canon_city, _RESOLVED, _shrink
     from logistics_portal.api.confirmation import _CO
+    from logistics_portal.api import clock
     weeks = min(max(int(weeks or 12), 2), 52)
     cities = min(max(int(cities or 8), 3), 14)
     min_orders = max(int(min_orders or 25), 5)
     basis = basis if basis in ("overall", "confirm", "deliver") else "deliver"
+    # Boundaries, not a function on the column: `creation >= a AND < b` keeps
+    # the index the way DATE_SUB(NOW()) did.
+    _d0, _d1, _first, _last = clock.span(weeks * 7, frm, to, cap=400)
 
     rows = frappe.db.sql(
         """SELECT so.custom_allocated_to AS agent,
@@ -1678,10 +1687,10 @@ def agent_matrix(weeks=12, basis="deliver", cities=8, min_orders=25):
                       GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name
            WHERE so.company = %(co)s AND so.docstatus = 1
              AND COALESCE(so.custom_allocated_to, '') != ''
-             AND so.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)
+             AND so.creation >= %(d0)s AND so.creation < %(d1)s
              AND so.custom_sales_status IN ('Confirmed', 'Cancelled')
            GROUP BY agent, raw""",
-        {"co": _CO, "days": weeks * 7, "done": _RESOLVED}, as_dict=True)
+        {"co": _CO, "d0": _d0, "d1": _d1, "done": _RESOLVED}, as_dict=True)
 
     agents, cells, city_vol = {}, {}, {}
     for r in rows:
@@ -1745,7 +1754,7 @@ def agent_matrix(weeks=12, basis="deliver", cities=8, min_orders=25):
             "deliveredPct": rate(d["del"], d["res"]),
             "score": _shrink(raw_s, n, net_score), "cells": row_cells,
         })
-    return {"basis": basis, "columns": col, "rows": out,
+    return {"basis": basis, "frm": _first, "to": _last, "columns": col, "rows": out,
             "netScore": round(net_score, 1),
             "netConfirm": rate(net["conf"], net["dec"]),
             "netDeliver": rate(net["del"], net["res"]), "weeks": weeks}

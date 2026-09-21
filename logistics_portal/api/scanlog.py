@@ -586,18 +586,19 @@ def floor_activity(day=None):
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def floor_matrix(days=30):
-    """[{user, name, role, stations:{st:{actions, units, hours, pace, rel}}}]"""
+def floor_matrix(days=30, frm=None, to=None):
+    """[{user, name, role, stations:{st:{actions, units, hours, pace, rel}}}]
+
+    A rolling `days`, or an explicit from/to when the reader wants a
+    calendar window — "who worked the sort wall during the September push"
+    is a different question from "the last thirty days", and the matrix was
+    only able to answer the second."""
     from logistics_portal.api.auth import resolve_role
     if resolve_role(frappe.session.user) != "manager":
         frappe.throw("Managers only.", frappe.PermissionError)
     from logistics_portal.api import clock
 
-    days = min(max(int(days or 30), 1), 120)
-    today = clock.floor_today()[:10]
-    first = str(frappe.utils.add_days(today, -(days - 1)))[:10]
-    d0 = clock.day_bounds(first)[0]
-    d1 = clock.day_bounds(today)[1]
+    d0, d1, first, last = clock.span(days, frm, to, cap=120)
 
     # (user, station) -> actions, units, and the distinct half-hours worked.
     # Hours have to be counted per station, not per person: somebody who picks
@@ -655,6 +656,6 @@ def floor_matrix(days=30):
 
     cols = sorted(by_station, key=lambda s: -sum(by_station[s]))
     rows = sorted(people.values(), key=lambda p: -p["actions"])
-    return {"days": days, "columns": cols,
+    return {"days": days, "frm": first, "to": last, "columns": cols,
             "median": {s: round(med[s], 1) for s in med},
             "rows": rows}
