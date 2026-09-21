@@ -156,6 +156,28 @@
           </div>
         </div>
 
+        <!-- "Waiting on the team" was a timer that named no team, so the
+             desk came back in a day and asked again by hand. Naming it does
+             not deliver the question yet — it measures how often one needs
+             delivering, which is the number that decides whether an inbox
+             for the other departments is worth building at all. -->
+        <Transition name="rsslide">
+          <div v-if="parkFor === r.name" class="mt-2.5 rounded-xl bg-amber-50 ring-1 ring-amber-200 p-2.5 space-y-2">
+            <div class="text-[11px] font-semibold text-amber-900">{{ t('cs.parkOn') }}</div>
+            <div class="flex flex-wrap gap-1.5">
+              <button class="h-8 px-3 rounded-lg text-[12px] font-semibold ring-1"
+                      :class="parkTeam === '' ? 'text-white bg-amber-600 ring-amber-600' : 'text-amber-800 bg-white ring-amber-200'"
+                      @click="parkTeam = ''">{{ t('cs.parkCustomer') }}</button>
+              <button v-for="tm in TEAMS" :key="tm"
+                      class="h-8 px-3 rounded-lg text-[12px] font-semibold ring-1"
+                      :class="parkTeam === tm ? 'text-white bg-amber-600 ring-amber-600' : 'text-amber-800 bg-white ring-amber-200'"
+                      @click="parkTeam = tm">{{ t('cs.team_' + tm) }}</button>
+            </div>
+            <button class="h-9 px-4 rounded-lg text-[12px] font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-40"
+                    :disabled="busy === r.name" @click="park(r)">{{ t('cs.wait') }}</button>
+          </div>
+        </Transition>
+
         <Transition name="rsslide">
           <div v-if="cand[r.name]" class="mt-2.5 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-2.5">
             <!-- A Messenger page id is not a number: nobody can dial it and
@@ -204,7 +226,9 @@
           <button v-if="r.heldMine" class="cs-act text-stone-500" :disabled="busy === r.name" @click="drop(r)">
             <Icon name="undo-2" :size="14" /> {{ t('rs.drop') }}
           </button>
-          <button v-if="r.state !== 'done'" class="cs-act text-amber-700" :disabled="busy === r.name" @click="park(r)">
+          <button v-if="r.state !== 'done'" class="cs-act text-amber-700" :disabled="busy === r.name"
+                  :class="parkFor === r.name ? 'ring-2' : ''"
+                  @click="parkFor = parkFor === r.name ? '' : r.name">
             <Icon name="hourglass" :size="14" /> {{ t('cs.wait') }}
           </button>
           <button v-if="r.state !== 'done'" class="cs-act text-emerald-700"
@@ -308,6 +332,9 @@ const resolution = ref("");
 // thirty of them on the board would make the desk unusable.
 const cand = ref({});
 const candBusy = ref("");
+const TEAMS = ["warehouse", "tracking", "confirmation", "finance"];
+const parkFor = ref("");
+const parkTeam = ref("");
 const watch = ref(null);
 const whyF = ref("");
 // The tab badge must survive leaving the tab, so the count is kept apart
@@ -426,9 +453,14 @@ async function drop(r) {
 async function park(r) {
   busy.value = r.name;
   try {
-    const res = await apiPost("cs.wait", { name: r.name, days: 1, who: "customer" });
+    const res = await apiPost("cs.wait", {
+      name: r.name, days: 1,
+      who: parkTeam.value ? "team" : "customer",
+      team: parkTeam.value || undefined,
+    });
     r.waitUntil = res.until || "";
     success(t("rs.carrierParked"), local(res.until || "").slice(5, 10));
+    parkFor.value = ""; parkTeam.value = "";
     load();
   } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
   finally { busy.value = ""; }

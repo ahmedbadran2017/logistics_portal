@@ -389,6 +389,51 @@
           </component>
         </div>
       </div>
+
+      <!-- ── Customer service ────────────────────────────────────────────
+           The complaint history belongs ON the order, where all eight roles
+           already look, not only inside a desk seven of them cannot open.
+           It also answers "has anyone reported this already?", which is the
+           question that stops the same problem being handed over twice. -->
+      <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4 space-y-3">
+        <div class="flex items-center gap-2">
+          <Icon name="message-circle" :size="14" class="text-violet-600" />
+          <h3 class="text-[12.5px] font-bold text-stone-800">{{ t('od.csTitle') }}</h3>
+          <span v-if="csRows.length" class="ms-auto text-[11px] text-stone-400 tabular-nums">{{ csRows.length }}</span>
+        </div>
+
+        <div v-if="csRows.length" class="space-y-2">
+          <div v-for="r in csRows" :key="r.name"
+               class="rounded-xl ring-1 p-2.5"
+               :class="r.state === 'done' ? 'bg-stone-50 ring-stone-200/70' : 'bg-violet-50/60 ring-violet-200'">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-[10px] font-bold rounded-full px-1.5 py-0.5 ring-1"
+                    :class="r.state === 'done' ? 'text-stone-600 bg-white ring-stone-200' : 'text-violet-700 bg-white ring-violet-200'">
+                {{ t('cs.k_' + r.kind) }}</span>
+              <span class="text-[11px] font-semibold"
+                    :class="r.state === 'done' ? 'text-stone-500' : 'text-violet-800'">
+                {{ t('cs.tab_' + (r.state === 'done' ? 'done' : r.state === 'new' ? 'new' : 'waiting')) }}</span>
+              <!-- Named, because "waiting on the team" told nobody which. -->
+              <span v-if="r.waitTeam" class="text-[10.5px] text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-full px-1.5 py-0.5">
+                {{ t('cs.team_' + r.waitTeam) }}</span>
+              <span class="ms-auto text-[10.5px] text-stone-400 tabular-nums" dir="ltr">{{ local(r.at).slice(5, 16) }}</span>
+            </div>
+            <div v-if="r.note" class="text-[12px] text-stone-700 mt-1 whitespace-pre-line" dir="auto">{{ r.note }}</div>
+            <div class="text-[10.5px] text-stone-400 mt-0.5">
+              {{ t('od.csBy').replace('{who}', r.by).replace('{from}', r.from ? t('rl.' + r.from) : '—') }}
+            </div>
+            <div v-if="r.resolution" class="mt-1.5 pt-1.5 border-t border-stone-200/70">
+              <div class="text-[12px] text-emerald-800" dir="auto">{{ r.resolution }}</div>
+              <div class="text-[10.5px] text-stone-400">{{ r.closedBy }} · {{ local(r.closedAt).slice(5, 16) }}</div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="text-[11.5px] text-stone-400">{{ t('od.csNone') }}</div>
+
+        <CsHandover :order="props.name" :phone="phone" :live="csLive"
+                    :source="myRole === 'tracking' ? 'tracking' : myRole === 'confirmation' ? 'confirmation' : ''"
+                    @done="loadCs" />
+      </div>
     </div>
   </div>
 </template>
@@ -399,6 +444,7 @@ import { RouterLink, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { local } from "@/lib/clock";
 import JourneyTimeline from "@/components/JourneyTimeline.vue";
+import CsHandover from "@/components/CsHandover.vue";
 import {
   ORDERS, CHANNELS, STAGE, SLA, STAGE_LABEL, SLA_LABEL, TRACK_LABEL,
   byId, fmtMAD, CARRIER, CITY, WAREHOUSE, MANIFEST,
@@ -549,7 +595,18 @@ async function checkCarrier() {
 
 // Live order from `orders.detail`; demo/fabricated data stays as fallback.
 const liveOrder = ref(null);
+const csRows = ref([]);
+const csLive = ref(0);
+async function loadCs() {
+  try {
+    const r = await api("cs.for_order", { order: props.name });
+    csRows.value = r.rows || [];
+    csLive.value = r.live || 0;
+  } catch (_) { /* the order screen must render without the desk */ }
+}
+
 onMounted(async () => {
+  loadCs();
   api("shipments.journey", { order: props.name }).then((j) => { if (j && j.found) journey.value = j; }).catch(() => {});
   liveOr(null, () => api("orders.activity", { name: props.name })).then((ev) => {
     if (Array.isArray(ev) && ev.length) activityEvents.value = ev;

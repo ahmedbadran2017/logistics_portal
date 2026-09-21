@@ -49,7 +49,17 @@ KINDS = ("stock", "wrong_item", "exchange", "late", "damaged", "refund", "other"
 
 # Where it came from, kept separate from WHO raised it: the channel tells you
 # how to answer, the person tells you who to ask.
-SOURCES = ("agent", "social", "confirmation", "tracking", "system", "feedback")
+SOURCES = ("agent", "social", "confirmation", "tracking", "warehouse",
+           "system", "feedback")
+
+# Which lane a raiser belongs to, for the source stamp. The floor roles all
+# read "warehouse": a packer who opens a box and finds the wrong thing in it
+# is the single best-placed person in the company to report that, and until
+# 2026-09-21 the gate below would not let them.
+_LANE = {"confirmation": "confirmation", "tracking": "tracking",
+         "cs": "agent", "manager": "agent",
+         "dispatcher": "warehouse", "picker": "warehouse",
+         "packer": "warehouse", "returns": "warehouse"}
 
 STATES = ("new", "open", "waiting_customer", "waiting_team", "done")
 _LIVE = ("new", "open", "waiting_customer", "waiting_team")
@@ -59,6 +69,21 @@ def _gate():
     from logistics_portal.api.auth import resolve_role
     role = resolve_role(frappe.session.user)
     if role not in ("cs", "confirmation", "tracking", "manager"):
+        frappe.throw("lp:csOnly", frappe.PermissionError)
+    return role
+
+
+def _raise_gate():
+    """RAISING a complaint is open to every lane; WORKING the desk is not.
+
+    Ahmed, 2026-09-21: "how do the other departments hand over to CS — like
+    confirmation, or logistics, or tracking shipment". They could not. The
+    raise shared the desk's own gate, so the four warehouse roles — the
+    people actually holding the parcel when they find it damaged, short or
+    the wrong item — were refused by the only door built for them."""
+    from logistics_portal.api.auth import resolve_role
+    role = resolve_role(frappe.session.user)
+    if not role:
         frappe.throw("lp:csOnly", frappe.PermissionError)
     return role
 
@@ -74,11 +99,53 @@ def _desk_gate():
     return role
 
 
+# Fields added after the table first shipped. ensure_doctype() returns early
+# on an existing doctype, so a new field would never appear on the sites that
+# already have one — every one of them, by definition.
+_LATER_FIELDS = [
+    # Which team a request is parked on, not just THAT it is parked. The wait
+    # was a timer: it set waiting_team and told nobody, so CS came back in N
+    # days and asked again. Naming the team is what makes the question
+    # measurable before it is worth building an inbox for it.
+    {"fieldname": "wait_team", "fieldtype": "Data", "label": "Waiting on team",
+     "in_standard_filter": 1},
+    # The lane the request came from, kept apart from `source`: source says
+    # HOW it arrived (agent, system, feedback), this says WHOSE screen it was
+    # raised on, which is who gets told when it closes.
+    {"fieldname": "raised_role", "fieldtype": "Data", "label": "Raised from"},
+]
+
+
+def _ensure_fields():
+    """Add any field the table was born without. Cheap, idempotent, and the
+    only way a custom doctype created in the DB ever grows."""
+    try:
+        meta = frappe.get_meta(DT)
+        for f in _LATER_FIELDS:
+            if meta.has_field(f["fieldname"]):
+                continue
+            frappe.get_doc({"doctype": "Custom Field", "dt": DT, **f}).insert(
+                ignore_permissions=True)
+        # for_order() runs on EVERY order screen, for every one of the eight
+        # roles, and `so` carried no index at all — only PRIMARY and
+        # modified. 640 rows in the first four days scans in 0.6ms; the same
+        # table at ~5k rows a month does not. Idempotent.
+        try:
+            frappe.db.add_index(DT, ["so"])
+        except Exception:
+            pass
+        frappe.db.commit()
+        frappe.clear_cache(doctype=DT)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "cs._ensure_fields")
+
+
 def ensure_doctype():
     """Create the request table on migrate. Custom doctype: lives in the DB,
     no schema files, safe to run every time."""
     try:
         if frappe.db.exists("DocType", DT):
+            _ensure_fields()
             return
         frappe.get_doc({
             "doctype": "DocType", "name": DT, "module": "Core",
@@ -113,6 +180,9 @@ def ensure_doctype():
             "permissions": [{"role": "System Manager", "read": 1, "write": 1, "create": 1}],
         }).insert(ignore_permissions=True)
         frappe.db.commit()
+        # A brand-new table gets the later fields and the index too, so a
+        # fresh site and an upgraded one end up identical.
+        _ensure_fields()
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "cs.ensure_doctype")
 
@@ -167,14 +237,23 @@ def _dupe(order, phone, kind):
 
 
 @frappe.whitelist(methods=["POST"])
-def raise_request(kind, note="", order="", phone="", source="", conversation=""):
-    """Hand a customer problem to CS. Two taps from anywhere in the portal.
+def raise_request(kind="", note="", order="", phone="", source="", conversation=""):
+    """Hand a customer problem to CS. One line, from any lane in the portal.
 
     Everything except the kind and one line is inferred from where the agent
     pressed it — an agent mid-call will not fill a form, which is exactly how
     the Issue lane reached eight tickets in a year."""
-    role = _gate()
+    role = _raise_gate()
     kind = (kind or "").strip().lower()
+    if not kind:
+        # The picker used to be mandatory: six buttons standing between an
+        # agent on a live call and one sentence about a customer's problem.
+        # Measured 2026-09-21 — in the four days this button existed, humans
+        # raised ZERO requests and the AI raised 640. A gate nobody passes is
+        # not a gate, it is a wall. The kind is guessed from the words and
+        # retyped on the desk in one tap, which is a button that already
+        # exists there and costs the CS agent nothing.
+        kind = _guess_kind(note)
     if kind not in KINDS:
         frappe.throw("Unknown problem type.")
     order = (order or "").strip()
@@ -187,8 +266,7 @@ def raise_request(kind, note="", order="", phone="", source="", conversation="")
     conversation = (conversation or ctx.get("conversation") or "").strip()
     source = (source or "").strip().lower()
     if source not in SOURCES:
-        source = {"confirmation": "confirmation", "tracking": "tracking",
-                  "cs": "agent", "manager": "agent"}.get(role, "agent")
+        source = _LANE.get(role, "agent")
 
     same = _dupe(order, phone, kind)
     if same:
@@ -204,7 +282,7 @@ def raise_request(kind, note="", order="", phone="", source="", conversation="")
         "doctype": DT, "kind": kind, "state": "new", "source": source,
         "customer_name": ctx.get("customer_name") or "", "phone": phone,
         "so": order, "conversation": conversation, "note": note,
-        "raised_by": frappe.session.user,
+        "raised_by": frappe.session.user, "raised_role": role,
     }).insert(ignore_permissions=True)
     frappe.db.commit()
     _bust()
@@ -384,22 +462,37 @@ def note(name, text=""):
     return {"ok": True}
 
 
+# Who a request can be parked on. Not an inbox yet — the point of naming
+# them in phase one is to find out, from real use, how much of CS's work
+# actually needs a second department before building a channel for it.
+TEAMS = ("warehouse", "tracking", "confirmation", "finance")
+
+
 @frappe.whitelist(methods=["POST"])
-def wait(name, days=1, who="customer", reason=""):
+def wait(name, days=1, who="customer", reason="", team=""):
     """Park it. A request waiting on a customer or another team must leave
     the queue until it is due, or the desk learns to scroll past a list that
-    is mostly things nobody can act on today."""
+    is mostly things nobody can act on today.
+
+    `team` is new and, for now, only evidence: "waiting on the team" was a
+    timer that told nobody, so CS came back in N days and asked again by
+    hand. Naming the team does not yet deliver the question — it measures
+    how often one needs delivering."""
     _desk_gate()
     name = _req(name)
     days = min(max(int(days or 1), 1), 30)
     until = add_to_date(now_datetime(), days=days)
+    team = (team or "").strip().lower()
+    if team and team not in TEAMS:
+        team = ""
     frappe.db.set_value(DT, name, {
         "state": "waiting_customer" if who == "customer" else "waiting_team",
         "wait_until": until, "owner_agent": frappe.session.user,
+        "wait_team": team if who != "customer" else "",
     }, update_modified=False)
     try:
         frappe.get_doc(DT, name).add_comment(
-            "Comment", f"Waiting on {who} until {str(until)[:16]}"
+            "Comment", f"Waiting on {team or who} until {str(until)[:16]}"
                        + (f" — {reason}" if reason else "")
                        + f" · by {frappe.session.user}")
     except Exception:
@@ -425,8 +518,77 @@ def resolve(name, resolution=""):
             "Comment", f"Resolved — {resolution[:500]} · by {frappe.session.user}")
     except Exception:
         pass
+    _tell_raiser(name, resolution)
     _bust()
     return {"ok": True}
+
+
+def _tell_raiser(name, resolution):
+    """Close the loop with whoever handed it over.
+
+    This is the half that was missing, and it is why the handover button
+    earned nothing. An agent who passes a customer's problem to CS and never
+    hears another word has been given a hole to drop things into, not a
+    colleague. People stop using a tool that does not answer, and they were
+    right to: 640 requests, none of them raised by a human.
+
+    Only a PERSON gets told — the AI intake raises as "joyagent" and has
+    nowhere to read a reply."""
+    try:
+        r = frappe.db.get_value(DT, name, ["raised_by", "so", "customer_name"],
+                                as_dict=True)
+        who = (r or {}).get("raised_by") or ""
+        if not who or "@" not in who or who == frappe.session.user:
+            return
+        subject = "CS closed: " + (r.get("so") or r.get("customer_name") or name)
+        frappe.get_doc({
+            "doctype": "Notification Log", "for_user": who, "type": "Alert",
+            "subject": subject, "email_content": resolution[:500],
+            "document_type": "Sales Order",
+            "document_name": r.get("so") or "",
+        }).insert(ignore_permissions=True)
+        frappe.publish_realtime("logistics_alert", {
+            "severity": "info", "title": subject, "detail": resolution[:200],
+        }, user=who)
+    except Exception:
+        # Telling them is the point, but failing to tell them must not undo
+        # the resolution itself.
+        frappe.log_error(frappe.get_traceback()[:2000], "cs._tell_raiser")
+
+
+@frappe.whitelist()
+def for_order(order):
+    """Every CS request ever raised on this order, for the order screen.
+
+    The complaint history belongs ON the order, where every lane already
+    looks, rather than only inside a desk seven of the eight roles cannot
+    open. It is also the answer to "has anyone already reported this?",
+    which is the question that stops the second handover of the same
+    problem."""
+    from logistics_portal.api.auth import resolve_role
+    if not resolve_role(frappe.session.user):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    order = (order or "").strip()
+    if not order or not frappe.db.exists("DocType", DT):
+        return {"rows": []}
+    rows = frappe.db.sql(
+        f"""SELECT name, kind, state, note, raised_by, raised_role, creation,
+                   owner_agent, resolution, resolved_by, resolved_at,
+                   wait_team, wait_until
+            FROM `tab{DT}` WHERE so = %(o)s
+            ORDER BY creation DESC LIMIT 20""", {"o": order}, as_dict=True)
+    return {"rows": [{
+        "name": r.name, "kind": r.kind or "other", "state": r.state or "new",
+        "note": (r.note or "")[:400],
+        "by": (r.raised_by or "").split("@")[0],
+        "from": r.raised_role or "",
+        "at": str(r.creation)[:19],
+        "held": (r.owner_agent or "").split("@")[0],
+        "waitTeam": r.wait_team or "",
+        "resolution": (r.resolution or "")[:400],
+        "closedBy": (r.resolved_by or "").split("@")[0],
+        "closedAt": str(r.resolved_at or "")[:19],
+    } for r in rows], "live": len([r for r in rows if (r.state or "") in _LIVE])}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -528,7 +690,21 @@ def _guess_kind(text, category=""):
     that always says "other" is not a classifier, so it is a fallback here
     rather than the mechanism, and the desk sets the kind in one tap on the
     card. Guessing confidently from evidence this thin would be worse than
-    admitting we do not know."""
+    admitting we do not know.
+
+    That caveat is about the AI's evidence, not about this function. Given a
+    HUMAN's own sentence it is a different instrument, which is what let the
+    handover drop its six-button picker (measured 2026-09-21):
+
+      "le colis est en retard, la cliente attend..."  -> late
+      "العميلة بتقول الطرد وصل مكسور"                  -> damaged
+      "wrong item inside the box, different color"    -> wrong_item
+      "elle veut echanger la taille"                  -> exchange
+      "elle demande un remboursement"                 -> refund
+      "rappelle la cliente stp"                       -> other
+
+    Only the genuinely unspecific one falls through, which is the right
+    answer for it."""
     cat = _CAT_KIND.get((category or "").strip().lower())
     if cat:
         return cat
