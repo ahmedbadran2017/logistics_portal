@@ -1193,7 +1193,7 @@ export default {
     who_nostock: "Call the customer, or cancel with a reason",
     allStuck: "All stranded orders", orders: "orders", clearFilter: "Clear filter",
     need: "need", onShelf: "on shelf", elsewhere: "elsewhere in Morocco",
-    noneInMa: "none in Morocco", locate: "Where is it?",
+    noneInMa: "none in Morocco", locate: "Where is it?", inBox: "in",
     readyNote: "Every item is on a pickable shelf.",
     dSuffix: "d", call: "Call the customer",
     emptyTitle: "Nothing is stranded", emptySub: "Every confirmed order has a pick list.",

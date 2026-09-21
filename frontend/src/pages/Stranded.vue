@@ -133,7 +133,12 @@
                    class="flex items-center gap-2 flex-wrap text-[11.5px] rounded-lg px-2.5 py-1.5"
                    :class="l.why === 'zone' ? 'bg-amber-50/70 ring-1 ring-amber-200/60' : 'bg-rose-50/60 ring-1 ring-rose-200/50'">
                 <span class="font-mono text-[11px] text-stone-700">{{ l.sku }}</span>
-                <span class="text-stone-500 truncate flex-1 min-w-[100px]">{{ l.item }}</span>
+                <span class="text-stone-500 truncate flex-1 min-w-[100px]">
+                  {{ l.item }}
+                  <!-- The piece is what the floor has to find; the box is
+                       only how it got ordered. Both, in that order. -->
+                  <span v-if="l.inBox" class="text-stone-400">· {{ t('st.inBox') }} {{ l.inBox }}</span>
+                </span>
                 <span class="text-stone-600 tabular-nums whitespace-nowrap">
                   {{ t("st.need") }} {{ l.want }} · {{ t("st.onShelf") }} {{ l.pickable }}
                 </span>

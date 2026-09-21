@@ -1192,7 +1192,7 @@ export default {
     who_nostock: "Appeler le client, ou annuler avec un motif",
     allStuck: "Toutes les commandes échouées", orders: "commandes", clearFilter: "Effacer le filtre",
     need: "besoin", onShelf: "en rayon", elsewhere: "ailleurs au Maroc",
-    noneInMa: "aucun au Maroc", locate: "Où est-il ?",
+    noneInMa: "aucun au Maroc", locate: "Où est-il ?", inBox: "dans",
     readyNote: "Tous les articles sont sur une étagère prélevable.",
     dSuffix: "j", call: "Appeler le client",
     emptyTitle: "Aucune commande échouée", emptySub: "Chaque commande confirmée a une liste de prélèvement.",

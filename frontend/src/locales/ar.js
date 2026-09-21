@@ -1192,7 +1192,7 @@ export default {
     who_nostock: "كلّم العميل، أو ألغِ بسبب واضح",
     allStuck: "كل الأوردرات العالقة", orders: "أوردر", clearFilter: "إلغاء الفلتر",
     need: "مطلوب", onShelf: "على الرف", elsewhere: "في مكان تاني بالمغرب",
-    noneInMa: "ولا قطعة في المغرب", locate: "هو فين؟",
+    noneInMa: "ولا قطعة في المغرب", locate: "هو فين؟", inBox: "جوه",
     readyNote: "كل الأصناف على رف قابل للسحب.",
     dSuffix: " يوم", call: "اتصل بالعميل",
     emptyTitle: "مفيش أوردرات عالقة", emptySub: "كل أوردر مؤكَّد له قائمة سحب.",
