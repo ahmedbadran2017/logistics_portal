@@ -2404,6 +2404,13 @@ def amend_order(order, discount_amount=None, discount_percent=None,
             frappe.throw(f"Your discount cap is {cap_amt:.0f} MAD — "
                          "ask a section admin for more.")
 
+    # Re-read immediately before the write phase. The carrier sweep writes
+    # ~60 Sales Orders every ten minutes (measured 2026-09-21: 59 rows in 32s
+    # under one agent's click), and any of them landing on this row between
+    # the guards above and the cancel below would throw a timestamp mismatch
+    # at the agent. Reloading narrows that window from seconds to microseconds.
+    so.reload()
+
     # Snapshot everything the amend cycle would lose.
     keep = {k: so.get(k) for k in (
         "custom_sales_status", "custom_allocated_to", "custom_call_attempts",
@@ -2460,6 +2467,24 @@ def amend_order(order, discount_amount=None, discount_percent=None,
                    f"· by {frappe.session.user}")
     new.flags.ignore_permissions = True
     new.insert(ignore_permissions=True)
+    # THE reason this feature never once worked on production. Measured
+    # 2026-09-21: zero amended Sales Orders since the button shipped on
+    # 2026-08-27 — every agent who pressed "Apply & replace" got
+    # "Document has been modified after you have opened it".
+    #
+    # ecommerce_integrations hooks Sales Order `on_update`, which fires
+    # inside this insert(), and its last line is
+    #     frappe.db.set_value("Sales Order", self.name, "custom_items_count", n)
+    # with update_modified left at its default True. Document.db_set skips the
+    # timestamp while a save is in flight (frappe.flags.currently_saving);
+    # frappe.db.set_value has no such guard, so it stamps a NEW `modified` into
+    # the row and leaves this in-memory copy holding the old one. submit() then
+    # compares the two in check_if_latest and refuses — always, not sometimes.
+    #
+    # Re-reading picks up whatever the hooks wrote and costs one SELECT. The
+    # alternative was patching a third-party app we do not own.
+    new.reload()
+    new.flags.ignore_permissions = True
     new.submit()
     # Restore the working state the copy dropped or the cycle reset.
     restore = {k: v for k, v in keep.items() if v is not None}
