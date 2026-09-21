@@ -45,6 +45,22 @@
       </button>
     </div>
 
+    <!-- Hand to customer service. Parked beside the bell on purpose: the
+         same icon, in the same corner, on every screen. Ahmed, 2026-09-21 —
+         it has to be reachable without hunting for it. The two places it
+         used to live were panels buried inside two of the eight surfaces,
+         and in the four days they existed no human filed anything. -->
+    <button
+      v-if="canRaise"
+      type="button"
+      :title="t('cs.quickTitle')"
+      :aria-label="t('cs.quickTitle')"
+      class="w-8 h-8 rounded-md text-violet-600 hover:bg-violet-50 hover:text-violet-800 flex items-center justify-center"
+      @click="$emit('open-cs')"
+    >
+      <Icon name="message-circle" :size="16" />
+    </button>
+
     <!-- Notification bell -->
     <button
       type="button"
@@ -84,10 +100,14 @@ import { homeRouteFor, navItemsFor } from "@/lib/roles";
 import { IS_CC, SURFACE } from "@/lib/portal";
 
 defineProps({ unread: { type: Number, default: 0 } });
-defineEmits(["toggle-menu", "open-notif"]);
+defineEmits(["toggle-menu", "open-notif", "open-cs"]);
+
 
 const route = useRoute();
 const { role, hiddenPages } = useAuth();
+// Every lane may hand a customer's problem to CS — that is the whole point
+// of the change. Only a session with no portal role at all is left out.
+const canRaise = computed(() => !!role.value);
 const { t, locale, setLocale } = useI18n();
 const { theme, toggle } = useTheme();
 

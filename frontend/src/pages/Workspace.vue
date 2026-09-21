@@ -195,7 +195,6 @@
               <a :href="'tel:' + active.phone" class="ws-contact bg-sky-50 text-sky-700 ring-sky-200" :title="t('ws.call')"><Icon name="phone" :size="16" /></a>
               <a :href="waUrl" target="_blank" class="ws-contact bg-emerald-50 text-emerald-700 ring-emerald-200" title="WhatsApp"><Icon name="message-circle" :size="16" /></a>
               <button class="ws-contact bg-amber-50 text-amber-700 ring-amber-200" :title="t('cf.editContact')" @click="panel = panel === 'contact' ? '' : 'contact'"><Icon name="edit" :size="15" /></button>
-              <button class="ws-contact bg-violet-50 text-violet-700 ring-violet-200" :title="t('cs.handTitle')" @click="panel = panel === 'cs' ? '' : 'cs'"><Icon name="message-circle" :size="15" /></button>
             </div>
           </div>
 
@@ -375,15 +374,12 @@
             </div>
           </Transition>
 
-          <!-- Some calls end with a problem that is not a confirmation
-               decision at all — the item is gone, the wrong thing arrived,
-               they want it swapped. Those belong to customer service, and
-               this hands them over without the agent retyping the order. -->
-          <Transition name="ws-slide">
-            <CsHandover v-if="panel === 'cs'" :order="active.name"
-                        :phone="cust?.phone || ''" source="confirmation"
-                        @done="panel = ''" />
-          </Transition>
+          <!-- The hand-over used to be a panel behind a violet icon in the
+               contact row here, and another inside an expanded row on the
+               rescue board — two doors, in two places, on two of the eight
+               surfaces, and in four days no human filed anything through
+               either. It is one icon in the header now, on every screen,
+               and it already knows which card is open (useCsContext). -->
 
           <!-- A lead may read a card somebody is working; the decision row
                below is hidden for them, because acting on it would take the
@@ -623,7 +619,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { local, nowSite } from "@/lib/clock";
-import CsHandover from "@/components/CsHandover.vue";
+import { setCsContext } from "@/composables/useCsContext";
 import SkuLookupModal from "@/components/SkuLookupModal.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -1072,6 +1068,8 @@ async function openOrder(name) {
       return;
     }
     active.value = det;
+    // The header's CS button follows the card the agent is actually on.
+    setCsContext(det.name, det.phone || "", det.customer || "");
     activeRow.value = queueRows.value.find((r) => r.order === name) || null;
     amendItems.value = (active.value.items || []).map((i) => ({
       idx: i.idx, item_code: i.sku, name: i.name,

@@ -2436,6 +2436,8 @@ export default {
     handAlready: "{n} already open — add to it instead of raising a second",
     team_warehouse: "Warehouse", team_tracking: "Tracking",
     team_confirmation: "Confirmation", team_finance: "Finance",
+    quickTitle: "Hand to customer service",
+    quickOrderPh: "Order number (optional)",
     handTitle: "Hand to customer service",
     handPh: "One line — what happened?",
     handSend: "Send",

@@ -445,6 +445,7 @@ import Icon from "@/components/ui/Icon.vue";
 import { local } from "@/lib/clock";
 import JourneyTimeline from "@/components/JourneyTimeline.vue";
 import CsHandover from "@/components/CsHandover.vue";
+import { setCsContext } from "@/composables/useCsContext";
 import {
   ORDERS, CHANNELS, STAGE, SLA, STAGE_LABEL, SLA_LABEL, TRACK_LABEL,
   byId, fmtMAD, CARRIER, CITY, WAREHOUSE, MANIFEST,
@@ -606,6 +607,9 @@ async function loadCs() {
 }
 
 onMounted(async () => {
+  // Tell the header's CS button what this screen is about, so pressing it
+  // never asks for an order number already on the page.
+  setCsContext(props.name, phone.value, "");
   loadCs();
   api("shipments.journey", { order: props.name }).then((j) => { if (j && j.found) journey.value = j; }).catch(() => {});
   liveOr(null, () => api("orders.activity", { name: props.name })).then((ev) => {
@@ -614,6 +618,9 @@ onMounted(async () => {
   const live = await liveOr(null, () => api("orders.detail", { name: props.name }));
   if (live && live.name) {
     liveOrder.value = live;
+    // The phone only exists once the order has loaded; publish again so the
+    // header's button carries it rather than the empty first guess.
+    setCsContext(props.name, live.phone || "", live.customer || "");
     if (Array.isArray(live.items) && live.items.length) {
       liveItems.value = live.items.map((it) => ({
         sku: it.sku, realSku: it.real_sku || "", name: it.name || it.sku, bin: it.bin || "—",

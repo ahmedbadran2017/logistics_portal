@@ -271,10 +271,10 @@
               </div>
 
               <!-- Not every failed parcel is a carrier problem. When it is
-                   the customer's problem, it belongs to the people who own
-                   the customer, and this is the one button that gets it
-                   there without retyping anything. -->
-              <CsHandover :order="r.order" :phone="r.phone" source="tracking" />
+                   the customer's problem it belongs to the people who own
+                   the customer — and that door is the header's CS icon now,
+                   the same one on every screen, already pointed at this
+                   parcel by openDesk(). -->
 
               <!-- One tap. The conversation itself lives in a WhatsApp group
                    the portal cannot read, and asking anyone to retype it here
@@ -351,7 +351,7 @@ import { computed, onMounted, ref, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { local } from "@/lib/clock";
-import CsHandover from "@/components/CsHandover.vue";
+import { setCsContext, clearCsContext } from "@/composables/useCsContext";
 import { IS_SHIP, SURFACE } from "@/lib/portal";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -593,8 +593,10 @@ function dropRow(r) {
 }
 
 async function openDesk(r) {
-  if (deskFor.value === r.id) { deskFor.value = ""; return; }
+  if (deskFor.value === r.id) { deskFor.value = ""; clearCsContext(); return; }
   deskFor.value = r.id;
+  // The header's CS button follows whichever parcel is open on this board.
+  setCsContext(r.order || "", r.phone || "", r.customer || "");
   desk.value = null;
   noteText.value = "";
   deskLoading.value = true;

@@ -2433,6 +2433,8 @@ export default {
     handAlready: "{n} déjà ouverte — complétez-la plutôt que d'en créer une seconde",
     team_warehouse: "Entrepôt", team_tracking: "Suivi",
     team_confirmation: "Confirmation", team_finance: "Finance",
+    quickTitle: "Transmettre au service client",
+    quickOrderPh: "N° de commande (facultatif)",
     handTitle: "Transférer au service client",
     handPh: "Une ligne — que s'est-il passé ?",
     handSend: "Envoyer",

@@ -2432,6 +2432,8 @@ export default {
     handAlready: "فيه {n} مفتوحة بالفعل — كمّل عليها بدل ما تفتح تانية",
     team_warehouse: "المخزن", team_tracking: "التتبع",
     team_confirmation: "التأكيد", team_finance: "المالية",
+    quickTitle: "حوّل لخدمة العملاء",
+    quickOrderPh: "رقم الأوردر (اختياري)",
     handTitle: "حوّل لخدمة العملاء",
     handPh: "سطر واحد — حصل إيه؟",
     handSend: "ابعت",

@@ -23,6 +23,20 @@
         <Icon name="chevron-down" :size="12" class="text-stone-400" />
       </button>
 
+      <!-- The floor sees the damaged box, the wrong item and the short
+           shelf before anyone else does, and until 2026-09-21 the portal
+           had no door for them at all. Same icon, same corner as the desk
+           shells — a packer and a manager reach it in the same place. -->
+      <button
+        type="button"
+        :title="t('cs.quickTitle')"
+        :aria-label="t('cs.quickTitle')"
+        class="ms-auto w-9 h-9 rounded-lg text-violet-600 bg-violet-50 ring-1 ring-violet-200 flex items-center justify-center active:bg-violet-100"
+        @click="csOpen = true"
+      >
+        <Icon name="message-circle" :size="16" />
+      </button>
+
       <!-- role menu -->
       <div
         v-if="roleMenu"
@@ -141,6 +155,7 @@
         :unread="unread"
         @toggle-menu="drawer = !drawer"
         @open-notif="notifOpen = true"
+        @open-cs="csOpen = true"
       />
       <main class="flex-1 overflow-y-auto bg-[rgb(var(--bg))]">
         <router-view v-slot="{ Component }">
@@ -153,13 +168,16 @@
   <!-- ── Global overlays ─────────────────────────────────────────── -->
   <CommandPalette :open="cmdOpen" @close="cmdOpen = false" />
   <NotifCenter :open="notifOpen" @close="notifOpen = false" @read="refreshUnread" />
+  <CsQuickRaise :open="csOpen" @close="csOpen = false" />
   <OfflineBanner :show="offline" :queued="queued" />
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import Sidebar from "./Sidebar.vue";
 import TopBar from "./TopBar.vue";
+import CsQuickRaise from "@/components/CsQuickRaise.vue";
+import { clearCsContext } from "@/composables/useCsContext";
 import CommandPalette from "@/components/ui/CommandPalette.vue";
 import NotifCenter from "@/components/ui/NotifCenter.vue";
 import OfflineBanner from "@/components/ui/OfflineBanner.vue";
@@ -189,6 +207,11 @@ const moreOpen = ref(false);
 const drawer = ref(false);
 const cmdOpen = ref(false);
 const notifOpen = ref(false);
+const csOpen = ref(false);
+// A stale order must not follow the agent to the next screen: filing a
+// complaint against the customer you were looking at a moment ago is worse
+// than being asked to type the number.
+watch(() => route.fullPath, () => { csOpen.value = false; clearCsContext(); });
 const roleMenu = ref(false);
 const offline = ref(typeof navigator !== "undefined" && !navigator.onLine);
 const _on = () => { offline.value = false; };
