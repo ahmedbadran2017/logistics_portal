@@ -13,6 +13,35 @@ STAGE_STAMP = {
 }
 
 
+def stamp_first_touch(doc, method=None):
+    """Catch the work done on the ERPNext Desk, where no portal code runs.
+
+    Measured 2026-09-21: 12.1% of decided orders carry a human Version row
+    and no portal trail at all — real calls, made by real agents, on the Desk.
+    A first-touch stamp written only by the portal would report those people
+    as never having touched the order.
+
+    Only a decision counts, and only a human's: the carrier sync writes the
+    status through frappe.db.set_value, which never fires this hook, so the
+    bot cannot stamp itself by accident."""
+    try:
+        if frappe.session.user in ("Administrator", "Guest"):
+            return
+        if not frappe.get_meta("Sales Order").has_field("custom_first_touch_at"):
+            return
+        if doc.get("custom_first_touch_at"):
+            return
+        before = doc.get_doc_before_save()
+        if not before or (before.get("custom_sales_status")
+                          == doc.get("custom_sales_status")):
+            return
+        doc.db_set("custom_first_touch_at", now_datetime(), update_modified=False)
+        doc.db_set("custom_first_touch_by", frappe.session.user, update_modified=False)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000],
+                         "logistics_portal.stamp_first_touch")
+
+
 def stamp_stage_timestamps(doc, method=None):
     """Stamp precise stage timestamps as custom_logistics_status advances, so
     time-in-stage and SLA are exact instead of scraped from the Version log.

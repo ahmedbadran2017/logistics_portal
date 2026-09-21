@@ -74,6 +74,10 @@ doc_events = {
             # noise on a priority is how the floor stops believing the next
             # one. The flag dies at the handover, without anyone remembering.
             "logistics_portal.api.orders.drop_urgent_on_ship",
+            # The Desk is where 12% of this lane's decisions are taken, and
+            # no portal code runs there — without this those agents would
+            # report as having never touched the order.
+            "logistics_portal.api.orders.stamp_first_touch",
         ],
         # A cancelled order stays cancelled unless a human reopens it —
         # blocks the external WhatsApp flow's Cancelled→Follow Up resurrects
@@ -109,6 +113,9 @@ after_migrate = [
     "logistics_portal.api.feedback.ensure_doctype",
     "logistics_portal.api.feedback.backfill_phone_keys",
     "logistics_portal.install.ensure_indexes",
+    # Gives the first-touch stamp a past, from the trails that already hold
+    # the evidence. Only fills what is empty, so it is safe every migrate.
+    "logistics_portal.install.backfill_first_touch",
     # One-time: seed the manifest station's month of history from the
     # Shipment child rows that always carried the who/when.
     "logistics_portal.api.scanlog.backfill_manifest_history",

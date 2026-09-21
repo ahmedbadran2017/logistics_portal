@@ -27,7 +27,19 @@
     <template v-else-if="d">
       <!-- The money. Confirmed is a promise; collected is the fact. Measured on
            the live data, ~42% of confirmed value never arrives. -->
-      <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div class="grid grid-cols-2 lg:grid-cols-6 gap-3">
+        <!-- How long a customer waits before a human reaches them. A MEDIAN
+             over the orders somebody actually touched — the ones the bot
+             closed untouched are named underneath, never averaged in. -->
+        <div class="rp-kpi">
+          <span class="rp-kpi-l"><Icon name="clock" :size="11" class="inline -mt-px me-1 text-amber-500" />{{ t('cfr.kTouch') }}</span>
+          <span class="rp-kpi-n" :class="ft && ft.slaPct !== null ? rateColor(ft.slaPct, 70, 45, 'text') : ''">
+            {{ ft && ft.median !== null ? ft.median + t('cf.hrs') : '—' }}
+          </span>
+          <span class="rp-kpi-s">{{ ft && ft.slaPct !== null
+            ? t('cfr.kTouchSub').replace('{p}', ft.slaPct).replace('{h}', ft.slaH)
+            : '' }}</span>
+        </div>
         <div class="rp-kpi">
           <span class="rp-kpi-l"><Icon name="inbox" :size="11" class="inline -mt-px me-1 text-stone-400" />{{ t('cfr.kIn') }}</span>
           <span class="rp-kpi-n">{{ d.ordersIn ? d.ordersIn.n : '—' }}</span>
@@ -154,7 +166,17 @@
                   </span>
                   <span v-else class="text-stone-300">—</span>
                 </td>
-                <td class="px-2 py-2.5 text-end tabular-nums text-stone-600">{{ a.respH !== null ? a.respH + t('cf.hrs') : '—' }}</td>
+                <!-- median, coloured by how much of it landed inside the
+                     SLA — the hours alone never said whether that was good -->
+                <td class="px-2 py-2.5 text-end tabular-nums"
+                    :title="a.slaPct !== null && a.slaPct !== undefined
+                            ? t('cfr.thRespHint').replace('{p}', a.slaPct).replace('{n}', a.touched) : ''">
+                  <span v-if="a.respH !== null && a.respH !== undefined"
+                        :class="a.slaPct !== null && a.slaPct !== undefined ? rateColor(a.slaPct, 70, 45, 'text') : 'text-stone-600'">
+                    {{ a.respH }}{{ t('cf.hrs') }}
+                  </span>
+                  <span v-else class="text-stone-300">—</span>
+                </td>
                 <td class="px-2 py-2.5 text-end tabular-nums text-stone-600">{{ a.avgAttempts || '—' }}</td>
                 <td class="px-2 py-2.5 text-end tabular-nums text-sky-600" :title="t('cfr.thAutoHint')">{{ a.autoClosed || '—' }}</td>
                 <td class="px-3 py-2.5 text-end tabular-nums text-stone-500">{{ fmtMAD(a.confirmedValue) }}</td>
@@ -320,6 +342,9 @@ const frm = ref("");
 const to = ref("");
 const sort = ref("total");
 const d = ref(null);
+// The lane's own time-to-first-human-touch. Absent on an older backend, so
+// every reader checks before it prints.
+const ft = computed(() => d.value?.firstTouch || null);
 const loading = ref(true);
 const denied = ref(false);
 const loadError = ref("");

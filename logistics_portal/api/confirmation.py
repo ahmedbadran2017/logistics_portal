@@ -858,6 +858,47 @@ def _free_card(order):
         pass
 
 
+def _first_touch_summary(mins, untouched, sla_min):
+    """median / p90 / inside-SLA over the orders a human actually touched."""
+    ms = sorted(mins)
+    if not ms:
+        return {"median": None, "p90": None, "slaPct": None,
+                "n": 0, "untouched": untouched}
+    return {
+        "median": round(ms[len(ms) // 2] / 60.0, 1),
+        "p90": round(ms[min(int(len(ms) * 0.9), len(ms) - 1)] / 60.0, 1),
+        "slaPct": round(100.0 * sum(1 for m in ms if m <= sla_min) / len(ms), 1),
+        "n": len(ms), "untouched": untouched,
+        "slaH": round(sla_min / 60.0, 1),
+    }
+
+
+def _first_touch(order, user=None):
+    """Stamp the moment a human first laid hands on this order.
+
+    Write-once, by design. Everything else in this lane is a LAST-touch
+    field — custom_last_call_at is rewritten by every act() — and that is
+    why the section report claimed a 40–174 hour first response: it was
+    reading the final decision and calling it the first touch.
+
+    Cheap enough to call from every touch point: one indexed read, and a
+    write only the first time. Never raises — a metric must not be able to
+    break a decision."""
+    try:
+        if not order or not frappe.get_meta("Sales Order").has_field("custom_first_touch_at"):
+            return
+        if frappe.db.get_value("Sales Order", order, "custom_first_touch_at"):
+            return
+        who = user or frappe.session.user
+        if who in _AUTOMATION_USERS:
+            return
+        frappe.db.set_value("Sales Order", order, {
+            "custom_first_touch_at": now_datetime(), "custom_first_touch_by": who,
+        }, update_modified=False)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "confirmation._first_touch")
+
+
 def _own_guard(role, orders):
     """A plain agent may only act on orders allocated to them; a manager or
     section admin may act on any. Every write path calls this, so the per-agent
@@ -1010,6 +1051,7 @@ def act(order, action, note=None, _bulk=False):
         # existing dashboard group portal cancels alongside desk ones.
         updates["custom_cancellation_reason"] = note
     frappe.db.set_value("Sales Order", order, updates, update_modified=True)
+    _first_touch(order)
 
     doc = frappe.get_doc("Sales Order", order)
     doc.add_comment("Comment",
@@ -1868,9 +1910,6 @@ def report(days=7, frm=None, to=None):
                        SUM(CASE WHEN so.custom_sales_status = 'Confirmed'
                                      AND so.grand_total <= %(sane)s
                                 THEN so.grand_total ELSE 0 END) confirmed_value,
-                       AVG(CASE WHEN so.custom_last_call_at IS NOT NULL
-                                THEN TIMESTAMPDIFF(MINUTE, so.creation,
-                                                   so.custom_last_call_at) END) resp_min,
                        AVG(COALESCE(so.custom_call_attempts, 0)) attempts
                 FROM `tabSales Order` so
                 WHERE so.docstatus = 1 AND so.company = %(co)s
@@ -1965,6 +2004,43 @@ def report(days=7, frm=None, to=None):
         "orders": len(auto_orders),
     }
 
+    # ── time to first human touch, per agent ────────────────────────────
+    # Rows, not aggregates: a median cannot be had from GROUP BY here, and
+    # the honest denominator is only the orders somebody actually touched —
+    # the ones the bot closed untouched are reported beside it, never folded
+    # into it.
+    sla_min = int(_cf_settings().get("slaFirstCallH", 6)) * 60
+    _touch, _team_mins, _team_untouched = {}, [], 0
+    if frappe.get_meta("Sales Order").has_field("custom_first_touch_at"):
+        _raw = {}
+        for r in frappe.db.sql(
+                f"""SELECT so.custom_allocated_to u, so.custom_first_touch_at ft,
+                           TIMESTAMPDIFF(MINUTE, so.creation, so.custom_first_touch_at) mins
+                    FROM `tabSales Order` so
+                    WHERE so.docstatus = 1 AND so.company = %(co)s
+                      AND COALESCE(so.custom_allocated_to,'') != ''
+                      AND so.custom_allocated_to NOT IN ('Administrator', 'Guest')
+                      AND {so_rng}""", {"co": _CO, **rng_vals}, as_dict=True):
+            d = _raw.setdefault(r.u, {"mins": [], "untouched": 0})
+            if r.ft and r.mins is not None and int(r.mins) >= 0:
+                d["mins"].append(int(r.mins))
+                _team_mins.append(int(r.mins))
+            else:
+                d["untouched"] += 1
+                _team_untouched += 1
+        for u, d in _raw.items():
+            ms = sorted(d["mins"])
+            if ms:
+                _touch[u] = {
+                    "median": round(ms[len(ms) // 2] / 60.0, 1),
+                    "p90": round(ms[min(int(len(ms) * 0.9), len(ms) - 1)] / 60.0, 1),
+                    "slaPct": round(100.0 * sum(1 for m in ms if m <= sla_min) / len(ms), 1),
+                    "n": len(ms), "untouched": d["untouched"],
+                }
+            else:
+                _touch[u] = {"median": None, "p90": None, "slaPct": None,
+                             "n": 0, "untouched": d["untouched"]}
+
     agents = []
     for user in set(list(per_agent) + list(money)):
         a = per_agent.get(user, {"confirm": 0, "cancel": 0, "dna": 0,
@@ -1987,7 +2063,22 @@ def report(days=7, frm=None, to=None):
             "confirmRate": round(a["confirm"] * 100.0 / decided, 1) if decided else None,
             "avgAttempts": round(float(g("attempts")), 1),
             # How fast the first human touch lands after the order arrives.
-            "respH": round(float(g("resp_min")) / 60, 1) if g("resp_min") else None,
+            #
+            # A MEDIAN, over the orders a human actually touched. Both halves
+            # of that sentence were wrong before: it averaged, and it read
+            # custom_last_call_at — the LAST decision, rewritten by every
+            # act() — over the 30.6% of orders that carry the field. It
+            # reported 40 to 174 hours per agent. The truth, measured on the
+            # same orders with a real first-touch stamp, is a median of 10.4
+            # hours with 42.4% inside the six-hour SLA.
+            #
+            # An average is the wrong summary here whatever it measures: the
+            # tail is orders picked up days later, and it drags the number
+            # somewhere nobody recognises.
+            "respH": _touch.get(user, {}).get("median"),
+            "slaPct": _touch.get(user, {}).get("slaPct"),
+            "touched": _touch.get(user, {}).get("n", 0),
+            "neverTouched": _touch.get(user, {}).get("untouched", 0),
             "confirmedValue": round(float(g("confirmed_value"))),
             # Face value of orders with a Delivered parcel (partial returns not
             # deducted) — an approximation of collected cash, not a cash ledger.
@@ -2110,6 +2201,12 @@ def report(days=7, frm=None, to=None):
                    "delivered": int(r_.delivered or 0)} for r_ in stick],
         "cities": [{"city": (r_.city or "?").title(), "parcels": int(r_.parcels or 0),
                     "failed": int(r_.failed or 0)} for r_ in cities],
+        # The lane's own answer to "how fast do we reach a customer", which
+        # is the number this report existed to give and never did. Median,
+        # p90 and the share inside the SLA — and, separately, how many the
+        # bot closed with nobody ever touching them, because folding those
+        # into a response time would flatter it beyond recognition.
+        "firstTouch": _first_touch_summary(_team_mins, _team_untouched, sla_min),
         "agents": agents,
         # Kept OUT of `agents` on purpose: everything that iterates that list
         # (leaderboard, bonus, team averages) must stay human-only.
@@ -2767,6 +2864,7 @@ def _take_from_pool(order):
         # anyone had picked it up.
         frappe.get_doc("Sales Order", order).add_comment(
             "Comment", f"Pool: taken{f' from {prev}' if prev and prev != me else ''} · by {me}")
+        _first_touch(order, me)
         return prev
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "confirmation._take_from_pool")
@@ -3139,6 +3237,10 @@ def open_order(order):
         # a colleague's order is still theirs, and _own_guard still says so.
         if not (frappe.db.get_value("Sales Order", order, "_assign") or "").strip(" []"):
             _take_from_pool(order)
+        # Opening the card IS the first touch — the agent is looking at this
+        # customer. Every other stamp below is a fallback for a decision that
+        # reached the order some other way.
+        _first_touch(order)
         frappe.db.commit()
     return {"ok": True}
 
@@ -3192,6 +3294,7 @@ def add_note(order, note):
     _own_guard(role, order)
     frappe.get_doc("Sales Order", order).add_comment(
         "Comment", f"Note — {note[:400]} · by {frappe.session.user}")
+    _first_touch(order)
     frappe.db.commit()
     return {"ok": True}
 
