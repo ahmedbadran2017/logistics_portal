@@ -388,8 +388,10 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
         rng_vals["me_like"] = f'%"{me}"%'
         vals["me"] = me
         vals["me_like"] = f'%"{me}"%'
-        me_q = " AND _assign LIKE %(me_like)s"       # no alias (count scans)
-        me_so = " AND so._assign LIKE %(me_like)s"   # so.-aliased queries
+        # Chips and rows must agree — they are built from the SAME helper for
+        # exactly that reason.
+        me_q = " AND " + _own_or_free()          # no alias (count scans)
+        me_so = " AND " + _own_or_free("so.")    # so.-aliased queries
         me_done = " AND custom_allocated_to = %(me)s"  # done tabs: the actor
 
     # Each family of tabs is dated by its OWN column: the working queues by
@@ -683,9 +685,11 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     # the order is still the assignee's (see the count above).
     if mine_only:
         if tab in _AUTOMATION_DONE:
+            # The done tabs stay a "what I decided" trail, so they key on the
+            # actor and an unassigned order is nobody's history.
             conds.append("so.custom_allocated_to = %(me)s")
         else:
-            conds.append("so._assign LIKE %(me_like)s")
+            conds.append(_own_or_free("so."))
     q = str(q or "").strip()
     if q:
         # A search is a LOOKUP, not a report: the date window is dropped, or
@@ -3219,6 +3223,36 @@ def _last_touch_sql():
             "WHERE c.reference_doctype = 'Sales Order' AND c.reference_name = so.name "
             "AND (c.content LIKE 'Confirmation:%%' OR c.content LIKE 'CC:%%' "
             "     OR c.content LIKE 'Note —%%'))")
+
+
+def _own_or_free(alias=""):
+    """Mine, or nobody's.
+
+    The working tabs scoped on `_assign` alone, and with the Desk's
+    auto-assign switched off that field is now written only when somebody
+    TAKES an order through the portal. Anything that reaches a status without
+    passing through the take path carries no assignment at all, so the
+    predicate matched nobody and the work was invisible to every agent on the
+    team — a manager could see it, the people who work it could not.
+
+    Measured on production 2026-09-21, in hand and unassigned: all 29
+    Duplicated, all 20 Not Delivered, 34 of 41 Follow Ups and the 3 live
+    Pending. Eighty-three orders no agent could reach from any tab.
+
+    An unassigned order belongs to the pool, and _pool_cond() already says
+    what the pool means: "an order belonging to NOBODY is available at once".
+    This is the same sentence, said on the screen the team browses instead of
+    only inside the Next button.
+
+    Two people seeing one row is safe and always was — open_order() takes the
+    card, assigns it and holds the lock, and the block is at OPEN because
+    that is the only place it protects anybody.
+
+    NOT used by next_order: the serve passes reach unassigned work through
+    the pool, which is where the holding cap lives. Letting it in through the
+    "own" pass would walk around that cap."""
+    return (f"({alias}_assign LIKE %(me_like)s"
+            f" OR COALESCE({alias}_assign, '') IN ('', '[]'))")
 
 
 def _pool_cond():
