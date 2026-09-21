@@ -374,6 +374,8 @@ async function onScan(code) {
               ? t(res.submitted ? "mani.alreadyShipped" : "mani.alreadyIn")
                   .replace("{n}", res.shipment).replace("{d}", res.date || "")
               : t("mani.alreadyShip"))
+          : res && res.reason === "stopped"
+            ? t("mani.stopped").replace("{order}", res.order || res.awb || "")
           : res && res.reason === "not_ready" ? t("mani.notReady")
             : res && res.reason === "unknown" ? `${t("mani.unknownAwb")}: ${res.code || c}`
               : !res ? t("mani.serverErr") : t("mani.unknownAwb"));

@@ -34,6 +34,19 @@ def sync_pick_progress(doc, method=None):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def is_stopped(order):
+    """True when this order must not move: cancelled by any route, or a live
+    stop request against it. Every station that pushes a parcel one step
+    further asks this — the scan, the pack finish, the label repair. One of
+    them missing the check is all it takes for a cancelled box to reach a
+    driver, which is how thirteen September orders shipped."""
+    from logistics_portal.api.stop import stopped_sql
+    row = frappe.db.sql(
+        f"SELECT {stopped_sql('s')} FROM `tabSales Order` s WHERE s.name = %s",
+        (order,))
+    return bool(row and int(row[0][0] or 0))
+
+
 def _resolve_order_name(order):
     """Return the real Sales Order name for a scanned/typed reference.
 
@@ -443,6 +456,8 @@ def mark_packed(order):
     name = _resolve_order_name(order)
     if not name:
         frappe.throw("Unknown order.")
+    if is_stopped(name):
+        return {"ok": False, "reason": "stopped", "order": name}
     st = frappe.db.get_value("Sales Order", name, "custom_logistics_status")
     if st in ("Label Generated", "Picked", "In transit", "Received"):
         frappe.get_doc("Sales Order", name).db_set("custom_logistics_status", "Label Printed")
@@ -2778,6 +2793,8 @@ def sorting_detail(pick_list):
             "qty": int(r.qty or 0), "sorted": int(r.sorted_qty or 0),
             "image": r.image or ""})
     out = list(orders.values())
+    from logistics_portal.api.stop import open_orders
+    stopped = open_orders([o["order"] for o in out])
     for o in out:
         o["qty"] = sum(i["qty"] for i in o["items"])
         o["sorted"] = sum(i["sorted"] for i in o["items"])
@@ -2795,6 +2812,14 @@ def sorting_detail(pick_list):
         o["awbMissing"] = bool(not o["awb"] and not o["labelUrl"]
                                and o["status"] not in _SORT_DONE
                                and o["salesStatus"] != "Cancelled")
+        # The box is on the wall with pieces in it and must come off. Refusing
+        # the scan is not enough on its own: the sorter has to be able to SEE
+        # which slot to empty without scanning every piece to find out.
+        o["stopped"] = o["salesStatus"] == "Cancelled" or o["order"] in stopped
+        if o["stopped"]:
+            o["done"] = True
+            o["noLabel"] = False
+            o["awbMissing"] = False
     # Handover state per order: on a Shipment (draft = scanned at the door
     # today, submitted = gone), or still waiting after printing. `short` marks
     # a printed parcel that a manifest closed without.
@@ -2845,6 +2870,8 @@ def recheck_label(pick_list, order):
     sort_scan) and hand back the URL to print."""
     _sort_gate()
     order = (order or "").strip()
+    if is_stopped(order):
+        return {"ok": False, "reason": "stopped", "order": order}
     row = frappe.db.sql(
         """SELECT SUM(qty) - SUM(COALESCE(custom_sorted_qty, 0))
            FROM `tabPick List Item` WHERE parent = %s AND sales_order = %s""",
@@ -2935,6 +2962,11 @@ def relabel_order(pick_list, order, city=None):
     order = (order or "").strip()
     if not frappe.db.exists("Pick List Item", {"parent": pick_list, "sales_order": order}):
         return {"ok": False, "reason": "not_on_list"}
+    # Creating an AWB for a cancelled order books a pickup with the carrier
+    # for a parcel nobody should send. This is the repair path for a MISSING
+    # label, and a stopped order wants no label at all.
+    if is_stopped(order):
+        return {"ok": False, "reason": "stopped", "order": order}
     awb, lbl = frappe.db.get_value(
         "Sales Order", order, ["custom_awb", "custom_label_url"]) or (None, None)
     if awb or lbl:
@@ -3142,23 +3174,48 @@ def sort_scan(pick_list, code, prefer=None):
         return {"ok": False, "reason": "unknown_item", "code": (code or "").strip()}
 
     prefer = (prefer or "").strip()
+    # A stopped order is still a row on the pick list — the paperwork does not
+    # evaporate when a customer changes their mind — so it is SELECTED and then
+    # excluded, never filtered out in SQL. The difference matters: filtering
+    # would make the piece look like it belongs to nobody ("not on this list"),
+    # and the sorter would put it back on the shelf or chase a dispatcher. What
+    # they actually need to be told is that this box is cancelled and the piece
+    # goes in the stop bin.
+    from logistics_portal.api.stop import stopped_sql
     rows = frappe.db.sql(
-        """SELECT pli.name, pli.sales_order AS so, pli.qty, pli.idx,
-                  COALESCE(pli.custom_sorted_qty,0) AS sorted_qty,
-                  (COALESCE(s.custom_awb,'') <> '' OR COALESCE(s.custom_label_url,'') <> '') AS labelled
-           FROM `tabPick List Item` pli
-           LEFT JOIN `tabSales Order` s ON s.name = pli.sales_order
-           WHERE pli.parent = %s AND pli.item_code = %s
-             AND pli.sales_order IS NOT NULL
-             AND COALESCE(s.custom_logistics_status,'') <> 'Label Printed'
-             AND COALESCE(pli.custom_sorted_qty,0) < pli.qty
-           ORDER BY pli.idx""",
+        f"""SELECT pli.name, pli.sales_order AS so, pli.qty, pli.idx,
+                   COALESCE(pli.custom_sorted_qty,0) AS sorted_qty,
+                   (COALESCE(s.custom_awb,'') <> '' OR COALESCE(s.custom_label_url,'') <> '') AS labelled,
+                   {stopped_sql('s')} AS stopped,
+                   s.customer_name AS customer
+            FROM `tabPick List Item` pli
+            LEFT JOIN `tabSales Order` s ON s.name = pli.sales_order
+            WHERE pli.parent = %s AND pli.item_code = %s
+              AND pli.sales_order IS NOT NULL
+              AND COALESCE(s.custom_logistics_status,'') <> 'Label Printed'
+              AND COALESCE(pli.custom_sorted_qty,0) < pli.qty
+            ORDER BY pli.idx""",
         (pick_list, item_code), as_dict=True)
     if not rows:
         on_list = frappe.db.exists(
             "Pick List Item", {"parent": pick_list, "item_code": item_code})
         return {"ok": False, "reason": "done" if on_list else "not_on_list",
                 "itemCode": item_code, "name": r.get("name"), "sku": r.get("sku")}
+
+    # Measured 2026-09-21: this check did not exist, and the wall's own
+    # counter already excluded cancelled orders — so the board said an order
+    # was finished while the scan kept feeding it, closed the box and printed
+    # its label. Thirteen September orders were cancelled before their parcel
+    # was cut and shipped regardless.
+    live = [x for x in rows if not int(x.stopped or 0)]
+    if not live:
+        dead = rows[0]
+        return {"ok": False, "reason": "stopped", "order": dead.so,
+                "customer": dead.customer or "", "itemCode": item_code,
+                "name": r.get("name"), "sku": r.get("sku")}
+    # Some stopped, some not: the live boxes take the piece and the stopped
+    # ones are simply not candidates. No message — nothing went wrong.
+    rows = live
 
     # How far along each candidate order is, across ALL its lines — one
     # grouped read, not one per candidate: this runs inside the scan itself,

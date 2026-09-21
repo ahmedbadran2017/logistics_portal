@@ -945,17 +945,24 @@ def act(order, action, note=None, _bulk=False):
         if opts and note not in opts:
             frappe.throw("Pick a reason from the list — free text here would "
                          "invent a category the reports can't group.")
-        # Same fence as reopen: once the warehouse holds the order, a cancel
-        # here leaves the floor with a cancelled parcel in a tote. Those go
-        # through the dispatcher / rescue flow instead.
-        stage = frappe.db.get_value("Sales Order", order, "custom_logistics_status")
-        if stage and stage not in ("Pending", ""):
-            frappe.throw(f"Can't cancel — the order is already {stage} in the "
-                         "warehouse. Route it through Rescue/Exceptions.")
-        if frappe.db.exists("Pick List Item",
-                            {"sales_order": order, "docstatus": ["<", 2]}):
-            frappe.throw("Can't cancel — the order is already on a pick list. "
-                         "Ask the dispatcher to pull it first.")
+        # This used to be a wall. It told the agent, in English, on a French
+        # and Arabic screen, to "route it through Rescue/Exceptions" or "ask
+        # the dispatcher to pull it first" — and neither of those exists. No
+        # dispatcher pull was ever built, and Rescue lists parcels the CARRIER
+        # has already failed, so a healthy parcel on its way appears in none
+        # of its tabs. The cancel was simply lost: the order stayed Confirmed
+        # and shipped. September: 180 parcels refused at the customer's door,
+        # 309 more returned by Cathedis as "customer cancelled by phone", and
+        # 302 of those are still marked Confirmed here.
+        #
+        # So this is a HANDOVER now, not a refusal. The key routes the agent
+        # into api.stop, which accepts the customer's words at any stage and
+        # decides what can be done about them from where the goods actually
+        # are.
+        from logistics_portal.api.stop import stage_of
+        st_stage, st_mode = stage_of(order)
+        if st_mode != "cancel_now":
+            frappe.throw(f"lp:stopNeeded|{st_stage}")
 
     now = now_datetime()
     attempts = int(so.custom_call_attempts or 0)

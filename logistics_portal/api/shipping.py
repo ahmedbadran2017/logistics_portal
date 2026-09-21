@@ -649,6 +649,14 @@ def manifest_scan(code):
         return {"ok": False, "reason": "already", "dn": d.dn, "awb": d.awb or "",
                 "shipment": on[0].name, "submitted": int(on[0].docstatus or 0) == 1,
                 "date": str(on[0].pickup_date or "")[:10]}
+    # The last gate before the parcel is somebody else's. The manifest
+    # BUILDER already excludes cancelled orders, but the door SCAN did not —
+    # and the door is how parcels actually get onto a manifest. A cancelled
+    # box that reached the door with a printed label sailed straight past.
+    from logistics_portal.api.picking import is_stopped
+    if d.so and is_stopped(d.so):
+        return {"ok": False, "reason": "stopped", "dn": d.dn, "awb": d.awb or "",
+                "order": d.so, "customer": d.customer or ""}
     if d.lstatus not in ("Label Printed", "Label Generated"):
         return {"ok": False, "reason": "not_ready", "dn": d.dn, "status": d.lstatus or ""}
     sh = _open_or_new_manifest()

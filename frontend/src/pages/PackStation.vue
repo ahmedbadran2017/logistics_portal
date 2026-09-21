@@ -185,7 +185,12 @@
               <!-- Two stages: sorted (items scanned) vs printed (the label
                    actually spooled). Blue = sorted but label not confirmed out,
                    green = both done. -->
-              <span v-if="o.shipped" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300">
+              <!-- Stop comes first in this chain on purpose: whatever else
+                   is true of the box, it is not going out. -->
+              <span v-if="o.stopped" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-white bg-rose-600 ring-1 ring-rose-700">
+                <Icon name="package-x" :size="10" />{{ t('sort.badgeStopped') }}
+              </span>
+              <span v-else-if="o.shipped" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300">
                 <Icon name="truck" :size="10" />{{ t('sort.badgeShipped') }}
               </span>
               <span v-else-if="o.onDraft" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300">
@@ -227,13 +232,20 @@
           </div>
           <div v-if="o.dupDn" class="mt-2 text-[11px] text-stone-500">{{ t('sort.dupDn') }}</div>
           <button
-            v-if="o.done && o.labelUrl && !o.shipped && !o.onDraft"
+            v-if="o.done && o.labelUrl && !o.shipped && !o.onDraft && !o.stopped"
             class="mt-2.5 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5 transition-colors"
             :class="o.printed ? 'bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50' : 'bg-sky-600 text-white hover:bg-sky-700'"
             @click="printAndMark(o)"
           >
             <Icon name="printer" :size="14" /> {{ o.printed ? t('sort.printAgain') : t('sort.printNow') }}
           </button>
+          <!-- A stopped box needs emptying, not a label. The panel below
+               offers to CREATE an AWB, which would book a pickup for a parcel
+               nobody should send — so it is replaced, not merely disabled. -->
+          <div v-else-if="o.stopped" class="mt-2.5 flex items-start gap-2 rounded-lg bg-rose-100 ring-1 ring-rose-300 px-3 py-2 text-[11.5px] font-semibold text-rose-800">
+            <Icon name="package-x" :size="14" class="text-rose-600 shrink-0 mt-0.5" />
+            <span>{{ t('sort.stoppedHint') }}</span>
+          </div>
           <div v-else-if="o.noLabel || showFix(o)" class="mt-2.5 space-y-1.5">
             <div class="flex items-start gap-2 rounded-lg bg-amber-50 ring-1 ring-amber-200/70 px-3 py-2 text-[11.5px] text-amber-800">
               <Icon name="alert-triangle" :size="14" class="text-amber-500 shrink-0 mt-0.5" />
@@ -492,6 +504,16 @@ async function onScanItem(raw) {
     return;
   }
   if (!res.ok) {
+    if (res.reason === "stopped") {
+      // Not an error the sorter caused, and not a piece to put back on the
+      // shelf: the customer cancelled while the box was on the wall. Name
+      // the order, because the next thing they do is go and empty that slot.
+      scanner.value?.showError(
+        t("sort.scanStopped").replace("{order}", res.order || ""));
+      const so = (wall.value?.orders || []).find((x) => x.order === res.order);
+      if (so) { so.stopped = true; so.done = true; }
+      return;
+    }
     scanner.value?.showError(
       res.reason === "not_on_list" ? t("sort.notOnList")
         : res.reason === "done" ? t("sort.itemDone")
@@ -546,15 +568,25 @@ async function onScanItem(raw) {
 // Generated' forever (Anas, 2026-08-27). mark_packed is idempotent and only
 // upgrades eligible statuses — safe to call on every print/reprint.
 async function printAndMark(o) {
+  // Ask the server BEFORE the paper comes out. The order of these two calls
+  // used to be "print, then record" and it did not matter while the server
+  // never said no; it says no now, and a label printed for a cancelled box
+  // is the exact thing we are trying to stop.
   lastSlot.value = o.order;
-  printLabel(o.order, () => { o.printed = true; });
+  let res;
   try {
-    const res = await apiPost("picking.mark_packed", { order: o.order });
-    o.status = "Label Printed";
-    if (res.labelUrl) o.labelUrl = res.labelUrl;
+    res = await apiPost("picking.mark_packed", { order: o.order });
   } catch (e) {
     warn(t("sort.statusStuck"), String(e.message || e));
+    return;
   }
+  if (res && res.ok === false) {
+    if (res.reason === "stopped") { o.stopped = true; o.done = true; warn(t("sort.stoppedHint"), o.order); }
+    return;
+  }
+  printLabel(o.order, () => { o.printed = true; });
+  o.status = "Label Printed";
+  if (res.labelUrl) o.labelUrl = res.labelUrl;
 }
 
 // Correct the city if the dispatcher chose one, then actually create the AWB
@@ -624,6 +656,9 @@ async function recheckLabel(o) {
       o.status = "Label Printed";
       if (o.labelUrl) printLabel(o.order, () => { o.printed = true; printedToday.value += 1; });
       success(t("sort.labelArrived"), o.order);
+    } else if (res.reason === "stopped") {
+      o.stopped = true; o.done = true; o.noLabel = false;
+      warn(t("sort.stoppedHint"), o.order);
     } else {
       warn(t("sort.stillNoLabel"), o.order);
     }
@@ -637,6 +672,8 @@ async function recheckLabel(o) {
 
 function slotClass(o) {
   if (flash.value === o.order) return "ring-2 ring-[var(--accent-500)] shadow-md";
+  // A stopped slot has to be findable across the room without reading it.
+  if (o.stopped) return "ring-2 ring-rose-500 bg-rose-50";
   if (o.short) return "ring-rose-300 bg-rose-50/40";                // a manifest left without it
   if (o.noLabel) return "ring-amber-300 bg-amber-50/40";
   if (o.printed) return "ring-emerald-300 bg-emerald-50/30";       // both stages done

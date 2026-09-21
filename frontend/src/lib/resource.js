@@ -42,7 +42,13 @@ async function serverError(method, res) {
       msg = String(body.exception).split(/Error:|Exception:/).pop().trim() || msg;
     }
   } catch (_) { /* keep the generic message */ }
-  return new Error(translateServer(msg));
+  const err = new Error(translateServer(msg));
+  // Some server keys are a BRANCH, not a sentence: "the order is already in
+  // the warehouse" should open the stop dialog, not print a line and stop.
+  // The translation is for the reader; the key is for the caller.
+  const m = /^lp:([A-Za-z0-9_]+)(?:\|(.*))?$/.exec(msg || "");
+  if (m) { err.key = m[1]; err.arg = m[2] || ""; }
+  return err;
 }
 
 /** View-as (manager only): when armed, every request carries `as_user` so the

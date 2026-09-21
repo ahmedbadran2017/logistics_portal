@@ -313,9 +313,31 @@
             </div>
           </Transition>
 
+          <!-- The order is already moving. This is NOT an error panel: the
+               customer's decision stands either way, and all that changes is
+               what we can still do about it. So the sentence names where the
+               goods are and the button says what will actually happen. -->
+          <Transition name="ws-slide">
+            <div v-if="stopAsk" class="rounded-xl bg-rose-50 ring-1 ring-rose-300 p-3 space-y-2.5">
+              <div class="flex items-start gap-2">
+                <Icon name="package-x" :size="16" class="text-rose-600 mt-0.5 shrink-0" />
+                <div class="text-[12.5px] text-rose-900 leading-snug">
+                  {{ t('stop.at_' + stopAsk.stage) }}
+                  <span class="block font-semibold mt-0.5">{{ t('stop.can_' + stopAsk.mode) }}</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button class="h-9 px-4 rounded-lg text-[12.5px] font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50"
+                        :disabled="busy" @click="submitStop">{{ t('stop.do_' + stopAsk.mode) }}</button>
+                <button class="h-9 px-3 rounded-lg text-[12.5px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200"
+                        :disabled="busy" @click="stopAsk = null">{{ t('common.cancel') }}</button>
+              </div>
+            </div>
+          </Transition>
+
           <!-- reason (cancel) -->
           <Transition name="ws-slide">
-            <div v-if="panel === 'cancel'" class="rounded-xl bg-rose-50/60 ring-1 ring-rose-200/70 p-3 space-y-2">
+            <div v-if="panel === 'cancel' && !stopAsk" class="rounded-xl bg-rose-50/60 ring-1 ring-rose-200/70 p-3 space-y-2">
               <div class="flex flex-wrap gap-1.5">
                 <button v-for="rs in reasons" :key="rs"
                         class="h-7 px-2.5 rounded-full text-[11.5px] font-medium ring-1 transition-all"
@@ -595,6 +617,8 @@ const skuModal = ref(null);
 const panel = ref("");
 const reasons = ref([]);
 const cancelReason = ref("");
+// Set when the backend hands the cancel over to api.stop: {stage, mode}.
+const stopAsk = ref(null);
 const cust = ref(null);
 const custLoading = ref(false);
 const histOpen = ref(false);
@@ -975,6 +999,7 @@ let openSeq = 0;
 async function openOrder(name) {
   panel.value = "";
   cancelReason.value = "";
+  stopAsk.value = null;
   confirmArmed.value = false;
   noteText.value = "";
   showActivity.value = false;
@@ -1206,6 +1231,42 @@ async function decide(action, note) {
     panel.value = ""; cancelReason.value = "";
     if (tabMode.value) await advanceTab(active.value?.name);
     else await _serve(false);
+  } catch (e) {
+    // The warehouse already has it. That is an answer, not a failure — ask
+    // the server what can still be done and offer exactly that.
+    if (e.key === "stopNeeded") {
+      try {
+        const p = await api("stop.preview", { order: active.value.name });
+        stopAsk.value = { stage: p.stage, mode: p.mode };
+      } catch (_) {
+        stopAsk.value = { stage: e.arg || "picking", mode: "stop" };
+      }
+      return;
+    }
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function submitStop() {
+  if (!active.value || !stopAsk.value) return;
+  const mode = stopAsk.value.mode;
+  busy.value = true;
+  try {
+    await apiPost("stop.request_stop", {
+      order: active.value.name, reason: cancelReason.value });
+    success(t("stop.done_" + mode), active.value.name);
+    stopAsk.value = null; panel.value = ""; cancelReason.value = "";
+    // A recall leaves the order live on purpose — the parcel is still out
+    // there and somebody has to chase it — so only a real stop takes the
+    // card off this queue.
+    if (mode === "cancel_now" || mode === "stop") {
+      popCoin("cancel");
+      if (plan.value?.rows) plan.value.rows = plan.value.rows.filter((r) => r.order !== active.value.name);
+      if (tabMode.value) await advanceTab(active.value?.name);
+      else await _serve(false);
+    }
   } catch (e) {
     warn(t("cf.actFail"), String(e.message || e));
   } finally {

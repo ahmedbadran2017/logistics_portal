@@ -97,6 +97,7 @@ after_migrate = [
     "logistics_portal.api.zone_survey.ensure_doctype",
     "logistics_portal.api.rescue.ensure_doctype",
     "logistics_portal.api.cs.ensure_doctype",
+    "logistics_portal.api.stop.ensure_doctype",
     "logistics_portal.install.ensure_rescue_fields",
     "logistics_portal.api.campaign.ensure_doctype",
     "logistics_portal.api.feedback.ensure_doctype",
