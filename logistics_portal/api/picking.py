@@ -129,6 +129,7 @@ def pl_life(pick_list):
     return life.get((pick_list or "").strip()) or {}
 
 
+@frappe.whitelist()
 def my_queue(user=None):
     """The picker's actionable queue: DRAFT pick lists assigned to them (by the
     dispatcher or the autopilot) or created by them. Oldest first — matching the
