@@ -107,6 +107,10 @@ INDEXES = [
     ("LP Scan Event", ["pick_list", "station"], "lp_scan_list_idx"),
     ("Delivery Note Item", ["against_sales_order"], "lp_dni_so_idx"),
     ("Shipment Delivery Note", ["delivery_note"], "lp_sdn_dn_idx"),
+    # "Is this parcel back on our shelves?" resolves the scan to a delivery
+    # line, and that column had no index: the lookup read all 23k scan rows
+    # every time, and it grows with every return batch received.
+    ("Return Shipment Item", ["delivery_note_item"], "lp_rsi_dni_idx"),
 ]
 
 

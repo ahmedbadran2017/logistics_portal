@@ -4,6 +4,87 @@ and the RET receiving batches (barcode-scanned Return Shipment docs)."""
 import frappe
 
 
+# ── One definition of "the parcel is back" ───────────────────────────────────
+#
+# Audited 2026-09-21. The portal used to answer this from the order's own
+# custom_logistics_status field, and that field has been broken since July:
+# of the 981 orders whose parcels physically came back in the last 30 days it
+# named only 64. 917 of them were still counted as open orders. The rate fell
+# off a cliff -- 99% of May's returns were marked, 94% of June's, then 10% in
+# July, 7% in August, 9% in September -- and nothing in any installed app
+# writes that field, so whatever used to set it stopped and said nothing.
+#
+# There is no better answer to be had from the carrier. Cathedis has never
+# once reported a return on the 17,598 orders that came back this year; the
+# status value exists but sits on 11 orders out of 257,000, and the one real
+# carrier return feed ("Parcel return - parcel processed in central hub")
+# stopped in February 2025.
+#
+# So the scan at our own receiving dock is the truth, and this is the only
+# place that says what it means. Checked two ways that do not share a key:
+# all 22,490 scanned lines resolve to a delivery line by id, and 22,485 of
+# them (99.98%) independently agree on the AWB. No line belongs to the wrong
+# note, and only 3 lines were ever scanned into two shipments.
+#
+# Keyed on the document link rather than the AWB: the scan stores the bare
+# number and the note stores it with the carrier's LD00 prefix, so the AWB
+# only matches after normalising, and 4 lines match on neither.
+
+def back_in_house_sql(so_col="so.name"):
+    """SQL predicate: this order's parcel was physically scanned back in.
+
+    A submitted Return Shipment with a counted quantity is a person at the
+    dock holding the parcel -- the hardest evidence in the system."""
+    return f"""EXISTS (SELECT 1
+        FROM `tabReturn Shipment Item` rsi
+        JOIN `tabReturn Shipment` rs ON rs.name = rsi.parent
+        JOIN `tabDelivery Note Item` rdni ON rdni.name = rsi.delivery_note_item
+        WHERE rs.docstatus = 1 AND rs.status = 'Returned'
+          AND rsi.actual_qty > 0 AND rdni.against_sales_order = {so_col})"""
+
+
+def back_in_house_join(so_col="so.name", alias="bk"):
+    """The same fact as a LEFT JOIN, for queries that aggregate.
+
+    Inside a SUM() the EXISTS form is re-evaluated per row and cannot be
+    folded into a semi-join -- measured 2026-09-21, the agent scorecard with
+    EXISTS in two SUM()s never returned at all, while this join answers the
+    same question over the same month in half a second. Test the result with
+    `{alias}.so_name IS NOT NULL`."""
+    return f"""LEFT JOIN (SELECT DISTINCT rdni.against_sales_order so_name
+        FROM `tabReturn Shipment Item` rsi
+        JOIN `tabReturn Shipment` rs ON rs.name = rsi.parent
+        JOIN `tabDelivery Note Item` rdni ON rdni.name = rsi.delivery_note_item
+        WHERE rs.docstatus = 1 AND rs.status = 'Returned'
+          AND rsi.actual_qty > 0) {alias} ON {alias}.so_name = {so_col}"""
+
+
+def returned_sql(so_col="so.name", lstat_col="so.custom_logistics_status"):
+    """Returned by either witness: our own field, or the parcel in our hands.
+
+    The field is kept in the test rather than replaced -- it still carries the
+    returns nobody scanned, and dropping it would trade one blind spot for
+    another."""
+    return f"(COALESCE({lstat_col},'') = 'Returned' OR {back_in_house_sql(so_col)})"
+
+
+def back_in_house(orders):
+    """{order: the day its parcel was scanned back in} for the rows on screen."""
+    orders = [o for o in (orders or []) if o]
+    if not orders:
+        return {}
+    ph = ", ".join(["%s"] * len(orders))
+    rows = frappe.db.sql(
+        f"""SELECT rdni.against_sales_order so, MAX(rs.posting_date) at
+            FROM `tabReturn Shipment Item` rsi
+            JOIN `tabReturn Shipment` rs ON rs.name = rsi.parent
+            JOIN `tabDelivery Note Item` rdni ON rdni.name = rsi.delivery_note_item
+            WHERE rs.docstatus = 1 AND rs.status = 'Returned' AND rsi.actual_qty > 0
+              AND rdni.against_sales_order IN ({ph})
+            GROUP BY rdni.against_sales_order""", tuple(orders), as_dict=True)
+    return {r.so: str(r.at)[:10] for r in rows}
+
+
 @frappe.whitelist()
 def board(tab="awaiting", days=30, q="", limit=30, offset=0):
     """Returns workspace. tab=awaiting → orders flagged Returned with no parcel
@@ -24,10 +105,14 @@ def board(tab="awaiting", days=30, q="", limit=30, offset=0):
                      ON dn.so_name = so.name"""
         addr_join = """LEFT JOIN `tabAddress` addr
                      ON addr.name = COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address)"""
-        awaiting_where = """so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
+        # Awaiting means flagged and NOT yet here. The arrival test is the scan
+        # itself, not the return-shipment link on the note: that link is set on
+        # barely half the notes, so it called parcels missing that were already
+        # on the shelf.
+        awaiting_where = f"""so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
                     AND so.custom_logistics_status = 'Returned'
                     AND so.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)
-                    AND (dn.ret IS NULL OR dn.ret = '')"""
+                    AND NOT {back_in_house_sql()}"""
 
         # ── KPIs (window-scoped) ──
         k = frappe.db.sql(

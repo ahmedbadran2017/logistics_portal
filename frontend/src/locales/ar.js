@@ -1148,6 +1148,7 @@ export default {
   od: {
     csTitle: "خدمة العملاء",
     urgentDo: "علّمه عاجل",
+    backHere: "رجع لمخزننا", backHereSince: "اتستلم هنا يوم",
     urgentOn: "عاجل — أول الدفعة الجاية",
     urgentOff: "شيل العلامة",
     urgentPh: "ليه دلوقتي؟ (العميل كلّم، الأوردر متأخر…)",

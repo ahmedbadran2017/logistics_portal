@@ -68,6 +68,13 @@ _PROMISE = ("Redeliver", "Reship")
 #
 # The internal queue names below are unchanged, so every existing query,
 # count and cache keeps working; this is a routing layer, not a rewrite.
+def _back_in_house(so_col="so.name"):
+    """A parcel already back on our shelves is not worth a phone call -- the
+    carrier cannot deliver what it handed back to us."""
+    from logistics_portal.api.returns import back_in_house_sql
+    return back_in_house_sql(so_col)
+
+
 TABS = ("todo", "watch", "history")
 
 CHIPS = {
@@ -609,14 +616,15 @@ def _cached_counts(days):
     # The callback chip counts what is DUE, not what exists: a queue badge
     # showing 308 when 176 need calling today is a number nobody can act on.
     counts["callback"] = int(frappe.db.sql(
-        """SELECT COUNT(*) FROM `tabSales Order`
-           WHERE docstatus = 1 AND company = %(co)s
-             AND custom_next_call_at IS NOT NULL
-             AND custom_next_call_at <= %(snow)s
-             AND custom_sales_status <> 'Cancelled'
-             AND COALESCE(custom_logistics_status,'') NOT IN ('Delivered', 'Returned')
-             AND COALESCE(custom_track_shipment_status,'')
-                 NOT IN ('Delivered', 'Return', 'Returned')""",
+        f"""SELECT COUNT(*) FROM `tabSales Order` so
+           WHERE so.docstatus = 1 AND so.company = %(co)s
+             AND so.custom_next_call_at IS NOT NULL
+             AND so.custom_next_call_at <= %(snow)s
+             AND so.custom_sales_status <> 'Cancelled'
+             AND COALESCE(so.custom_logistics_status,'') NOT IN ('Delivered', 'Returned')
+             AND COALESCE(so.custom_track_shipment_status,'')
+                 NOT IN ('Delivered', 'Return', 'Returned')
+             AND NOT {_back_in_house()}""",
         {"co": _CO, "snow": _site_now()})[0][0])
     try:
         frappe.cache().set_value(ck, counts, expires_in_sec=60)
@@ -724,10 +732,13 @@ def board(tab="todo", days=30, q="", limit=30, offset=0, reason="", surface="",
                  # 73 of the 159 callbacks on the tab were parcels that had
                  # already arrived, the oldest waiting since 30 July.
                  # Whether the parcel finished lives in the OTHER two columns.
+                 # ...and the parcel can also be finished by being back on
+                 # our own shelves, which no column on the order records.
                  "so.custom_sales_status <> 'Cancelled'",
                  "COALESCE(so.custom_logistics_status,'') NOT IN ('Delivered', 'Returned')",
                  "COALESCE(so.custom_track_shipment_status,'') "
-                 "NOT IN ('Delivered', 'Return', 'Returned')"]
+                 "NOT IN ('Delivered', 'Return', 'Returned')",
+                 "NOT " + _back_in_house()]
         vals["co"] = _CO
         if q and str(q).strip():
             vals["q"] = f"%{str(q).strip()}%"

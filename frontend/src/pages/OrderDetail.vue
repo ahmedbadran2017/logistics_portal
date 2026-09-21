@@ -430,6 +430,17 @@
         </div>
         <div v-else class="text-[11.5px] text-stone-400">{{ t('od.csNone') }}</div>
 
+        <!-- The parcel is back on our shelves. Said plainly and above every
+             other action, because it rules most of them out: the carrier
+             cannot redeliver what it has already handed back to us. -->
+        <div v-if="backAt" class="rounded-xl p-2.5 bg-amber-50 ring-1 ring-amber-300 flex items-center gap-2">
+          <Icon name="package-check" :size="14" class="text-amber-700 shrink-0" />
+          <div class="min-w-0 flex-1">
+            <div class="text-[12px] font-bold text-amber-900">{{ t('od.backHere') }}</div>
+            <div class="text-[11px] text-amber-800">{{ t('od.backHereSince') }} {{ backAt }}</div>
+          </div>
+        </div>
+
         <!-- Urgent — only while the parcel is still ours to hurry. Once it
              is cut there is nothing on our floor left to push, and a badge
              that outlives the handover is a badge the floor stops reading. -->
@@ -630,6 +641,7 @@ const urgentReason = ref("");
 watch(() => order.value?.urgentReason, (v) => {
   if (v && !urgentReason.value) urgentReason.value = v;
 });
+const backAt = computed(() => order.value?.backAt || "");
 const isUrgent = computed(() => !!order.value?.urgentAt);
 const canUrgent = computed(() =>
   URGENT_ROLES.includes(myRole.value)
@@ -714,6 +726,7 @@ const order = computed(() => {
     dn: live.dn || "",
     track: normTrack(live.tracking_status) || "",
     city: live.city || "",
+    backAt: live.backAt || "",
     urgentAt: live.urgentAt || "",
     urgentBy: live.urgentBy || "",
     picker: "",

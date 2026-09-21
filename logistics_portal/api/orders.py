@@ -3,6 +3,24 @@
 import frappe
 from frappe.utils import now_datetime
 
+def _back_in_house_join(so_col="so.name", alias="bk"):
+    from logistics_portal.api.returns import back_in_house_join
+    return back_in_house_join(so_col, alias)
+
+
+def _back_in_house_at(order):
+    """The day this order's parcel was scanned back in, or ""."""
+    from logistics_portal.api.returns import back_in_house
+    return back_in_house([order]).get(order, "")
+
+
+def _back_in_house(so_col="so.name"):
+    """The parcel was scanned back in at our dock -- see returns.back_in_house_sql
+    for why that scan, and not the order's status field, is the witness."""
+    from logistics_portal.api.returns import back_in_house_sql
+    return back_in_house_sql(so_col)
+
+
 # Which custom_*_at field each logistics status stamps (first time it is reached).
 STAGE_STAMP = {
     "Picked": "custom_picked_at",
@@ -276,14 +294,20 @@ def _board_total(stage, track, q=None, city=None, dates=None, pick_names=None):
         where = f"{base} AND so.custom_logistics_status='Pending' AND {pl_cond} AND so.creation >= %s"
         args = [w]
     elif stage in ("to_return", "returned"):
-        cond = "AND (dn.ret IS NOT NULL AND dn.ret != '')" if stage == "returned" \
-            else "AND (dn.ret IS NULL OR dn.ret = '')"
+        # "Returned" on this board means received in a RET batch, so the scan
+        # IS the definition -- the order's own status field does not get a vote
+        # (it named 64 of the 981 parcels that came back last month).
+        from logistics_portal.api.returns import back_in_house_sql
         joins = addr + """ LEFT JOIN (SELECT dni.against_sales_order so_name,
                 MAX(d.custom_return_shipment) ret
             FROM `tabDelivery Note Item` dni JOIN `tabDelivery Note` d ON d.name=dni.parent
             WHERE d.docstatus=1 AND d.posting_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
                        GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name"""
-        where = f"{base} AND so.custom_logistics_status='Returned' AND so.creation >= %s {cond}"
+        if stage == "returned":
+            where = f"{base} AND so.creation >= %s AND {back_in_house_sql()}"
+        else:
+            where = (f"{base} AND so.custom_logistics_status='Returned'"
+                     f" AND so.creation >= %s AND NOT {back_in_house_sql()}")
         args = [dw]
     else:
         status_map = {"prepared": ["Label Generated", "Picked", "In transit", "Received"],
@@ -398,16 +422,13 @@ def _board_counts():
     # Returned split: physically received (RET linked) vs still with carrier.
     ret = frappe.db.sql(
         """SELECT
-             SUM(CASE WHEN dn.ret IS NOT NULL AND dn.ret != '' THEN 1 ELSE 0 END) received,
+             SUM(bk.so_name IS NOT NULL) received,
              COUNT(*) total
            FROM `tabSales Order` so
-           LEFT JOIN (SELECT dni.against_sales_order so_name, MAX(d.custom_return_shipment) ret
-                      FROM `tabDelivery Note Item` dni JOIN `tabDelivery Note` d ON d.name=dni.parent
-                      WHERE d.docstatus=1 AND d.posting_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
-                       GROUP BY dni.against_sales_order) dn
-             ON dn.so_name = so.name
+           """ + _back_in_house_join() + """
            WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
-             AND so.custom_logistics_status='Returned' AND so.creation >= %s""",
+             AND (so.custom_logistics_status='Returned' OR bk.so_name IS NOT NULL)
+             AND so.creation >= %s""",
         (dw,), as_dict=True)[0]
     received = int(ret.received or 0)
 
@@ -453,10 +474,11 @@ def _board_counts():
     attention = {
         # confirmed→cancelled after a PL existed (goods must go back to shelf)
         "cancelled_midflow": int(frappe.db.sql(
-            """SELECT COUNT(DISTINCT so.name) FROM `tabSales Order` so
+            f"""SELECT COUNT(DISTINCT so.name) FROM `tabSales Order` so
                JOIN `tabPick List Item` pli ON pli.sales_order = so.name
                WHERE so.docstatus=1 AND so.custom_sales_status='Cancelled'
                  AND so.custom_logistics_status NOT IN ('Delivered','Returned')
+                 AND NOT {_back_in_house()}
                  AND so.creation >= %s""", (dw,))[0][0] or 0),
         # PL submitted but the AWB automation didn't fire
         "no_awb": int(frappe.db.sql(
@@ -1419,8 +1441,9 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
         return [_row(r) for r in rows]
 
     if stage in ("to_return", "returned"):
-        cond = "AND (dn.ret IS NOT NULL AND dn.ret != '')" if stage == "returned" \
-            else "AND (dn.ret IS NULL OR dn.ret = '')"
+        from logistics_portal.api.returns import back_in_house_sql
+        cond = ("AND " + back_in_house_sql()) if stage == "returned" \
+            else "AND NOT " + back_in_house_sql()
         args = [dw]
         qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
         rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, dn.ret, dn.dn FROM `tabSales Order` so {addr}
@@ -1430,7 +1453,8 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
                        WHERE d.docstatus=1 AND d.posting_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
                        GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
-              AND so.custom_logistics_status='Returned' AND so.creation >= %s {cond} {qc} {cc} {dc}
+              {"" if stage == "returned" else "AND so.custom_logistics_status='Returned'"}
+              AND so.creation >= %s {cond} {qc} {cc} {dc}
             ORDER BY {_order_by(sort, 'so.modified ASC')} LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
         return [_row(r, ret=r.ret, dn=r.dn) for r in rows]
 
@@ -1440,6 +1464,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
             FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Cancelled'
               AND so.custom_logistics_status NOT IN ('Delivered','Returned')
+              AND NOT {_back_in_house()}
               AND pl.pl IS NOT NULL AND so.creation >= %s
             ORDER BY so.modified DESC LIMIT 30""", (dw,), as_dict=True):
             out.append(_row(r, pl=r.pl, picker=r.picker, kind="cancelled_midflow"))
@@ -1922,6 +1947,10 @@ def detail(name):
         "next_call": str(so.get("custom_next_call_at") or "")[:16],
         "payment_collection": so.get("custom_payment_collection") or "",
         "stage": so.get("custom_logistics_status") or "Pending",
+        # The parcel is on our shelves whatever the stage says. Worth its own
+        # line: an agent who cannot see it promises the customer a redelivery
+        # the carrier can no longer make, because the carrier does not have it.
+        "backAt": _back_in_house_at(name),
         "urgentAt": str(so.get("custom_urgent_at") or "")[:19],
         "urgentBy": (so.get("custom_urgent_by") or "").split("@")[0],
         "urgentReason": so.get("custom_urgent_reason") or "",

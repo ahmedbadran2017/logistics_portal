@@ -24,6 +24,13 @@ import frappe
 from frappe.utils import now_datetime
 
 from logistics_portal.api.confirmation import _CO, _SANE_MAX, _range
+from logistics_portal.api.returns import back_in_house_join
+
+# A returned parcel that nobody marked returned used to be counted as still in
+# flight, which understated every agent's return rate and overstated the open
+# book they are judged on. The scan at our own dock is the witness -- see
+# returns.back_in_house_sql for why the order's status field is not.
+_BACK = back_in_house_join()
 
 # Logistics stages that mean the parcel is out of the confirmation lane's hands
 # but not yet a final delivered/returned outcome — "in flight".
@@ -92,12 +99,14 @@ def team_scorecard(days=30, frm=None, to=None):
                    SUM(so.custom_sales_status = 'Confirmed') confirmed,
                    SUM(so.custom_sales_status = 'Cancelled') cancelled,
                    SUM(so.custom_logistics_status = 'Delivered') delivered,
-                   SUM(so.custom_logistics_status = 'Returned') returned,
-                   SUM(so.custom_logistics_status IN %(inflight)s) inflight,
+                   SUM(bk.so_name IS NOT NULL
+                       OR so.custom_logistics_status = 'Returned') returned,
+                   SUM(so.custom_logistics_status IN %(inflight)s
+                       AND bk.so_name IS NULL) inflight,
                    ROUND(SUM(CASE WHEN so.custom_logistics_status = 'Delivered'
                                   AND so.grand_total <= %(sane)s
                                   THEN so.grand_total ELSE 0 END)) collected
-            FROM `tabSales Order` so
+            FROM `tabSales Order` so {_BACK}
             WHERE so.docstatus = 1 AND so.company = %(co)s AND {cohort}
               AND so._assign IS NOT NULL AND so._assign NOT IN ('', '[]')
             GROUP BY agent

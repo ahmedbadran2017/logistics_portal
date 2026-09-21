@@ -1149,6 +1149,7 @@ export default {
   od: {
     csTitle: "Customer service",
     urgentDo: "Mark urgent",
+    backHere: "Back on our shelves", backHereSince: "Received here on",
     urgentOn: "Urgent — first in the next pick batch",
     urgentOff: "Clear",
     urgentPh: "Why now? (the customer called, it's late…)",
