@@ -592,7 +592,10 @@ def _cached_counts(days):
            WHERE docstatus = 1 AND company = %(co)s
              AND custom_next_call_at IS NOT NULL
              AND custom_next_call_at <= %(snow)s
-             AND custom_sales_status NOT IN ('Cancelled', 'Delivered')""",
+             AND custom_sales_status <> 'Cancelled'
+             AND COALESCE(custom_logistics_status,'') NOT IN ('Delivered', 'Returned')
+             AND COALESCE(custom_track_shipment_status,'')
+                 NOT IN ('Delivered', 'Return', 'Returned')""",
         {"co": _CO, "snow": _site_now()})[0][0])
     try:
         frappe.cache().set_value(ck, counts, expires_in_sec=60)
@@ -692,7 +695,18 @@ def board(tab="todo", days=30, q="", limit=30, offset=0, reason="", surface="",
         # two thirds of the callbacks are late and nobody could have known.
         conds = ["so.docstatus = 1", "so.company = %(co)s",
                  "so.custom_next_call_at IS NOT NULL",
-                 "so.custom_sales_status NOT IN ('Cancelled', 'Delivered')"]
+                 # NOT custom_sales_status for the delivered test. That column
+                 # only ever holds Pending / Confirmed / Did not Answer /
+                 # Follow Up / On Hold / Duplicated / Not Delivered /
+                 # Cancelled — "Delivered" is not one of its values, so the
+                 # first version of this filter excluded nothing at all and
+                 # 73 of the 159 callbacks on the tab were parcels that had
+                 # already arrived, the oldest waiting since 30 July.
+                 # Whether the parcel finished lives in the OTHER two columns.
+                 "so.custom_sales_status <> 'Cancelled'",
+                 "COALESCE(so.custom_logistics_status,'') NOT IN ('Delivered', 'Returned')",
+                 "COALESCE(so.custom_track_shipment_status,'') "
+                 "NOT IN ('Delivered', 'Return', 'Returned')"]
         vals["co"] = _CO
         if q and str(q).strip():
             vals["q"] = f"%{str(q).strip()}%"

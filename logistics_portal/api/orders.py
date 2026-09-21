@@ -2279,3 +2279,24 @@ def drop_urgent_on_ship(doc, method=None):
         doc.db_set("custom_urgent_by", "", update_modified=False)
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "orders.drop_urgent_on_ship")
+
+
+def drop_callback_when_done(doc, method=None):
+    """A call-back timer outlives its reason unless somebody clears it.
+
+    Nothing ever did: 73 of the 159 due call-backs were parcels that had
+    already been delivered, the oldest set on 30 July and still ringing
+    eight weeks later. The queue's filter now hides them, but a filter only
+    hides — this stops them being carried at all, so the list stays honest
+    on its own rather than by being cleaned up in front of the reader."""
+    try:
+        if not doc.get("custom_next_call_at"):
+            return
+        done = ((doc.get("custom_logistics_status") or "") in ("Delivered", "Returned")
+                or (doc.get("custom_track_shipment_status") or "")
+                in ("Delivered", "Return", "Returned"))
+        if not done:
+            return
+        doc.db_set("custom_next_call_at", None, update_modified=False)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "orders.drop_callback_when_done")

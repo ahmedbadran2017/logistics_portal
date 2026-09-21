@@ -74,6 +74,9 @@ doc_events = {
             # noise on a priority is how the floor stops believing the next
             # one. The flag dies at the handover, without anyone remembering.
             "logistics_portal.api.orders.drop_urgent_on_ship",
+            # A call-back timer on a delivered parcel is a promise to phone
+            # somebody about something that already happened.
+            "logistics_portal.api.orders.drop_callback_when_done",
             # The Desk is where 12% of this lane's decisions are taken, and
             # no portal code runs there — without this those agents would
             # report as having never touched the order.
