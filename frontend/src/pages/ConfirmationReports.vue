@@ -108,12 +108,43 @@
         </span>
       </div>
 
+      <!-- The three paths an order can take to Confirmed.
+           Without this the leaderboard under it is unreadable, and it was
+           being read as the company's confirm rate. It is not: 63% of orders
+           never reach a person, and what does is the residue the other two
+           paths could not settle. -->
+      <div v-if="cov" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+          <Icon name="git-branch" :size="14" class="text-stone-400" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('cfr.covTitle') }}</span>
+          <span class="ms-auto inline-flex items-baseline gap-1.5">
+            <b class="text-[18px] font-extrabold tabular-nums text-stone-900">{{ cov.all.rate }}%</b>
+            <span class="text-[11px] text-stone-400 tabular-nums">
+              {{ fmtN(cov.all.c) }} / {{ fmtN(cov.all.n) }}<template v-if="cov.all.valueRate"> · {{ cov.all.valueRate }}% {{ t('cfr.covByValue') }}</template>
+            </span>
+          </span>
+        </div>
+        <div class="px-4 py-3 space-y-2">
+          <div v-for="p in covRows" :key="p.k" class="flex items-center gap-3">
+            <span class="w-[150px] flex-shrink-0 text-[11.5px]"
+                  :class="p.k === 'team' ? 'font-semibold text-stone-900' : 'text-stone-500'">{{ t(p.l) }}</span>
+            <span class="flex-1 min-w-[120px] h-2 rounded-full bg-stone-100 overflow-hidden flex">
+              <span class="h-full" :class="p.cls" :style="{ width: p.share + '%' }" />
+            </span>
+            <span class="w-[86px] text-end text-[11px] text-stone-400 tabular-nums">{{ fmtN(p.n) }} · {{ p.share }}%</span>
+            <b class="w-[54px] text-end text-[12.5px] tabular-nums"
+               :class="rateColor(p.rate, 85, 65, 'text')">{{ p.rate === null ? '—' : p.rate + '%' }}</b>
+          </div>
+          <div class="text-[10.5px] text-stone-400 pt-1">{{ t('cfr.covHint') }}</div>
+        </div>
+      </div>
+
       <!-- The leaderboard -->
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
           <Icon name="users" :size="14" class="text-stone-400" />
           <span class="text-[12px] font-semibold text-stone-900">{{ t('cfr.agentsTitle') }}</span>
-          <span class="text-[11px] text-stone-400">{{ t('cfr.cohortHint') }}</span>
+          <span class="text-[11px] text-amber-600 font-medium">{{ t('cfr.agentsScope') }}</span>
           <div class="ms-auto flex items-center gap-1">
             <button v-for="so in SORTS" :key="so.k" class="rp-sort" :class="sort === so.k ? 'rp-sort-on' : ''"
                     @click="sort = so.k">{{ t(so.l) }}</button>
@@ -124,18 +155,17 @@
             <thead>
               <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
                 <th class="text-start px-4 py-2.5">{{ t('cfr.thAgent') }}</th>
-                <th class="text-end px-2 py-2.5">{{ t('cfr.thTotal') }}</th>
+                <th class="text-end px-2 py-2.5" :title="t('cfr.thHandledHint')">{{ t('cfr.thHandled') }}</th>
                 <th class="text-end px-2 py-2.5 text-emerald-600">{{ t('cf.actConfirm') }}</th>
                 <th class="text-end px-2 py-2.5 text-rose-500">{{ t('cf.actCancel') }}</th>
-                <th class="text-end px-2 py-2.5">{{ t('cf.tabDna') }}</th>
-                <th class="text-end px-2 py-2.5">{{ t('cf.tabFollowup') }}</th>
+                <th class="text-end px-2 py-2.5" :title="t('cfr.thOpenHint')">{{ t('cfr.thOpen') }}</th>
                 <th class="text-end px-3 py-2.5">{{ t('cfr.thRate') }}</th>
                 <th class="text-end px-2 py-2.5">{{ t('cfr.thResp') }}</th>
+                <th class="text-end px-2 py-2.5" :title="t('cfr.thCallsHint')">{{ t('cfr.thCalls') }}</th>
                 <th class="text-end px-2 py-2.5">{{ t('cfr.thAttempts') }}</th>
-                <th class="text-end px-2 py-2.5 text-sky-600">{{ t('cfr.thAuto') }}</th>
-                <th class="text-end px-3 py-2.5">{{ t('cfr.thConfirmedValue') }}</th>
+                <th class="text-end px-3 py-2.5 border-s border-stone-200">{{ t('cfr.thConfirmedValue') }}</th>
                 <th class="text-end px-3 py-2.5">{{ t('cfr.kCollected') }}</th>
-                <th class="text-end px-4 py-2.5">{{ t('cfr.thStick') }}</th>
+                <th class="text-end px-4 py-2.5" :title="t('cfr.thStickHint')">{{ t('cfr.thStick') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-stone-100">
@@ -164,11 +194,10 @@
                       {{ t('cfr.batch').replace('{n}', a.batchN) }}</span>
                   </span>
                 </td>
-                <td class="px-2 py-2.5 text-end tabular-nums font-semibold text-stone-900">{{ a.total }}</td>
-                <td class="px-2 py-2.5 text-end tabular-nums text-emerald-600 font-semibold">{{ a.confirm || '—' }}</td>
-                <td class="px-2 py-2.5 text-end tabular-nums text-rose-500">{{ a.cancel || '—' }}</td>
-                <td class="px-2 py-2.5 text-end tabular-nums text-stone-500">{{ a.dna || '—' }}</td>
-                <td class="px-2 py-2.5 text-end tabular-nums text-stone-500">{{ a.followup || '—' }}</td>
+                <td class="px-2 py-2.5 text-end tabular-nums font-semibold text-stone-900">{{ a.handled }}</td>
+                <td class="px-2 py-2.5 text-end tabular-nums text-emerald-600 font-semibold">{{ a.confirmed || '—' }}</td>
+                <td class="px-2 py-2.5 text-end tabular-nums text-rose-500">{{ a.cancelled || '—' }}</td>
+                <td class="px-2 py-2.5 text-end tabular-nums" :class="a.open ? 'text-amber-600 font-semibold' : 'text-stone-300'">{{ a.open || '—' }}</td>
                 <td class="px-3 py-2.5 text-end">
                   <span v-if="a.confirmRate !== null" class="inline-flex items-center justify-end gap-1.5">
                     <span class="w-[42px] h-1.5 rounded-full bg-stone-100 overflow-hidden">
@@ -191,9 +220,9 @@
                   </span>
                   <span v-else class="text-stone-300">—</span>
                 </td>
+                <td class="px-2 py-2.5 text-end tabular-nums text-stone-600">{{ a.callsPerOrder === null ? '—' : a.callsPerOrder.toFixed(1) }}</td>
                 <td class="px-2 py-2.5 text-end tabular-nums text-stone-600">{{ a.avgAttempts || '—' }}</td>
-                <td class="px-2 py-2.5 text-end tabular-nums text-sky-600" :title="t('cfr.thAutoHint')">{{ a.autoClosed || '—' }}</td>
-                <td class="px-3 py-2.5 text-end tabular-nums text-stone-500">{{ fmtMAD(a.confirmedValue) }}</td>
+                <td class="px-3 py-2.5 text-end tabular-nums text-stone-500 border-s border-stone-200">{{ fmtMAD(a.confirmedValue) }}</td>
                 <td class="px-3 py-2.5 text-end tabular-nums font-bold text-stone-900">{{ fmtMAD(a.collected) }}</td>
                 <td class="px-4 py-2.5 text-end">
                   <b v-if="a.stickRate !== null" class="tabular-nums" :class="rateColor(a.stickRate, 75, 65, 'text')">{{ a.stickRate }}%</b>
@@ -340,12 +369,15 @@ import Icon from "@/components/ui/Icon.vue";
 import DateRange from "@/components/ui/DateRange.vue";
 import { api } from "@/lib/resource";
 import { fmtMAD } from "@/lib/handoffData";
+
+// Plain counts, grouped — MAD has its own formatter and these are orders.
+const fmtN = (n) => new Intl.NumberFormat().format(Math.round(n || 0));
 import { useI18n } from "@/composables/useI18n";
 
 const { t } = useI18n();
 
 const SORTS = [
-  { k: "total", l: "cfr.thTotal" },
+  { k: "handled", l: "cfr.thHandled" },
   { k: "collected", l: "cfr.kCollected" },
   { k: "stickRate", l: "cfr.thStick" },
   { k: "confirmRate", l: "cfr.thRate" },
@@ -354,7 +386,7 @@ const SORTS = [
 const days = ref(30);
 const frm = ref("");
 const to = ref("");
-const sort = ref("total");
+const sort = ref("handled");
 const d = ref(null);
 // The lane's own time-to-first-human-touch. Absent on an older backend, so
 // every reader checks before it prints.
@@ -368,6 +400,20 @@ const sorted = computed(() => {
   return rows.sort((a, b) => (b[sort.value] ?? -1) - (a[sort.value] ?? -1));
 });
 
+// The three paths to Confirmed. `team` is what the leaderboard below is a
+// slice of — naming that on screen is the whole point of this block.
+const cov = computed(() => d.value?.coverage || null);
+const COV_ROWS = [
+  { k: "born", l: "cfr.covBorn", cls: "bg-stone-400" },
+  { k: "bot", l: "cfr.covBot", cls: "bg-sky-500" },
+  { k: "team", l: "cfr.covTeam", cls: "bg-[var(--accent-600)]" },
+];
+const covRows = computed(() => {
+  const c = cov.value;
+  if (!c) return [];
+  return COV_ROWS.map((r) => ({ ...r, ...(c[r.k] || { n: 0, share: 0, rate: null }) }));
+});
+
 // Section totals — the headline the manager reads first.
 const tot = computed(() => {
   const a = d.value?.agents || [];
@@ -375,7 +421,7 @@ const tot = computed(() => {
   const delivered = s("delivered");
   const shipped = delivered + s("failedParcels");
   return {
-    confirm: s("confirm"), confirmedValue: s("confirmedValue"),
+    confirm: s("confirmed"), confirmedValue: s("confirmedValue"),
     collected: s("collected"), delivered, shipped,
     stick: shipped ? Math.round((delivered * 100) / shipped) : 0,
   };

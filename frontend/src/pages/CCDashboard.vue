@@ -66,7 +66,7 @@
             <span class="text-sky-600 font-semibold"><Icon name="bot" :size="10" class="inline -mt-px" /> {{ fmtN(auto.total) }}</span>
             <span class="text-stone-400">{{ autoShare }}% {{ t('ccd.byAutomation') }}</span>
           </div>
-          <div class="text-[11px] text-stone-400 tabular-nums">{{ fmtN(tot.dna) }} {{ t('cf.actDna') }} · {{ fmtN(tot.followup) }} {{ t('cf.actFollowup') }}</div>
+          <div class="text-[11px] text-stone-400 tabular-nums">{{ fmtN(tot.open) }} {{ t('cfr.thOpen') }}</div>
         </div>
         <div class="ccd-kpi">
           <div class="ccd-kpi-l"><Icon name="wallet" :size="12" class="inline -mt-px me-1" />{{ t('ccd.kValue') }}</div>
@@ -412,9 +412,13 @@ async function loadReport() {
 function totalsOf(rep) {
   const ag = rep?.agents || [];
   const sum = (k) => ag.reduce((a, x) => a + (Number(x[k]) || 0), 0);
-  const confirm = sum("confirm"), cancel = sum("cancel");
-  return { confirm, cancel, total: sum("total"), value: sum("confirmedValue"),
-    rate: confirm + cancel ? Math.round((confirm * 100) / (confirm + cancel)) : null };
+  // Orders, not key-presses, and the order's FATE rather than the verb that
+  // was typed at it — the same grain the section report now uses, so the two
+  // screens cannot report different numbers for the same week.
+  const confirm = sum("confirmed"), cancel = sum("cancelled");
+  const total = sum("handled");
+  return { confirm, cancel, total, value: sum("confirmedValue"),
+    rate: total ? Math.round((confirm * 100) / total) : null };
 }
 // Δ vs the previous window. Rate compares in points, the rest in percent.
 function deltaOf(cur, prev, isPts = false) {
@@ -444,7 +448,9 @@ function stickH(f2) {
 const tot = computed(() => {
   const ag = r.value?.agents || [];
   const sum = (k) => ag.reduce((a, x) => a + (Number(x[k]) || 0), 0);
-  return { ...totalsOf(r.value), dna: sum("dna"), followup: sum("followup"),
+  // `open` replaces the old dna + followup sum: those counted re-dials, so
+  // the pair added up to more unresolved work than the team ever had.
+  return { ...totalsOf(r.value), open: sum("open"),
            collected: sum("collected") };
 });
 // The WhatsApp flow decides a large share of every window, so the headline
@@ -454,9 +460,10 @@ const all = computed(() => {
   const h = tot.value, a2 = auto.value;
   const confirm = h.confirm + (a2?.confirm || 0);
   const cancel = h.cancel + (a2?.cancel || 0);
-  return { confirm, cancel, total: h.total + (a2?.total || 0),
+  const total = h.total + (a2?.total || 0);
+  return { confirm, cancel, total,
            value: h.value + (a2?.confirmedValue || 0),
-           rate: confirm + cancel ? Math.round((confirm * 100) / (confirm + cancel)) : null };
+           rate: total ? Math.round((confirm * 100) / total) : null };
 });
 const autoShare = computed(() =>
   all.value.total ? Math.round(((auto.value?.total || 0) * 100) / all.value.total) : null);

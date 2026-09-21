@@ -1895,12 +1895,26 @@ def report(days=7, frm=None, to=None):
     so_rng = rng.format(col="so.creation")
 
     # ── per-agent decisions, from the trail ──────────────────────────────
-    per_agent = {}
+    # ONE population, and it is a set of ORDERS.
+    #
+    # This table used to count key-presses. An order marked Did not Answer
+    # twice and then confirmed added three rows to it: one to CONFIRM and two
+    # to NO ANSWER, and three to the TOTAL a column header called "orders".
+    # Measured on production 2026-09-21 over 30 days, that inflated the
+    # section's busiest agent from 1,438 real orders to 2,157.
+    #
+    # `owned` is the set of orders each person actually decided; `calls` keeps
+    # the old action count, which is a real and useful number — it is how many
+    # times they had to go back to a customer — so it becomes its own column
+    # instead of masquerading as volume.
+    per_agent, owned, calls = {}, {}, {}
     for r in frappe.db.sql(
-            f"""SELECT c.owner, c.content, COUNT(*) n FROM `tabComment` c
+            f"""SELECT c.owner, c.reference_name ord, c.content, COUNT(*) n
+                FROM `tabComment` c
                 WHERE c.reference_doctype = 'Sales Order'
                   AND c.content LIKE 'Confirmation: %%' AND {c_rng}
-                GROUP BY c.owner, c.content""", rng_vals, as_dict=True):
+                GROUP BY c.owner, c.reference_name, c.content""",
+            rng_vals, as_dict=True):
         bulk = "(bulk)" in r.content or " bulk " in r.content
         action = (r.content.split("Confirmation: ", 1)[1] or "").split(" ", 1)[0]
         action = action.strip("()—- ")
@@ -1912,6 +1926,9 @@ def report(days=7, frm=None, to=None):
             a[action] += int(r.n or 0)
         if bulk:
             a["bulk"] += int(r.n or 0)
+        if action in _ATTEMPT_ACTIONS:
+            owned.setdefault(r.owner, set()).add(r.ord)
+            calls[r.owner] = calls.get(r.owner, 0) + int(r.n or 0)
 
     # ── the SAME people working on the DESK. The portal writes a comment and
     # no Version row (act() goes through db.set_value), the desk writes a
@@ -1928,7 +1945,7 @@ def report(days=7, frm=None, to=None):
     desk_daily = {}
     desk_hours = {}
     for r in frappe.db.sql(
-            f"""SELECT v.owner, v.creation, v.data FROM `tabVersion` v
+            f"""SELECT v.owner, v.docname, v.creation, v.data FROM `tabVersion` v
                 JOIN `tabSales Order` so ON so.name = v.docname
                 WHERE v.ref_doctype = 'Sales Order' AND so.company = %(co)s
                   AND v.owner NOT IN %(auto)s
@@ -1952,6 +1969,9 @@ def report(days=7, frm=None, to=None):
                                                "bulk": 0})
             if action in a:
                 a[action] += 1
+            if action in _ATTEMPT_ACTIONS:
+                owned.setdefault(r.owner, set()).add(r.docname)
+                calls[r.owner] = calls.get(r.owner, 0) + 1
             if action in ("confirm", "cancel", "dna"):
                 _at = _clock.to_floor(r.creation)
                 dd = desk_daily.setdefault(str(_at)[:10], {"confirm": 0,
@@ -1959,72 +1979,95 @@ def report(days=7, frm=None, to=None):
                 dd[action] += 1
                 desk_hours[_at.hour] = desk_hours.get(_at.hour, 0) + 1
 
-    # ── per-agent money, on the COHORT of orders that arrived in the window.
-    # NB: `collected` is the money that actually reached us — a confirm whose
-    # parcel comes back refused is not revenue, and the desk dashboard's single
-    # "Revenue" column cannot tell the two apart. `leak` is deliberately NOT
-    # computed per agent: an order confirmed but never shipped is usually the
-    # warehouse or the clock, not the agent, and blaming them for it would be
-    # a lie with their bonus attached. stickRate (delivered / shipped) is the
-    # part they own. ─────────────────────────────────────────────────────
-    # Two queries, not one, and both at ORDER grain. The single query this
-    # replaces LEFT JOINed Delivery Note Item, which fans out one row PER LINE
-    # — so a 3-item order counted 3 orders, 3 confirms and 3× its grand_total.
-    # Every money number on this report was weighted by basket size. An order
-    # with no DN produced one row and stayed honest, which is exactly why it
-    # was invisible: the error grew with how well the order shipped.
+    # ── per-agent outcome + money, on the ORDERS THEY DECIDED ───────────
+    #
+    # This used to run on a different population than the columns beside it:
+    # keyed on custom_allocated_to and windowed on when the order ARRIVED,
+    # while the decision columns were keyed on who acted and windowed on when
+    # they acted. Two questions, one row. It showed on production as the
+    # impossible pair "BOT 2,268 / TOTAL 2,206" — a bot column larger than the
+    # total it was supposed to be part of — because the cohort holds every
+    # order allocated to the agent, including the ones the automation closed
+    # without them. One agent's row read 33 orders on the left and 358 MAD on
+    # the right.
+    #
+    # Both halves now describe the same orders: the ones this person decided.
+    #
+    # NB `collected` is the money that actually arrived — a confirm whose
+    # parcel comes back refused is not revenue. `leak` is deliberately NOT
+    # per-agent: an order confirmed and never shipped is the warehouse or the
+    # clock, not the agent, and blaming them for it would be a lie with their
+    # bonus attached. stickRate is the part they own.
+    _all_owned = set()
+    for _s in owned.values():
+        _all_owned |= _s
+    # order -> (status, value, attempts); then outcome from the parcels.
+    _o_st, _o_del, _o_fail, _o_coll = {}, set(), set(), {}
+    _names = list(_all_owned)
+    for _i in range(0, len(_names), 900):
+        _chunk = tuple(_names[_i:_i + 900])
+        for _r in frappe.db.sql(
+                """SELECT so.name, so.custom_sales_status st, so.grand_total gt,
+                          COALESCE(so.custom_call_attempts, 0) att
+                   FROM `tabSales Order` so WHERE so.name IN %s""",
+                (_chunk,), as_dict=True):
+            _o_st[_r.name] = (_r.st or "", float(_r.gt or 0), int(_r.att or 0))
+        # One row per ORDER, never per line: joining Delivery Note Item and
+        # summing without collapsing first multiplies every money figure by
+        # the basket size. An order that failed once and landed on the
+        # redelivery is delivered, not both.
+        for _r in frappe.db.sql(
+                """SELECT x.name, x.gt,
+                          MAX(x.is_del) is_del, MAX(x.is_fail) is_fail
+                   FROM (SELECT so.name, so.grand_total gt,
+                                dn.custom_track_shipment_status = 'Delivered' is_del,
+                                dn.custom_track_shipment_status IN
+                                    ('Delivery Exception', 'Failed Attempt') is_fail
+                         FROM `tabSales Order` so
+                         JOIN `tabDelivery Note Item` dni
+                           ON dni.against_sales_order = so.name AND dni.docstatus = 1
+                         JOIN `tabDelivery Note` dn
+                           ON dn.name = dni.parent AND dn.docstatus = 1
+                         WHERE so.name IN %s) x
+                   GROUP BY x.name, x.gt""", (_chunk,), as_dict=True):
+            if _r.is_del:
+                _o_del.add(_r.name)
+                if float(_r.gt or 0) <= _SANE_MAX:
+                    _o_coll[_r.name] = float(_r.gt or 0)
+            elif _r.is_fail:
+                _o_fail.add(_r.name)
+
+    # Still genuinely unresolved — which is what the old NO ANSWER column was
+    # mistaken for. Of one agent's 1,438 orders, 712 carried a "no answer"
+    # and 30 were actually still open: the rest were the same orders, called
+    # again and closed.
+    _OPEN_STS = ("Pending", "Did not Answer", "Follow Up", "On Hold")
     money = {}
-    for r in frappe.db.sql(
-            f"""SELECT so.custom_allocated_to u,
-                       COUNT(*) orders,
-                       SUM(so.custom_sales_status = 'Confirmed') confirmed,
-                       SUM(CASE WHEN so.custom_sales_status = 'Confirmed'
-                                     AND so.grand_total <= %(sane)s
-                                THEN so.grand_total ELSE 0 END) confirmed_value,
-                       AVG(COALESCE(so.custom_call_attempts, 0)) attempts
-                FROM `tabSales Order` so
-                WHERE so.docstatus = 1 AND so.company = %(co)s
-                  AND COALESCE(so.custom_allocated_to,'') != ''
-                  AND so.custom_allocated_to NOT IN ('Administrator', 'Guest')
-                  AND {so_rng}
-                GROUP BY u""", {"sane": _SANE_MAX, "co": _CO, **rng_vals}, as_dict=True):
-        money[r.u] = dict(r)
-
-    # Outcome + collected cash. Collapsed to one row per ORDER first: an order
-    # that failed once and landed on the redelivery is delivered, not both.
-    for r in frappe.db.sql(
-            f"""SELECT u, SUM(is_del) delivered, SUM(is_fail AND NOT is_del) failed,
-                       SUM(CASE WHEN is_del AND gt <= %(sane)s THEN gt ELSE 0 END) collected
-                FROM (SELECT so.custom_allocated_to u, so.name, so.grand_total gt,
-                             MAX(dn.custom_track_shipment_status = 'Delivered') is_del,
-                             MAX(dn.custom_track_shipment_status IN
-                                 ('Delivery Exception', 'Failed Attempt')) is_fail
-                      FROM `tabSales Order` so
-                      JOIN `tabDelivery Note Item` dni
-                        ON dni.against_sales_order = so.name AND dni.docstatus = 1
-                      JOIN `tabDelivery Note` dn
-                        ON dn.name = dni.parent AND dn.docstatus = 1
-                      WHERE so.docstatus = 1 AND so.company = %(co)s
-                        AND COALESCE(so.custom_allocated_to,'') != ''
-                        AND so.custom_allocated_to NOT IN ('Administrator', 'Guest')
-                        AND {so_rng}
-                      GROUP BY so.name) x
-                GROUP BY u""", {"sane": _SANE_MAX, "co": _CO, **rng_vals}, as_dict=True):
-        money.setdefault(r.u, {}).update(
-            {"delivered": r.delivered, "failed": r.failed, "collected": r.collected})
-
-    # Automation-closed orders per agent (Version owner = Administrator) for
-    # the SAME cohort window the money uses.
-    auto_by_agent = {r[0]: int(r[1] or 0) for r in frappe.db.sql(
-        f"""SELECT so.custom_allocated_to, COUNT(DISTINCT v.docname)
-            FROM `tabVersion` v JOIN `tabSales Order` so ON so.name = v.docname
-            WHERE v.ref_doctype = 'Sales Order' AND v.owner IN %(auto)s
-              AND v.data LIKE '%%custom_sales_status%%'
-              AND so.company = %(co)s
-              AND COALESCE(so.custom_allocated_to, '') != ''
-              AND {rng.format(col="v.creation")}
-            GROUP BY so.custom_allocated_to""",
-        {**rng_vals, "auto": _AUTOMATION_USERS})}
+    for _u, _set in owned.items():
+        d = {"orders": 0, "confirm": 0, "cancel": 0, "open": 0, "other": 0,
+             "confirmed_value": 0.0, "collected": 0.0, "delivered": 0,
+             "failed": 0, "att_sum": 0}
+        for _n in _set:
+            st, gt, att = _o_st.get(_n, ("", 0.0, 0))
+            d["orders"] += 1
+            d["att_sum"] += att
+            if st == "Confirmed":
+                d["confirm"] += 1
+                if gt <= _SANE_MAX:
+                    d["confirmed_value"] += gt
+            elif st == "Cancelled":
+                d["cancel"] += 1
+            elif st in _OPEN_STS:
+                d["open"] += 1
+            else:
+                d["other"] += 1
+            if _n in _o_del:
+                d["delivered"] += 1
+                d["collected"] += _o_coll.get(_n, 0.0)
+            elif _n in _o_fail:
+                d["failed"] += 1
+        d["attempts"] = round(d["att_sum"] / max(d["orders"], 1), 1)
+        money[_u] = d
 
     # ── the AUTOMATION as its own worker ─────────────────────────────────
     # The WhatsApp flow runs as Administrator and it is not a rounding error:
@@ -2137,19 +2180,25 @@ def report(days=7, frm=None, to=None):
     sla_min = int(_cf_settings().get("slaFirstCallH", 6)) * 60
     _touch, _team_mins, _team_untouched, _raw = {}, [], 0, {}
     if frappe.get_meta("Sales Order").has_field("custom_first_touch_at"):
-        for r in frappe.db.sql(
-                f"""SELECT so.custom_allocated_to u, so.custom_first_touch_at ft,
-                           TIMESTAMPDIFF(MINUTE, so.creation, so.custom_first_touch_at) mins
-                    FROM `tabSales Order` so
-                    WHERE so.docstatus = 1 AND so.company = %(co)s
-                      AND COALESCE(so.custom_allocated_to,'') != ''
-                      AND so.custom_allocated_to NOT IN ('Administrator', 'Guest')
-                      AND {so_rng}""", {"co": _CO, **rng_vals}, as_dict=True):
-            d = _raw.setdefault(r.u, {"mins": [], "untouched": 0})
-            if r.ft and r.mins is not None and int(r.mins) >= 0:
-                d["mins"].append(int(r.mins))
-            else:
-                d["untouched"] += 1
+        # Same population as every other column on the row: the orders this
+        # person decided. Read off the cohort it described a different set.
+        _ft = {}
+        for _i in range(0, len(_names), 900):
+            for r in frappe.db.sql(
+                    """SELECT so.name,
+                              TIMESTAMPDIFF(MINUTE, so.creation,
+                                            so.custom_first_touch_at) mins
+                       FROM `tabSales Order` so WHERE so.name IN %s""",
+                    (tuple(_names[_i:_i + 900]),), as_dict=True):
+                _ft[r.name] = r.mins
+        for u, _set in owned.items():
+            d = _raw.setdefault(u, {"mins": [], "untouched": 0})
+            for _n in _set:
+                _m = _ft.get(_n)
+                if _m is not None and int(_m) >= 0:
+                    d["mins"].append(int(_m))
+                else:
+                    d["untouched"] += 1
         for u, d in _raw.items():
             ms = sorted(d["mins"])
             if ms:
@@ -2181,17 +2230,35 @@ def report(days=7, frm=None, to=None):
         g = lambda k: m.get(k) or 0          # money rows are plain dicts, and an
                                              # agent may appear in only one of
                                              # the two queries above.
-        decided = a["confirm"] + a["cancel"]
+        handled = int(g("orders"))
         shipped = int(g("delivered")) + int(g("failed"))
         agents.append({
             "agent": user.split("@")[0], "user": user,
-            # Of this agent's cohort, how many the automation closed — the
-            # manager must be able to tell chased-by-bot from called-by-agent.
-            "autoClosed": int(auto_by_agent.get(user, 0)),
-            **a,
-            "total": a["confirm"] + a["cancel"] + a["dna"] + a["followup"]
-                     + a["onhold"] + a["duplicate"],
-            "confirmRate": round(a["confirm"] * 100.0 / decided, 1) if decided else None,
+            # The ACTION tallies stay available under their own name. They
+            # are a real number — how many times a verb was pressed — but
+            # they are not volume, and leaving them spread across the row
+            # under `confirm`/`cancel` is exactly how they got read as one.
+            "actions": a,
+            "bulk": a["bulk"], "reopen": a["reopen"],
+            "calls": calls.get(user, 0),
+            # Orders, not key-presses. One row per order this person decided.
+            "handled": handled,
+            "total": handled,
+            # The order's FATE, not the verb that was typed at it. These
+            # disagree: one agent pressed Confirm on 17 orders in 30 days and
+            # 15 of them are Confirmed today — the rest were reversed after
+            # they left. Scoring the keystroke put that person top of the
+            # leaderboard at 81% when the orders they handled came out at
+            # 51.7%, five places lower.
+            "confirmed": int(g("confirm")),
+            "cancelled": int(g("cancel")),
+            # Still genuinely unresolved. NOT the old NO ANSWER column, which
+            # counted re-dials: 712 of them against 30 orders actually open.
+            "open": int(g("open")),
+            "confirmRate": round(int(g("confirm")) * 100.0 / handled, 1) if handled else None,
+            # How many times they had to go back to a customer per order —
+            # the real question the "no answer" column was groping at.
+            "callsPerOrder": round(calls.get(user, 0) / float(handled), 2) if handled else None,
             "avgAttempts": round(float(g("attempts")), 1),
             # How fast the first human touch lands after the order arrives.
             #
@@ -2237,6 +2304,78 @@ def report(days=7, frm=None, to=None):
                          if shipped else None,
         })
     agents.sort(key=lambda x: -x["total"])
+
+    # ── the three paths an order can take to Confirmed ───────────────────
+    #
+    # Without this the agent table is unreadable, and it was being read wrong.
+    # Measured on production over 30 days: the company confirms 80.8% of what
+    # arrives, but that single number is three populations with nothing in
+    # common. 63% of orders are decided before any agent sees them — 15% are
+    # born Confirmed at import (a paid order, or a customer who has taken a
+    # delivery before) and 48% the WhatsApp automation closes on its own at
+    # 96.7%. What reaches a person is the 37% neither path could settle, and
+    # it is measurably the harder end of the pile: 33% of it needed a chase
+    # reminder against 12% of what the automation closed alone.
+    #
+    # So the team's confirm rate is 57.1%, and it is not the company's rate,
+    # and the two were never comparable. A manager looking at one agent row
+    # has no way to know that unless the screen says it.
+    #
+    # One grouped query rather than loading the window into python: the
+    # buckets were verified against a row-by-row JSON parse of the Version
+    # trail on production and agree exactly (the only gap was the four orders
+    # that arrived between the two runs), and this form has no row cap to
+    # silently mis-file an order as "never touched".
+    cov = {}
+    for _r in frappe.db.sql(
+            f"""SELECT CASE
+                  WHEN EXISTS (SELECT 1 FROM `tabComment` c
+                               WHERE c.reference_doctype = 'Sales Order'
+                                 AND c.reference_name = so.name
+                                 AND c.content LIKE 'Confirmation: %%')
+                    OR EXISTS (SELECT 1 FROM `tabVersion` v
+                               WHERE v.ref_doctype = 'Sales Order'
+                                 AND v.docname = so.name
+                                 AND v.data LIKE '%%custom_sales_status%%'
+                                 AND v.owner NOT IN %(auto)s)
+                  THEN 'team'
+                  WHEN EXISTS (SELECT 1 FROM `tabVersion` v
+                               WHERE v.ref_doctype = 'Sales Order'
+                                 AND v.docname = so.name
+                                 AND v.data LIKE '%%custom_sales_status%%'
+                                 AND v.owner IN %(auto)s)
+                  THEN 'bot' ELSE 'born' END k,
+                COUNT(*) n,
+                SUM(so.custom_sales_status = 'Confirmed') c,
+                SUM(CASE WHEN so.grand_total <= %(sane)s
+                         THEN so.grand_total ELSE 0 END) v,
+                SUM(CASE WHEN so.custom_sales_status = 'Confirmed'
+                              AND so.grand_total <= %(sane)s
+                         THEN so.grand_total ELSE 0 END) cv
+                FROM `tabSales Order` so
+                WHERE so.company = %(co)s AND {so_rng}
+                GROUP BY k""",
+            {**rng_vals, "auto": _AUTOMATION_USERS, "sane": _SANE_MAX},
+            as_dict=True):
+        cov[_r.k] = {"n": int(_r.n or 0), "c": int(_r.c or 0),
+                     "v": float(_r.v or 0), "cv": float(_r.cv or 0)}
+    _tn = 0
+    for _k in ("born", "bot", "team"):
+        cov.setdefault(_k, {"n": 0, "c": 0, "v": 0.0, "cv": 0.0})
+        _tn += cov[_k]["n"]
+    cov["all"] = {"n": _tn,
+                  "c": sum(cov[_k]["c"] for _k in ("born", "bot", "team")),
+                  "v": sum(cov[_k]["v"] for _k in ("born", "bot", "team")),
+                  "cv": sum(cov[_k]["cv"] for _k in ("born", "bot", "team"))}
+    for _k, _d in cov.items():
+        _d["rate"] = round(_d["c"] * 100.0 / _d["n"], 1) if _d["n"] else None
+        _d["share"] = (round(_d["n"] * 100.0 / _tn, 1)
+                       if _tn and _k != "all" else None)
+        _d["value"] = round(_d["v"])
+        _d["confirmedValue"] = round(_d["cv"])
+        _d["valueRate"] = round(_d["cv"] * 100.0 / _d["v"], 1) if _d["v"] else None
+        _d.pop("v", None)
+        _d.pop("cv", None)
 
     # ── cancel reasons, from the Select the whole company groups by ──────
     reason_rows = []
@@ -2355,6 +2494,8 @@ def report(days=7, frm=None, to=None):
         # into a response time would flatter it beyond recognition.
         "firstTouch": _first_touch_summary(_team_mins, _team_untouched, sla_min),
         "agents": agents,
+        # What the agent table is a slice OF.
+        "coverage": cov,
         # Kept OUT of `agents` on purpose: everything that iterates that list
         # (leaderboard, bonus, team averages) must stay human-only.
         "automation": automation,
