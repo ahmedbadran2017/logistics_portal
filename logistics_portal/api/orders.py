@@ -1609,6 +1609,42 @@ def activity(name):
     return events[:50]
 
 
+def _off_face(items):
+    """[{name, code, qty, where}] for lines that are sellable but not on a
+    pick face — one grouped read over the sellable-only zones."""
+    plain = {r.get("sku") for r in items
+             if r.get("offFace") and not r.get("components") and r.get("sku")}
+    comps = {c["sku"] for r in items for c in (r.get("components") or [])
+             if c.get("offFace") and c.get("sku")}
+    want = plain | comps
+    if not want:
+        return []
+    from logistics_portal.api.warehouses import sell_zones
+    zones = sell_zones()
+    where = {}
+    if zones:
+        for b in frappe.db.sql(
+                f"""SELECT item_code, warehouse, actual_qty FROM `tabBin`
+                    WHERE actual_qty > 0 AND item_code IN %s
+                      AND warehouse IN ({', '.join(['%s'] * len(zones))})
+                    ORDER BY actual_qty DESC""",
+                tuple([tuple(want)] + zones), as_dict=True):
+            where.setdefault(b.item_code, []).append(
+                (b.warehouse, int(b.actual_qty or 0)))
+    out = []
+    for r in items:
+        if not r.get("offFace"):
+            continue
+        rows = ([{"sku": c["sku"], "name": c.get("name") or c["sku"]} for c in (r.get("components") or []) if c.get("offFace")]
+                or [{"sku": r.get("sku"), "name": r.get("name") or r.get("sku")}])
+        for one in rows:
+            w = where.get(one["sku"]) or []
+            out.append({"name": one["name"], "code": one["sku"],
+                        "qty": sum(q for _z, q in w),
+                        "where": ", ".join(z.replace(" - JM", "") for z, _q in w[:2])})
+    return out
+
+
 @frappe.whitelist()
 def detail(name):
     """Full order detail for the shared OrderDetail screen. Any portal role —
@@ -1661,7 +1697,14 @@ def detail(name):
         if _codes:
             # One shared definition, so the card, the board and the create can
             # never disagree about the same line again.
-            _totals, _sre, _free = availability(_codes)
+            # The confirmation agent is deciding whether to PROMISE the
+            # order, so the question is "is it ours to sell", not "can a
+            # picker reach it today". Both numbers are computed: the second
+            # is what tells the warehouse a transfer is needed before this
+            # order can move, and without it a confirmed order would simply
+            # strand in the pool with nobody told why.
+            _totals, _sre, _free = availability(_codes, scope="sell")
+            _ptotals, _psre, _pfree = availability(_codes)
             # A LOCAL supplier's item is never "out of stock" on this card:
             # its stock lives at the supplier, not on our shelves, so our
             # pool math reading zero is a statement about our warehouse, not
@@ -1685,26 +1728,42 @@ def detail(name):
                     # component allows; short if any piece is short.
                     fits = []
                     shorts = []
+                    offs = []
                     for c in r["components"]:
                         _f = _free(name, c["sku"])
+                        _pf = _pfree(name, c["sku"])
                         c["avail"] = int(max(0, _f))
+                        c["availFace"] = int(max(0, _pf))
                         c["short"] = bool(_f < c["qty"]) and c["sku"] not in _local
+                        c["offFace"] = bool(not c["short"] and _pf < c["qty"]
+                                            and c["sku"] not in _local)
+                        if c["offFace"]:
+                            offs.append(c)
                         if c["short"]:
                             shorts.append(c)
                         per = c["qty"] / float(r.qty or 1) if r.qty else c["qty"]
                         fits.append(int(max(0, _f) // per) if per else 0)
                     r["avail"] = min(fits) if fits else 0
                     r["short"] = bool(shorts)
+                    r["offFace"] = bool(offs) and not shorts
                     r["shortComponents"] = shorts
                     continue
                 _need = float(r.qty or 0)
                 _f = _free(name, r.sku)
+                _pf = _pfree(name, r.sku)
                 r["avail"] = int(max(0, _f))
+                r["availFace"] = int(max(0, _pf))
                 if r.sku in _local:
                     r["local"] = True
                     r["short"] = False
                 else:
                     r["short"] = bool(_f < _need)
+                    # Sellable but not on a pick face: the order can be
+                    # confirmed, and somebody has to move the stock first.
+                    # Saying "out of stock" here is what made agents cancel
+                    # live sales — J-008094 was told out of stock with 1,986
+                    # units of its item in the building.
+                    r["offFace"] = bool(not r["short"] and _pf < _need)
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "orders.detail stock")
 
@@ -1743,6 +1802,10 @@ def detail(name):
         # Name to read, code to look up: the agent has the customer on the
         # line and needs to check the shelf, not just be told there is none.
         # A short bundle names the PIECE that is short, not the box.
+        # Sellable, but a transfer stands between the promise and the parcel.
+        # Named with the zone and the quantity, because "somewhere else" is
+        # not something a dispatcher can act on.
+        "stockOffFace": _off_face(items),
         "stockShort": [x for r in items if r.get("short") for x in (
             [{"name": c.get("name") or c.get("sku"), "code": c.get("sku") or ""}
              for c in r.get("shortComponents") or []]

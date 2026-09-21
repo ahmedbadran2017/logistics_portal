@@ -95,9 +95,19 @@
           <div v-if="suggest.data.oos.length" class="rounded-xl bg-rose-50 ring-1 ring-rose-200/60 p-3">
             <div class="text-[12px] font-semibold text-rose-700 mb-0.5">{{ t("pl.sbOos") }} · {{ suggest.data.oos.length }}</div>
             <div class="text-[11px] text-rose-600 mb-1.5">{{ t("pl.sbOosHint") }}</div>
+            <!-- Not all of these are out of stock. Some are one transfer
+                 away — the goods are in SLOW ZONE, which the pick engine is
+                 not allowed to reach. Those are a job, not a dead end, and
+                 lumping them in with the genuinely empty ones is how a
+                 confirmed order sits in the pool for a week. -->
+            <div v-if="movableCount" class="text-[11px] font-semibold text-amber-700 mb-1.5">
+              {{ t("pl.sbMovable").replace("{n}", String(movableCount)) }}
+            </div>
             <div class="flex flex-wrap gap-1.5">
               <span v-for="o in suggest.data.oos.slice(0, 12)" :key="o.so"
-                    class="font-mono text-[10.5px] text-rose-700 bg-white ring-1 ring-rose-200/70 rounded px-1.5 py-0.5" :title="o.missing.join(', ')">{{ o.so }}</span>
+                    class="font-mono text-[10.5px] rounded px-1.5 py-0.5 ring-1"
+                    :class="o.needsMove ? 'text-amber-800 bg-amber-50 ring-amber-300' : 'text-rose-700 bg-white ring-rose-200/70'"
+                    :title="(o.needsMove ? t('pl.sbMoveOne') + ' — ' : '') + o.missing.join(', ')">{{ o.so }}</span>
               <span v-if="suggest.data.oos.length > 12" class="text-[10.5px] text-rose-500">{{ t("pl.sbMore").replace("{n}", suggest.data.oos.length - 12) }}</span>
             </div>
           </div>
@@ -143,6 +153,8 @@ const sbPickers = ref([]);
 const sbCreating = ref(false);
 const capSel = ref(40);
 
+const movableCount = computed(
+  () => (suggest.value?.data?.oos || []).filter((o) => o.needsMove).length);
 const pickedOrders = computed(() => {
   if (!suggest.value?.data) return 0;
   return suggest.value.data.batches

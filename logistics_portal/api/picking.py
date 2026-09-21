@@ -2125,15 +2125,29 @@ def _batch_truth(item_codes):
     return out
 
 
-def _available_totals(item_codes):
-    """item_code → total FREE qty across pickable bins (actual − reserved −
-    open-draft pick list claims). Mirrors the controller's full-coverage rule
-    so the portal can exclude uncoverable orders BEFORE the save rejects the
-    whole combined document."""
+def _available_totals(item_codes, scope="pick"):
+    """item_code → total FREE qty (actual − reserved − open-draft claims).
+
+    `scope` is WHICH QUESTION is being asked, not a second definition of the
+    answer — every subtraction below is identical for both:
+
+      "pick"  can a picker take this off a face today? Mirrors the
+              controller's full-coverage rule, so the portal can exclude
+              uncoverable orders BEFORE the save rejects the whole combined
+              document.
+      "sell"  can we honour this order at all? Widens the warehouse universe
+              to the zones that hold real stock but are shut to picking
+              (SLOW ZONE), and drops ee's veto for exactly those zones —
+              its veto exists to keep pickers out of them, which says
+              nothing about whether the goods are ours to promise.
+    """
     if not item_codes:
         return {}
-    from logistics_portal.api.warehouses import pickable_condition
-    cond, wargs = pickable_condition("warehouse")
+    from logistics_portal.api.warehouses import (pickable_condition,
+                                                 sell_zones, sellable_condition)
+    selling = scope == "sell"
+    cond, wargs = (sellable_condition("warehouse") if selling
+                   else pickable_condition("warehouse"))
     # GREATEST(..., 0) per bin: stale SO reservations leave some bins deeply
     # negative (reserved 27k vs actual 0 on one SKU in production) — a naive
     # SUM goes negative and would flag EVERYTHING as uncoverable. Only bins
@@ -2142,6 +2156,10 @@ def _available_totals(item_codes):
     # stock ee's controller refuses to allocate (SLOW ZONE et al.) is NOT
     # coverage, whatever the portal's own pickable policy says.
     rej = _ee_rejected()
+    if selling:
+        # The veto is a picking rule. Asked whether we can sell the thing,
+        # a pallet ee refuses to route a picker to is still a pallet.
+        rej = rej - set(sell_zones())
     # Stock a picker went looking for and could not find is not coverage,
     # whatever the Bin says. Measured 2026-09-09: of 116 items reported empty in
     # a day, 62 still showed pickable stock here — and both the board and the
@@ -2188,7 +2206,8 @@ def _available_totals(item_codes):
                              q + max(0.0, sre_sum.get(it, 0.0)))
     # Same warehouse universe on both sides of the equation: a draft row
     # parked on a non-pickable (or ee-rejected) bin must not eat into free stock.
-    lcond, largs = pickable_condition("pli.warehouse")
+    lcond, largs = (sellable_condition("pli.warehouse") if selling
+                    else pickable_condition("pli.warehouse"))
     for r in frappe.db.sql(
             f"""SELECT pli.item_code, pli.warehouse, SUM(GREATEST(pli.qty - pli.picked_qty, 0))
                FROM `tabPick List Item` pli
@@ -2202,8 +2221,12 @@ def _available_totals(item_codes):
     return totals
 
 
-def availability(item_codes):
+def availability(item_codes, scope="pick"):
     """The ONE answer to "how much of this item may THIS order take".
+
+    `scope` picks the question ("pick" = off a face today, "sell" = ours to
+    promise at all); the arithmetic below is the same either way. See
+    _available_totals for why the two questions genuinely differ.
 
     Audited 2026-09-09: five different callers were each doing their own
     arithmetic on top of _available_totals, and they disagreed. The common
@@ -2226,7 +2249,7 @@ def availability(item_codes):
 
     Returns (totals, sre, free) where free(order, code) -> qty.
     """
-    totals = _available_totals(item_codes)
+    totals = _available_totals(item_codes, scope)
     sre = _sre_by_order(item_codes)
     shared = {}
     for code in set(item_codes) | set(totals):
@@ -2342,11 +2365,35 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
             short = [c for c, q in need.items()
                      if c not in bins or totals.get(c, 0) < q]
             if short:
-                oos.append({"so": o["so"], "customer": o["customer"], "missing": short})
+                oos.append({"so": o["so"], "customer": o["customer"],
+                            "missing": short,
+                            "_need": {c: need[c] for c in short}})
             else:
                 for c, q in need.items():
                     totals[c] -= q
                 pool.append(o)
+
+        # The SAME items, asked the other question — but only the ones that
+        # actually came up short, which is a handful rather than the whole
+        # pool. An order the engine cannot cover because its stock sits in
+        # SLOW ZONE is not out of stock; it is waiting for a transfer, and
+        # that is a job someone can do today. Without this the confirmation
+        # lane's new answer ("in stock, not on a face") would hand the
+        # warehouse a confirmed order that quietly never gets picked.
+        #
+        # Asking over `all_skus` instead cost a measured +477 ms on this
+        # modal; over the short list it is a few milliseconds.
+        if oos:
+            short_skus = {c for e in oos for c in e["missing"]}
+            sell_totals = _available_totals(list(short_skus), "sell")
+            for e in oos:
+                needs = e.pop("_need", {})
+                movable = [c for c in e["missing"]
+                           if sell_totals.get(c, 0) >= needs.get(c, 1)]
+                e["movable"] = movable
+                e["needsMove"] = bool(movable) and len(movable) == len(e["missing"])
+        for e in oos:
+            e.pop("_need", None)
 
         def sort_q(q):
             return sorted(q, key=lambda o: (not o["missed"], o["creation"]))

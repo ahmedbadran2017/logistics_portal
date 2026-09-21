@@ -22,6 +22,30 @@ _FAMILY = ["Defective%", "Container%", "Air Freight%", "%Old%", "CORRECTING%",
 DEFAULT_EXCLUDED = ["Return Zone - JM", "Returns Adjustment - JM"]
 
 _KEY = "lp_excluded_zones"
+
+# ── sellable ≠ pickable ───────────────────────────────────────────────────
+#
+# A zone can hold perfectly good stock and still be closed to the pickers.
+# SLOW ZONE is exactly that: 10,092 units on hand and 8,859 units out in the
+# last 30 days, all of it feeding the pick face by hand — it is the working
+# reserve. It is shut to picking so the floor never routes a picker there,
+# which is a PICKING rule, and ee's controller enforces the same veto.
+#
+# But the confirmation agent is not asking "can a picker grab this off a
+# face right now". They are asking "can we honour this order at all", and
+# for that question a pallet in SLOW ZONE is stock. Answering the first
+# question when the second was asked is how an agent gets told "out of
+# stock" about an item with 1,500 pieces in the building — J-008094,
+# 2026-09-21: 1,986 units in Morocco, 303 of them countable.
+#
+# Measured over 30 days: 40 of the 342 orders cancelled for "Out of stock"
+# had the piece sitting in one of these zones at the moment of the cancel.
+#
+# SLOW ZONE only by default — the one Ahmed named. Everything else is a
+# manager's decision in Settings, made against the on-hand numbers there,
+# not a guess made here.
+_SELL_KEY = "lp_sell_zones"
+SELL_DEFAULT = ["SLOW ZONE - JM"]
 _AISLE_RE = re.compile(r"^[A-Za-z]{1,2}\d{1,2}[A-Za-z]?\.?$")  # e.g. F1, H14A, B1C.
 
 
@@ -37,6 +61,36 @@ def excluded_zones():
         except Exception:
             pass
     return list(DEFAULT_EXCLUDED)
+
+
+def sell_zones():
+    """Zones whose stock counts as sellable although the floor cannot pick
+    from them. Never the structural families: a Defective or in-transit bin
+    is not stock we can promise, whoever ticks it."""
+    raw = frappe.db.get_default(_SELL_KEY)
+    names = None
+    if raw:
+        try:
+            v = json.loads(raw)
+            if isinstance(v, list):
+                names = [str(x) for x in v]
+        except Exception:
+            names = None
+    if names is None:
+        names = list(SELL_DEFAULT)
+    return [n for n in names if n.endswith(" - JM") and not _family_excluded(n)]
+
+
+def sellable_condition(col="warehouse"):
+    """(sql, args) — pickable bins PLUS the sellable-but-not-pickable zones.
+    The question this answers is "can we honour the order", not "can a picker
+    take it off a face today"."""
+    cond, args = pickable_condition(col)
+    zones = sell_zones()
+    if not zones:
+        return cond, args
+    return (f"(({cond}) OR {col} IN ({', '.join(['%s'] * len(zones))}))",
+            args + list(zones))
 
 
 def pickable_condition(col="warehouse"):
@@ -122,6 +176,7 @@ def warehouse_settings():
     Containers) are noise and skipped."""
     _require_manager()
     excluded = set(excluded_zones())
+    sellable = set(sell_zones())
     # NB: the SKU-count column is aliased item_count, NOT `items` — on a
     # frappe._dict row `r.items` resolves to the dict METHOD, and int(method)
     # raised TypeError on every call. That's why the Settings panel showed
@@ -142,6 +197,10 @@ def warehouse_settings():
     # that veto, or the toggle is a lie.
     from logistics_portal.api.picking import _ee_rejected
     vetoed = _ee_rejected()
+    # A zone is closed to picking if EITHER policy says so. SLOW ZONE is the
+    # case that matters: our own toggle reads ON, and ee vetoes it anyway —
+    # which is why it needs the sellable tick even though it is not in the
+    # excluded list.
     zones = []
     for r in rows:
         name = r.warehouse or ""
@@ -154,23 +213,43 @@ def warehouse_settings():
                 continue  # empty AND permanently locked — nothing to decide
             zones.append({"name": name, "short": short, "qty": qty,
                           "items": int(r.item_count or 0), "pickable": False,
-                          "locked": True, "vetoed": name in vetoed})
+                          "locked": True, "vetoed": name in vetoed,
+                          "sellable": False, "sellLocked": True})
         else:
+            # A zone can be closed to picking and still count as stock the
+            # confirmation lane may promise. The two toggles are independent
+            # on purpose; a zone that IS pickable is sellable by definition,
+            # so its tick is locked on.
+            blocked = name in excluded or name in vetoed
             zones.append({"name": name, "short": short, "qty": qty,
                           "items": int(r.item_count or 0), "pickable": name not in excluded,
-                          "locked": False, "vetoed": name in vetoed})
+                          "locked": False, "vetoed": name in vetoed,
+                          "sellable": (not blocked) or name in sellable,
+                          "sellLocked": not blocked})
     zones.sort(key=lambda z: (z["locked"], -z["qty"], z["short"].lower()))
     return {"zones": zones}
 
 
 @frappe.whitelist()
-def save_warehouse_settings(excluded=None):
-    """Manager: persist the excluded (non-pickable) zone names."""
+def save_warehouse_settings(excluded=None, sellable=None):
+    """Manager: persist the excluded (non-pickable) zones, and which of them
+    still count as stock we can sell."""
     _require_manager()
     if isinstance(excluded, str):
         excluded = json.loads(excluded)
     excluded = [str(x).strip() for x in (excluded or []) if str(x).strip()]
     frappe.db.set_default(_KEY, json.dumps(excluded))
+    if sellable is not None:
+        if isinstance(sellable, str):
+            sellable = json.loads(sellable)
+        # Store exactly what was ticked. An earlier draft kept only names
+        # that were also in `excluded`, which silently dropped the one zone
+        # this feature exists for: SLOW ZONE is not in the excluded list —
+        # our pick toggle reads ON for it and ee's controller vetoes it
+        # anyway. Filtering by our own list would have saved an empty
+        # sellable set and quietly reverted the whole thing.
+        keep = sorted({str(x).strip() for x in (sellable or []) if str(x).strip()})
+        frappe.db.set_default(_SELL_KEY, json.dumps(keep))
     # The policy scopes EVERY stock view — bust every cache built on it so a
     # toggle takes effect immediately across the portal, not after TTLs.
     for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation",

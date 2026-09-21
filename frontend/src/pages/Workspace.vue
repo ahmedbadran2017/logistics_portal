@@ -239,11 +239,37 @@
                     @click="panel = panel === 'amend' ? '' : 'amend'">{{ t('ws.oosFix') }}</button>
           </div>
 
+          <!-- Sellable, just not on a pick face. This is NOT the red panel
+               and must never look like it: the agent should confirm. Saying
+               "out of stock" here is what made them cancel live sales —
+               J-008094 was refused with 1,986 units of its item in the
+               building, 694 of them in SLOW ZONE. -->
+          <div v-else-if="(active.stockOffFace || []).length"
+               class="rounded-xl px-3.5 py-3 flex items-start gap-2.5 bg-amber-50 ring-1 ring-amber-300">
+            <span class="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center flex-shrink-0">
+              <Icon name="package-check" :size="15" />
+            </span>
+            <div class="min-w-0 flex-1">
+              <div class="text-[12.5px] font-bold text-amber-900">{{ t('ws.offFaceTitle') }}</div>
+              <div class="flex flex-wrap gap-1.5 mt-1">
+                <button v-for="(of, oi) in active.stockOffFace" :key="oi"
+                        class="inline-flex items-center gap-1 max-w-full text-[11px] font-semibold text-amber-900 bg-white/70 ring-1 ring-amber-200 rounded-md px-1.5 py-0.5 hover:bg-white"
+                        :title="t('ws.oosCheck')" dir="auto"
+                        @click="skuModal?.openWith(of.code || of.name)">
+                  <Icon name="search" :size="10" class="flex-shrink-0" />
+                  <span class="truncate">{{ of.name }}</span>
+                  <span v-if="of.qty" class="tabular-nums opacity-80" dir="ltr">· {{ of.qty }} {{ of.where }}</span>
+                </button>
+              </div>
+              <div class="text-[11px] text-amber-700 mt-0.5">{{ t('ws.offFaceHint') }}</div>
+            </div>
+          </div>
+
           <!-- items -->
           <div class="rounded-xl ring-1 ring-stone-100 divide-y divide-stone-50">
             <div v-for="it in active.items" :key="it.idx || it.sku" class="px-3 py-2 flex items-center gap-3">
               <img v-if="it.image" :src="it.image" alt="" class="w-10 h-10 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50" @error="hideImg" />
-              <span v-else class="w-10 h-10 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center text-stone-400"><Icon name="package" :size="15" /></span>
+              <span v-else class="w-10 h-10 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center text-stone-400"><Icon name="package-check" :size="15" /></span>
               <div class="min-w-0 flex-1">
                 <div class="text-[12.5px] text-stone-800 truncate">{{ it.name }}</div>
                 <div class="text-[10.5px] text-stone-400 font-mono">{{ it.sku }}</div>
