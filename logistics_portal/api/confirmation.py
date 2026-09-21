@@ -1036,9 +1036,20 @@ def act(order, action, note=None, _bulk=False):
     elif action != "reopen" and not (frappe.db.get_value(
             "Sales Order", order, "custom_allocated_to") or ""):
         updates["custom_allocated_to"] = frappe.session.user
-    if action in _RETRY_HOURS:
+    # Reaching the customer counts, however the call ended. This used to
+    # count only the retries (dna/followup), so the field answered "how many
+    # times did we fail to reach them" while every report read it as "how
+    # many calls did this take". Measured 2026-09-21: only 714 of 11,123
+    # decided orders carried any attempt at all — 6.4% — which made
+    # avgAttempts read 0.0 for the whole team and put the one coaching
+    # number Ahmed wants out of reach.
+    #
+    # reopen and duplicate stay out: an undo is not a call, and spotting a
+    # duplicate is a desk observation, not a conversation.
+    if action in _ATTEMPT_ACTIONS:
         attempts += 1
         updates["custom_call_attempts"] = attempts
+    if action in _RETRY_HOURS:
         s = _cf_settings()
         hours = {"dna": s["retryDna"], "followup": s["retryFollowup"],
                  }[action]
@@ -1526,6 +1537,25 @@ def save_cf_settings(settings=None):
 # comes from there — the automation posts as Administrator and is excluded,
 # and its contribution is reported separately instead of being hidden.
 _AUTOMATION_USERS = ("Administrator", "Guest")
+
+# Decisions that mean somebody actually tried to reach the customer.
+_ATTEMPT_ACTIONS = ("confirm", "cancel", "dna", "followup")
+
+# A day nobody worked — they cleaned up. Khadija Koutubi's 28 August is the
+# case: 1,659 decisions against a 3-decision median day, an operations
+# cleanup on the Desk that made her look like the team's worst performer at
+# a 6.3% confirm rate and dragged every team average with it.
+#
+# The obvious rule — "more than 4x the agent's median day" — was tried first
+# and rejected on the data: it flagged two of aithammou's ordinary good days
+# (174 and 153) because a quiet July drags his median to 30 while his p90 is
+# 130. A person whose workload grew has a meaningless median.
+#
+# Against the p90 of their own recent days, and with a floor, only the real
+# cleanup flags: 1,659 > 3 x 74, while 174 < 3 x 130.
+_BATCH_MULT = 3.0
+_BATCH_FLOOR = 200
+_BATCH_BASELINE_D = 90
 _ST_ACTION = {"Confirmed": "confirm", "Cancelled": "cancel",
               "Did not Answer": "dna", "Follow Up": "followup",
               "On Hold": "onhold", "Duplicated": "duplicate"}
@@ -2009,10 +2039,63 @@ def report(days=7, frm=None, to=None):
     # the honest denominator is only the orders somebody actually touched —
     # the ones the bot closed untouched are reported beside it, never folded
     # into it.
+    # ── which days were a cleanup, not a shift ──────────────────────────
+    # Baselined over a FIXED 90 days, not the report's window: a p90 cannot
+    # be had from a seven-day range, and a cleanup inside that range would
+    # set the baseline it is supposed to fail.
+    batch = {}
+    _bd = {}
+    for r in frappe.db.sql(
+            """SELECT c.owner u, DATE(c.creation) d, COUNT(*) n
+               FROM `tabComment` c
+               WHERE c.reference_doctype = 'Sales Order'
+                 AND c.content LIKE 'Confirmation: %%'
+                 AND c.owner NOT IN %(auto)s
+                 AND c.creation >= DATE_SUB(NOW(), INTERVAL %(bd)s DAY)
+               GROUP BY u, d
+               UNION ALL
+               SELECT v.owner, DATE(v.creation), COUNT(*)
+               FROM `tabVersion` v
+               JOIN `tabSales Order` so ON so.name = v.docname
+               WHERE v.ref_doctype = 'Sales Order' AND so.company = %(co)s
+                 AND v.owner NOT IN %(auto)s
+                 AND v.data LIKE '%%custom_sales_status%%'
+                 AND v.creation >= DATE_SUB(NOW(), INTERVAL %(bd)s DAY)
+               GROUP BY v.owner, DATE(v.creation)""",
+            {"auto": _AUTOMATION_USERS, "co": _CO, "bd": _BATCH_BASELINE_D},
+            as_dict=True):
+        _bd.setdefault(r.u, {})
+        _bd[r.u][str(r.d)] = _bd[r.u].get(str(r.d), 0) + int(r.n or 0)
+    for u, days in _bd.items():
+        v = sorted(days.values())
+        p90 = v[min(int(len(v) * 0.9), len(v) - 1)] if v else 0
+        hits = [{"d": d, "n": n} for d, n in sorted(days.items())
+                if n >= _BATCH_FLOOR and n > _BATCH_MULT * p90]
+        if hits:
+            batch[u] = {"days": hits, "n": sum(h["n"] for h in hits),
+                        "p90": p90}
+
+    # Who is actually ON this team. Khadija Koutubi is the operations
+    # manager — she watches the lane, she does not work it — and a manager
+    # sitting in the agent table is a manager dragging the team's averages.
+    # By ROLE, never by a list of emails in the code: the next manager would
+    # be back in the table on their first day.
+    _role_cache = {}
+
+    def _rr_safe(u):
+        if u not in _role_cache:
+            try:
+                from logistics_portal.api.auth import resolve_role as _rr
+                _role_cache[u] = _rr(u) or ""
+            except Exception:
+                _role_cache[u] = ""
+        return _role_cache[u]
+
+    _role_of = {u: _rr_safe(u) for u in set(list(per_agent) + list(money))}
+
     sla_min = int(_cf_settings().get("slaFirstCallH", 6)) * 60
-    _touch, _team_mins, _team_untouched = {}, [], 0
+    _touch, _team_mins, _team_untouched, _raw = {}, [], 0, {}
     if frappe.get_meta("Sales Order").has_field("custom_first_touch_at"):
-        _raw = {}
         for r in frappe.db.sql(
                 f"""SELECT so.custom_allocated_to u, so.custom_first_touch_at ft,
                            TIMESTAMPDIFF(MINUTE, so.creation, so.custom_first_touch_at) mins
@@ -2024,10 +2107,8 @@ def report(days=7, frm=None, to=None):
             d = _raw.setdefault(r.u, {"mins": [], "untouched": 0})
             if r.ft and r.mins is not None and int(r.mins) >= 0:
                 d["mins"].append(int(r.mins))
-                _team_mins.append(int(r.mins))
             else:
                 d["untouched"] += 1
-                _team_untouched += 1
         for u, d in _raw.items():
             ms = sorted(d["mins"])
             if ms:
@@ -2040,6 +2121,15 @@ def report(days=7, frm=None, to=None):
             else:
                 _touch[u] = {"median": None, "p90": None, "slaPct": None,
                              "n": 0, "untouched": d["untouched"]}
+
+    # The lane's response time is the lane's people. A manager's cleanup or
+    # another team's stray touch does not belong in it.
+    for _u, _d in _raw.items():
+        _r = _role_of.get(_u) or _rr_safe(_u)
+        if not _r or _r == "manager":
+            continue
+        _team_mins.extend(_d["mins"])
+        _team_untouched += _d["untouched"]
 
     agents = []
     for user in set(list(per_agent) + list(money)):
@@ -2075,6 +2165,22 @@ def report(days=7, frm=None, to=None):
             # An average is the wrong summary here whatever it measures: the
             # tail is orders picked up days later, and it drags the number
             # somewhere nobody recognises.
+            "role": _role_of.get(user, ""),
+            # Everyone who WORKS the lane, which is not the same as everyone
+            # whose role string says "confirmation". Checked on production
+            # before settling this: basbousalina and cakhadija34 resolve as
+            # `cs` and youssrajustyol as `tracking`, and all three are taking
+            # confirmation decisions this week — 527 of them in basbousalina's
+            # case. Excluding by role name would have deleted real work from
+            # the team's numbers to tidy up one manager.
+            #
+            # So the rule is the narrow one that answers the actual question:
+            # a manager watches the lane, everybody else works it.
+            "inTeam": bool(_role_of.get(user)) and _role_of.get(user) != "manager",
+            # A cleanup day, named. Shown beside the totals rather than
+            # quietly subtracted: the work happened, it just was not a shift.
+            "batchDays": (batch.get(user) or {}).get("days") or [],
+            "batchN": (batch.get(user) or {}).get("n", 0),
             "respH": _touch.get(user, {}).get("median"),
             "slaPct": _touch.get(user, {}).get("slaPct"),
             "touched": _touch.get(user, {}).get("n", 0),

@@ -148,6 +148,20 @@
                                   : i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-stone-100 text-stone-500'">{{ i + 1 }}</span>
                     <span class="font-medium text-stone-900">{{ a.agent }}</span>
                     <Icon v-if="a.bulk" name="layers" :size="11" class="text-stone-300" :title="t('cfr.thBulk')" />
+                    <!-- Not on this team. The row stays — the work was real
+                         — but it is out of the lane's own averages, and a
+                         manager's cleanup must not read as a bad agent. -->
+                    <span v-if="a.inTeam === false"
+                          class="text-[9.5px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full
+                                 bg-stone-100 text-stone-500 ring-1 ring-stone-200"
+                          :title="t('cfr.offTeamHint')">{{ a.role || t('cfr.offTeam') }}</span>
+                    <!-- A cleanup day, named and dated, instead of a number
+                         nobody can explain. -->
+                    <span v-if="a.batchN"
+                          class="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full
+                                 bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                          :title="(a.batchDays || []).map((b) => b.d + ': ' + b.n).join(' · ')">
+                      {{ t('cfr.batch').replace('{n}', a.batchN) }}</span>
                   </span>
                 </td>
                 <td class="px-2 py-2.5 text-end tabular-nums font-semibold text-stone-900">{{ a.total }}</td>
