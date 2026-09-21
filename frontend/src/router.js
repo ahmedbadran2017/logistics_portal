@@ -44,7 +44,13 @@ const routes = [
           // The lane's funnel: what arrived, what survived each step, and
           // where the rest went. The three screens beside it answer the
           // queue, the trail and the per-agent table — none answered this.
-          { path: "pulse", name: "ConfirmationPulse", component: () => import("@/pages/ConfirmationPulse.vue") },
+          //
+          // NOT "pulse". The app already has a Floor Pulse at the top level,
+          // and the contact centre's router base IS /confirmation — so
+          // /confirmation/pulse strips to /pulse and lands on the warehouse
+          // screen instead of this one. Two pulses would have been confusing
+          // even with the collision fixed; "funnel" is what the page shows.
+          { path: "funnel", name: "ConfirmationFunnel", component: () => import("@/pages/ConfirmationFunnel.vue") },
           { path: "settings", name: "ConfirmationSettings", component: () => import("@/pages/ConfirmationSettings.vue") },
         ],
       },

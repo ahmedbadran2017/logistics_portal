@@ -85,7 +85,7 @@ export default {
     confirmSection: "مركز التأكيد",
     cfDashboard: "داشبورد القسم",
     confirmationdashboard: "داشبورد القسم",
-    cfPulse: "نبض اللين",
+    cfFunnel: "القمع",
     cfReports: "تقارير القسم",
     cfSettings: "إعدادات القسم",
     cfActivity: "نشاط الفريق",
@@ -1772,7 +1772,7 @@ export default {
     done_too_late: "المرتجع اتفتح",
   },
   cfp: {
-    title: "نبض اللين",
+    title: "قمع اللين",
     funnel: "القمع",
     cohort: "الأوردرات اللي وصلت في الفترة دي، متتبّعة لقدام",
     rToday: "24 ساعة", r7: "7 أيام", r30: "30 يوم", r90: "90 يوم",

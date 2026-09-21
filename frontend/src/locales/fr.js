@@ -85,7 +85,7 @@ export default {
     confirmSection: "Centre de confirmation",
     cfDashboard: "Tableau du service",
     confirmationdashboard: "Tableau du service",
-    cfPulse: "Pouls de la ligne",
+    cfFunnel: "Tunnel",
     cfReports: "Rapports du service",
     cfSettings: "Réglages du service",
     cfActivity: "Activité équipe",
@@ -1773,7 +1773,7 @@ export default {
     done_too_late: "Retour ouvert",
   },
   cfp: {
-    title: "Pouls de la ligne",
+    title: "Tunnel de la ligne",
     funnel: "L'entonnoir",
     cohort: "commandes arrivées dans cette période, suivies dans le temps",
     rToday: "24 heures", r7: "7 jours", r30: "30 jours", r90: "90 jours",

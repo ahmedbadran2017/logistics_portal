@@ -85,7 +85,7 @@ export default {
     confirmSection: "Confirmation center",
     cfDashboard: "Section dashboard",
     confirmationdashboard: "Section dashboard",
-    cfPulse: "Lane pulse",
+    cfFunnel: "Funnel",
     cfReports: "Section reports",
     cfSettings: "Section settings",
     cfActivity: "Team activity",
@@ -1776,7 +1776,7 @@ export default {
     done_too_late: "Return opened",
   },
   cfp: {
-    title: "Lane pulse",
+    title: "Lane funnel",
     funnel: "The funnel",
     cohort: "orders that arrived in this window, followed forward",
     rToday: "24 hours", r7: "7 days", r30: "30 days", r90: "90 days",

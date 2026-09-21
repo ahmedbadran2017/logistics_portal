@@ -20,7 +20,7 @@ export const LANES = [
       { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
       // First of the admin tabs on purpose: it is the one a manager opens
       // to ask "is the lane healthy", and the other three are details of it.
-      { to: "ConfirmationPulse", label: "nav.cfPulse", icon: "trending-up", admin: true },
+      { to: "ConfirmationFunnel", label: "nav.cfFunnel", icon: "trending-up", admin: true },
       { to: "ConfirmationDashboard", label: "nav.cfDashboard", icon: "gauge", admin: true },
       { to: "ConfirmationActivity", label: "nav.cfActivity", icon: "activity", admin: true },
       { to: "ConfirmationReports", label: "nav.cfReports", icon: "trending-up", admin: true },
