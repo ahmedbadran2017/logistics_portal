@@ -1242,10 +1242,21 @@ def bulk_cancel(orders=None, reason=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def update_contact(order, phone=None, city=None, address_line=None):
-    """Fix the customer's phone / full address before confirming — the #1
-    reason deliveries fail later (Cathedis rejects unknown cities and bad
-    numbers). Logged old → new on the order.
+def update_contact(order, name=None, phone=None, city=None, address_line=None):
+    """Fix the customer's name / phone / full address — the #1 reason
+    deliveries fail later (Cathedis rejects unknown cities and bad numbers).
+    Logged old → new on the order.
+
+    The NAME is written to the Sales Order and nowhere else, and that is the
+    whole design rather than a shortcut. Two doctypes here are named after
+    their own contents: Customer (cust_master_name = "Customer Name") and
+    Address (named `<address_title>-<address_type>`). Writing a corrected name
+    into either is a rename_doc, not a field write — for one repeat customer
+    on production that rewrites 65 Sales Orders, 36 Delivery Notes and every
+    link pointing at them, to fix the spelling on one parcel. The Sales Order
+    carries its own copy of the name, matching the Customer on 11,359 of
+    11,360 orders, so writing it there fixes this sale and touches nothing
+    else.
 
     The street + city live on the linked Address (99.9% of orders), NOT on the
     Sales Order — custom_shipping_city is filled on under 1%. Cathedis reads
@@ -1255,15 +1266,37 @@ def update_contact(order, phone=None, city=None, address_line=None):
     reader stay in step. If the order has no Address at all, one is created and
     linked, which is itself one of the failure modes.
     """
-    role = _gate()
+    # Its OWN gate, not the confirmation workspace's.
+    #
+    # The right to correct a customer's phone number is not the right to work
+    # the confirmation queue, and _gate() grants the second. It admits only
+    # `confirmation` and `manager`, which locked out all three CS agents and
+    # both tracking agents — the people who are on the phone with a customer
+    # AFTER the parcel moves and who hear "you wrote my name wrong" first.
+    # Measured 2026-09-22: 25 people could reach this, 12 could not, and the
+    # CS three have been taking their decisions on the Desk instead.
+    #
+    # Same set the urgent flag already uses, reused rather than re-declared so
+    # the two cannot drift.
+    from logistics_portal.api.auth import resolve_role
+    from logistics_portal.api.orders import _URGENT_ROLES
+    role = resolve_role(frappe.session.user)
+    if role not in _URGENT_ROLES:
+        frappe.throw("Not authorized to correct customer details.",
+                     frappe.PermissionError)
     order = (order or "").strip()
     if frappe.db.get_value("Sales Order", order, "company") != _CO:
         frappe.throw("Unknown order.")
-    _own_guard(role, order)
+    # Queue ownership is a CONFIRMATION concept — it stops two agents phoning
+    # one customer. CS and tracking work by ticket, not by queue, so the guard
+    # would only lock them out of every order they are asked about.
+    if role == "confirmation":
+        _own_guard(role, order)
+    name = (name or "").strip()
     phone = (phone or "").strip()
     city = (city or "").strip()
     address_line = (address_line or "").strip()
-    if not phone and not city and not address_line:
+    if not name and not phone and not city and not address_line:
         frappe.throw("Nothing to update.")
     old = frappe.db.get_value(
         "Sales Order", order,
@@ -1271,8 +1304,24 @@ def update_contact(order, phone=None, city=None, address_line=None):
          "shipping_address_name", "customer_address", "customer", "customer_name"],
         as_dict=True)
     updates, log = {}, []
+    if name and (old.customer_name or "").strip() != name:
+        # The ORDER's name for this sale, never the Customer record.
+        #
+        # Selling Settings has cust_master_name = "Customer Name", so
+        # Customer.name IS the customer's name and "editing" it is a
+        # rename_doc: for one repeat customer on production that rewrites 65
+        # Sales Orders, 36 Delivery Notes and every link pointing at them.
+        # The Sales Order carries its own copy of the name — matching the
+        # Customer on 11,359 of 11,360 orders — so writing it here fixes this
+        # parcel and touches nothing else.
+        updates["customer_name"] = name[:140]
+        log.append(f"name {old.customer_name or '—'} → {name}")
     if phone:
+        # All THREE places the number lives, which is a bug being fixed rather
+        # than a feature: this wrote custom_customer_phone alone, and 170
+        # orders already carry a shipping phone that disagrees with it.
         updates["custom_customer_phone"] = phone
+        updates["custom_shipping_phone"] = phone
         old_phone = old.custom_customer_phone or old.custom_shipping_phone or "—"
         if old_phone != phone:
             log.append(f"phone {old_phone} → {phone}")

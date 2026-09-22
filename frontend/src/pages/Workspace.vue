@@ -348,7 +348,10 @@
 
           <!-- contact fix -->
           <Transition name="ws-slide">
-            <div v-if="panel === 'contact'" class="rounded-xl bg-amber-50/60 ring-1 ring-amber-200/70 p-3 flex items-center gap-2 flex-wrap">
+            <div v-if="panel === 'contact'" class="rounded-xl bg-amber-50/60 ring-1 ring-amber-200/70 p-3 space-y-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <input v-model="editName" :placeholder="t('cf.namePh')" dir="auto" maxlength="140"
+                     class="h-9 w-[160px] ps-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] focus:outline-none" />
               <input v-model="editPhone" :placeholder="t('cf.phonePh')" inputmode="tel"
                      class="h-9 w-[150px] ps-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] font-mono focus:outline-none" />
               <input v-model="editCity" :placeholder="t('cf.cityPh')"
@@ -357,6 +360,16 @@
                      class="h-9 flex-1 min-w-[150px] ps-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] focus:outline-none" dir="auto" />
               <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
                       :disabled="busy" @click="saveContact">{{ t('cf.saveContact') }}</button>
+            </div>
+            <!-- One sentence, and only when it is true.
+                 The carrier's payload was built when the parcel was made, so
+                 a correction after that fixes our records and nothing the
+                 driver is holding. Saying so is the difference between a
+                 tool and a tool that lies. -->
+            <div v-if="active.dn" class="flex items-start gap-1.5 text-[11px] text-amber-800/90 leading-snug">
+              <Icon name="alert-triangle" :size="12" class="mt-[2px] shrink-0" />
+              <span>{{ t('cf.contactLate') }}</span>
+            </div>
             </div>
           </Transition>
 
@@ -718,6 +731,7 @@ watch(thread, async () => {
 const amendItems = ref([]);
 const discAmt = ref(null);
 const discPct = ref(null);
+const editName = ref("");
 const editPhone = ref("");
 const editCity = ref("");
 const editAddress = ref("");
@@ -1098,6 +1112,7 @@ async function openOrder(name) {
       qty: Math.round(i.qty), _orig: Math.round(i.qty),
     }));
     discAmt.value = null; discPct.value = null;
+    editName.value = active.value.customer || "";
     editPhone.value = active.value.phone || "";
     editCity.value = active.value.city || "";
     editAddress.value = active.value.address_line || "";
@@ -1353,10 +1368,12 @@ async function saveContact() {
   try {
     await apiPost("confirmation.update_contact", {
       order: active.value.name,
+      name: editName.value.trim() || undefined,
       phone: editPhone.value.trim() || undefined,
       city: editCity.value.trim() || undefined,
       address_line: editAddress.value.trim() || undefined,
     });
+    active.value.customer = editName.value.trim() || active.value.customer;
     active.value.phone = editPhone.value.trim() || active.value.phone;
     active.value.city = editCity.value.trim() || active.value.city;
     panel.value = "";

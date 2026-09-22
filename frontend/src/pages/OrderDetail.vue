@@ -131,8 +131,36 @@
         <!-- Ship to + Payment -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
-            <div class="text-[13px] font-semibold text-stone-900 mb-2">{{ t("od.shipTo") }}</div>
-            <div class="text-[13px] font-medium text-stone-900">{{ order.customer }}</div>
+            <div class="flex items-center gap-2 mb-2">
+              <span class="text-[13px] font-semibold text-stone-900">{{ t("od.shipTo") }}</span>
+              <!-- The same correction the confirmation lane has had all along,
+                   on the screen every team already opens. CS and tracking are
+                   the ones who hear "you wrote my name wrong", and until now
+                   they had nowhere to put it. -->
+              <button v-if="canSeeCustomer && isLive"
+                      class="ms-auto text-[11px] font-semibold text-stone-500 hover:text-amber-700 inline-flex items-center gap-1"
+                      @click="editing = !editing">
+                <Icon name="edit" :size="11" />{{ t(editing ? "common.close" : "cf.editContact") }}
+              </button>
+            </div>
+            <div v-if="!editing" class="text-[13px] font-medium text-stone-900" dir="auto">{{ order.customer }}</div>
+            <div v-else class="rounded-xl bg-amber-50/60 ring-1 ring-amber-200/70 p-2.5 space-y-2 mb-2">
+              <div class="flex items-center gap-2 flex-wrap">
+                <input v-model="edName" :placeholder="t('cf.namePh')" dir="auto" maxlength="140"
+                       class="h-8 flex-1 min-w-[130px] ps-2.5 rounded-lg bg-white ring-1 ring-amber-200 text-[12px] focus:outline-none" />
+                <input v-model="edPhone" :placeholder="t('cf.phonePh')" inputmode="tel"
+                       class="h-8 w-[130px] ps-2.5 rounded-lg bg-white ring-1 ring-amber-200 text-[12px] font-mono focus:outline-none" />
+                <button class="h-8 px-3 rounded-lg text-[11.5px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
+                        :disabled="edBusy" @click="saveContact">{{ t("cf.saveContact") }}</button>
+              </div>
+              <!-- Only when it is true: the parcel exists, so its label was
+                   printed from the old details and this edit cannot reach it. -->
+              <div v-if="(isLive && liveOrder.dn) || order.dn"
+                   class="flex items-start gap-1.5 text-[11px] text-amber-800/90 leading-snug">
+                <Icon name="alert-triangle" :size="12" class="mt-[2px] shrink-0" />
+                <span>{{ t("cf.contactLate") }}</span>
+              </div>
+            </div>
             <div class="space-y-1.5 mt-2 text-[12px]">
               <div class="flex items-center justify-between gap-2"><span class="text-stone-400">{{ t("od.phone") }}</span>
                 <span class="flex items-center gap-1.5">
@@ -554,6 +582,37 @@ const { role: myRole } = useAuth();
 const canSeeCustomer = computed(() =>
   ["cs", "confirmation", "tracking", "manager"].includes(myRole.value));
 const openSku = useSkuLink();
+
+// Correcting the customer's details, from the shared screen.
+const editing = ref(false);
+const edName = ref("");
+const edPhone = ref("");
+const edBusy = ref(false);
+watch(editing, (on) => {
+  if (!on) return;
+  edName.value = order.value.customer || "";
+  edPhone.value = phone.value === "—" ? "" : phone.value;
+});
+async function saveContact() {
+  edBusy.value = true;
+  try {
+    await apiPost("confirmation.update_contact", {
+      order: liveOrder.value?.name || order.value.no,
+      name: edName.value.trim() || undefined,
+      phone: edPhone.value.trim() || undefined,
+    });
+    if (liveOrder.value) {
+      liveOrder.value.customer = edName.value.trim() || liveOrder.value.customer;
+      liveOrder.value.phone = edPhone.value.trim() || liveOrder.value.phone;
+    }
+    editing.value = false;
+    success(t("cf.contactSaved"), order.value.no);
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    edBusy.value = false;
+  }
+}
 function goBack() {
   // Return to the list the order was opened from (Orders / Consolidation /
   // Stranded …), remembered by the router guard. Fall back to browser history,

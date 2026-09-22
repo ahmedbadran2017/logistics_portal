@@ -1641,6 +1641,9 @@ export default {
     editContact: "Edit address / phone",
     fullOrder: "Order details", saveContact: "Save",
     phonePh: "Phone…",
+    namePh: "Customer name…",
+    // Not an error — the edit is saved. It just cannot reach the driver.
+    contactLate: "Saved to our records, but the parcel is already made and its label carries the old details. Raise it with the team if the driver needs to know.",
     cityPh: "City…",
     addressPh: "Street / details (address line)…",
     editAddrTitle: "Delivery address",

@@ -1641,6 +1641,8 @@ export default {
     editContact: "Modifier adresse / téléphone",
     fullOrder: "D\u00e9tails de la commande", saveContact: "Enregistrer",
     phonePh: "Téléphone…",
+    namePh: "Nom du client…",
+    contactLate: "Enregistré chez nous, mais le colis est déjà créé et son étiquette porte les anciennes données. Signalez-le à l'équipe si le livreur doit le savoir.",
     cityPh: "Ville…",
     addressPh: "Rue / détails (ligne d'adresse)…",
     editAddrTitle: "Adresse de livraison",
