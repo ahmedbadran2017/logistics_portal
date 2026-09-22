@@ -293,7 +293,19 @@
               <span v-else class="w-10 h-10 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center text-stone-400"><Icon name="package-check" :size="15" /></span>
               <div class="min-w-0 flex-1">
                 <div class="text-[12.5px] text-stone-800 truncate">{{ it.name }}</div>
-                <div class="text-[10.5px] text-stone-400 font-mono">{{ it.sku }}</div>
+              <!-- The REAL SKU, not the Shopify variant id.
+                   item_code is the variant number the channel generated
+                   (9219745579262); custom_sku is what the warehouse, the
+                   shelf label and the supplier all call this thing (NP-001).
+                   The agent on the phone needs the second one, and it is
+                   present on 98.3% of order lines — the variant id stays as
+                   the fallback for the rest so a line never loses its code.
+                   Clicking it asks the shelf, which is the question that
+                   follows "is it available?" every time. -->
+              <button class="text-[10.5px] text-stone-400 font-mono hover:text-[var(--accent-700)] hover:underline"
+                      :title="t('ws.oosCheck')" @click.stop="skuModal?.openWith(it.real_sku || it.sku)">
+                {{ it.real_sku || it.sku }}
+              </button>
               </div>
               <span v-if="it.local" class="text-[10px] font-bold rounded-full px-2 py-0.5 bg-sky-50 text-sky-700 ring-1 ring-sky-200 whitespace-nowrap flex-shrink-0"
                     :title="t('ws.localHint')">
@@ -523,7 +535,19 @@
               <Icon name="activity" :size="12" />{{ t('ws.activity') }}
               <span v-if="activity.length" class="text-[10px] tabular-nums text-stone-400">{{ activity.length }}</span>
             </button>
+            <!-- The one in the top bar follows the card; this one is where
+                 the agent's hand already is when the customer says something
+                 that is not a confirmation decision. Same component, same
+                 request — a second door, not a second feature. -->
+            <button class="text-[11.5px] font-semibold text-violet-600 hover:text-violet-800 inline-flex items-center gap-1"
+                    @click="panel = panel === 'cs' ? '' : 'cs'">
+              <Icon name="message-circle" :size="12" />{{ t('cs.handTitle') }}
+            </button>
           </div>
+          <Transition name="ws-slide">
+            <CsHandover v-if="panel === 'cs'" :order="active.name" :phone="active.phone || ''"
+                        source="confirmation" @done="panel = ''" />
+          </Transition>
           <Transition name="ws-slide">
             <div v-if="panel === 'note'" class="flex items-center gap-2 bg-stone-50 rounded-xl p-2.5">
               <input v-model="noteText" :placeholder="t('ws.notePh')" maxlength="400" dir="auto"
@@ -656,6 +680,7 @@ import Icon from "@/components/ui/Icon.vue";
 import { local, nowSite } from "@/lib/clock";
 import { setCsContext } from "@/composables/useCsContext";
 import SkuLookupModal from "@/components/SkuLookupModal.vue";
+import CsHandover from "@/components/CsHandover.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
