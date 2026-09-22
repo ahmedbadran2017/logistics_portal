@@ -465,7 +465,7 @@
           </div>
         </div>
 
-        <CsHandover :order="props.name" :phone="phone" :live="csLive"
+        <CsHandover :order="canon" :phone="phone" :live="csLive"
                     :source="myRole === 'tracking' ? 'tracking' : myRole === 'confirmation' ? 'confirmation' : ''"
                     @done="loadCs" />
       </div>
@@ -652,11 +652,11 @@ async function setUrgent(on) {
   try {
     if (on) {
       await apiPost("orders.mark_urgent", {
-        order: props.name, reason: urgentReason.value.trim() });
+        order: canon.value, reason: urgentReason.value.trim() });
       if (order.value) order.value.urgentAt = new Date().toISOString();
       success(t("od.urgentDone"), props.name);
     } else {
-      await apiPost("orders.clear_urgent", { order: props.name });
+      await apiPost("orders.clear_urgent", { order: canon.value });
       if (order.value) order.value.urgentAt = "";
       urgentReason.value = "";
     }
@@ -664,11 +664,15 @@ async function setUrgent(on) {
   finally { urgentBusy.value = false; }
 }
 
+// The route param with its '#' restored, once orders.detail has told us.
+// Every OTHER endpoint this page calls is keyed on the order name, and the
+// param alone is not a name that exists.
+const canon = ref(props.name);
 const csRows = ref([]);
 const csLive = ref(0);
 async function loadCs() {
   try {
-    const r = await api("cs.for_order", { order: props.name });
+    const r = await api("cs.for_order", { order: canon.value });
     csRows.value = r.rows || [];
     csLive.value = r.live || 0;
   } catch (_) { /* the order screen must render without the desk */ }
@@ -677,7 +681,7 @@ async function loadCs() {
 onMounted(async () => {
   // Tell the header's CS button what this screen is about, so pressing it
   // never asks for an order number already on the page.
-  setCsContext(props.name, phone.value, "");
+  setCsContext(canon.value, phone.value, "");
   loadCs();
   api("shipments.journey", { order: props.name }).then((j) => { if (j && j.found) journey.value = j; }).catch(() => {});
   liveOr(null, () => api("orders.activity", { name: props.name })).then((ev) => {
@@ -686,9 +690,11 @@ onMounted(async () => {
   const live = await liveOr(null, () => api("orders.detail", { name: props.name }));
   if (live && live.name) {
     liveOrder.value = live;
-    // The phone only exists once the order has loaded; publish again so the
-    // header's button carries it rather than the empty first guess.
-    setCsContext(props.name, live.phone || "", live.customer || "");
+    // The canonical name, not the route param. A URL cannot carry the '#'
+    // that 96% of order names start with, so the param reads "261108" for
+    // an order called "#261108"; the detail payload has put it back.
+    canon.value = live.name || props.name;
+    setCsContext(canon.value, live.phone || "", live.customer || "");
     if (Array.isArray(live.items) && live.items.length) {
       liveItems.value = live.items.map((it) => ({
         sku: it.sku, realSku: it.real_sku || "", name: it.name || it.sku, bin: it.bin || "—",

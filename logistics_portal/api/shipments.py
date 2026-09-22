@@ -1244,6 +1244,8 @@ def journey(order):
     from logistics_portal.api.permissions import require_portal_user
     from logistics_portal.api import clock
     require_portal_user()
+    from logistics_portal.api.utils import resolve_order
+    order = resolve_order(order) or order
     # Six indexed point reads, not the board's derived tables: those are
     # materialised for EVERY order before a WHERE on one name applies.
     raw = frappe.db.sql(

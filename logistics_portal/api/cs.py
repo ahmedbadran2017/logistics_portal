@@ -256,7 +256,10 @@ def raise_request(kind="", note="", order="", phone="", source="", conversation=
         kind = _guess_kind(note)
     if kind not in KINDS:
         frappe.throw("Unknown problem type.")
-    order = (order or "").strip()
+    from logistics_portal.api.utils import resolve_order
+    # A leading '#' cannot survive a URL, so the order screen's route param
+    # arrives stripped — resolve before judging it unknown.
+    order = resolve_order(order) or "" if (order or "").strip() else ""
     note = (note or "").strip()[:1000]
     if order and frappe.db.get_value("Sales Order", order, "company") != _CO:
         frappe.throw("Unknown order.")
@@ -568,7 +571,8 @@ def for_order(order):
     from logistics_portal.api.auth import resolve_role
     if not resolve_role(frappe.session.user):
         frappe.throw("Not authorized.", frappe.PermissionError)
-    order = (order or "").strip()
+    from logistics_portal.api.utils import resolve_order
+    order = resolve_order(order)
     if not order or not frappe.db.exists("DocType", DT):
         return {"rows": []}
     rows = frappe.db.sql(
@@ -1174,7 +1178,8 @@ def customer(phone="", order=""):
     _gate()
     phone = (str(phone or "")).strip()
     if not phone and order:
-        phone = (frappe.db.get_value("Sales Order", order,
+        from logistics_portal.api.utils import resolve_order
+        phone = (frappe.db.get_value("Sales Order", resolve_order(order) or order,
                                      "custom_customer_phone") or "").strip()
     key = _phone_key(phone)
     if not key:

@@ -17,6 +17,32 @@ JUSTYOL_COMPANY = "Justyol Morocco"
 SOFT_WAREHOUSE = "Soft Warehouse - JM"
 
 
+def resolve_order(order):
+    """The real Sales Order name behind whatever the UI sent.
+
+    246,701 of the 257,939 Morocco orders — 96% — are NAMED with a leading
+    '#', and a URL cannot carry one: '#' opens the fragment, so every link
+    into the order screen strips it and the route param reads '261108' for
+    an order actually called '#261108'. orders.detail has always put it back
+    on its way in; nothing else did, so every other endpoint the order
+    screen calls was handed a name that does not exist. "Marquer urgent" and
+    the customer-service hand-over both answered "Unknown order." on 96% of
+    orders (2026-09-22).
+
+    A no-op for callers that already pass the right name — the boards do —
+    so it is safe to put in front of any of them. Returns None when nothing
+    matches, which is a real unknown order rather than a punctuation
+    accident.
+    """
+    raw = (order or "").strip()
+    if not raw:
+        return None
+    for cand in (raw, raw.lstrip("#"), "#" + raw.lstrip("#")):
+        if cand and frappe.db.exists("Sales Order", cand):
+            return cand
+    return None
+
+
 def escape_like(value):
     """Escape LIKE special characters (%, _, \\) in search strings."""
     if not value:

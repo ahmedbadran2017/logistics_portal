@@ -2321,11 +2321,12 @@ def mark_urgent(order, reason=""):
     if role not in _URGENT_ROLES:
         frappe.throw("Not authorized to flag an order urgent.",
                      frappe.PermissionError)
-    order = (order or "").strip()
+    from logistics_portal.api.utils import resolve_order
+    order = resolve_order(order)
     so = frappe.db.get_value(
         "Sales Order", order,
         ["company", "docstatus", "custom_sales_status", "custom_logistics_status"],
-        as_dict=True)
+        as_dict=True) if order else None
     if not so or so.company != "Justyol Morocco" or so.docstatus != 1:
         frappe.throw("Unknown order.")
     if not _urgent_ready():
@@ -2359,8 +2360,9 @@ def clear_urgent(order):
     from logistics_portal.api.auth import resolve_role
     if resolve_role(frappe.session.user) not in _URGENT_ROLES + ("dispatcher",):
         frappe.throw("Not authorized.", frappe.PermissionError)
-    order = (order or "").strip()
-    if frappe.db.get_value("Sales Order", order, "company") != "Justyol Morocco":
+    from logistics_portal.api.utils import resolve_order
+    order = resolve_order(order)
+    if not order or frappe.db.get_value("Sales Order", order, "company") != "Justyol Morocco":
         frappe.throw("Unknown order.")
     if not _urgent_ready():
         return {"ok": True}

@@ -221,8 +221,9 @@ def preview(order):
     """What the agent is told BEFORE they commit — so the dialog can name the
     real situation instead of showing a button that throws."""
     _gate()
-    order = (order or "").strip()
-    if frappe.db.get_value("Sales Order", order, "company") != _CO:
+    from logistics_portal.api.utils import resolve_order
+    order = resolve_order(order)
+    if not order or frappe.db.get_value("Sales Order", order, "company") != _CO:
         frappe.throw("Unknown order.")
     stage, mode = stage_of(order)
     existing = ""
@@ -267,8 +268,9 @@ def request_stop(order, reason="", note=""):
     an answer, not an error. What changes with the stage is what happens
     next, and the caller is told which of the four it got."""
     role = _gate()
-    order = (order or "").strip()
-    if frappe.db.get_value("Sales Order", order, "company") != _CO:
+    from logistics_portal.api.utils import resolve_order
+    order = resolve_order(order)
+    if not order or frappe.db.get_value("Sales Order", order, "company") != _CO:
         frappe.throw("Unknown order.")
     if frappe.db.get_value("Sales Order", order, "docstatus") != 1:
         frappe.throw("Order is not submitted.")
