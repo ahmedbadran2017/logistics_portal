@@ -34,6 +34,25 @@ def sync_pick_progress(doc, method=None):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def live_pick_list(order):
+    """(name, fully_picked) for a live pick list holding this order, else None.
+
+    An order already on a list has LEFT the pool the urgent flag reorders
+    (_POOL_WHERE excludes it), and the sort wall only shows SUBMITTED lists —
+    so between those two states the flag is read by nobody. Whether the list
+    is finished decides who to chase, which is why it comes back too."""
+    r = frappe.db.sql(
+        """SELECT p.name,
+                  NOT EXISTS (SELECT 1 FROM `tabPick List Item` x
+                              WHERE x.parent = p.name
+                                AND COALESCE(x.picked_qty, 0) < x.qty) AS done
+           FROM `tabPick List Item` pli
+           JOIN `tabPick List` p ON p.name = pli.parent AND p.docstatus < 2
+           WHERE pli.sales_order = %s
+           ORDER BY p.creation DESC LIMIT 1""", (order,), as_dict=True)
+    return (r[0].name, bool(r[0].done)) if r else None
+
+
 def _urgent_col():
     """`custom_urgent_at`, or a literal NULL on a site that has not migrated
     yet. The pool query runs on every batch build and must not be the thing
@@ -528,8 +547,21 @@ def pick_lists(status="", q="", days=7, limit=30, offset=0):
         offset = max(int(offset or 0), 0)
         vals = {"days": days, "limit": limit, "offset": offset}
 
+        # 'ready' is a draft whose picking is FINISHED — every line at its
+        # full qty — and which has simply never been submitted. It used to
+        # sit inside 'draft' with the lists a picker started ten minutes ago,
+        # where nobody could tell the two apart. The difference is the whole
+        # point: a fresh draft is work in progress, a finished one is a tote
+        # of picked goods, stock held, and customers waiting on one click.
+        # PL-56211 sat like that for a day with 50 orders in it (2026-09-22).
         derived = """CASE
             WHEN pl.docstatus = 2 THEN 'cancelled'
+            WHEN pl.docstatus = 0 AND EXISTS (
+                     SELECT 1 FROM `tabPick List Item` rx WHERE rx.parent = pl.name)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM `tabPick List Item` rx2
+                     WHERE rx2.parent = pl.name
+                       AND COALESCE(rx2.picked_qty, 0) < rx2.qty) THEN 'ready'
             WHEN pl.docstatus = 0 THEN 'draft'
             WHEN pl.custom_logistics_status = 'Shipped' THEN 'shipped'
             WHEN pl.custom_logistics_status = 'Partially Shipped' THEN 'partial'
@@ -537,7 +569,8 @@ def pick_lists(status="", q="", days=7, limit=30, offset=0):
         END"""
         window = "pl.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)"
 
-        counts = {"draft": 0, "open": 0, "shipped": 0, "partial": 0, "cancelled": 0}
+        counts = {"ready": 0, "draft": 0, "open": 0, "shipped": 0,
+                  "partial": 0, "cancelled": 0}
         for r in frappe.db.sql(
             f"SELECT {derived} AS st, COUNT(*) AS c FROM `tabPick List` pl WHERE {window} GROUP BY st",
             vals, as_dict=True):
@@ -666,6 +699,10 @@ def pick_list_detail(name):
         for l in lines:
             l.size, l.color = _variant(l)
 
+        # No 'ready' here, deliberately. The BOARD splits a finished draft
+        # out so the dispatcher can find it; this panel does not, because
+        # the actions are identical either way and Submit — the one thing a
+        # finished list needs — is gated on 'draft'.
         status = ("cancelled" if pl.docstatus == 2 else "draft" if pl.docstatus == 0
                   else "shipped" if pl.custom_logistics_status == "Shipped"
                   else "partial" if pl.custom_logistics_status == "Partially Shipped" else "open")

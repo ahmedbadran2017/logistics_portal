@@ -2336,6 +2336,19 @@ def mark_urgent(order, reason=""):
     if so.custom_sales_status != "Confirmed":
         # An unconfirmed order has no place in the pick pool to jump to.
         frappe.throw(f"lp:urgentNotConfirmed|{so.custom_sales_status or '—'}")
+    # Neither has one that is ALREADY on a list. This is the case that had no
+    # guard: the two other fences catch an order the warehouse has moved on
+    # from, but an order sitting on a live pick list still reads Confirmed and
+    # Pending, so the flag was set, the comment written, the toast shown — and
+    # no screen read it. The pool the flag reorders excludes anything already
+    # on a list, and the sort wall only shows SUBMITTED ones, so between those
+    # two states it is a flag in an empty room. #261108 on PL-56211,
+    # 2026-09-22. Say where the order actually is instead.
+    from logistics_portal.api.picking import live_pick_list
+    on_list = live_pick_list(order)
+    if on_list:
+        pl, done = on_list
+        frappe.throw(("lp:urgentListDone|" if done else "lp:urgentListPicking|") + pl)
 
     now = now_datetime()
     frappe.db.set_value("Sales Order", order, {

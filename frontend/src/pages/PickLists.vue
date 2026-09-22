@@ -473,6 +473,9 @@
             <tr v-for="p in shown" :key="p.no" class="transition-colors cursor-pointer hover:bg-stone-50"
                 :class="selected.has(p.no) ? 'bg-[var(--accent-50)]/40' : ''" @click="openDetail(p)">
               <td v-if="isLiveData" class="px-3 py-2.5" @click.stop>
+                <!-- 'ready' is deliberately not selectable here: the bulk
+                     action deletes drafts, and a finished list is picked
+                     goods, not a leftover. -->
                 <input v-if="p.status === 'draft'" type="checkbox" class="blk-cb"
                        :checked="selected.has(p.no)" @change="toggleSel(p.no)" />
               </td>
@@ -776,6 +779,11 @@ const toggles = reactive([
 
 const withErrors = computed(() => rows.value.filter((p) => p.errors).length);
 const kpis = computed(() => [
+  // First, and it earns the place: a finished list nobody sent is picked
+  // goods in a tote with the stock held and the customer waiting on one
+  // click. It used to be counted as a plain draft next to the lists a
+  // picker started ten minutes ago.
+  { label: t("pl.kReady"), value: counts.value.ready || 0, icon: layersIcon(13) },
   { label: t("pl.kOpen"), value: counts.value.open || 0, icon: boxIcon(13) },
   { label: t("pl.kShipped"), value: counts.value.shipped || 0, icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>` },
   { label: t("pl.kDraft"), value: counts.value.draft || 0, icon: layersIcon(13) },
@@ -784,7 +792,8 @@ const kpis = computed(() => [
 ]);
 
 const filters = computed(() => [
-  ["all", `${t("pl.fAll")} · ${(counts.value.draft || 0) + (counts.value.open || 0) + (counts.value.shipped || 0) + (counts.value.partial || 0) + (counts.value.cancelled || 0)}`],
+  ["all", `${t("pl.fAll")} · ${(counts.value.ready || 0) + (counts.value.draft || 0) + (counts.value.open || 0) + (counts.value.shipped || 0) + (counts.value.partial || 0) + (counts.value.cancelled || 0)}`],
+  ["ready", `${t("pl.fReady")} · ${counts.value.ready || 0}`],
   ["draft", `${t("pl.fDraft")} · ${counts.value.draft || 0}`],
   ["open", `${t("pl.fOpen")} · ${counts.value.open || 0}`],
   ["shipped", `${t("pl.fShipped")} · ${counts.value.shipped || 0}`],
@@ -796,10 +805,10 @@ const shown = computed(() => rows.value);
 
 const plOrigin = (p) => p.origin || (["Zone cluster", "Balanced", "Batch SKU", "Single-item blitz", "Multi-line"].includes(p.item) ? "auto" : p.item === "Manual" ? "manual" : "auto");
 
-const plStatusChip = (s) => ({ draft: "text-stone-600 bg-stone-100 ring-stone-200", open: "text-amber-700 bg-amber-50 ring-amber-200", completed: "text-emerald-700 bg-emerald-50 ring-emerald-200", shipped: "text-emerald-700 bg-emerald-50 ring-emerald-200", partial: "text-orange-700 bg-orange-50 ring-orange-200", cancelled: "text-rose-700 bg-rose-50 ring-rose-200" }[s] || "text-stone-600 bg-stone-100 ring-stone-200");
-const plStatusDot = (s) => ({ draft: "bg-stone-400", open: "bg-amber-500", completed: "bg-emerald-500", shipped: "bg-emerald-500", partial: "bg-orange-500", cancelled: "bg-rose-500" }[s] || "bg-stone-400");
+const plStatusChip = (s) => ({ ready: "text-violet-700 bg-violet-50 ring-violet-300", draft: "text-stone-600 bg-stone-100 ring-stone-200", open: "text-amber-700 bg-amber-50 ring-amber-200", completed: "text-emerald-700 bg-emerald-50 ring-emerald-200", shipped: "text-emerald-700 bg-emerald-50 ring-emerald-200", partial: "text-orange-700 bg-orange-50 ring-orange-200", cancelled: "text-rose-700 bg-rose-50 ring-rose-200" }[s] || "text-stone-600 bg-stone-100 ring-stone-200");
+const plStatusDot = (s) => ({ ready: "bg-violet-500", draft: "bg-stone-400", open: "bg-amber-500", completed: "bg-emerald-500", shipped: "bg-emerald-500", partial: "bg-orange-500", cancelled: "bg-rose-500" }[s] || "bg-stone-400");
 const plStatusLabel = (s) =>
-  ({ draft: t("pl.fDraft"), open: t("pl.fOpen"), shipped: t("pl.fShipped"), partial: t("pl.fPartial"), cancelled: t("pl.fCancelled") }[s] || s);
+  ({ ready: t("pl.fReady"), draft: t("pl.fDraft"), open: t("pl.fOpen"), shipped: t("pl.fShipped"), partial: t("pl.fPartial"), cancelled: t("pl.fCancelled") }[s] || s);
 
 
 const pickers = TEAM.filter((p) => p.role === "picker");

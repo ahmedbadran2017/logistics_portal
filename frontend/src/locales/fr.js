@@ -1326,6 +1326,8 @@ export default {
     title: "Pick lists", subtitle: "{n} pick lists · {d} derniers jours",
     searchPh: "Rechercher PL, commande, préparateur…", fromBoard: "Créer depuis le tableau Commandes",
     fAll: "Tout", fDraft: "Brouillon", fOpen: "Préparée · à expédier", fShipped: "Expédiée", fPartial: "Partielle", fCancelled: "Annulée",
+    kReady: "Prélevé, non envoyé",
+    fReady: "Prélevé, non envoyé",
     kDraft: "Brouillon", kOpen: "Préparée · attend l’expédition", kShipped: "Expédiée", kCancelled: "Annulée",
     thPl: "Pick List", thPicker: "Préparateur", thOrders: "Commandes", thItems: "Articles", thQty: "Qté",
     thCreated: "Créée", thProgress: "Avancement", thStatus: "Statut", thType: "Type", thOrigin: "Origine",
@@ -1796,6 +1798,8 @@ export default {
     foot: "Tous les chiffres suivent les commandes ARRIVÉES dans la période. Les taux qui dépendent de la fin du trajet ne portent que sur les colis tranchés — sinon une période récente paraîtrait toujours pire qu'une ancienne.",
   },
   srv: {
+    urgentListDone: "Déjà sur la liste {0} — prélevée et en attente d'envoi, plus dans la file.",
+    urgentListPicking: "Déjà sur la liste {0} — en cours de prélèvement, donc déjà sortie de la file.",
     urgentGone: "Trop tard — l'entrepôt l'a déjà ({0}). Plus rien à accélérer ici.",
     urgentNotConfirmed: "Seule une commande confirmée peut passer devant (celle-ci est {0}).",
     stopNeeded: "L'entrepôt a déjà cette commande ({0}).",

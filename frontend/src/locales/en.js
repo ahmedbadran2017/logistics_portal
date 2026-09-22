@@ -1327,6 +1327,8 @@ export default {
     title: "Pick lists", subtitle: "{n} pick lists · last {d} days",
     searchPh: "Search PL, order, picker…", fromBoard: "Create from Orders board",
     fAll: "All", fDraft: "Draft", fOpen: "Picked · to ship", fShipped: "Shipped", fPartial: "Partial", fCancelled: "Cancelled",
+    kReady: "Picked, not sent",
+    fReady: "Picked, not sent",
     kDraft: "Draft", kOpen: "Picked · awaiting shipment", kShipped: "Shipped", kCancelled: "Cancelled",
     thPl: "Pick List", thPicker: "Picker", thOrders: "Orders", thItems: "Items", thQty: "Qty",
     thCreated: "Created", thProgress: "Progress", thStatus: "Status", thType: "Type", thOrigin: "Origin",
@@ -1799,6 +1801,8 @@ export default {
     foot: "Every number here follows the orders that ARRIVED in the window. Rates that depend on a parcel finishing its journey are measured only over the parcels that reached a verdict — a young cohort would otherwise always look worse than an old one.",
   },
   srv: {
+    urgentListDone: "Already on pick list {0} — picked and waiting to be sent, not in the queue any more.",
+    urgentListPicking: "Already on pick list {0} — being picked now, so it is past the queue.",
     urgentGone: "Too late — the warehouse already has it ({0}). Nothing left here to hurry.",
     urgentNotConfirmed: "Only a confirmed order can be pushed up the pick queue (this one is {0}).",
     stopNeeded: "The warehouse already has this order ({0}).",
