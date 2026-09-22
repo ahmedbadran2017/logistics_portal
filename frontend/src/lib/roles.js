@@ -37,7 +37,9 @@ export const ROLE_CONFIG = {
           { to: "Consolidation", label: "nav.consolidation", icon: "git-merge" },
           { to: "PickLists", label: "nav.picklists", icon: "package" },
           { to: "Stranded", label: "nav.stranded", icon: "package-x" },
-          { to: "CityCheck", label: "nav.cityCheck", icon: "map-pin" },
+          // CityCheck left this nav (Ahmed 2026-09-22): repairing a shipping
+          // city is TRACKING work — it lives on /tracking under Ship tools.
+          // The route and the API stay open; only the floor menu drops it.
           { to: "PackStation", label: "nav.pack", icon: "tag" },
           { to: "PackDesk", label: "nav.packing", icon: "package-check" },
           { to: "Shipments", label: "nav.shipments", icon: "truck" },
@@ -107,13 +109,14 @@ export const ROLE_CONFIG = {
           { to: "Pipeline", label: "nav.orders", icon: "shopping-bag" },
           { to: "PickLists", label: "nav.picklists", icon: "package" },
           { to: "Stranded", label: "nav.stranded", icon: "package-x" },
-          { to: "CityCheck", label: "nav.cityCheck", icon: "map-pin" },
+          // CityCheck left this nav (Ahmed 2026-09-22): repairing a shipping
+          // city is TRACKING work — it lives on /tracking under Ship tools.
+          // The route and the API stay open; only the floor menu drops it.
           // The sort wall is where a parcel that finished picking with no
           // carrier label surfaces, and fixing its city + calling the carrier
           // is a DISPATCHER act (relabel_order gates on dispatcher/manager).
           // The server always allowed it; only this menu did not, which made
-          // the repair look manager-only. CityCheck catches a bad city before
-          // picking, this catches the ones that got through.
+          // the repair look manager-only.
           { to: "PackStation", label: "nav.pack", icon: "tag" },
         ],
       },

@@ -210,15 +210,14 @@
     </div>
 
     <!-- Held out of the pick circle until the CITY is fixed — the fence's
-         own receipt. Fixing the city in City-check releases the order. -->
+         own receipt. Read-only for the floor: the repair itself is a
+         TRACKING act, so no deep link out of here any more. -->
     <div v-if="pickTab === 'city' && cityHeld && cityHeld.rows.length"
          class="mb-3 rounded-xl ring-1 ring-sky-200/70 bg-white overflow-hidden">
       <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
         <Icon name="map-pin" :size="14" class="text-sky-700" />
         <span class="text-[12px] font-semibold text-stone-900">{{ t('ordersPg.cityTitle') }}</span>
         <span class="text-[11.5px] text-stone-400 tabular-nums">{{ cityHeld.n }}</span>
-        <button class="ms-auto h-8 px-3 rounded-lg text-[12px] font-semibold text-sky-800 bg-sky-50 ring-1 ring-sky-200 hover:bg-sky-100"
-                @click="$router.push({ name: 'CityCheck' })">{{ t('ordersPg.cityFixBtn') }}</button>
       </div>
       <p class="px-4 py-2 text-[11.5px] text-stone-500 border-b border-stone-100">{{ t('ordersPg.cityHint') }}</p>
       <ul class="divide-y divide-stone-100 max-h-[380px] overflow-y-auto">
