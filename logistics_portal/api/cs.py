@@ -1741,7 +1741,7 @@ def stock_wait(scope="local"):
     # decision — "are we buying this again" is asked once, not once per
     # customer waiting for it.
     names = list((avail.get("oos") or [])) + list((avail.get("partial") or []))
-    missing = avail.get("missing") or {}
+    miss_by = avail.get("missByOrder") or {}
     if not names:
         return {"items": [], "orders": 0, "value": 0, "scope": "import",
                 "promiseDays": LOCAL_PROMISE_DAYS}
@@ -1751,19 +1751,53 @@ def stock_wait(scope="local"):
                            custom_shipping_phone) phone,
                   DATEDIFF(CURDATE(), DATE(creation)) age
            FROM `tabSales Order` WHERE name IN %s""", (tuple(names),), as_dict=True)}
+    # Is anything on order for these codes — and how old is the newest one?
+    #
+    # Two states only, and deliberately NOT the local four. _local_state's
+    # late/due/on-the-way all measure against LOCAL_PROMISE_DAYS, a promise
+    # grounded in 2,467 local receipts; an import has no such promise and
+    # borrowing it would invent one.
+    #
+    # Nor is "ordered" allowed to imply a date. Measured on production
+    # 2026-09-22, one blocking import carries EIGHTY-EIGHT open purchase
+    # orders with 517 units still pending and the newest raised in April
+    # 2025 — seventeen months of "on order" that never arrived. So the row
+    # says a purchase order exists and how old it is, and lets the agent draw
+    # the obvious conclusion instead of printing a date nobody can keep.
+    codes = {c for n in names for (c, _nm) in (miss_by.get(n) or [])}
+    po_age = {}
+    if codes:
+        for c, newest in frappe.db.sql(
+                """SELECT poi.item_code, MAX(po.transaction_date)
+                   FROM `tabPurchase Order Item` poi
+                   JOIN `tabPurchase Order` po ON po.name = poi.parent
+                   WHERE po.docstatus = 1 AND po.status NOT IN ('Closed', 'Completed')
+                     AND poi.item_code IN %s AND poi.qty > poi.received_qty
+                   GROUP BY poi.item_code""", (tuple(codes),)):
+            if newest:
+                po_age[c] = frappe.utils.date_diff(frappe.utils.nowdate(), newest)
+
     groups, total = {}, 0.0
     for name in names:
         m = meta.get(name)
         if not m:
             continue
         total += float(m.grand_total or 0)
-        for label in (missing.get(name) or ["—"]):
-            g = groups.setdefault(label, {"item": label, "orders": [],
-                                          "value": 0.0, "oldest": 0})
+        for code, label in (miss_by.get(name) or [("", "—")]):
+            label = label or code or "—"
+            g = groups.setdefault(label, {"item": label, "itemCode": code,
+                                          "orders": [], "value": 0.0, "oldest": 0,
+                                          "noPO": 0})
+            ordered = code in po_age
+            if not ordered:
+                g["noPO"] += 1
             g["orders"].append({
                 "order": name, "customer": m.customer_name or "",
                 "phone": (m.phone or "").strip(),
                 "value": round(float(m.grand_total or 0)), "age": int(m.age or 0),
+                "item": label,
+                "state": "ordered" if ordered else "noPO",
+                "poAge": po_age.get(code),
             })
             g["value"] += float(m.grand_total or 0)
             g["oldest"] = max(g["oldest"], int(m.age or 0))

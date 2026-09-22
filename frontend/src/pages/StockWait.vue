@@ -67,6 +67,10 @@
             <span v-if="o.state === 'late'" class="text-[11px] font-semibold text-rose-600 tabular-nums whitespace-nowrap">
               {{ t('sw.overdue').replace('{n}', String(o.overdueBy)) }}
             </span>
+            <span v-else-if="o.state === 'ordered'" class="text-[11px] tabular-nums whitespace-nowrap"
+                  :class="o.poAge > 60 ? 'text-rose-600 font-semibold' : 'text-stone-500'">
+              {{ t('sw.poAge').replace('{n}', String(o.poAge)) }}
+            </span>
             <span v-else-if="o.due" class="text-[11px] text-emerald-700 tabular-nums whitespace-nowrap">{{ o.due }}</span>
 
             <RouterLink :to="{ name: 'OrderDetail', params: { name: encodeURIComponent(o.order) } }"
@@ -106,6 +110,8 @@ const STATE_CLS = {
   late: "bg-amber-100 text-amber-800",
   due: "bg-sky-100 text-sky-700",
   otw: "bg-emerald-100 text-emerald-700",
+  // Import only: a purchase order exists, and that is ALL it says.
+  ordered: "bg-stone-200 text-stone-600",
 };
 const scope = ref("local");
 const d = ref(null);
@@ -126,7 +132,7 @@ const groups = computed(() => {
   }
   return (r.items || []).map((g) => ({
     key: g.item, orders: g.orders, value: g.value,
-    oldest: g.oldest, noPO: 0, late: 0,
+    oldest: g.oldest, noPO: g.noPO || 0, late: 0,
   }));
 });
 
