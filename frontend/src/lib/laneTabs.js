@@ -47,6 +47,10 @@ export const LANES = [
     tabs: [
       { to: "Tickets", label: "nav.tickets", icon: "message-circle" },
       { to: "Exchanges", label: "nav.exchanges", icon: "refresh-cw" },
+      // Confirmed customers the warehouse cannot ship. Second tab, not last:
+      // it is the only one of these where somebody is waiting on a promise
+      // we already made.
+      { to: "StockWait", label: "nav.stockWait", icon: "package-x" },
       { to: "TicketsReports", label: "nav.tsReports", icon: "trending-up", admin: true },
       { to: "TicketsSettings", label: "nav.tsSettings", icon: "settings", admin: true },
     ],

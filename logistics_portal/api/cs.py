@@ -1687,3 +1687,112 @@ def take_watch(kind="exchange", ref=""):
             frappe.log_error(frappe.get_traceback()[:2000], "cs.take_watch claim")
     return {"ok": True, "request": name, "merged": res.get("merged", False),
             "why": why}
+
+
+# ── Confirmed, and waiting on stock ────────────────────────────────────────
+#
+# 114 customers said yes and are waiting for something the warehouse cannot
+# ship. Nobody owned them: the pile was visible only on the dispatcher's local
+# supply board, which CS cannot open.
+#
+# EVERY number here comes from the portal's own helpers — _pick_availability,
+# _local_supply, _local_state — and not from a fresh query, because writing a
+# fresh query is how this investigation went wrong three times in a row:
+#
+#   * Product Bundles. A bundle is is_stock_item = 0 and holds no stock BY
+#     DESIGN; its components do. Read as stock it reads as zero, and the top
+#     "blocker" was a box whose scarcest component had 525 units. 67 of a
+#     first count of 181 orders were that mistake — 59% of the list would
+#     have been customers with nothing wrong with their order. This is the
+#     same class of error that made an agent cancel a live sale on 2026-09-22.
+#     _pick_availability explodes bundles through `Packed Item`.
+#   * Local suppliers. The flag is Item.default_supplier, not the Item Default
+#     child table; joining the wrong one reported ZERO local orders when the
+#     truth is 93% of the pile.
+#   * Purchase-order dates. The raw schedule_date said nothing was ever
+#     arriving; _local_state measures against the LOCAL_PROMISE_DAYS promise
+#     and finds 26 orders with a date we can actually give a customer.
+#
+# So: no SQL here that the floor's own screens do not already run.
+_WAIT_STATES = ("noPO", "late", "due", "otw")
+
+
+@frappe.whitelist()
+def stock_wait(scope="local"):
+    """Confirmed orders that cannot be shipped yet, for the people who have to
+    tell the customer.
+
+    `scope` = "local" (93% of it — a van, so the answer is usually a date) or
+    "import" (everything else). Two lists rather than one because the two need
+    different sentences on the phone, not because they are different data.
+    """
+    _gate()
+    from logistics_portal.api.orders import (_pick_availability,
+                                             _local_board_data,
+                                             LOCAL_PROMISE_DAYS)
+    avail = _pick_availability()
+    if str(scope) == "local":
+        d = _local_board_data()
+        _attach_phones(g["orders"] for g in d.get("suppliers") or [])
+        return {**d, "scope": "local"}
+
+    # The rest: blocked orders where at least one missing item is NOT local, so
+    # no van fixes it. Grouped by ITEM, because that is the unit of the
+    # decision — "are we buying this again" is asked once, not once per
+    # customer waiting for it.
+    names = list((avail.get("oos") or [])) + list((avail.get("partial") or []))
+    missing = avail.get("missing") or {}
+    if not names:
+        return {"items": [], "orders": 0, "value": 0, "scope": "import",
+                "promiseDays": LOCAL_PROMISE_DAYS}
+    meta = {r.name: r for r in frappe.db.sql(
+        """SELECT name, customer_name, grand_total,
+                  COALESCE(NULLIF(custom_customer_phone,''),
+                           custom_shipping_phone) phone,
+                  DATEDIFF(CURDATE(), DATE(creation)) age
+           FROM `tabSales Order` WHERE name IN %s""", (tuple(names),), as_dict=True)}
+    groups, total = {}, 0.0
+    for name in names:
+        m = meta.get(name)
+        if not m:
+            continue
+        total += float(m.grand_total or 0)
+        for label in (missing.get(name) or ["—"]):
+            g = groups.setdefault(label, {"item": label, "orders": [],
+                                          "value": 0.0, "oldest": 0})
+            g["orders"].append({
+                "order": name, "customer": m.customer_name or "",
+                "phone": (m.phone or "").strip(),
+                "value": round(float(m.grand_total or 0)), "age": int(m.age or 0),
+            })
+            g["value"] += float(m.grand_total or 0)
+            g["oldest"] = max(g["oldest"], int(m.age or 0))
+    out = []
+    for g in groups.values():
+        g["value"] = round(g["value"])
+        g["orders"].sort(key=lambda o: -o["age"])
+        out.append(g)
+    out.sort(key=lambda g: (-len(g["orders"]), -g["value"]))
+    return {"items": out, "orders": len(names), "value": round(total),
+            "scope": "import", "promiseDays": LOCAL_PROMISE_DAYS}
+
+
+def _attach_phones(order_lists):
+    """The supplier board was built for a dispatcher, who never phones the
+    customer. CS does, so the number rides along rather than costing them a
+    second screen per row."""
+    rows = []
+    for lst in order_lists:
+        rows.extend(lst)
+    names = [r["order"] for r in rows if r.get("order")]
+    if not names:
+        return
+    ph = {}
+    for i in range(0, len(names), 900):
+        for n, p in frappe.db.sql(
+                """SELECT name, COALESCE(NULLIF(custom_customer_phone,''),
+                          custom_shipping_phone) FROM `tabSales Order`
+                   WHERE name IN %s""", (tuple(names[i:i + 900]),)):
+            ph[n] = (p or "").strip()
+    for r in rows:
+        r["phone"] = ph.get(r["order"], "")
