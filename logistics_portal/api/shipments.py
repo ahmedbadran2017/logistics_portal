@@ -594,35 +594,24 @@ def _clean_text(text):
 
 def _event_kind(text, track="", stage=""):
     """The carrier's last event, as one of a handful of situations the
-    chase call starts from. Same vocabulary as the rescue lane.
+    chase call starts from. The vocabulary itself lives in carrier_events,
+    which is also what the rescue lane reads -- "same vocabulary as the
+    rescue lane" was a comment here for months while the two were in fact
+    separate lists that had already drifted.
 
     Measured 2026-09-13: 824 of 1,000 parcels 'with the carrier' had no
     carrier comment at all, and 636 of those were still 'Pending' — the
     label exists, the manifest was written, and the carrier never scanned
     the parcel. That is not 'no news'; it is the loudest news there is.
     """
-    t = (text or "")
-    if not t:
+    from logistics_portal.api import carrier_events
+    if not (text or "").strip():
         if stage != "with_carrier":
             return ""
+        # No sentence at all: the tracking column is the only witness left.
         return {"Pending": "noscan", "In Transit": "hub", "Out For Delivery": "ofd",
                 "Picked up": "hub", "Picked Up": "hub"}.get(track or "", "none")
-    if t.startswith(("Customer cancelled", "The customer has cancelled", "Cancelled on site",
-                     "Cancellation Reason", "Justyol has requested")):
-        return "cancelled"
-    if t.startswith("Customer unreachable"):
-        return "unreachable"
-    if t.startswith("The driver"):
-        return "appointment"
-    if t.startswith("Out for"):
-        return "ofd"
-    if t.startswith(("The parcel", "Shipped to")):
-        return "hub"
-    if t.startswith("Package"):
-        return "delivered"
-    if t.startswith("Newly created"):
-        return "label"
-    return "other"
+    return carrier_events.kind_of(text)
 
 
 @frappe.whitelist()

@@ -87,7 +87,7 @@
               :class="verdictF === k ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200 hover:ring-stone-300'"
               :aria-pressed="verdictF === k" @click="setReason(k)">
         {{ t('rs.reason_' + (k || 'all')) }}
-        <span class="tabular-nums ms-1" :class="verdictF === k ? 'text-white/80' : 'text-stone-400'">{{ k ? (data.counts[k] ?? '–') : (data.counts[tab] ?? '–') }}</span>
+        <span class="tabular-nums ms-1" :class="verdictF === k ? 'text-white/80' : 'text-stone-400'">{{ k ? (data.counts[k] ?? '–') : (verdictAll || '–') }}</span>
       </button>
       <button class="lp-tap ms-auto h-8 px-2.5 rounded-full text-[11.5px] font-semibold ring-1 inline-flex items-center gap-1.5"
               :class="showLegend ? 'bg-stone-900 text-white ring-stone-900' : 'bg-white text-stone-600 ring-stone-200'" :aria-expanded="showLegend" @click="showLegend = !showLegend">
@@ -438,7 +438,17 @@ const LEGEND = [
 // The carrier's last word splits the exceptions: a call can save a parcel
 // the customer did not cancel; the rest is a return to confirm.
 const verdictF = ref(String(route.query.reason ?? "rescuable"));
-const hasVerdict = computed(() => tab.value === "exceptions" || tab.value === "failed");
+// Which PILE is open. The 3-tab restructure turned `tab` into the question
+// (todo/watch/history) and moved the pile into `chip`, and this test was left
+// reading `tab` — so it has been false ever since, which silently took the
+// whole rescuable/cancelled filter off the screen along with the bulk action
+// that depends on it. Prefer the chip the server actually served.
+const openChip = computed(() =>
+  data.value?.chip || chip.value || (tab.value === "todo" ? "exceptions" : ""));
+const hasVerdict = computed(() => openChip.value === "exceptions" || openChip.value === "failed");
+// "All" is both sides of the split, not the depth under the current filter.
+const verdictAll = computed(() =>
+  (data.value?.counts?.rescuable ?? 0) + (data.value?.counts?.cancelled ?? 0));
 const canBulk = computed(() => tab.value === "backlog" || (hasVerdict.value && verdictF.value === "cancelled"));
 const VERDICT_CLS = {
   cancelled: "text-rose-700 bg-rose-50 ring-rose-200", unreachable: "text-amber-700 bg-amber-50 ring-amber-200",
@@ -604,13 +614,15 @@ async function beat() {
   if (document.visibilityState !== "visible" || loading.value) return;
   try {
     const r = await api("rescue.pulse", {
-      tab: tab.value, chip: chip.value, since: pulseSince, surface: SURFACE || "" });
+      tab: tab.value, chip: chip.value, since: pulseSince, surface: SURFACE || "",
+      // the depth is only comparable under the same filter the screen is on
+      reason: verdictF.value === "rescuable" ? "" : verdictF.value });
     pulseSince = r.now || pulseSince;
     // Compare against the PILE the screen is showing, not the question it
     // sits under — a tab is a sum of chips and never a depth of its own.
-    const openChip = data.value?.chip;
-    const moved = r.depth != null && data.value?.counts && openChip
-      && r.depth !== data.value.counts[openChip];
+    const served = data.value?.chip;
+    const moved = r.depth != null && data.value?.counts && served
+      && r.depth !== data.value.counts[served];
     if (!r.n && !moved) return;
     if (canAutoApply()) { load(); freshN.value = 0; return; }
     freshN.value += r.n || (moved ? 1 : 0);

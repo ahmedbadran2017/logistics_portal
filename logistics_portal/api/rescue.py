@@ -15,6 +15,8 @@ import re
 
 import frappe
 
+from logistics_portal.api import carrier_events
+
 
 def _site_now():
     """The SITE clock as a bound param. The DB server runs on its own
@@ -154,8 +156,8 @@ _CARRIER_LIKE = ("Newly created%", "Shipped to%", "The parcel%", "Out for%", "Pa
                  "The driver%", "Customer unreachable%", "Customer cancelled%",
                  "The customer has cancelled%", "Cancelled on site%", "Cancellation Reason%",
                  "Justyol has requested%", "%eturned%")
-_CANCELLED_LIKE = ("Customer cancelled%", "The customer has cancelled%", "Cancelled on site%",
-                   "Cancellation Reason%", "Justyol has requested%")
+# Same list, from the one place that holds it.
+_CANCELLED_LIKE = tuple(p + "%" for p in carrier_events.prefixes_for(("cancelled",)))
 
 
 def _sql_like(p):
@@ -469,19 +471,46 @@ _SO_JOIN = ("LEFT JOIN `tabSales Order` so ON so.name = (SELECT MIN(dni.against_
             "FROM `tabDelivery Note Item` dni WHERE dni.parent = dn.name)")
 
 
+def _fail_event_at_sql():
+    """When the carrier last FAILED this parcel — not when it last spoke.
+
+    This clause used to read the last event of any kind, and its own
+    docstring claimed it meant "failed AGAIN". It never tested that. The
+    carrier answers a redelivery request by confirming the appointment we
+    asked for, usually within minutes, and that answer counted as a reason
+    to put the parcel back in front of an agent.
+
+    Measured 2026-09-22 over 45 days: 82 of the 108 parcels the team had
+    actioned came back on an event that was not a failure, a median of 9
+    minutes after the agent acted, 65 of them inside half an hour. J-007359
+    was actioned at 14:00:55 and returned at 14:10, because a driver had
+    agreed to a new appointment. Seven parcels were actioned twice.
+
+    Which sentences count as a failure is not decided here -- see
+    carrier_events.BROKE_THE_PROMISE.
+    """
+    ors = carrier_events.sql_like_any("c.content", carrier_events.BROKE_THE_PROMISE)
+    return ("(SELECT c.creation FROM `tabComment` c "
+            "WHERE c.reference_doctype = 'Sales Order' AND c.reference_name = so.name "
+            f"AND c.comment_type = 'Comment' AND {ors} "
+            "ORDER BY c.creation DESC LIMIT 1)")
+
+
 def _untriaged_cond():
-    """No decision yet — OR a Redeliver whose parcel the carrier failed AGAIN
-    afterwards. A decision must not hide a parcel forever: #258701 got
-    Redeliver on 09-10, the carrier tried on 09-12, found nobody, and the
-    parcel would have stayed 'handled' for good."""
-    ev_at = _last_event_sql("creation")
+    """No decision yet — OR a decision the carrier has since broken.
+
+    A decision must not hide a parcel forever: #258701 got Redeliver on
+    09-10, the carrier tried on 09-12, found nobody, and the parcel would
+    have stayed 'handled' for good. But only a FAILURE re-opens it; the
+    carrier agreeing with us is not news worth an agent's attention."""
+    fail_at = _fail_event_at_sql()
     # Reship joins Redeliver here now that it is a word of its own — before
     # this it WAS "Redeliver" on the parcel and inherited the rule by
     # accident. Naming it properly would have quietly dropped it out.
     return ("(COALESCE(dn.custom_exception_action,'') = '' OR "
             "(dn.custom_exception_action IN ('Redeliver', 'Reship') "
             "AND dn.custom_exception_actioned_at IS NOT NULL "
-            f"AND {ev_at} > dn.custom_exception_actioned_at))")
+            f"AND {fail_at} > dn.custom_exception_actioned_at))")
 
 
 def _dn_where(tab, vals, reason=""):
@@ -592,8 +621,15 @@ def _dn_select():
         "{claim_cols}", _CLAIM_COLS if _has_claim_fields() else _NO_CLAIM_COLS)
 
 
-def _cached_counts(days):
-    ck = f"lp_rescue_counts:{days}"
+def _cached_counts(days, reason=""):
+    """Queue depths, under the SAME filter the list will use.
+
+    The badge used to be computed with no reason filter while the screen
+    defaults to "rescuable", so the exceptions chip read 112 and opened onto
+    43 rows -- the missing 69 were cancelled parcels the list deliberately
+    hides. A number you cannot open is worse than no number.
+    """
+    ck = f"lp_rescue_counts:{days}:{reason or 'all'}"
     try:
         hit = frappe.cache().get_value(ck, expires=True)
         if isinstance(hit, dict):
@@ -605,8 +641,8 @@ def _cached_counts(days):
               "promised", "followup", "done"):
         v = {"days": days}
         counts[t] = int(frappe.db.sql(
-            f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} WHERE {_dn_where(t, v)}",
-            v)[0][0])
+            f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} "
+            f"WHERE {_dn_where(t, v, reason)}", v)[0][0])
     counts["notdelivered"] = int(frappe.db.sql(
         """SELECT COUNT(*) FROM `tabSales Order`
            WHERE docstatus = 1 AND company = %(co)s
@@ -694,7 +730,7 @@ def board(tab="todo", days=30, q="", limit=30, offset=0, reason="", surface="",
 
     # The four queue depths cost ~0.6 s together (a correlated last-event
     # read per parcel); a decision busts them, otherwise a minute is fine.
-    counts = _cached_counts(days)
+    counts = _cached_counts(days, reason)
     counts["mine"] = _mine_count(days)
     # The split that decides whether a call can save anything, for the two
     # queues a call is made from. Cached: it is a correlated read per parcel.
@@ -706,10 +742,19 @@ def board(tab="todo", days=30, q="", limit=30, offset=0, reason="", surface="",
         except Exception:
             pass
         if not split:
+            # Both sides counted directly. Deriving one by subtracting the
+            # other from counts[queue] broke the moment the depths started
+            # respecting the reason filter -- it would have subtracted the
+            # cancelled pile from a total that already excluded it.
             v = dict(vals)
             canc = int(frappe.db.sql(
-                f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} WHERE {_dn_where(queue, v, 'cancelled')}", v)[0][0])
-            split = {"cancelled": canc, "rescuable": max(0, counts[queue] - canc)}
+                f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} "
+                f"WHERE {_dn_where(queue, v, 'cancelled')}", v)[0][0])
+            v2 = dict(vals)
+            resc = int(frappe.db.sql(
+                f"SELECT COUNT(*) FROM `tabDelivery Note` dn {_SO_JOIN} "
+                f"WHERE {_dn_where(queue, v2, 'rescuable')}", v2)[0][0])
+            split = {"cancelled": canc, "rescuable": resc}
             try:
                 frappe.cache().set_value(ck, split, expires_in_sec=120)
             except Exception:
@@ -738,7 +783,13 @@ def board(tab="todo", days=30, q="", limit=30, offset=0, reason="", surface="",
                  "COALESCE(so.custom_logistics_status,'') NOT IN ('Delivered', 'Returned')",
                  "COALESCE(so.custom_track_shipment_status,'') "
                  "NOT IN ('Delivered', 'Return', 'Returned')",
-                 "NOT " + _back_in_house()]
+                 "NOT " + _back_in_house(),
+                 # DUE, like the badge. The badge has always counted what is
+                 # past its time and the list showed every call ever
+                 # scheduled: a chip reading 81 opened onto 231 rows, 150 of
+                 # them not due yet. The tab asks who is waiting on me RIGHT
+                 # NOW, and a call booked for Thursday is not.
+                 "so.custom_next_call_at <= %(snow)s"]
         vals["co"] = _CO
         if q and str(q).strip():
             vals["q"] = f"%{str(q).strip()}%"
@@ -1262,18 +1313,24 @@ def settle_outcomes(limit=400):
     moving. None of that was recorded anywhere; it was recomputed on every
     page load and true only for that second.
 
-    Scheduled. Idempotent — it only ever writes a blank outcome."""
+    Scheduled. Idempotent — it only ever writes a blank outcome, and every
+    new decision blanks it again, so a parcel worked twice is judged twice."""
     try:
         if not frappe.get_meta("Delivery Note").has_field("custom_rescue_outcome"):
             return
         rows = frappe.db.sql(
             f"""SELECT dn.name, dn.custom_track_shipment_status trk,
-                       dn.custom_return_shipment ret
+                       dn.custom_return_shipment ret,
+                       {_fail_event_at_sql()} fail_at,
+                       dn.custom_exception_actioned_at act_at
                 FROM `tabDelivery Note` dn
+                JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
+                JOIN `tabSales Order` so ON so.name = dni.against_sales_order
                 WHERE dn.docstatus = 1 AND dn.company = %(co)s
                   AND dn.custom_exception_action IN ('Redeliver', 'Reship', 'Follow Up')
                   AND dn.custom_exception_actioned_at IS NOT NULL
                   AND COALESCE(dn.custom_rescue_outcome,'') = ''
+                GROUP BY dn.name
                 LIMIT {int(limit)}""", {"co": _CO}, as_dict=True)
         now = now_datetime()
         done = 0
@@ -1285,6 +1342,13 @@ def settle_outcomes(limit=400):
             else:
                 out = {"Delivered": "landed",
                        "Return": "returned", "Returned": "returned"}.get(r.trk or "")
+            # The fourth ending, and until now the only one nobody wrote
+            # down: the carrier tried again and failed again. The parcel
+            # went back to the working queue and history kept no trace of
+            # the promise having broken — so a promise that cost us two
+            # rounds read the same afterwards as one that went smoothly.
+            if not out and r.fail_at and r.act_at and r.fail_at > r.act_at:
+                out = "failed_again"
             if not out:
                 continue
             frappe.db.set_value("Delivery Note", r.name, {
@@ -1340,6 +1404,11 @@ def bulk_act(ids=None, action=None, note=None):
             if has_field:
                 doc.db_set("custom_exception_action", dn_action, update_modified=False)
                 doc.db_set("custom_exception_actioned_at", now, update_modified=False)
+                # Same as the single decision: a new decision reopens the
+                # question of how it ends, or last round's verdict sticks.
+                if frappe.get_meta("Delivery Note").has_field("custom_rescue_outcome"):
+                    doc.db_set("custom_rescue_outcome", "", update_modified=False)
+                    doc.db_set("custom_rescue_outcome_at", None, update_modified=False)
             doc.add_comment("Comment", tag)
             # Mirror the tag on the ORDER too: the board's "mine" tally and the
             # section report count SO comments only, so bulk triage — the tool
@@ -1805,7 +1874,7 @@ _PROBLEM_LIKE = ("Customer unreachable%", "Customer cancelled%",
 
 
 @frappe.whitelist()
-def pulse(tab="todo", days=30, since="", surface="", chip=""):
+def pulse(tab="todo", days=30, since="", surface="", chip="", reason=""):
     """Has anything happened since the screen last looked?
 
     Deliberately tiny — one indexed count on the comment table, measured at
@@ -1838,8 +1907,11 @@ def pulse(tab="todo", days=30, since="", surface="", chip=""):
         # would never have noticed a colleague clearing a row.
         ptab, pchip = resolve_tab(tab, chip)
         queue = pchip or _TAB_DEFAULT[ptab]
+        # Same normalising as the board, so the depth the poller compares is
+        # the depth the screen is showing.
+        reason = reason if reason in ("rescuable", "cancelled") else ""
         if queue in _allowed_tabs(role, surface) and queue != "mine":
-            depth = int(_cached_counts(days).get(queue) or 0)
+            depth = int(_cached_counts(days, reason).get(queue) or 0)
     except Exception:
         depth = None
     return {"n": int(row.n or 0), "at": str(row.at or "")[:19],
