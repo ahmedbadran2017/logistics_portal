@@ -165,6 +165,44 @@ def phone_tail_sql(col, key="ph"):
     return f"REGEXP_REPLACE(COALESCE({col}, ''), '[^0-9]', '') LIKE %({key})s"
 
 
+def release_unique_identity(old):
+    """Free the UNIQUE external ids on an order being replaced by a copy.
+
+    An amend is cancel-the-original, insert-an-amended-copy. `custom_youcan_
+    order_id` carries a DB unique index, so the copy collided with the shell
+    it replaces and the agent got "YouCan Order ID must be unique" — measured
+    on production 2026-09-22, that field is set on 4,611 of the 11,352 orders
+    of the last 30 days, so the Change-the-order button was dead for 41% of
+    the lane while working fine on the rest. It was tested on a Shopify-only
+    order, which is why it looked fixed.
+
+    The id MOVES to the replacement rather than being dropped from it. It is
+    the reference the agent reads to the customer (orders.detail serves it as
+    `ref`), and every one of the 8,491 values on the site is distinct, so it
+    identifies this sale and the live order is the sale. Dropping it would
+    silently blank that reference on the orders most likely to need it.
+
+    NB merge does the opposite on purpose — _strip_external_identity() clears
+    the ids on the COPY, because a merge is many orders into one and no single
+    id can honestly survive. Amend is one-for-one, so the id survives.
+
+    Driven off the meta's `unique` flag rather than a hardcoded name: the next
+    unique custom field somebody adds would otherwise break this button again,
+    silently and only for the orders that carry it.
+
+    Called AFTER cancel() and BEFORE the copy is inserted. update_modified is
+    off so the cancelled shell keeps the timestamp the cancel wrote."""
+    moved = []
+    for f in old.meta.get("fields", {"unique": 1}):
+        if f.fieldtype not in ("Data", "Small Text", "Link"):
+            continue
+        if not old.get(f.fieldname):
+            continue
+        moved.append(f.fieldname)
+        old.db_set(f.fieldname, None, update_modified=False)
+    return moved
+
+
 def submit_new_sales_order(doc):
     """Submit a Sales Order that was just inserted, in a way that survives
     the other apps' hooks.

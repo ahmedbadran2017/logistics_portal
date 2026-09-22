@@ -3080,6 +3080,14 @@ def amend_order(order, discount_amount=None, discount_percent=None,
     so.add_comment("Comment",
                    f"Confirmation: amended → replaced ({detail}) "
                    f"· by {frappe.session.user}")
+    # Hand the external identity over to the replacement BEFORE inserting it.
+    # The copy carries `custom_youcan_order_id`, that field is UNIQUE, and the
+    # cancelled shell was still holding it — so the insert below threw
+    # "YouCan Order ID must be unique" and the whole amend rolled back. Dead
+    # for the 41% of orders that carry the field; fine for the rest, which is
+    # why it read as working.
+    from logistics_portal.api.utils import release_unique_identity
+    _moved = release_unique_identity(so)
     new.flags.ignore_permissions = True
     new.insert(ignore_permissions=True)
     # THE reason this feature never once worked on production; the full
@@ -3100,8 +3108,12 @@ def amend_order(order, discount_amount=None, discount_percent=None,
     if assign_raw:
         frappe.db.set_value("Sales Order", new.name, "_assign", assign_raw,
                             update_modified=False)
+    # Name what moved. A unique external id silently changing rows is exactly
+    # the kind of thing somebody reconciling against the landing page a month
+    # from now needs to find in the trail rather than deduce.
+    _carried = (" · carried " + ", ".join(_moved)) if _moved else ""
     new.add_comment("Comment",
-                    f"Confirmation: amend of {order} ({detail}) "
+                    f"Confirmation: amend of {order} ({detail}){_carried} "
                     f"· by {frappe.session.user}")
     frappe.db.commit()
     for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
