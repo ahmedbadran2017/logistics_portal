@@ -64,8 +64,48 @@
         <!-- Line items -->
         <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
           <div class="px-4 py-3 border-b border-stone-100">
-            <div class="text-[13px] font-semibold text-stone-900">{{ t("od.lineItems") }}</div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-[13px] font-semibold text-stone-900">{{ t("od.lineItems") }}</span>
+              <!-- Send the customer a piece that was missing or arrived broken.
+                   It rides the same path as a reship because it IS one: copy
+                   the order, drop the carrier identity, re-enter the cycle —
+                   only this time a subset of the lines and no money. -->
+              <button v-if="canSeeCustomer && isLive"
+                      class="ms-auto text-[11.5px] font-semibold inline-flex items-center gap-1"
+                      :class="sending ? 'text-stone-400' : 'text-violet-700 hover:text-violet-900'"
+                      @click="sending = !sending">
+                <Icon name="package-check" :size="12" />{{ t(sending ? "common.close" : "snd.open") }}
+              </button>
+            </div>
             <div class="text-[11.5px] text-stone-400 mt-0.5">{{ items.length }} {{ t(items.length === 1 ? "od.item" : "od.items", "items") }}</div>
+
+            <!-- Pick the pieces, say why, send. The reason is required because
+                 it is the one thing nobody can reconstruct afterwards — 94 of
+                 these went out in 90 days with none. -->
+            <div v-if="sending" class="mt-2.5 rounded-xl bg-violet-50/70 ring-1 ring-violet-200 p-2.5 space-y-2">
+              <div class="flex flex-wrap gap-1.5">
+                <button v-for="(it, i) in items" :key="'s' + i"
+                        class="text-[11px] font-medium rounded-lg px-2 py-1 ring-1 transition-colors"
+                        :class="sendPick.includes(it.sku) ? 'bg-violet-600 text-white ring-violet-600'
+                                : 'bg-white text-stone-600 ring-violet-200 hover:bg-violet-50'"
+                        @click="togglePick(it.sku)" dir="auto">{{ it.name }}</button>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <select v-model="sendReason"
+                        class="h-8 px-2 rounded-lg bg-white ring-1 ring-violet-200 text-[12px] focus:outline-none">
+                  <option value="">{{ t("snd.why") }}</option>
+                  <option v-for="r in SEND_REASONS" :key="r" :value="r">{{ t("snd.r_" + r) }}</option>
+                </select>
+                <label class="inline-flex items-center gap-1.5 text-[11.5px] text-stone-600">
+                  <input v-model="sendFree" type="checkbox" class="accent-violet-600" />{{ t("snd.free") }}
+                </label>
+                <button class="ms-auto h-8 px-3.5 rounded-lg text-[12px] font-bold text-white bg-violet-700 hover:bg-violet-800 disabled:opacity-40"
+                        :disabled="!sendPick.length || !sendReason || sendBusy" @click="sendReplacement">
+                  {{ sendBusy ? "…" : t("snd.send") }}
+                </button>
+              </div>
+              <div class="text-[10.5px] text-violet-700/80">{{ t("snd.hint") }}</div>
+            </div>
           </div>
           <div class="overflow-x-auto"><table class="w-full min-w-[440px]">
             <thead>
@@ -582,6 +622,39 @@ const { role: myRole } = useAuth();
 const canSeeCustomer = computed(() =>
   ["cs", "confirmation", "tracking", "manager"].includes(myRole.value));
 const openSku = useSkuLink();
+
+// Sending a replacement piece. Same server path as a reship, which is what
+// it is — the difference is a subset of lines and no money.
+const SEND_REASONS = ["Missing piece", "Damaged on arrival", "Wrong item sent", "Goodwill"];
+const sending = ref(false);
+const sendPick = ref([]);
+const sendReason = ref("");
+const sendFree = ref(true);
+const sendBusy = ref(false);
+function togglePick(sku) {
+  const i = sendPick.value.indexOf(sku);
+  if (i >= 0) sendPick.value.splice(i, 1);
+  else sendPick.value.push(sku);
+}
+async function sendReplacement() {
+  sendBusy.value = true;
+  try {
+    const res = await apiPost("orders.reship", {
+      order: liveOrder.value?.name || order.value.no,
+      items: JSON.stringify(sendPick.value),
+      free: sendFree.value ? 1 : 0,
+      reason: sendReason.value,
+    });
+    sending.value = false;
+    sendPick.value = [];
+    sendReason.value = "";
+    success(t("snd.sent"), res?.order || "");
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    sendBusy.value = false;
+  }
+}
 
 // Correcting the customer's details, from the shared screen.
 const editing = ref(false);

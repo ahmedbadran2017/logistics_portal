@@ -2505,6 +2505,18 @@ export default {
     o_delivered: "Livrée", o_failed: "Exception", o_cancelled: "Annulée",
     o_open: "Pas encore de statut", o_unknown: "Sans trace",
   },
+  snd: {
+    open: "Envoyer un remplacement",
+    why: "Motif…",
+    "r_Missing piece": "Pièce manquante",
+    "r_Damaged on arrival": "Abîmé à l'arrivée",
+    "r_Wrong item sent": "Mauvais article envoyé",
+    "r_Goodwill": "Geste commercial",
+    free: "Gratuit",
+    send: "Envoyer",
+    sent: "Remplacement en route",
+    hint: "Une nouvelle commande pour les pièces choisies, directement en préparation et chez le transporteur — liée à celle-ci, avec le motif enregistré.",
+  },
   sw: {
     title: "Confirmées, en attente de stock",
     sub: "le client a dit oui et nous ne pouvons pas encore expédier",

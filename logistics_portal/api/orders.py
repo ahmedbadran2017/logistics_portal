@@ -2159,7 +2159,7 @@ def _do_merge(names, force=0):
 
 
 @frappe.whitelist()
-def reship(order):
+def reship(order, items=None, free=0, reason=None):
     """Re-enter a failed delivery into the shipping cycle. Creates a NEW Sales
     Order copy (same customer/address/items) that flows through pick → sort →
     manifest normally and gets its own DN + AWB — the carrier automation skips
@@ -2195,12 +2195,37 @@ def reship(order):
     if so.docstatus != 1:
         frappe.throw("Original order must be submitted.")
     # Guard: one live reship at a time (a Confirmed copy already in flight).
-    dup = frappe.db.sql(
-        """SELECT c.reference_name FROM `tabComment` c
-           WHERE c.reference_doctype='Sales Order' AND c.reference_name=%s
-             AND c.content LIKE 'Reshipped as%%' LIMIT 1""", (name,))
-    if dup:
-        frappe.throw("This order was already reshipped — check its comments.")
+    # A PARTIAL, free send is a different act from reshipping the parcel, and
+    # the one-at-a-time guard must not confuse them.
+    #
+    # Measured 2026-09-23: of 116 orders agents create by hand in 90 days, 94
+    # are zero-value sends of ONE piece — a cover, a box, a replacement for
+    # something that arrived broken — to a customer who already has an order.
+    # They were being typed as fresh Sales Orders in another system because
+    # nothing here could do it, which left 18,074 MAD of goods leaving the
+    # building with no link to the complaint and no reason on file.
+    #
+    # It is the same mechanics as a reship (copy the order, drop the carrier
+    # identity, re-enter the cycle) with two differences: only some lines, and
+    # no money. So it is this function with two arguments rather than a second
+    # near-copy of it that would drift.
+    import json as _json_rs
+    if isinstance(items, str):
+        items = _json_rs.loads(items or "[]")
+    items = [str(i).strip() for i in (items or []) if str(i).strip()]
+    free = bool(int(free or 0))
+    reason = (reason or "").strip()
+    partial = bool(items) or free
+    if partial and not reason:
+        frappe.throw("Say why this is being sent — it is the one thing nobody "
+                     "can reconstruct later.")
+    if not partial:
+        dup = frappe.db.sql(
+            """SELECT c.reference_name FROM `tabComment` c
+               WHERE c.reference_doctype='Sales Order' AND c.reference_name=%s
+                 AND c.content LIKE 'Reshipped as%%' LIMIT 1""", (name,))
+        if dup:
+            frappe.throw("This order was already reshipped — check its comments.")
 
     new = frappe.copy_doc(so)
     _strip_external_identity(new)
@@ -2212,6 +2237,32 @@ def reship(order):
               "custom_track_shipment_status", "custom_short_picked_at"):
         if new.meta.has_field(f):
             new.set(f, None)
+    if partial:
+        if items:
+            keep = [r for r in new.items if r.item_code in items]
+            if not keep:
+                frappe.throw("None of those items are on this order.")
+            new.items = keep
+            for i, r in enumerate(new.items, 1):
+                r.idx = i
+        if free:
+            # Zero the LINE, not the header: a header discount leaves the rate
+            # on the row and the pick list still prints a price.
+            for r in new.items:
+                r.rate = 0
+                r.price_list_rate = 0
+                r.discount_percentage = 0
+                r.discount_amount = 0
+                r.amount = 0
+            new.taxes = []
+            new.discount_amount = 0
+            new.additional_discount_percentage = 0
+        # The link is the marker: an order carrying it is a replacement send
+        # and not a sale, so a report can separate the two without a second
+        # flag that could fall out of step with this one.
+        for f, v in (("custom_replaces_order", name), ("custom_send_reason", reason)):
+            if new.meta.has_field(f):
+                new.set(f, v)
     new.flags.ignore_permissions = True
     new.insert(ignore_permissions=True)
     # Not new.submit(): see submit_new_sales_order. Reship had produced
@@ -2220,13 +2271,24 @@ def reship(order):
     # worked all along.
     from logistics_portal.api.utils import submit_new_sales_order
     submit_new_sales_order(new)
-    new.add_comment("Comment", f"Reship of {name} (failed delivery).")
-    so.add_comment("Comment", f"Reshipped as {new.name} by {frappe.session.user}.")
+    if partial:
+        what = ", ".join(r.item_name or r.item_code for r in new.items)[:160]
+        tag = "free replacement" if free else "partial reship"
+        new.add_comment("Comment",
+                        f"{tag.capitalize()} for {name} — {reason} ({what}) "
+                        f"· by {frappe.session.user}")
+        so.add_comment("Comment",
+                       f"{tag.capitalize()} sent as {new.name} — {reason} "
+                       f"· by {frappe.session.user}")
+    else:
+        new.add_comment("Comment", f"Reship of {name} (failed delivery).")
+        so.add_comment("Comment", f"Reshipped as {new.name} by {frappe.session.user}.")
 
     for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
         frappe.cache().delete_value(k)
     frappe.db.commit()
     return {"ok": True, "order": new.name, "original": name,
+            "free": free, "reason": reason,
             "total": float(new.grand_total or 0)}
 
 

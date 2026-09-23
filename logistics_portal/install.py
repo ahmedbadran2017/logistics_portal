@@ -378,6 +378,31 @@ _SO_TOUCH_FIELDS = [
 ]
 
 
+_SO_SEND_FIELDS = [
+    # A replacement this order was created to make good, and why.
+    #
+    # Measured 2026-09-23: agents create ~116 orders a quarter by hand and 94
+    # of them are ZERO value — a missing cover, a broken box, a goodwill send
+    # to a customer who already had an order. 18,074 MAD of goods left the
+    # building that way in 90 days, 290 units, 80 of them delivered.
+    #
+    # And every one was a naked 0 MAD Sales Order: no link to the complaint,
+    # no reason, and — because it prices at zero — invisible in every report
+    # that measures value. A 50 MAD discount needs a section admin; this
+    # needed nobody and left no trace.
+    #
+    # The LINK is the marker. An order carrying custom_replaces_order is a
+    # replacement send and not a sale, so reports can tell the two apart
+    # without a second flag to keep in step.
+    {"fieldname": "custom_replaces_order", "label": "Replaces Order",
+     "fieldtype": "Link", "options": "Sales Order", "read_only": 1,
+     "no_copy": 1, "search_index": 1},
+    {"fieldname": "custom_send_reason", "label": "Replacement Reason",
+     "fieldtype": "Select", "read_only": 1, "no_copy": 1,
+     "options": "\nMissing piece\nDamaged on arrival\nWrong item sent\nGoodwill"},
+]
+
+
 _SO_SOURCE_FIELDS = [
     # WHERE the order was placed, straight from Shopify's own `source_name`.
     #
@@ -413,7 +438,8 @@ def ensure_pick_fields():
                               "Sales Order": _SO_SHORT_FIELDS + _SO_CONTACT_FIELDS
                               + _SO_PACK_FIELDS + _SO_CC_OPEN_FIELDS
                               + _SO_URGENT_FIELDS + _SO_TOUCH_FIELDS
-                              + _SO_SOURCE_FIELDS + _SO_RETURNED_FIELDS,
+                              + _SO_SOURCE_FIELDS + _SO_RETURNED_FIELDS
+                              + _SO_SEND_FIELDS,
                               "Delivery Note": _DN_EXC_FIELDS}, ignore_validate=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_pick_fields")

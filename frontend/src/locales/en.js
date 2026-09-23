@@ -2512,6 +2512,18 @@ export default {
     o_delivered: "Delivered", o_failed: "Exception", o_cancelled: "Cancelled",
     o_open: "No status yet", o_unknown: "No trace",
   },
+  snd: {
+    open: "Send a replacement",
+    why: "Why…",
+    "r_Missing piece": "Missing piece",
+    "r_Damaged on arrival": "Damaged on arrival",
+    "r_Wrong item sent": "Wrong item sent",
+    "r_Goodwill": "Goodwill",
+    free: "Free of charge",
+    send: "Send it",
+    sent: "Replacement on its way",
+    hint: "A new order for the pieces you picked, straight into picking and the carrier — linked back to this one, with the reason on file.",
+  },
   sw: {
     title: "Confirmed, waiting on stock",
     sub: "the customer said yes and we cannot ship yet",
