@@ -11,10 +11,13 @@
           </div>
         </div>
         <div class="flex items-center gap-2">
-          <input v-model="newOrder" :placeholder="t('ex.orderPh')" maxlength="30"
+          <input ref="orderInput" v-model="newOrder" :placeholder="t('ex.orderPh')" maxlength="30"
                  class="h-10 w-[180px] ps-3 pe-3 rounded-xl bg-white ring-1 ring-stone-200/80 text-[12.5px] font-mono focus:ring-2 focus:ring-amber-300 outline-none"
                  @keyup.enter="start" />
-          <button class="ex-new" :disabled="!newOrder.trim() || starting" @click="start">
+          <!-- Not disabled when empty. Greyed out on arrival, it read as
+               decoration and the question "where do I start an exchange?"
+               has a button sitting right there. Empty now focuses the box. -->
+          <button class="ex-new" :disabled="starting" @click="start">
             <Icon name="plus" :size="15" class="inline -mt-px me-1" />{{ starting ? '…' : t('ex.start') }}
           </button>
         </div>
@@ -93,6 +96,12 @@
             <a v-if="r.labelUrl" :href="r.labelUrl" target="_blank" class="ex-act ex-act-soft text-stone-600" :title="t('ex.label')">
               <Icon name="printer" :size="15" />
             </a>
+            <!-- On every tab, not just the editable one: a settled exchange is
+                 exactly when somebody asks what was sent and who decided it. -->
+            <button class="ex-act ex-act-soft text-stone-600" :title="t('ex.details')"
+                    :class="detailFor === r.name ? 'ring-2' : ''" @click="toggleDetail(r)">
+              <Icon name="list" :size="15" />
+            </button>
             <template v-if="tab === 'waiting'">
               <button class="ex-act ex-act-soft text-amber-700" :title="t('ex.editItems')"
                       :class="editFor === r.name ? 'ring-2' : ''" @click="toggleEdit(r)">
@@ -107,6 +116,88 @@
             </button>
           </div>
         </div>
+
+        <!-- details + history -->
+        <Transition name="exslide">
+          <div v-if="detailFor === r.name" class="bg-stone-50 rounded-xl p-3.5 mt-3">
+            <div v-if="loadingDetail" class="h-16 rounded-lg ex-shimmer" />
+            <div v-else-if="detailErr" class="text-[12px] text-rose-600">{{ detailErr }}</div>
+            <div v-else-if="detail" class="grid gap-4 md:grid-cols-3">
+              <!-- what they have vs what goes out: the comparison the agent is
+                   actually making, and the board never showed the left half. -->
+              <div class="space-y-1.5">
+                <h4 class="ex-dh">{{ t('ex.dHas') }}</h4>
+                <p v-for="(x, i) in detail.has" :key="'h' + i" class="text-[11.5px] text-stone-600" dir="auto">
+                  <span class="tabular-nums text-stone-400">{{ x.qty }}×</span>
+                  {{ x.name }}
+                  <span class="tabular-nums text-stone-400">· {{ x.rate }} MAD</span>
+                </p>
+                <p v-if="!detail.has.length" class="text-[11.5px] text-stone-400">{{ t('ex.dNone') }}</p>
+              </div>
+              <div class="space-y-1.5">
+                <h4 class="ex-dh">{{ t('ex.dSending') }}</h4>
+                <p v-for="(x, i) in detail.sending" :key="'s' + i" class="text-[11.5px] text-stone-600" dir="auto">
+                  <span class="tabular-nums text-stone-400">{{ x.qty }}×</span>
+                  {{ x.name }}
+                  <span class="tabular-nums text-stone-400">· {{ x.rate }} MAD</span>
+                </p>
+                <p v-if="!detail.sending.length" class="text-[11.5px] text-stone-400">{{ t('ex.dPureReturn') }}</p>
+              </div>
+              <!-- The money, itemised. The row shows one number; this says how
+                   it was reached, including the pickup fee by name. -->
+              <div class="space-y-1.5">
+                <h4 class="ex-dh">{{ t('ex.dMoney') }}</h4>
+                <p class="text-[11.5px] text-stone-600 flex justify-between gap-3">
+                  <span>{{ t('ex.dPaid') }}</span><span class="tabular-nums">{{ detail.originalTotal }}</span>
+                </p>
+                <p v-for="(c, i) in detail.charges" :key="'c' + i"
+                   class="text-[11.5px] text-stone-600 flex justify-between gap-3">
+                  <span dir="auto">{{ c.label }}</span><span class="tabular-nums">{{ c.amount }}</span>
+                </p>
+                <p class="text-[11.5px] text-stone-600 flex justify-between gap-3">
+                  <span>{{ t('ex.dGoingOut') }}</span><span class="tabular-nums">{{ detail.exchangeTotal }}</span>
+                </p>
+                <p class="text-[12px] font-semibold flex justify-between gap-3 pt-1 border-t border-stone-200"
+                   :class="Math.round(detail.difference) === 0 ? 'text-emerald-700'
+                           : (detail.difference > 0 ? 'text-amber-700' : 'text-rose-700')">
+                  <span>{{ Math.round(detail.difference) === 0 ? t('ex.settleNone')
+                          : (detail.difference > 0 ? t('ex.collect') : t('ex.refund')) }}</span>
+                  <span v-if="Math.round(detail.difference) !== 0" class="tabular-nums">
+                    {{ Math.abs(Math.round(detail.difference)) }} MAD
+                  </span>
+                </p>
+              </div>
+              <!-- both parcels: the one that went out and the one coming back -->
+              <div class="md:col-span-3 flex items-center gap-4 flex-wrap text-[11.5px] pt-1 border-t border-stone-200">
+                <span class="text-stone-400">{{ t('ex.dOldParcel') }}</span>
+                <a v-if="detail.old.url" :href="detail.old.url" target="_blank"
+                   class="font-mono text-stone-600 hover:text-amber-700">{{ detail.old.awb }}</a>
+                <span v-else class="font-mono text-stone-400">{{ detail.old.awb || '—' }}</span>
+                <span class="text-stone-400">{{ t('ex.dNewParcel') }}</span>
+                <a v-if="detail.new.url" :href="detail.new.url" target="_blank"
+                   class="font-mono text-amber-700 hover:underline">{{ detail.new.awb }}</a>
+                <span v-else class="font-mono text-stone-400">{{ detail.new.awb || '—' }}</span>
+                <span v-if="detail.address" class="text-stone-500 ms-auto" dir="auto">
+                  <Icon name="map-pin" :size="11" class="inline -mt-px me-1 text-stone-300" />{{ detail.address }}
+                </span>
+              </div>
+              <!-- History. 2,996 Version rows exist across the site and none of
+                   them were readable anywhere in the portal until now. -->
+              <div class="md:col-span-3 pt-1 border-t border-stone-200">
+                <h4 class="ex-dh mb-1.5">{{ t('ex.dHistory') }}</h4>
+                <ol class="space-y-1">
+                  <li v-for="(e, i) in detail.events" :key="'e' + i"
+                      class="text-[11.5px] flex items-start gap-2.5 flex-wrap">
+                    <span class="tabular-nums text-stone-400 w-[112px] shrink-0">{{ e.at }}</span>
+                    <span class="font-semibold text-stone-600 w-[92px] shrink-0 truncate">{{ e.who }}</span>
+                    <span class="ex-ev">{{ t('ex.ev_' + e.what, e.what) }}</span>
+                    <span class="text-stone-500 break-all" dir="auto">{{ e.detail }}</span>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </Transition>
 
         <!-- items editor -->
         <Transition name="exslide">
@@ -240,6 +331,7 @@ const loading = ref(true);
 const loadError = ref("");
 const busy = ref("");
 const newOrder = ref("");
+const orderInput = ref(null);
 const starting = ref(false);
 const editFor = ref("");
 const editItems = ref([]);
@@ -260,6 +352,26 @@ async function loadFeePolicy() {
   } catch (e) { /* the server still decides; this is only the preview */ }
 }
 const savingItems = ref(false);
+
+// ---- details + history ----------------------------------------------------
+const detailFor = ref("");
+const detail = ref(null);
+const detailErr = ref("");
+const loadingDetail = ref(false);
+async function toggleDetail(r) {
+  if (detailFor.value === r.name) { detailFor.value = ""; return; }
+  detailFor.value = r.name;
+  detail.value = null;
+  detailErr.value = "";
+  loadingDetail.value = true;
+  try {
+    detail.value = await api("exchange.details", { name: r.name });
+  } catch (e) {
+    detailErr.value = String(e?.message || e || "");
+  } finally {
+    loadingDetail.value = false;
+  }
+}
 
 // ---- live quote -----------------------------------------------------------
 // The panel used to be write-only: the agent typed a code, a quantity and a
@@ -347,6 +459,7 @@ loadFeePolicy();
 onMounted(load);
 
 async function start() {
+  if (!newOrder.value.trim()) { orderInput.value?.focus(); return; }
   starting.value = true;
   try {
     const res = await apiPost("exchange.start", { order: newOrder.value.trim() });
@@ -451,6 +564,15 @@ function ageLabel(h) {
 }
 .ex-new:hover { transform: translateY(-1px); }
 .ex-new:disabled { opacity: .5; }
+.ex-dh {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: rgb(var(--text3));
+}
+.ex-ev {
+  display: inline-flex; align-items: center; height: 18px; padding: 0 7px;
+  border-radius: 6px; font-size: 10.5px; font-weight: 700;
+  background: rgb(var(--border) / 0.6); color: rgb(var(--text2));
+}
 .ex-seg { display: inline-flex; gap: 2px; padding: 4px; background: rgb(var(--border) / 0.55); border-radius: 14px; }
 .ex-seg-btn {
   display: inline-flex; align-items: center; gap: 6px;

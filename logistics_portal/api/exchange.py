@@ -446,6 +446,116 @@ def set_items(name, items=None, reason=None, city=None, sector=None,
             "direction": doc.settlement_direction or ""}
 
 
+# Which field changes are worth a line in the history, and what to call them.
+# Everything else a save touches (modified, label urls, tracking company) is
+# the same event repeated and would bury the four that matter.
+_EVENTS = {
+    "exchange_status": "status",
+    "custom_reason": "reason",
+    "new_awb": "label",
+    "exchange_sales_order": "replacement",
+    "settlement_status": "settlement",
+    "exchange_city": "city",
+    "customer_phone": "phone",
+    "difference_amount": "money",
+}
+
+
+@frappe.whitelist()
+def details(name):
+    """Everything about one exchange that the row cannot fit, plus its history.
+
+    THE ORIGINAL ORDER'S LINES COME FROM THE ORDER, not from the doctype's
+    own `original_items` table. That table exists and has a "Fetch Items from
+    Sales Order" button, and across all 1,001 exchanges on this site it holds
+    exactly 0 rows — nobody has ever pressed it. Reading the Sales Order is
+    both the honest source and the only one with anything in it.
+
+    The history is built from Version rows, which carry (field, old, new) and
+    the person who saved: 2,996 of them across the site, never surfaced
+    anywhere in the portal until now. Comments are merged in, and the row
+    the document was born on is the first entry.
+    """
+    import json as _json
+    _gate()
+    name = (name or "").strip()
+    if not frappe.db.exists("Sales Exchange", name):
+        frappe.throw("Unknown exchange.")
+    doc = frappe.get_doc("Sales Exchange", name)
+
+    has = []
+    if doc.sales_order:
+        has = [{"code": r.item_code, "name": r.item_name or r.item_code,
+                "qty": float(r.qty or 0), "rate": float(r.rate or 0)}
+               for r in frappe.db.sql(
+                   """SELECT item_code, item_name, qty, rate
+                      FROM `tabSales Order Item` WHERE parent = %s ORDER BY idx""",
+                   (doc.sales_order,), as_dict=True)]
+    sending = [{"code": r.item_code, "name": r.item_name or r.item_code,
+                "qty": float(r.qty or 0), "rate": float(r.rate or 0)}
+               for r in (doc.get("exchange_items") or [])]
+    charges = [{"label": (r.description or "").strip() or r.account_head,
+                "amount": float(r.tax_amount or 0)}
+               for r in (doc.get("taxes") or [])]
+
+    events = [{"at": str(doc.creation)[:16], "who": (doc.owner or "").split("@")[0],
+               "what": "created", "detail": doc.sales_order or ""}]
+    for v in frappe.db.sql(
+            """SELECT owner, creation, data FROM `tabVersion`
+               WHERE ref_doctype = 'Sales Exchange' AND docname = %s
+               ORDER BY creation""", (name,), as_dict=True):
+        try:
+            payload = _json.loads(v.data or "{}")
+        except ValueError:
+            continue
+        who, at = (v.owner or "").split("@")[0], str(v.creation)[:16]
+        for ch in (payload.get("changed") or []):
+            # Length-checked rather than unpacked: this is a history panel, and
+            # one malformed Version row out of 2,996 must not 500 the request
+            # that shows the other 2,995.
+            if not isinstance(ch, (list, tuple)) or len(ch) < 3:
+                continue
+            field, old, new = ch[0], ch[1], ch[2]
+            if field not in _EVENTS:
+                continue
+            events.append({"at": at, "who": who, "what": _EVENTS[field],
+                           "detail": f"{old or '—'} → {new or '—'}"[:90]})
+        added = [a for a in (payload.get("added") or [])
+                 if a and a[0] == "exchange_items"]
+        if added:
+            events.append({"at": at, "who": who, "what": "items",
+                           "detail": ", ".join(
+                               str((a[1] or {}).get("item_code") or "") for a in added)[:90]})
+    for c in frappe.db.sql(
+            """SELECT owner, creation, content FROM `tabComment`
+               WHERE reference_doctype = 'Sales Exchange' AND reference_name = %s
+                 AND comment_type = 'Comment' ORDER BY creation""",
+            (name,), as_dict=True):
+        events.append({"at": str(c.creation)[:16], "who": (c.owner or "").split("@")[0],
+                       "what": "note", "detail": (c.content or "")[:160]})
+    events.sort(key=lambda e: e["at"])
+
+    return {
+        "name": name, "order": doc.sales_order or "",
+        "exOrder": doc.exchange_sales_order or "",
+        "has": has, "sending": sending, "charges": charges,
+        "originalTotal": float(doc.original_total or 0),
+        "exchangeTotal": float(doc.exchange_total or 0),
+        "difference": float(doc.difference_amount or 0),
+        "direction": doc.settlement_direction or "",
+        "settlement": doc.settlement_status or "",
+        "address": (doc.exchange_address or "").strip(),
+        "sector": (doc.exchange_sector or "").strip(),
+        "old": {"awb": doc.old_awb or "", "url": doc.old_tracking_url or "",
+                "label": doc.old_label_url or "",
+                "company": doc.old_tracking_company or ""},
+        "new": {"awb": doc.new_awb or "", "url": doc.new_tracking_url or "",
+                "label": doc.new_label_url or "",
+                "company": doc.new_tracking_company or ""},
+        "events": events,
+    }
+
+
 @frappe.whitelist()
 def generate(name):
     """Cathedis exchange shipment (new AWB + label) + the Confirmed -ex order
