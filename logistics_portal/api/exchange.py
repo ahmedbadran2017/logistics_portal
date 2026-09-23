@@ -285,10 +285,68 @@ def _apply_money(doc, reason):
     rows = doc.get("exchange_items") or []
     if not rows:
         return
-    gap = flt(doc.original_total) - sum(flt(r.rate) * flt(r.qty) for r in rows)
+    # Summed from the rows, NOT read off the field.
+    #
+    # `original_total` is recomputed by validate() from original_items, and
+    # this runs before that — so the field still holds the value from before
+    # the agent changed what is coming back. Reading it made "a piece was
+    # missing, send one out" settle as "collect the whole order" instead of
+    # zero. Same arithmetic the controller uses, so the two agree whichever
+    # order they run in.
+    # No rows means nothing is coming back, and nothing coming back is worth
+    # zero — not "fall back to the old field". Falling back left "a piece was
+    # missing, send one out" reading as collect-the-whole-order, because the
+    # field still held the value from before the agent emptied the table.
+    # Every exchange on this site is created with its lines already in there,
+    # so an empty table is always a deliberate answer.
+    back = doc.get("original_items") or []
+    orig = sum(flt(r.rate) * flt(r.qty) for r in back)
+    gap = orig - sum(flt(r.rate) * flt(r.qty) for r in rows)
     if abs(gap) < 0.01:
         return
     _row((cfg.get("noChargeAccount") or "").strip(), _FREE_TAG, gap)
+
+
+def _fill_returning(doc, returning):
+    """Which of the order's lines are coming back, on the table built for it.
+
+    Shopify models a return as `returnLineItems`, each one a quantity against
+    a line of the order — you cannot name a product that was never bought.
+    This doctype has the same idea in `original_items`, and its validate()
+    already refuses a row that is not on the Sales Order (verified: it throws
+    "Item X is not present in Sales Order Y"). Across every exchange on this
+    site the table holds zero rows, so the pickup has never had an item list.
+
+    THE TABLE IS ALREADY THERE AND ALREADY FULL. Creating an exchange copies
+    the order's lines into it — all 1,002 exchanges on this site carry
+    theirs. What was missing is the ability to say only SOME of it is coming
+    back, which is what a partial return is.
+
+    THE RATE COMES WITH IT, and that is not decoration. `original_total` is
+    summed from these rows (rate × qty, measured: a row with no rate reads
+    0.00), so writing lines without a price collapses it and every settlement
+    on the document inverts — a plain return that should refund 126 read as
+    "collect 25". The rate is taken from the order line, so a full return
+    totals exactly what the customer paid.
+
+    A PARTIAL return therefore settles against what is actually coming back
+    rather than against the whole order, which is the correct answer and a
+    change from what the desk does today.
+    """
+    if returning is None:
+        return
+    doc.set("original_items", [])
+    order = (doc.sales_order or "").strip()
+    for it in returning:
+        code = str(it.get("item_code") or "").strip()
+        qty = float(it.get("qty") or 0)
+        if not code or qty <= 0:
+            continue
+        rate = 0.0
+        if order:
+            rate = flt(frappe.db.get_value(
+                "Sales Order Item", {"parent": order, "item_code": code}, "rate"))
+        doc.append("original_items", {"item_code": code, "qty": qty, "rate": rate})
 
 
 def _fill_items(doc, items):
@@ -327,7 +385,7 @@ def _fill_items(doc, items):
 
 
 @frappe.whitelist()
-def quote(name, items=None, reason=None):
+def quote(name, items=None, reason=None, returning=None):
     """What this exchange WOULD settle at, without saving a thing.
 
     The agent is on the phone and has to say a number out loud. Until now the
@@ -347,7 +405,10 @@ def quote(name, items=None, reason=None):
     if len(items) > 20:
         frappe.throw("20 items max.")
     reason = (reason or "").strip()
+    if isinstance(returning, str):
+        returning = _json.loads(returning)
     doc = frappe.get_doc("Sales Exchange", name)
+    _fill_returning(doc, returning)
     resolved, unpriced = _fill_items(doc, items)
     _apply_money(doc, reason)
     doc.run_method("validate")
@@ -368,7 +429,7 @@ def quote(name, items=None, reason=None):
 
 @frappe.whitelist()
 def set_items(name, items=None, reason=None, city=None, sector=None,
-              address=None, phone=None):
+              address=None, phone=None, returning=None):
     """The replacement items, the reason, and the fee the reason implies.
 
     THE REASON IS REQUIRED, and it is the only question the agent answers
@@ -418,6 +479,9 @@ def set_items(name, items=None, reason=None, city=None, sector=None,
     doc = frappe.get_doc("Sales Exchange", name)
     if doc.exchange_status not in ("Draft", "Waiting for Cathedis API"):
         frappe.throw(f"Exchange is already {doc.exchange_status}.")
+    if isinstance(returning, str):
+        returning = _json.loads(returning)
+    _fill_returning(doc, returning)
     resolved, unpriced = _fill_items(doc, items)
     for field, val in (("exchange_city", city), ("exchange_sector", sector),
                        ("exchange_address", address), ("customer_phone", phone)):
@@ -465,11 +529,10 @@ _EVENTS = {
 def details(name):
     """Everything about one exchange that the row cannot fit, plus its history.
 
-    THE ORIGINAL ORDER'S LINES COME FROM THE ORDER, not from the doctype's
-    own `original_items` table. That table exists and has a "Fetch Items from
-    Sales Order" button, and across all 1,001 exchanges on this site it holds
-    exactly 0 rows — nobody has ever pressed it. Reading the Sales Order is
-    both the honest source and the only one with anything in it.
+    THE ORIGINAL ORDER'S LINES COME FROM THE ORDER, so the picker can offer
+    every line the customer bought — including ones already excluded from
+    what is coming back. The doctype's own `original_items` is the SELECTION
+    (what the van collects), returned separately as `coming`.
 
     The history is built from Version rows, which carry (field, old, new) and
     the person who saved: 2,996 of them across the site, never surfaced
@@ -486,11 +549,19 @@ def details(name):
     has = []
     if doc.sales_order:
         has = [{"code": r.item_code, "name": r.item_name or r.item_code,
-                "qty": float(r.qty or 0), "rate": float(r.rate or 0)}
+                "qty": float(r.qty or 0), "rate": float(r.rate or 0),
+                "image": (r.image or "").strip(), "sku": (r.sku or "").strip()}
                for r in frappe.db.sql(
-                   """SELECT item_code, item_name, qty, rate
-                      FROM `tabSales Order Item` WHERE parent = %s ORDER BY idx""",
+                   """SELECT soi.item_code, soi.item_name, soi.qty, soi.rate,
+                             it.image, it.custom_sku AS sku
+                      FROM `tabSales Order Item` soi
+                      LEFT JOIN `tabItem` it ON it.name = soi.item_code
+                      WHERE soi.parent = %s ORDER BY soi.idx""",
                    (doc.sales_order,), as_dict=True)]
+    # What is already marked as coming back, so reopening the panel shows the
+    # choice that was made rather than an empty form.
+    coming = [{"code": r.item_code, "qty": float(r.qty or 0)}
+              for r in (doc.get("original_items") or [])]
     sending = [{"code": r.item_code, "name": r.item_name or r.item_code,
                 "qty": float(r.qty or 0), "rate": float(r.rate or 0)}
                for r in (doc.get("exchange_items") or [])]
@@ -538,7 +609,7 @@ def details(name):
     return {
         "name": name, "order": doc.sales_order or "",
         "exOrder": doc.exchange_sales_order or "",
-        "has": has, "sending": sending, "charges": charges,
+        "has": has, "coming": coming, "sending": sending, "charges": charges,
         "originalTotal": float(doc.original_total or 0),
         "exchangeTotal": float(doc.exchange_total or 0),
         "difference": float(doc.difference_amount or 0),

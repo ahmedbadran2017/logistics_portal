@@ -215,58 +215,115 @@
                     :class="feeApplies ? 'text-amber-700' : 'text-emerald-700'">
                 {{ feeApplies ? t('ex.feeYes').replace('{n}', String(fee)) : t('ex.feeNo') }}
               </span>
-              <!-- 680 of the 1,000 exchanges on this site send nothing back
-                   out. Leaving the rows empty is that case, not a mistake. -->
-              <span class="ms-auto text-[10.5px] text-stone-400">{{ t('ex.emptyOk') }}</span>
+              <span class="ms-auto" />
             </div>
-            <!-- Column headings. Three unlabelled boxes made the price look
-                 like a second quantity, and the one showing a hard 0 was the
-                 field that decided whether we refund the whole order. -->
-            <div v-if="editItems.length" class="flex items-end gap-2 px-0.5">
-              <span class="flex-1 min-w-[220px] text-[10.5px] font-semibold text-stone-500">{{ t('ex.colItem') }}</span>
-              <span class="w-[72px] text-[10.5px] font-semibold text-stone-500">{{ t('ex.colQty') }}</span>
-              <span class="w-[116px] text-[10.5px] font-semibold text-stone-500">
-                {{ t('ex.colPrice') }}
-                <span class="font-normal text-stone-400">· {{ t('ex.colPriceAuto') }}</span>
-              </span>
-              <span class="w-8" />
-            </div>
-            <div v-for="(it, i) in editItems" :key="i" class="space-y-1">
-              <div class="flex items-center gap-2 flex-wrap">
-                <input v-model="it.item_code" :placeholder="t('ex.itemPh')" maxlength="140"
-                       @input="quoteSoon" @blur="quoteSoon(0)"
-                       class="flex-1 min-w-[220px] h-9 ps-3 pe-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] font-mono focus:outline-none" />
-                <input v-model.number="it.qty" type="number" min="1" :placeholder="t('ex.qtyPh')"
-                       @input="quoteSoon"
-                       class="w-[72px] h-9 ps-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] tabular-nums focus:outline-none" />
-                <!-- Empty, never 0. 743 of the 1,096 replacement rows on this
-                     site are priced at zero, which made the settlement read
-                     "refund the whole order" on parcels we were replacing. A
-                     blank box is priced from what the item last sold for
-                     (96.9% of rows); a literal 0 would have said "free". -->
-                <input v-model.number="it.rate" type="number" min="0"
-                       :placeholder="priced(i) ? String(priced(i).rate) : t('ex.ratePh')"
-                       @input="quoteSoon"
-                       class="w-[116px] h-9 ps-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] tabular-nums focus:outline-none"
-                       :class="it.rate > 0 ? 'text-stone-800' : 'text-stone-400'" />
-                <button :title="t('common.close')" class="w-8 h-8 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 inline-flex items-center justify-center"
-                        @click="editItems.splice(i, 1); quoteSoon(0)"><Icon name="x" :size="13" /></button>
+
+            <div v-if="loadingLines" class="h-20 rounded-lg ex-shimmer" />
+            <div v-else class="grid gap-4 md:grid-cols-2">
+              <!-- COMING BACK — picked off the order, never typed.
+                   Shopify's returnLineItems are a quantity against a line of
+                   the order; you cannot name a product that was never bought.
+                   Typing a code from memory is how you get "Unknown item". -->
+              <div class="space-y-1.5">
+                <h4 class="ex-dh">{{ t('ex.backTitle') }}</h4>
+                <label v-for="(ln, i) in backLines" :key="'b' + i"
+                       class="flex items-center gap-2.5 p-1.5 rounded-lg cursor-pointer transition-colors"
+                       :class="ln.take ? 'bg-white ring-1 ring-amber-200' : 'hover:bg-white/60'">
+                  <input v-model="ln.take" type="checkbox" class="accent-amber-600 w-4 h-4 shrink-0"
+                         @change="onTakeChanged" />
+                  <img v-if="ln.image" :src="ln.image" alt="" loading="lazy"
+                       class="w-9 h-9 rounded-md object-cover bg-stone-100 shrink-0" />
+                  <span v-else class="w-9 h-9 rounded-md bg-stone-100 shrink-0 inline-flex items-center justify-center text-stone-300">
+                    <Icon name="package" :size="14" />
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block text-[11.5px] text-stone-700 truncate" dir="auto">{{ ln.name }}</span>
+                    <span class="block text-[10.5px] text-stone-400 tabular-nums">
+                      {{ ln.ordered }}× · {{ ln.rate }} MAD
+                    </span>
+                  </span>
+                  <input v-if="ln.take" v-model.number="ln.qty" type="number" min="1" :max="ln.ordered"
+                         class="w-[60px] h-8 ps-2 rounded-lg bg-white ring-1 ring-amber-200 text-[12px] tabular-nums focus:outline-none"
+                         @click.prevent.stop @change="quoteSoon(0)" />
+                </label>
+                <p v-if="!backLines.length" class="text-[11.5px] text-stone-400">{{ t('ex.dNone') }}</p>
+                <p class="text-[10.5px] text-stone-400">{{ t('ex.backHint') }}</p>
               </div>
-              <!-- What the typed code actually resolved to, before saving. -->
-              <p v-if="priced(i)" class="text-[11px] ps-1 flex items-center gap-2 flex-wrap" dir="auto">
-                <span class="text-stone-600 font-medium truncate max-w-[300px]">{{ priced(i).name }}</span>
-                <span class="text-stone-400 tabular-nums">{{ priced(i).rate }} MAD<template v-if="priced(i).auto"> · {{ t('ex.fromLastSold') }}</template></span>
-                <span class="tabular-nums" :class="priced(i).avail > 0 ? 'text-emerald-600' : 'text-rose-600'">
-                  {{ priced(i).avail > 0 ? t('ex.onShelf').replace('{n}', String(priced(i).avail)) : t('ex.noneOnShelf') }}
-                </span>
-              </p>
-              <p v-else-if="quoteErr && it.item_code.trim()" class="text-[11px] ps-1 text-rose-600">{{ quoteErr }}</p>
+
+              <!-- GOING OUT — three answers, because there are only three.
+                   Shopify keeps exchangeLineItems as a separate list from the
+                   returned ones, and most of ours are the same item again. -->
+              <div class="space-y-1.5">
+                <h4 class="ex-dh">{{ t('ex.outTitle') }}</h4>
+                <label v-for="m in OUT_MODES" :key="m"
+                       class="flex items-start gap-2.5 p-1.5 rounded-lg cursor-pointer transition-colors"
+                       :class="outMode === m ? 'bg-white ring-1 ring-amber-200' : 'hover:bg-white/60'">
+                  <input v-model="outMode" :value="m" type="radio" class="accent-amber-600 w-4 h-4 mt-0.5 shrink-0"
+                         @change="onModeChanged" />
+                  <span class="min-w-0">
+                    <span class="block text-[12px] font-semibold text-stone-700">{{ t('ex.out_' + m) }}</span>
+                    <span class="block text-[10.5px] text-stone-400">{{ t('ex.outHint_' + m) }}</span>
+                  </span>
+                </label>
+
+                <!-- the only case that needs a product we do not already know -->
+                <div v-if="outMode === 'other'" class="pt-1 space-y-1.5">
+                  <div class="relative">
+                    <Icon name="search" :size="13" class="absolute start-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
+                    <input v-model="pickQ" :placeholder="t('ex.searchItemPh')" maxlength="80"
+                           @input="searchSoon"
+                           class="w-full h-9 ps-8 pe-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] focus:outline-none" />
+                  </div>
+                  <div v-if="searching" class="h-8 rounded-lg ex-shimmer" />
+                  <ul v-else-if="hits.length" class="max-h-[168px] overflow-auto space-y-0.5">
+                    <li v-for="h in hits" :key="h.code">
+                      <button class="w-full flex items-center gap-2 p-1.5 rounded-lg text-start hover:bg-white transition-colors"
+                              @click="addPicked(h)">
+                        <span class="min-w-0 flex-1">
+                          <span class="block text-[11.5px] text-stone-700 truncate" dir="auto">{{ h.name }}</span>
+                          <span class="block text-[10.5px] text-stone-400 font-mono">{{ h.code }}</span>
+                        </span>
+                        <span class="text-[10.5px] tabular-nums shrink-0"
+                              :class="h.avail > 0 ? 'text-emerald-600' : 'text-rose-500'">
+                          {{ h.avail > 0 ? t('ex.onShelf').replace('{n}', String(h.avail)) : t('ex.noneOnShelf') }}
+                        </span>
+                      </button>
+                    </li>
+                  </ul>
+                  <p v-else-if="pickQ.trim() && searched" class="text-[11px] text-stone-400">{{ t('ex.noHits') }}</p>
+                </div>
+
+                <!-- whatever ends up going out, priced, whichever way it got here -->
+                <div v-if="editItems.length" class="pt-1 space-y-1">
+                  <div v-for="(it, i) in editItems" :key="'o' + i"
+                       class="flex items-center gap-2 p-1.5 rounded-lg bg-white ring-1 ring-amber-200">
+                    <span class="min-w-0 flex-1">
+                      <span class="block text-[11.5px] text-stone-700 truncate" dir="auto">
+                        {{ priced(i) ? priced(i).name : it.item_code }}
+                      </span>
+                      <span v-if="priced(i)" class="block text-[10.5px] text-stone-400 tabular-nums">
+                        {{ priced(i).rate }} MAD<template v-if="priced(i).auto"> · {{ t('ex.fromLastSold') }}</template>
+                        <template v-if="priced(i).avail <= 0"> · <span class="text-rose-500">{{ t('ex.noneOnShelf') }}</span></template>
+                      </span>
+                      <span v-else-if="quoteErr" class="block text-[10.5px] text-rose-600">{{ quoteErr }}</span>
+                    </span>
+                    <input v-model.number="it.qty" type="number" min="1"
+                           class="w-[56px] h-8 ps-2 rounded-lg bg-stone-50 ring-1 ring-amber-200 text-[12px] tabular-nums focus:outline-none"
+                           @change="quoteSoon(0)" />
+                    <!-- the rare correction; blank stays blank -->
+                    <input v-model.number="it.rate" type="number" min="0"
+                           :placeholder="priced(i) ? String(priced(i).rate) : t('ex.ratePh')"
+                           class="w-[86px] h-8 ps-2 rounded-lg bg-stone-50 ring-1 ring-amber-200 text-[12px] tabular-nums focus:outline-none"
+                           :class="it.rate > 0 ? 'text-stone-800' : 'text-stone-400'"
+                           @change="quoteSoon(0)" />
+                    <button :title="t('common.close')" class="w-7 h-7 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 inline-flex items-center justify-center shrink-0"
+                            @click="editItems.splice(i, 1); quoteSoon(0)"><Icon name="x" :size="12" /></button>
+                  </div>
+                </div>
+              </div>
             </div>
+
             <div class="flex items-center gap-2 flex-wrap pt-1">
-              <button class="h-8 px-3 rounded-lg text-[11.5px] font-semibold text-amber-700 bg-white ring-1 ring-amber-200 hover:bg-amber-100 transition-colors"
-                      @click="editItems.push({ item_code: '', qty: 1, rate: null }); quoteSoon(0)">
-                <Icon name="plus" :size="12" class="inline -mt-px me-1" />{{ t('ex.addItem') }}
-              </button>
               <!-- The sentence the agent says out loud. It was only knowable
                    AFTER saving, which is the wrong order: the number is what
                    the customer is being told while the panel is still open.
@@ -396,7 +453,8 @@ async function runQuote() {
     .filter((x) => (x.item_code || "").trim())
     .map((x) => ({ item_code: x.item_code.trim(), qty: x.qty || 1, rate: x.rate || 0 }));
   try {
-    quoted.value = await api("exchange.quote", { name, items, reason: editReason.value });
+    quoted.value = await api("exchange.quote",
+      { name, items, reason: editReason.value, returning: returningPayload() });
     quoteErr.value = "";
   } catch (e) {
     // An unknown code is the common case while still typing — say so on the
@@ -474,24 +532,126 @@ async function start() {
   }
 }
 
-function toggleEdit(r) {
+// The three answers to "what goes out", because there are only three.
+// Shopify keeps exchangeLineItems separate from the returned lines; ours are
+// the same item again in most cases, a different product occasionally, and
+// nothing at all on the 680-of-1,000 that are plain returns.
+const OUT_MODES = ["same", "other", "none"];
+const outMode = ref("same");
+const backLines = ref([]);
+const loadingLines = ref(false);
+
+async function toggleEdit(r) {
   if (editFor.value === r.name) { editFor.value = ""; return; }
   editFor.value = r.name;
-  // rate null, never 0: the box has to LOOK empty for "leave it blank and we
-  // use the last price" to be true. A literal 0 read as "this is free".
-  editItems.value = [{ item_code: "", qty: 1, rate: null }];
+  editItems.value = [];
   editReason.value = r.reason || "";
   quoted.value = null;
   quoteErr.value = "";
+  pickQ.value = "";
+  hits.value = [];
+  searched.value = false;
+  backLines.value = [];
+  loadingLines.value = true;
+  try {
+    // The order's own lines ARE the picker. Typing a code from memory is what
+    // produced "Unknown item: MCH00013" on a product that was never ordered.
+    const d = await api("exchange.details", { name: r.name });
+    const already = new Map((d.coming || []).map((x) => [x.code, x.qty]));
+    backLines.value = (d.has || []).map((x) => ({
+      code: x.code, name: x.name, image: x.image, rate: x.rate,
+      ordered: x.qty,
+      take: already.size ? already.has(x.code) : false,
+      qty: already.get(x.code) || x.qty,
+    }));
+    // Reopening shows the decision that was made, not a blank form.
+    const sending = d.sending || [];
+    if (sending.length) {
+      const sameAsOrder = sending.every((sd) =>
+        (d.has || []).some((h) => h.code === sd.code));
+      outMode.value = sameAsOrder ? "same" : "other";
+      editItems.value = sending.map((x) => ({ item_code: x.code, qty: x.qty, rate: null }));
+    } else {
+      outMode.value = already.size ? "none" : "same";
+    }
+  } catch (e) {
+    quoteErr.value = String(e?.message || e || "");
+  } finally {
+    loadingLines.value = false;
+  }
   quoteSoon(0);
+}
+
+// "Send the same thing back out" is a mirror of what is coming back, so it
+// stays in step instead of being a second list somebody has to maintain.
+function mirrorBack() {
+  editItems.value = backLines.value
+    .filter((l) => l.take)
+    .map((l) => ({ item_code: l.code, qty: l.qty || 1, rate: null }));
+}
+function onTakeChanged() {
+  if (outMode.value === "same") mirrorBack();
+  quoteSoon(0);
+}
+function onModeChanged() {
+  if (outMode.value === "same") mirrorBack();
+  else if (outMode.value === "none") editItems.value = [];
+  quoteSoon(0);
+}
+
+// ---- product search, for the one case that needs a product we do not know --
+const pickQ = ref("");
+const hits = ref([]);
+const searching = ref(false);
+const searched = ref(false);
+let searchTimer = null;
+async function runSearch() {
+  const query = pickQ.value.trim();
+  if (!query) { hits.value = []; searched.value = false; return; }
+  searching.value = true;
+  try {
+    const res = await api("inventory.sku_lookup", { query });
+    const out = [];
+    for (const g of (res?.groups || [])) {
+      for (const it of (g.items || [])) {
+        out.push({ code: it.code, name: it.name || it.code, avail: it.avail || 0 });
+      }
+    }
+    hits.value = out.slice(0, 20);
+  } catch {
+    hits.value = [];
+  } finally {
+    searching.value = false;
+    searched.value = true;
+  }
+}
+function searchSoon() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 350);
+}
+function addPicked(h) {
+  if (!editItems.value.some((x) => x.item_code === h.code)) {
+    editItems.value.push({ item_code: h.code, qty: 1, rate: null });
+  }
+  pickQ.value = "";
+  hits.value = [];
+  searched.value = false;
+  quoteSoon(0);
+}
+
+// What the van is collecting, sent alongside what goes out.
+function returningPayload() {
+  return backLines.value.filter((l) => l.take)
+    .map((l) => ({ item_code: l.code, qty: l.qty || 1 }));
 }
 
 async function saveItems(r) {
   savingItems.value = true;
   try {
-    const items = editItems.value.filter((x) => x.item_code.trim());
+    const items = editItems.value.filter((x) => (x.item_code || "").trim());
     const res = await apiPost("exchange.set_items", {
       name: r.name, items, reason: editReason.value,
+      returning: returningPayload(),
     });
     success(t("ex.itemsSaved"),
             `${res.direction || ""} ${Math.abs(res.difference || 0)} MAD`
