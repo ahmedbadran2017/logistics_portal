@@ -238,3 +238,90 @@ def selling_air(days=7, limit=60):
     except Exception:
         frappe.log_error(frappe.get_traceback(), "catalog_hub.selling_air")
         return {"rows": [], "orders": 0, "mad": 0, "days": days, "capped": False}
+
+
+# The oldest of these is from 2024. Nobody knew because nothing ever said.
+_LOST_METHODS = ("ecommerce_integrations.shopify.order.sync_sales_order",)
+# A row younger than this may simply still be in the queue.
+_LOST_GRACE_MIN = 15
+
+
+@frappe.whitelist()
+def lost_orders(days=90, limit=60):
+    """Shopify orders that reached ERPNext and then vanished without a word.
+
+    `create_sales_order` swallows its own failures: the save and the submit are
+    each wrapped in a bare `except Exception: return`, and `create_order` writes
+    its Success log only `if so:`. So when either step raises, nothing is
+    logged, nothing is retried, and the Ecommerce Integration Log row stays at
+    'Queued' for ever. The customer ordered, Shopify charged the intent, and no
+    order exists.
+
+    That is not a hypothesis. Replayed against the real payload of #261583 on
+    2026-09-23: get_order_items returns the line correctly and the save
+    succeeds, so the loss happens at or after the submit — inside the second
+    bare except. The 'no items mapped' branch is NOT this class; it logs a real
+    Error and shows up as one.
+
+    The check is deliberately the crude one — does a Sales Order with that name
+    exist — because that is the only question the floor cares about. Rows that
+    a later re-sync rescued therefore drop off by themselves."""
+    _require_manager()
+    days = min(max(int(days or 90), 1), 3650)
+    limit = min(max(int(limit or 60), 1), 200)
+    try:
+        rows = frappe.db.sql(
+            """SELECT name, creation, status, request_data
+               FROM `tabEcommerce Integration Log`
+               WHERE status IN ('Queued', 'In Progress')
+                 AND method IN %(m)s
+                 AND creation <= DATE_SUB(NOW(), INTERVAL %(g)s MINUTE)
+                 AND creation >= DATE_SUB(NOW(), INTERVAL %(d)s DAY)
+               ORDER BY creation DESC
+               LIMIT 400""",
+            {"m": _LOST_METHODS, "g": _LOST_GRACE_MIN, "d": days}, as_dict=True)
+
+        import json as _json
+        now = frappe.utils.now_datetime()
+        out, seen, mad, recovered = [], set(), 0.0, 0
+        for r in rows:
+            try:
+                d = _json.loads(r.request_data or "{}")
+            except Exception:
+                continue
+            order = d.get("name")
+            if not order or order in seen:
+                continue
+            seen.add(order)
+            if frappe.db.exists("Sales Order", order):
+                recovered += 1
+                continue
+            total = float(d.get("total_price") or 0)
+            mad += total
+            cust = d.get("customer") or {}
+            ship = d.get("shipping_address") or {}
+            out.append({
+                "log": r.name,
+                "order": order,
+                "shopifyId": str(d.get("id") or ""),
+                "at": str(r.creation)[:16],
+                "ageH": round((now - r.creation).total_seconds() / 3600.0, 1),
+                "mad": round(total, 2),
+                "customer": (cust.get("first_name") or ship.get("first_name") or "")
+                            + " " + (cust.get("last_name") or ship.get("last_name") or ""),
+                "phone": (ship.get("phone") or cust.get("phone") or ""),
+                "city": (ship.get("city") or ""),
+                "source": d.get("source_name") or "",
+                "financial": d.get("financial_status") or "",
+                "skus": [str(li.get("sku") or "") for li in (d.get("line_items") or [])][:6],
+                "lines": len(d.get("line_items") or []),
+            })
+            if len(out) >= limit:
+                break
+        return {"rows": out, "lost": len(out), "mad": round(mad, 2),
+                "recovered": recovered, "scanned": len(rows), "days": days,
+                "capped": len(out) >= limit}
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "catalog_hub.lost_orders")
+        return {"rows": [], "lost": 0, "mad": 0, "recovered": 0,
+                "scanned": 0, "days": days, "capped": False}

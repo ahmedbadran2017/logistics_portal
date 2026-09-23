@@ -73,6 +73,38 @@
       <!-- SELLING AIR — the exact mirror of stranded stock below it. That
            one is real inventory under a listing that cannot sell it; this is
            a listing still selling inventory that is not there. -->
+      <!-- Orders Shopify handed over and ERPNext then dropped without a word.
+           This is not "out of stock" or "not mapped" — those log a real Error.
+           These rows sit at Queued for ever because the sync swallows its own
+           exception, so the loss has never been visible anywhere. -->
+      <div v-if="lost.rows.length" class="bg-white rounded-xl ring-1 ring-rose-300 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+          <Icon name="package-x" :size="14" class="text-rose-600" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('catalog.lostTitle') }} ({{ lost.lost }})</span>
+          <span class="text-[11px] text-stone-400 hidden sm:inline">{{ t('catalog.lostHint') }}</span>
+          <span class="ms-auto text-[12px] font-semibold text-rose-700 tabular-nums whitespace-nowrap">
+            {{ fmtMAD(lost.mad) }} MAD
+          </span>
+        </div>
+        <div class="divide-y divide-stone-100 max-h-[420px] overflow-y-auto">
+          <div v-for="l in lost.rows" :key="l.log" class="px-4 py-2.5 flex items-center gap-3 flex-wrap">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-mono text-[12px] font-semibold text-stone-900">{{ l.order }}</span>
+                <span class="text-[11px] text-stone-400 tabular-nums">{{ l.at }}</span>
+                <span v-if="l.source === 'shopify_draft_order'"
+                      class="text-[10px] px-1.5 h-[17px] inline-flex items-center rounded bg-stone-100 text-stone-600">{{ t('catalog.lostDraft') }}</span>
+              </div>
+              <div class="text-[11.5px] text-stone-500 truncate" dir="auto">
+                {{ (l.customer || '').trim() || '—' }}<span v-if="l.city"> · {{ l.city }}</span><span v-if="l.phone"> · {{ l.phone }}</span>
+              </div>
+              <div class="font-mono text-[10.5px] text-stone-400 truncate">{{ l.skus.join(', ') }}</div>
+            </div>
+            <span class="text-[12px] font-semibold text-stone-900 tabular-nums whitespace-nowrap">{{ fmtMAD(l.mad) }} MAD</span>
+          </div>
+        </div>
+      </div>
+
       <div v-if="air.rows.length" class="bg-white rounded-xl ring-1 ring-rose-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
           <Icon name="alert-triangle" :size="14" class="text-rose-600" />
@@ -234,6 +266,7 @@ const fix = ref({ consolidations: [], reactivations: [], unfixable: 0 });
 const health = ref(null);
 const gaps = ref(null);
 const air = ref({ rows: [], orders: 0, mad: 0, days: 7 });
+const lost = ref({ rows: [], lost: 0, mad: 0, recovered: 0 });
 
 function hideImg(e) { if (e && e.target) e.target.style.display = "none"; }
 const filling = ref(false);
@@ -283,13 +316,14 @@ function openSku(sku) {
 
 async function load() {
   loading.value = true;
-  const [o, s, f, h, g, sa] = await Promise.all([
+  const [o, s, f, h, g, sa, lo] = await Promise.all([
     liveOr(null, () => api("catalog_hub.problems.overview")),
     liveOr(null, () => api("catalog_hub.problems.stranded_stock", { limit: 100 })),
     liveOr(null, () => api("catalog_hub.actions.fix_candidates")),
     liveOr(null, () => api("catalog_hub.webhook.sync_health")),
     liveOr(null, () => api("catalog_hub.images.image_gaps")),
     liveOr(null, () => api("catalog_hub.problems.selling_air", { days: 7 })),
+    liveOr(null, () => api("catalog_hub.problems.lost_orders", { days: 3650 })),
   ]);
   if (o) ov.value = o;
   rows.value = Array.isArray(s) ? s : [];
@@ -297,6 +331,7 @@ async function load() {
   if (h) health.value = h;
   if (g) gaps.value = g;
   if (sa) air.value = sa;
+  if (lo) lost.value = lo;
   loading.value = false;
 }
 

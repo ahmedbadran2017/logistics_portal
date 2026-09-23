@@ -3653,7 +3653,7 @@ def report_short_pick(pick_list, order, item_code=None, defer=0):
     batching doesn't bounce it right back), notify the dispatchers, and let
     the picker keep working the rest of the list. Assigned picker / owner /
     manager only."""
-    from logistics_portal.api.auth import SEED_ROLES, resolve_role
+    from logistics_portal.api.auth import resolve_role
 
     if not frappe.db.exists("Pick List", pick_list):
         frappe.throw("Unknown pick list.")
@@ -3740,7 +3740,12 @@ def report_short_pick(pick_list, order, item_code=None, defer=0):
     _subject = (f"Short pick ×{_tries}: {so_name}" if _tries > 2
                 else f"Short pick: {so_name}")
     _quiet = frappe.utils.add_to_date(frappe.utils.now_datetime(), hours=-6)
-    dispatchers = [u for u, r in SEED_ROLES.items() if r in ("dispatcher", "manager")]
+    # Was SEED_ROLES alone, which reaches two dispatcher accounts and one that
+    # is disabled — and never the accounts that actually cut the batches, since
+    # they carry no logistics role at all. Same measured target set the urgent
+    # flag uses, so both bells ring the same floor.
+    from logistics_portal.api.orders import _floor_targets
+    dispatchers = _floor_targets()
     for d in dispatchers:
         try:
             # Still unread, or rung in the last six hours: say nothing.
