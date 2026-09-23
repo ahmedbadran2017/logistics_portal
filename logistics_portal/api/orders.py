@@ -1940,6 +1940,40 @@ def detail(name):
     sh = frappe.db.get_value("Shipment Delivery Note", {"delivery_note": dn}, "parent") if dn else None
     ret = frappe.db.get_value("Delivery Note", dn, "custom_return_shipment") if dn else None
 
+    # The exchange, from BOTH directions.
+    #
+    # An order can be the one being exchanged, or the replacement that came
+    # out of one, and a reader on either side needs the other. Until now the
+    # only trace was a comment — "Exchange: created #261854-ex" — which the
+    # linked-documents panel could not show and no query could follow.
+    _ex = _ex_of = _ex_replacement = ""
+    if frappe.db.exists("DocType", "Sales Exchange"):
+        _row = frappe.db.get_value(
+            "Sales Exchange", {"sales_order": name},
+            ["name", "exchange_sales_order"], as_dict=True)
+        if _row:
+            _ex = _row.name
+            _ex_replacement = _row.exchange_sales_order or ""
+        else:
+            # This order IS the replacement — point back at the original.
+            _back = frappe.db.get_value(
+                "Sales Exchange", {"exchange_sales_order": name},
+                ["name", "sales_order"], as_dict=True)
+            if _back:
+                _ex = _back.name
+                _ex_of = _back.sales_order or ""
+
+    # A replacement SEND is a different relationship: nothing comes back, so
+    # it is not an exchange, and the link lives on the order itself.
+    _replaces = (so.get("custom_replaces_order") or ""
+                 if so.meta.has_field("custom_replaces_order") else "")
+    _sent = []
+    if frappe.get_meta("Sales Order").has_field("custom_replaces_order"):
+        _sent = [r[0] for r in frappe.db.sql(
+            """SELECT name FROM `tabSales Order`
+               WHERE custom_replaces_order = %s ORDER BY creation DESC LIMIT 10""",
+            (name,))]
+
     return {
         "items": [dict(r) for r in items],
         "name": so.name,
@@ -1999,6 +2033,12 @@ def detail(name):
         "dn": dn or "",
         "sh": sh or "",
         "ret": ret or "",
+        # Exchange, both ways round, plus replacement sends.
+        "ex": _ex,
+        "exReplacement": _ex_replacement,
+        "exOf": _ex_of,
+        "replaces": _replaces,
+        "sent": _sent,
         # stage timestamps (fill as the portal stamps them)
         "picked_at": so.get("custom_picked_at"),
         "labeled_at": so.get("custom_labeled_at"),

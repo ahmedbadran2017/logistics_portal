@@ -503,8 +503,9 @@
           <component
             v-for="(c, i) in docChain"
             :key="i"
-            :is="c.on && c.href ? 'a' : 'button'"
-            v-bind="c.on && c.href ? { href: c.href, target: '_blank' } : { disabled: !c.on }"
+            :is="c.to ? 'RouterLink' : (c.on && c.href ? 'a' : 'button')"
+            v-bind="c.to ? { to: c.to }
+                    : (c.on && c.href ? { href: c.href, target: '_blank' } : { disabled: !c.on })"
             class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-start"
             :class="c.on ? 'hover:bg-stone-50' : 'opacity-40 cursor-not-allowed'"
           >
@@ -1204,12 +1205,25 @@ const docChain = computed(() => {
     const lv = liveOrder.value;
     const row = (dt, id, icon) => ({ dt, id: id || "—", on: !!id, icon,
       href: id ? deskUrl(dt, id) : "" });
+    // Another ORDER in the chain: stay in the portal and keep the reader on
+    // the screen that has the actions.
+    const ordRow = (label, id) => ({ dt: label, id, on: true, icon: "shopping-bag",
+      to: { name: "OrderDetail", params: { name: String(id).replace("#", "") } } });
     return [
       row("Sales Order", lv.name, "shopping-bag"),
       row("Pick List", lv.pl, "package"),
       row("Delivery Note", lv.dn, "file-text"),
       row("Shipment", lv.sh, "send"),
       row("Return Shipment", lv.ret, "rotate-ccw"),
+      // The after-sale side of the chain. These open INSIDE the portal, not
+      // in the Desk, because that is where the reason, the fee and the
+      // replacement lines actually live.
+      ...(lv.ex ? [{ dt: t("od.exchange"), id: lv.ex, on: true, icon: "refresh-cw",
+                     to: { name: "Exchanges", query: { q: lv.ex } } }] : []),
+      ...(lv.exReplacement ? [ordRow(t("od.exReplacement"), lv.exReplacement)] : []),
+      ...(lv.exOf ? [ordRow(t("od.exOf"), lv.exOf)] : []),
+      ...(lv.replaces ? [ordRow(t("od.replaces"), lv.replaces)] : []),
+      ...((lv.sent || []).map((n) => ordRow(t("od.sent"), n))),
     ];
   }
   const idx = STAGE_SEQ.indexOf(o.stage);
