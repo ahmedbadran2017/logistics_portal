@@ -2451,16 +2451,44 @@ def guard_cancelled_resurrect(doc, method=None):
     session user) is untouched. Runs on validate, so the write simply never
     lands — and one witness comment per order (not per attempt) records that
     the automation keeps trying.
+
+    IT NEVER FIRED. Written this way it asked `get_doc_before_save()` for the
+    old status, and that is only populated on some save paths: proved on
+    production by running validate() on a really-cancelled order both ways —
+    without the before-save doc the guard returns silently and the flip
+    lands, with it the guard reverts. Live evidence agreed: the hook was
+    registered and importable, 245 flips had landed, and it had written zero
+    witness comments. The previous status is read from the DATABASE now,
+    which is the committed value whatever loaded the document.
+
+    IT ALSO COVERED ONLY "Follow Up". The same automation moved 70 cancelled
+    orders straight to Confirmed, which is the worse half — a Follow Up
+    wastes a phone call, a Confirmed ships a parcel the customer cancelled.
+    Any status is covered now.
+
+    Humans are untouched, and that is the whole distinction: 188 reopens to
+    Confirmed were agents signed in as themselves, and every write this app
+    makes runs under the agent's login, never Administrator.
     """
-    if doc.get("custom_sales_status") != "Follow Up" or doc.is_new():
+    if doc.is_new():
+        return
+    now = doc.get("custom_sales_status")
+    if not now or now == "Cancelled":
         return
     if frappe.session.user not in ("Administrator", "Guest"):
         return
+    old = None
     try:
-        old = doc.get_doc_before_save()
+        before = doc.get_doc_before_save()
+        if before:
+            old = before.get("custom_sales_status")
     except Exception:
         old = None
-    if not old or old.get("custom_sales_status") != "Cancelled":
+    if old is None:
+        # The committed value. During validate the row still holds what it
+        # was, which is exactly the question being asked.
+        old = frappe.db.get_value("Sales Order", doc.name, "custom_sales_status")
+    if old != "Cancelled":
         return
     doc.custom_sales_status = "Cancelled"
     try:
@@ -2471,7 +2499,7 @@ def guard_cancelled_resurrect(doc, method=None):
                 "content": ("like", f"%{marker}%")}):
             doc.add_comment(
                 "Comment",
-                f"{marker} (Cancelled → Follow Up) — blocked. "
+                f"{marker} (Cancelled → {now}) — blocked. "
                 "TKT-2609-3709664")
     except Exception:
         pass
@@ -2508,6 +2536,62 @@ def restore_resurrected_cancels():
             frappe.log_error(frappe.get_traceback()[:2000],
                              "restore_resurrected_cancels")
     frappe.db.set_default("lp_tkt3709664_restored", "1")
+    frappe.db.commit()
+
+
+def restore_resurrected_cancels_2():
+    """The second pass, once the guard was fixed and could be trusted.
+
+    The guard never fired — it asked the before-save document for the old
+    status and that is not always loaded — so the automation kept going: 245
+    flips to Follow Up and 70 straight to Confirmed, across 259 orders.
+
+    ONLY TWELVE OF THEM CAN BE PUT BACK, and the reason matters. Of the 187
+    whose last decision was the automation's, 174 have an AWB, a shipped
+    stamp or a delivery: the parcel physically left, some were delivered and
+    some came back as returns. Marking those Cancelled now would be a second
+    lie on top of the first — the money moved, the stock moved, and the
+    carrier has a record. They are left exactly as they are, and what they
+    cost is a conversation, not a migration.
+
+    The twelve below never moved: Pending logistics, no AWB, nothing picked.
+    For those the human's cancel is still the only decision anybody made, so
+    it is restored. Conditional per order, because an agent may have decided
+    something newer in the meantime and their decision wins.
+    """
+    if frappe.db.get_default("lp_uncancel_pass2"):
+        return
+    names = ("J-007289", "J-007250", "#260518",
+             "#175312-JCH", "#168674-JCH", "#178484-JCH", "#174929-JCH",
+             "#174328-JCH", "#171587-JCH", "#170842-JCH", "#172300-JCH",
+             "#171433-JCH")
+    for name in names:
+        try:
+            row = frappe.db.get_value(
+                "Sales Order", name,
+                ["custom_sales_status", "custom_logistics_status", "custom_awb"],
+                as_dict=True)
+            if not row or row.custom_sales_status not in ("Follow Up", "Confirmed"):
+                continue
+            # Re-checked at migrate time, not trusted from the audit: a
+            # parcel may have left between then and the deploy.
+            if (row.custom_awb or "").strip():
+                continue
+            if (row.custom_logistics_status or "Pending") != "Pending":
+                continue
+            was = row.custom_sales_status
+            frappe.db.set_value("Sales Order", name,
+                                "custom_sales_status", "Cancelled",
+                                update_modified=False)
+            frappe.get_doc("Sales Order", name).add_comment(
+                "Comment",
+                f"Restored to Cancelled — the automation had reopened this "
+                f"cancelled order as {was}, and nothing had shipped. "
+                "TKT-2609-3709664")
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:2000],
+                             "restore_resurrected_cancels_2")
+    frappe.db.set_default("lp_uncancel_pass2", "1")
     frappe.db.commit()
 
 

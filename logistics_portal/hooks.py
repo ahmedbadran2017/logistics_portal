@@ -132,6 +132,11 @@ after_migrate = [
     # One-time: put the six automation-resurrected cancelled orders back to
     # Cancelled (TKT-2609-3709664); the validate guard stops new resurrects.
     "logistics_portal.api.orders.restore_resurrected_cancels",
+    # One-time, second pass: the guard above never fired (it asked the
+    # before-save doc for the old status and that is not always loaded), so
+    # the automation kept reopening cancelled orders. Twelve that never
+    # shipped go back; the 174 that did are left alone — the parcel left.
+    "logistics_portal.api.orders.restore_resurrected_cancels_2",
     # One-time: un-stamp the 'Label Printed' the retired auto-claim gave to
     # parcels nobody printed — they drop into the late-labels print queue.
     "logistics_portal.api.picking.unclaim_unprinted_labels",
