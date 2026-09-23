@@ -431,6 +431,27 @@ _SO_SOURCE_FIELDS = [
 ]
 
 
+_EXCHANGE_FIELDS = [
+    # Why the customer sent it back — and therefore who pays the pickup.
+    #
+    # The doctype had no reason field at all: 1,000 exchanges, and of their
+    # 948 comments 934 are label attachments. A broken piece, a size the
+    # customer chose wrong and a change of mind were the same row, which is
+    # why nobody could tell whose fault any of it was.
+    #
+    # The wording carries the fault on purpose. tickets._CS_DEFAULTS maps each
+    # of these to "does the customer pay the 25 MAD pickup", so the agent
+    # answers one question and the money follows. A reason missing from that
+    # map carries no fee, so adding one here can never silently start
+    # charging customers.
+    {"fieldname": "custom_reason", "label": "Reason",
+     "fieldtype": "Select", "no_copy": 1, "search_index": 1,
+     "options": ("\nDamaged on arrival\nMissing piece\nWe sent the wrong item"
+                 "\nWe sent the wrong size\nCustomer ordered the wrong size"
+                 "\nChanged mind\nWants a different product")},
+]
+
+
 def ensure_pick_fields():
     try:
         from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
@@ -440,7 +461,9 @@ def ensure_pick_fields():
                               + _SO_URGENT_FIELDS + _SO_TOUCH_FIELDS
                               + _SO_SOURCE_FIELDS + _SO_RETURNED_FIELDS
                               + _SO_SEND_FIELDS,
-                              "Delivery Note": _DN_EXC_FIELDS}, ignore_validate=True)
+                              "Delivery Note": _DN_EXC_FIELDS,
+                              "Sales Exchange": _EXCHANGE_FIELDS},
+                             ignore_validate=True)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.ensure_pick_fields")
 

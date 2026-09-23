@@ -20,9 +20,9 @@ import frappe
 def _site_now():
     """The SITE clock as a bound param. The DB server runs on its own
     time zone, so NOW() made fresh rows read negative ages."""
-    from frappe.utils import now_datetime
+    from frappe.utils import flt, now_datetime
     return str(now_datetime())[:19]
-from frappe.utils import now_datetime
+from frappe.utils import flt, now_datetime
 
 _SE_MOD = ("ecommerce_integrations.ecommerce_integrations.doctype."
            "sales_exchange.sales_exchange")
@@ -143,10 +143,76 @@ def start(order):
     return {"ok": True, "name": name}
 
 
+_FEE_TAG = "Pickup fee"
+
+
+def _apply_pickup_fee(doc, reason):
+    """Put the pickup fee on, or take it off, to match the reason.
+
+    Rewritten every time rather than appended, so changing the reason from
+    "we sent the wrong size" to "customer ordered the wrong size" moves the
+    money instead of leaving a stale row behind.
+
+    Only rows this function wrote are touched — a tax somebody added by hand
+    is left alone, which it would not be if this cleared the table.
+    """
+    from logistics_portal.api.tickets import _cs_settings
+    cfg = _cs_settings()
+    keep = []
+    for row in (doc.get("taxes") or []):
+        if (row.description or "").strip() != _FEE_TAG:
+            keep.append(row)
+    doc.set("taxes", keep)
+    if not (cfg.get("reasonFee") or {}).get(reason):
+        return
+    fee = flt(cfg.get("pickupFee") or 0)
+    acc = (cfg.get("pickupFeeAccount") or "").strip()
+    if fee <= 0 or not acc:
+        return
+    if not frappe.db.exists("Account", acc):
+        # Never block a customer's exchange over a chart-of-accounts change:
+        # the fee is dropped and the trail says so.
+        doc.add_comment("Comment",
+                        f"Pickup fee skipped — account {acc} not found.")
+        return
+    doc.append("taxes", {"charge_type": "Actual", "account_head": acc,
+                         "description": _FEE_TAG, "tax_amount": fee,
+                         "rate": 0})
+
+
 @frappe.whitelist()
-def set_items(name, items=None, city=None, sector=None, address=None, phone=None):
-    """The replacement items (+ optional delivery corrections). validate()
-    recomputes totals and the settlement direction."""
+def set_items(name, items=None, reason=None, city=None, sector=None,
+              address=None, phone=None):
+    """The replacement items, the reason, and the fee the reason implies.
+
+    THE REASON IS REQUIRED, and it is the only question the agent answers
+    about money. Measured 2026-09-23: the doctype had no reason field at all,
+    so a broken piece, a size the customer picked wrong and a change of mind
+    were the same row. The wording of each reason carries whose fault it was,
+    and tickets._CS_DEFAULTS["reasonFee"] maps that to "does the customer pay
+    the pickup". One choice, and the money follows — no second field that
+    could disagree with the first.
+
+    THE FEE IS A TAX ROW, not a field write. The controller computes
+
+        taxes_and_shipping_total = SUM(tax rows)
+        exchange_total           = items + taxes_and_shipping_total
+        difference_amount        = exchange_total - original_total
+
+    so a single +25 Actual row does BOTH of Ahmed's rules at once: on a
+    return it lifts exchange_total from 0 to 25 and the refund falls by 25;
+    on a swap it adds 25 to what the customer owes. Writing the field
+    directly would be overwritten by the next validate().
+
+    Verified numerically before building: 161 refunded becomes 136, and a 89
+    difference becomes 114.
+
+    ITEMS MAY BE EMPTY. A pure return — the customer changed their mind and
+    sends everything back — is 680 of the 1,000 exchanges on this site, and
+    this function used to refuse it outright ("Add at least one replacement
+    item"), which is why every one of them was made on the Desk. The reason
+    is the guard against an accidental empty exchange, not the item list.
+    """
     import json as _json
     _gate()
     name = (name or "").strip()
@@ -155,10 +221,12 @@ def set_items(name, items=None, city=None, sector=None, address=None, phone=None
     if isinstance(items, str):
         items = _json.loads(items)
     items = items or []
-    if not items:
-        frappe.throw("Add at least one replacement item.")
     if len(items) > 20:
         frappe.throw("20 items max.")
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw("Say why it is coming back — it decides who pays the "
+                     "pickup, and nobody can reconstruct it later.")
 
     doc = frappe.get_doc("Sales Exchange", name)
     if doc.exchange_status not in ("Draft", "Waiting for Cathedis API"):
@@ -181,12 +249,16 @@ def set_items(name, items=None, city=None, sector=None, address=None, phone=None
                        ("exchange_address", address), ("customer_phone", phone)):
         if val and str(val).strip():
             doc.set(field, str(val).strip())
+    if doc.meta.has_field("custom_reason"):
+        doc.set("custom_reason", reason)
+    _apply_pickup_fee(doc, reason)
     doc.flags.ignore_permissions = True
     doc.save(ignore_permissions=True)
     frappe.db.commit()
-    return {"ok": True, "name": name,
+    return {"ok": True, "name": name, "reason": reason,
             "originalTotal": float(doc.original_total or 0),
             "exchangeTotal": float(doc.exchange_total or 0),
+            "fee": float(doc.taxes_and_shipping_total or 0),
             "difference": float(doc.difference_amount or 0),
             "direction": doc.settlement_direction or ""}
 

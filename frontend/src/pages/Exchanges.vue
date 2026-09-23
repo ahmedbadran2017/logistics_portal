@@ -102,6 +102,23 @@
         <!-- items editor -->
         <Transition name="exslide">
           <div v-if="editFor === r.name" class="bg-amber-50/50 rounded-xl p-3 mt-3 space-y-2">
+            <!-- Why it is coming back. This is the only question about money
+                 the agent answers: the wording carries whose fault it was,
+                 and the 25 MAD pickup follows from it. -->
+            <div class="flex items-center gap-2 flex-wrap">
+              <select v-model="editReason"
+                      class="h-9 px-2.5 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] focus:outline-none">
+                <option value="">{{ t('ex.whyPh') }}</option>
+                <option v-for="rs in REASONS" :key="rs" :value="rs">{{ t('ex.r_' + rs) }}</option>
+              </select>
+              <span v-if="editReason" class="text-[11.5px] font-semibold"
+                    :class="feeApplies ? 'text-amber-700' : 'text-emerald-700'">
+                {{ feeApplies ? t('ex.feeYes').replace('{n}', String(fee)) : t('ex.feeNo') }}
+              </span>
+              <!-- 680 of the 1,000 exchanges on this site send nothing back
+                   out. Leaving the rows empty is that case, not a mistake. -->
+              <span class="ms-auto text-[10.5px] text-stone-400">{{ t('ex.emptyOk') }}</span>
+            </div>
             <div v-for="(it, i) in editItems" :key="i" class="flex items-center gap-2 flex-wrap">
               <input v-model="it.item_code" :placeholder="t('ex.itemPh')" maxlength="140"
                      class="flex-1 min-w-[220px] h-9 ps-3 pe-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] font-mono focus:outline-none" />
@@ -119,7 +136,7 @@
               </button>
               <span class="ms-auto" />
               <button class="h-9 px-4 rounded-lg text-[12px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 transition-colors"
-                      :disabled="savingItems || !editItems.some(x => x.item_code.trim())" @click="saveItems(r)">
+                      :disabled="savingItems || !editReason" @click="saveItems(r)">
                 {{ savingItems ? '…' : t('px.common.save') }}
               </button>
             </div>
@@ -142,7 +159,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
@@ -171,6 +188,22 @@ const newOrder = ref("");
 const starting = ref(false);
 const editFor = ref("");
 const editItems = ref([]);
+// The reason list and the fee map both live on the server; the page reads
+// them rather than keeping a second copy that could drift from the policy.
+const REASONS = ["Damaged on arrival", "Missing piece", "We sent the wrong item",
+  "We sent the wrong size", "Customer ordered the wrong size", "Changed mind",
+  "Wants a different product"];
+const editReason = ref("");
+const feeMap = ref({});
+const fee = ref(25);
+const feeApplies = computed(() => !!feeMap.value[editReason.value]);
+async function loadFeePolicy() {
+  try {
+    const cfg = await api("tickets.cs_settings");
+    feeMap.value = cfg?.reasonFee || {};
+    fee.value = cfg?.pickupFee ?? 25;
+  } catch (e) { /* the server still decides; this is only the preview */ }
+}
 const savingItems = ref(false);
 
 let qTimer = null;
@@ -197,6 +230,7 @@ async function load() {
     loading.value = false;
   }
 }
+loadFeePolicy();
 onMounted(load);
 
 async function start() {
@@ -218,15 +252,19 @@ function toggleEdit(r) {
   if (editFor.value === r.name) { editFor.value = ""; return; }
   editFor.value = r.name;
   editItems.value = [{ item_code: "", qty: 1, rate: 0 }];
+  editReason.value = r.reason || "";
 }
 
 async function saveItems(r) {
   savingItems.value = true;
   try {
     const items = editItems.value.filter((x) => x.item_code.trim());
-    const res = await apiPost("exchange.set_items", { name: r.name, items });
+    const res = await apiPost("exchange.set_items", {
+      name: r.name, items, reason: editReason.value,
+    });
     success(t("ex.itemsSaved"),
-            `${res.direction || ""} ${Math.abs(res.difference || 0)} MAD`);
+            `${res.direction || ""} ${Math.abs(res.difference || 0)} MAD`
+            + (res.fee ? ` (+${res.fee} ${t("ex.feeWord")})` : ""));
     editFor.value = "";
     load();
   } catch (e) {

@@ -26,7 +26,7 @@ def _site_now():
     time zone, so NOW() made fresh rows read negative ages."""
     from frappe.utils import now_datetime
     return str(now_datetime())[:19]
-from frappe.utils import add_to_date, now_datetime
+from frappe.utils import add_to_date, flt, now_datetime
 
 _OPEN_STATUSES = ("Open", "Replied", "On Hold")
 
@@ -54,6 +54,42 @@ _CS_DEFAULTS = {
     "resolutionH": 48,
     "categories": ["Produit défectueux", "Colis incomplet", "Retard de livraison",
                    "Demande de remboursement", "Échange", "Question produit", "Autre"],
+    # Why the customer sent it back, and who pays the pickup.
+    #
+    # The fee follows FAULT, not the case. Ahmed, 2026-09-23: a customer who
+    # changed their mind or wants something else pays 25 MAD for the pickup;
+    # a broken piece, a missing piece or an item WE picked wrong does not.
+    # Wrong size is the one that splits — ours if we sent the wrong one,
+    # theirs if they ordered it.
+    #
+    # So the reason list carries the fault in its own wording and the fee is
+    # derived from it. One choice by the agent, nothing else to answer, and
+    # no second field that could disagree with the first.
+    #
+    # Measured before writing this: difference_amount equals
+    # exchange_total - original_total EXACTLY on 1,000 of 1,000 exchanges, and
+    # taxes_and_shipping_total — the field built to carry exactly this — is
+    # zero on every one of them. The rule has never been applied. 667 open
+    # refunds are 25 MAD too generous and 92 open collections 25 MAD short.
+    #
+    # NEW exchanges only. Ahmed is reviewing the existing ones separately:
+    # they have already been executed and a retro-fit would restate money
+    # that customers were quoted.
+    "pickupFee": 25,
+    # Where the fee lands. The account the company already books shipping to
+    # on 140,305 Sales Order tax rows — the pickup IS shipping revenue, so it
+    # goes where shipping goes rather than to a new account nobody reconciles.
+    "pickupFeeAccount": "600.903 - Shipping Revenue (Livraison) - JM",
+    # reason -> does the CUSTOMER pay the pickup?
+    "reasonFee": {
+        "Damaged on arrival": False,
+        "Missing piece": False,
+        "We sent the wrong item": False,
+        "We sent the wrong size": False,
+        "Customer ordered the wrong size": True,
+        "Changed mind": True,
+        "Wants a different product": True,
+    },
     "admins": [],
 }
 
@@ -110,6 +146,24 @@ def save_cs_settings(settings=None):
         if not cats:
             frappe.throw("Keep at least one category.")
         out["categories"] = cats[:20]
+    if "pickupFee" in settings:
+        v = flt(settings["pickupFee"])
+        if not (0 <= v <= 1000):
+            frappe.throw("The pickup fee must be between 0 and 1000 MAD.")
+        out["pickupFee"] = v
+    if "pickupFeeAccount" in settings:
+        acc = str(settings["pickupFeeAccount"] or "").strip()
+        if acc and not frappe.db.exists("Account", acc):
+            frappe.throw(f"Unknown account: {acc}")
+        out["pickupFeeAccount"] = acc
+    if "reasonFee" in settings:
+        rf = settings["reasonFee"] or {}
+        if not isinstance(rf, dict) or not rf:
+            frappe.throw("Keep at least one reason.")
+        # Values are yes/no only; an unknown reason simply carries no fee, so
+        # adding one here can never silently start charging customers.
+        out["reasonFee"] = {str(k).strip()[:60]: bool(v)
+                            for k, v in rf.items() if str(k).strip()}
     if "admins" in settings:
         from logistics_portal.api.auth import resolve_role
         if resolve_role(frappe.session.user) != "manager":
