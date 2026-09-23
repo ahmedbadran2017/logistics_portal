@@ -80,6 +80,15 @@ _CS_DEFAULTS = {
     # on 140,305 Sales Order tax rows — the pickup IS shipping revenue, so it
     # goes where shipping goes rather than to a new account nobody reconciles.
     "pickupFeeAccount": "600.903 - Shipping Revenue (Livraison) - JM",
+    # Where the "we are replacing this at no charge" offset is labelled.
+    #
+    # It is a label, not a posting: Sales Exchange is not submittable and has
+    # produced 0 GL Entries across 1,001 exchanges, so this row moves the
+    # settlement number and touches no ledger. The chart has no sales-returns
+    # or allowances account at all (checked all 30 candidates), and the value
+    # of goods we give away to fix our own mistake is a write-off, so it is
+    # labelled as one rather than inflating shipping revenue.
+    "noChargeAccount": "78.403 - Write Off - JH - JM",
     # reason -> does the CUSTOMER pay the pickup?
     "reasonFee": {
         "Damaged on arrival": False,
@@ -156,6 +165,11 @@ def save_cs_settings(settings=None):
         if acc and not frappe.db.exists("Account", acc):
             frappe.throw(f"Unknown account: {acc}")
         out["pickupFeeAccount"] = acc
+    if "noChargeAccount" in settings:
+        acc = str(settings["noChargeAccount"] or "").strip()
+        if acc and not frappe.db.exists("Account", acc):
+            frappe.throw(f"Unknown account: {acc}")
+        out["noChargeAccount"] = acc
     if "reasonFee" in settings:
         rf = settings["reasonFee"] or {}
         if not isinstance(rf, dict) or not rf:

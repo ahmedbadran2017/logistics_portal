@@ -74,6 +74,15 @@
               <span v-if="r.phone" class="font-mono">{{ r.phone }}</span>
               <span v-if="r.city" class="inline-flex items-center gap-1"><Icon name="map-pin" :size="11" class="text-stone-300" />{{ r.city }}</span>
               <span v-if="r.awb" class="font-mono text-[10.5px] text-amber-700">{{ r.awb }}</span>
+              <!-- The reason IS the money: it decides the 25 MAD and whether
+                   the difference is zero. The board never showed it, so the
+                   edit panel reopened blank on a required field and the agent
+                   re-picked from memory. -->
+              <span class="inline-flex items-center gap-1"
+                    :class="r.reason ? 'text-stone-500' : 'text-stone-300'">
+                <Icon name="help-circle" :size="11" class="text-stone-300" />
+                {{ r.reason ? t('ex.r_' + r.reason, r.reason) : t('ex.noneYet') }}
+              </span>
               <span class="inline-flex items-center gap-1 text-stone-400"><Icon name="clock" :size="11" />{{ ageLabel(r.ageH) }}</span>
             </div>
             <div v-if="r.itemsText" class="text-[11.5px] text-stone-500 truncate max-w-[560px] mt-1" :title="r.itemsText" dir="auto">
@@ -119,12 +128,19 @@
                    out. Leaving the rows empty is that case, not a mistake. -->
               <span class="ms-auto text-[10.5px] text-stone-400">{{ t('ex.emptyOk') }}</span>
             </div>
+            <p class="text-[10.5px] text-stone-400">{{ t('ex.rateAuto') }}</p>
             <div v-for="(it, i) in editItems" :key="i" class="flex items-center gap-2 flex-wrap">
               <input v-model="it.item_code" :placeholder="t('ex.itemPh')" maxlength="140"
                      class="flex-1 min-w-[220px] h-9 ps-3 pe-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] font-mono focus:outline-none" />
               <input v-model.number="it.qty" type="number" min="1" :placeholder="t('ex.qtyPh')"
                      class="w-[80px] h-9 ps-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] tabular-nums focus:outline-none" />
+              <!-- Blank is not free. 743 of the 1,096 replacement rows on this
+                   site are priced at zero, which made the settlement read
+                   "refund the whole order" on parcels we were replacing. The
+                   server prices a blank row from what the item last sold for
+                   (96.9% of rows), so this box is for the rare correction. -->
               <input v-model.number="it.rate" type="number" min="0" :placeholder="t('ex.ratePh')"
+                     :title="t('ex.rateAuto')"
                      class="w-[110px] h-9 ps-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] tabular-nums focus:outline-none" />
               <button :title="t('common.close')" class="w-8 h-8 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 inline-flex items-center justify-center"
                       @click="editItems.splice(i, 1)"><Icon name="x" :size="13" /></button>

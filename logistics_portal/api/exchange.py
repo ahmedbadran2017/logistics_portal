@@ -26,6 +26,7 @@ from frappe.utils import flt, now_datetime
 
 _SE_MOD = ("ecommerce_integrations.ecommerce_integrations.doctype."
            "sales_exchange.sales_exchange")
+_CO = "Justyol Morocco"
 
 TABS = ("waiting", "labeled", "settled")
 _TAB_STATUSES = {
@@ -79,6 +80,14 @@ def board(tab="waiting", q="", limit=30, offset=0):
             "SELECT COUNT(*) FROM `tabSales Exchange` WHERE exchange_status IN %s",
             (sts,))[0][0])
 
+    # The reason is what decides the money, so the board has to show the one
+    # on file. Without it the edit panel reopened blank and — because the
+    # reason is required to save — the agent picked again from memory, which
+    # is 25 MAD moving on a guess. Guarded because the field arrives with a
+    # migrate and the board must not 500 on a site that has not run one.
+    reason_col = ("se.custom_reason AS reason,"
+                  if frappe.db.has_column("Sales Exchange", "custom_reason")
+                  else "'' AS reason,")
     vals = {"sts": _TAB_STATUSES[tab], "limit": limit, "offset": offset}
     conds = ["se.exchange_status IN %(sts)s"]
     if q and str(q).strip():
@@ -96,6 +105,7 @@ def board(tab="waiting", q="", limit=30, offset=0):
                    se.settlement_status, se.settlement_direction,
                    se.original_total, se.exchange_total, se.difference_amount,
                    se.old_awb, se.new_awb, se.new_label_url,
+                   {reason_col}
                    TIMESTAMPDIFF(HOUR, se.creation, %(now)s) AS age_h
             FROM `tabSales Exchange` se WHERE {where}
             ORDER BY se.modified DESC
@@ -129,6 +139,7 @@ def board(tab="waiting", q="", limit=30, offset=0):
             "oldAwb": r.old_awb or "", "awb": r.new_awb or "",
             "labelUrl": r.new_label_url or "",
             "itemsText": items_map.get(r.name, ""),
+            "reason": r.get("reason") or "",
             "ageH": int(r.age_h or 0),
         } for r in rows],
         "serverNow": str(now_datetime())[:19],
@@ -156,40 +167,128 @@ def start(order):
 
 
 _FEE_TAG = "Pickup fee"
+_FREE_TAG = "Replacement at no charge"
+_MONEY_TAGS = (_FEE_TAG, _FREE_TAG)
 
 
-def _apply_pickup_fee(doc, reason):
-    """Put the pickup fee on, or take it off, to match the reason.
+def _price_of(doc, code, fallback_order=""):
+    """What a replacement row is worth when the agent leaves the rate blank.
 
-    Rewritten every time rather than appended, so changing the reason from
-    "we sent the wrong size" to "customer ordered the wrong size" moves the
-    money instead of leaving a stale row behind.
+    The rate was a blank money box the agent typed by hand, defaulting to 0,
+    and 743 of the 1,096 replacement rows on this site are priced at zero
+    because of it. Zero is not free — the controller reads
 
-    Only rows this function wrote are touched — a tax somebody added by hand
-    is left alone, which it would not be if this cleared the table.
+        exchange_total = items + taxes
+
+    so an unpriced replacement makes exchange_total 0 and the settlement then
+    reads "Refund 169 to the customer" on an order where we are sending a new
+    parcel and owe nothing. Measured in memory on J-007177-ex: rate 0 gives
+    -169.00 Refund to Customer; the same row at its real 169 gives 0.00 and
+    No Settlement.
+
+    So price it here instead of asking. Like-for-like first — the customer
+    already paid that exact rate on the original line, and a same-SKU swap
+    then lands on a difference of exactly zero with no rounding to argue
+    about.
+
+    WHAT THE CUSTOMER LAST PAID, not the catalogue, is the fallback that
+    works. Prices live in Shopify, not in ERPNext: 242 of the 248 items ever
+    used as a replacement have no Item Price at all, so a catalogue-only
+    lookup priced 17.9% of the 1,096 rows on this site and left 82% at zero.
+    Reading the last rate the item actually sold at on a submitted order
+    takes that to 96.9%, and the 3.1% left over are items never sold — for
+    those the agent is asked, and only when the answer is money we collect.
+    """
+    order = (doc.sales_order or fallback_order or "").strip()
+    if order:
+        rate = frappe.db.get_value("Sales Order Item",
+                                   {"parent": order, "item_code": code}, "rate")
+        if flt(rate) > 0:
+            return flt(rate)
+    pl = frappe.db.get_single_value("Selling Settings", "selling_price_list")
+    if pl:
+        rate = frappe.db.get_value("Item Price",
+                                   {"item_code": code, "price_list": pl,
+                                    "selling": 1}, "price_list_rate")
+        if flt(rate) > 0:
+            return flt(rate)
+    sold = frappe.db.sql("""SELECT i.rate FROM `tabSales Order Item` i
+        JOIN `tabSales Order` so ON so.name = i.parent
+        WHERE i.item_code = %s AND so.company = %s AND so.docstatus = 1
+          AND i.rate > 0
+        ORDER BY so.transaction_date DESC, so.creation DESC LIMIT 1""",
+        (code, _CO))
+    if sold and flt(sold[0][0]) > 0:
+        return flt(sold[0][0])
+    rate = frappe.db.get_value("Item Price", {"item_code": code, "selling": 1},
+                               "price_list_rate")
+    if flt(rate) > 0:
+        return flt(rate)
+    return flt(frappe.db.get_value("Item", code, "standard_rate") or 0)
+
+
+def _apply_money(doc, reason):
+    """The rows the reason implies — the pickup fee, or the no-charge offset.
+
+    Rewritten from scratch every time rather than appended, so changing the
+    reason from "we sent the wrong size" to "customer ordered the wrong size"
+    moves the money instead of leaving a stale row behind. Only rows this
+    function wrote are touched; a tax somebody added by hand is left alone,
+    which it would not be if this cleared the table. (Verified on production:
+    no exchange on this site has ever carried a tax row, so there is nothing
+    pre-existing to disturb.)
+
+    Four outcomes, which are Ahmed's five cases plus the honest extras:
+
+        our fault  + replacement sent -> difference 0
+        our fault  + nothing sent     -> full refund, no fee
+        their call + replacement sent -> new - original + 25
+        their call + nothing sent     -> original - 25
+
+    The first one needs a lever, because `difference_amount` is computed and
+    `original_total` is recomputed on every validate() — writing it is
+    discarded (measured: set to 0, reads back 169). The only lever the
+    controller leaves is the tax table, so the gap between what the customer
+    paid and what we are sending back out is closed with one tagged Actual
+    row. The Sales Exchange is not submittable and has never produced a
+    single GL Entry, so this moves the settlement number and nothing else.
     """
     from logistics_portal.api.tickets import _cs_settings
     cfg = _cs_settings()
-    keep = []
-    for row in (doc.get("taxes") or []):
-        if (row.description or "").strip() != _FEE_TAG:
-            keep.append(row)
-    doc.set("taxes", keep)
-    if not (cfg.get("reasonFee") or {}).get(reason):
+    doc.set("taxes", [r for r in (doc.get("taxes") or [])
+                      if (r.description or "").strip() not in _MONEY_TAGS])
+
+    def _row(acc, tag, amount):
+        if not acc:
+            return
+        if not frappe.db.exists("Account", acc):
+            # Never block a customer's exchange over a chart-of-accounts
+            # change: the row is dropped and the trail says so.
+            doc.add_comment("Comment", f"{tag} skipped — account {acc} not found.")
+            return
+        doc.append("taxes", {"charge_type": "Actual", "account_head": acc,
+                            "description": tag, "tax_amount": amount, "rate": 0})
+
+    if (cfg.get("reasonFee") or {}).get(reason):
+        fee = flt(cfg.get("pickupFee") or 0)
+        if fee > 0:
+            _row((cfg.get("pickupFeeAccount") or "").strip(), _FEE_TAG, fee)
         return
-    fee = flt(cfg.get("pickupFee") or 0)
-    acc = (cfg.get("pickupFeeAccount") or "").strip()
-    if fee <= 0 or not acc:
+
+    # Our own mistake. If we are sending a replacement, the customer owes
+    # nothing and is owed nothing — so close the gap to exactly zero.
+    #
+    # Only when something IS going out. "Damaged on arrival" with no
+    # replacement is a customer who wants their money back, not a swap, and
+    # the full refund with no pickup fee is the correct answer there; zeroing
+    # it would quietly cancel a refund we owe.
+    rows = doc.get("exchange_items") or []
+    if not rows:
         return
-    if not frappe.db.exists("Account", acc):
-        # Never block a customer's exchange over a chart-of-accounts change:
-        # the fee is dropped and the trail says so.
-        doc.add_comment("Comment",
-                        f"Pickup fee skipped — account {acc} not found.")
+    gap = flt(doc.original_total) - sum(flt(r.rate) * flt(r.qty) for r in rows)
+    if abs(gap) < 0.01:
         return
-    doc.append("taxes", {"charge_type": "Actual", "account_head": acc,
-                         "description": _FEE_TAG, "tax_amount": fee,
-                         "rate": 0})
+    _row((cfg.get("noChargeAccount") or "").strip(), _FREE_TAG, gap)
 
 
 @frappe.whitelist()
@@ -226,6 +325,7 @@ def set_items(name, items=None, reason=None, city=None, sector=None,
     is the guard against an accidental empty exchange, not the item list.
     """
     import json as _json
+    from logistics_portal.api.tickets import _cs_settings
     _gate()
     name = (name or "").strip()
     if not frappe.db.exists("Sales Exchange", name):
@@ -244,6 +344,7 @@ def set_items(name, items=None, reason=None, city=None, sector=None,
     if doc.exchange_status not in ("Draft", "Waiting for Cathedis API"):
         frappe.throw(f"Exchange is already {doc.exchange_status}.")
     doc.set("exchange_items", [])
+    unpriced = []
     for it in items:
         code = str(it.get("item_code") or "").strip()
         qty = float(it.get("qty") or 0)
@@ -256,14 +357,28 @@ def set_items(name, items=None, reason=None, city=None, sector=None,
             if not by_sku:
                 frappe.throw(f"Unknown item: {code}")
             code = by_sku
+        if rate <= 0:
+            # Blank means "the price we already know", not "free".
+            rate = _price_of(doc, code)
         doc.append("exchange_items", {"item_code": code, "qty": qty, "rate": rate})
+        if rate <= 0:
+            unpriced.append(code)
     for field, val in (("exchange_city", city), ("exchange_sector", sector),
                        ("exchange_address", address), ("customer_phone", phone)):
         if val and str(val).strip():
             doc.set(field, str(val).strip())
     if doc.meta.has_field("custom_reason"):
         doc.set("custom_reason", reason)
-    _apply_pickup_fee(doc, reason)
+    # A swap the CUSTOMER pays for is the one case where a missing price
+    # becomes a number we quote them. On our own mistakes the offset row
+    # closes the gap whatever the rate is, so an unpriced row is harmless
+    # there; here it would show the wrong difference and be collected.
+    if unpriced and (_cs_settings().get("reasonFee") or {}).get(reason):
+        frappe.throw(
+            "No price on file for " + ", ".join(sorted(set(unpriced))[:5])
+            + " — type the rate, because this reason makes the customer pay "
+              "the difference and it would be quoted wrong.")
+    _apply_money(doc, reason)
     doc.flags.ignore_permissions = True
     doc.save(ignore_permissions=True)
     frappe.db.commit()
