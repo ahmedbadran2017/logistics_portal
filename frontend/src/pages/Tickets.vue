@@ -79,8 +79,21 @@
           <div class="min-w-0 flex-1 cursor-pointer" @click="openThread(r)">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="text-[13.5px] font-bold text-stone-900">{{ r.customer || r.phone }}</span>
-              <span v-if="r.customer" class="font-mono text-[11px] text-stone-400">{{ r.phone }}</span>
-              <span v-if="r.order" class="font-mono text-[11px] text-violet-600">{{ r.order }}</span>
+              <!-- Both of these leave the conversation for the place the
+                   agent has to act. The PHONE is the one that always works:
+                   of 694 requests every single one carries a phone and only
+                   22% carry an order number, so the customer — not the order
+                   — is the door. @click.stop so opening a link does not also
+                   open the thread underneath. -->
+              <RouterLink v-if="r.customer && r.phone"
+                          :to="{ name: 'CsLookup', query: { q: r.phone } }" @click.stop
+                          class="font-mono text-[11px] text-stone-400 hover:text-[var(--accent-700)] hover:underline"
+                          :title="t('cs.openCustomer')" dir="ltr">{{ r.phone }}</RouterLink>
+              <RouterLink v-if="r.order"
+                          :to="{ name: 'OrderDetail', params: { name: String(r.order).replace('#','') } }"
+                          @click.stop
+                          class="font-mono text-[11px] text-violet-600 hover:underline"
+                          :title="t('cs.openOrder')" dir="ltr">{{ r.order }}</RouterLink>
               <span v-if="r.msgCount > 1" class="text-[10px] font-bold text-violet-700 bg-violet-50 ring-1 ring-violet-200 rounded-full px-2 py-0.5 tabular-nums">×{{ r.msgCount }}</span>
               <span v-if="r.images" class="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 rounded-full px-2 py-0.5 tabular-nums">
                 <Icon name="image" :size="10" />{{ r.images }}
@@ -152,8 +165,13 @@
             </div>
             <div class="flex items-center gap-2.5 text-[11.5px] text-stone-500 tabular-nums mt-1 flex-wrap">
               <span class="font-mono text-[10.5px] text-stone-400">{{ r.id }}</span>
-              <span v-if="r.order" class="font-mono text-violet-600">{{ r.order }}</span>
-              <span v-if="r.phone" class="font-mono">{{ r.phone }}</span>
+              <RouterLink v-if="r.order"
+                          :to="{ name: 'OrderDetail', params: { name: String(r.order).replace('#','') } }"
+                          @click.stop class="font-mono text-violet-600 hover:underline"
+                          :title="t('cs.openOrder')" dir="ltr">{{ r.order }}</RouterLink>
+              <RouterLink v-if="r.phone" :to="{ name: 'CsLookup', query: { q: r.phone } }"
+                          @click.stop class="font-mono hover:text-[var(--accent-700)] hover:underline"
+                          :title="t('cs.openCustomer')" dir="ltr">{{ r.phone }}</RouterLink>
               <span class="inline-flex items-center gap-1"><Icon name="clock" :size="11" />{{ ageLabel(r.ageH) }}</span>
               <span v-if="r.agent" :class="r.mine ? 'text-violet-600 font-semibold' : 'text-stone-400'">{{ r.agent }}</span>
             </div>
@@ -229,6 +247,7 @@
 
 <script setup>
 import { computed, defineComponent, h, onMounted, ref, onUnmounted } from "vue";
+import { RouterLink } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { local } from "@/lib/clock";
 import { api, apiPost } from "@/lib/resource";

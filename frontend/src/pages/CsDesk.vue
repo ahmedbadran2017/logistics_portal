@@ -89,7 +89,12 @@
               </div>
               <div class="flex items-center gap-2.5 mt-1 text-[11.5px] text-stone-500 flex-wrap">
                 <span v-if="r.city">{{ r.city }}</span>
-                <span v-if="r.phone" class="font-mono" dir="ltr">{{ r.phone }}</span>
+                <!-- The phone is on every request; the order number on 22%.
+                     So this is the door to the customer's orders, and from
+                     there to the order screen where the actions are. -->
+                <RouterLink v-if="r.phone" :to="{ name: 'CsLookup', query: { q: r.phone } }"
+                            class="font-mono hover:text-[var(--accent-700)] hover:underline"
+                            :title="t('cs.openCustomer')" dir="ltr">{{ r.phone }}</RouterLink>
                 <span class="tabular-nums" :class="r.waitD >= 30 ? 'text-rose-600 font-semibold' : ''" dir="ltr">
                   {{ t('cs.waitedD').replace('{n}', r.waitD) }}</span>
                 <span v-if="r.amount && r.weOwe" class="font-semibold text-amber-700 tabular-nums" dir="ltr">

@@ -2634,6 +2634,8 @@ export default {
     emptyHint: "مفيش تذاكر في الطابور ده.",
     toTicket: "افتح تذكرة",
     thread: "المحادثة",
+    openCustomer: "افتح أوردرات العميل ده",
+    openOrder: "افتح الأوردر",
     photoMsg: "[صورة]",
     dismiss: "تجاهل — مش محتاجة تذكرة",
     dismissed: "اتجاهلنا المحادثة",

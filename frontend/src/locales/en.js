@@ -2642,6 +2642,8 @@ export default {
     emptyHint: "No tickets in this queue.",
     toTicket: "Open ticket",
     thread: "Conversation",
+    openCustomer: "Open this customer's orders",
+    openOrder: "Open the order",
     photoMsg: "[Photo]",
     dismiss: "Dismiss — no ticket needed",
     dismissed: "Conversation dismissed",

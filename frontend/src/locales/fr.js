@@ -2635,6 +2635,8 @@ export default {
     emptyHint: "Aucun ticket dans cette file.",
     toTicket: "Ouvrir un ticket",
     thread: "Conversation",
+    openCustomer: "Ouvrir les commandes de ce client",
+    openOrder: "Ouvrir la commande",
     photoMsg: "[Photo]",
     dismiss: "Ignorer — pas de ticket nécessaire",
     dismissed: "Conversation ignorée",
