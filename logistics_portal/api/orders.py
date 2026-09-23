@@ -2218,6 +2218,33 @@ def _uncoverable(order, rows):
     """
     if not rows:
         return []
+    # Take the pairs whatever shape they arrive in.
+    #
+    # The contract says [(item_code, qty)] and the one caller obeys it, but a
+    # row of dicts unpacks into its KEY NAMES here — `float('qty')` — and a
+    # dict that survives as far as availability() reaches the SQL layer as a
+    # bind parameter and dies there with "dict can not be used as parameter",
+    # which is a 500 on the agent's screen with the customer on the line.
+    # Reproduced on production: _available_totals([{...}], "sell") raises,
+    # the same call with plain codes does not. One coercion closes the whole
+    # class rather than trusting every future caller to read the docstring.
+    def _num(v):
+        try:
+            return float(v or 0)
+        except (TypeError, ValueError):
+            return 0.0
+    pairs = []
+    for r in rows:
+        if isinstance(r, dict):
+            pairs.append((str(r.get("item_code") or r.get("code") or "").strip(),
+                          _num(r.get("qty"))))
+        elif isinstance(r, (list, tuple)) and len(r) >= 2:
+            pairs.append((str(r[0] or "").strip(), _num(r[1])))
+        else:
+            pairs.append((str(r or "").strip(), 1.0))
+    pairs = [(c, q) for c, q in pairs if c]
+    if not pairs:
+        return []
     want = {}
     packed = frappe.db.sql(
         """SELECT parent_item, item_code, qty FROM `tabPacked Item`
@@ -2225,7 +2252,7 @@ def _uncoverable(order, rows):
     by_parent = {}
     for p in packed:
         by_parent.setdefault(p.parent_item, []).append((p.item_code, float(p.qty or 0)))
-    for code, qty in rows:
+    for code, qty in pairs:
         if code in by_parent:
             # Packed Item already carries the TOTAL for the parent's own qty,
             # so it is used as-is rather than multiplied again.
@@ -2234,7 +2261,7 @@ def _uncoverable(order, rows):
         else:
             want[code] = want.get(code, 0.0) + float(qty or 0)
     from logistics_portal.api.picking import availability
-    codes = list(want)
+    codes = [str(c) for c in want]
     _t, _r, free_sell = availability(codes, scope="sell")
     _t2, _r2, free_pick = availability(codes)
     out = []

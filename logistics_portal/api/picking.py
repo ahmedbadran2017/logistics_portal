@@ -2208,6 +2208,14 @@ def _batch_truth(item_codes):
 def _available_totals(item_codes, scope="pick"):
     """item_code → total FREE qty (actual − reserved − open-draft claims).
 
+    Codes in, codes only. Every code here becomes a bind parameter in three
+    `IN %s` queries, so one dict or doc that slipped into the list does not
+    return a wrong number — it raises "dict can not be used as parameter"
+    from deep inside pymysql, which surfaces as a 500 with no clue in it.
+    Reproduced on production. This is the single availability contract the
+    whole portal reads, so the coercion belongs here rather than in each
+    caller.
+
     `scope` is WHICH QUESTION is being asked, not a second definition of the
     answer — every subtraction below is identical for both:
 
@@ -2221,6 +2229,11 @@ def _available_totals(item_codes, scope="pick"):
               its veto exists to keep pickers out of them, which says
               nothing about whether the goods are ours to promise.
     """
+    if not item_codes:
+        return {}
+    item_codes = [str(c.get("item_code") or c.get("code") or "") if isinstance(c, dict)
+                  else str(c) for c in item_codes]
+    item_codes = [c for c in item_codes if c]
     if not item_codes:
         return {}
     from logistics_portal.api.warehouses import (pickable_condition,
