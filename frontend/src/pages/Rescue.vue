@@ -380,6 +380,8 @@
           <div v-if="editFor === r.id" class="bg-amber-50/70 rounded-xl p-2.5 mt-3 space-y-2">
             <div class="text-[11px] font-semibold text-amber-700">{{ t('cf.editContact') }}</div>
             <div class="flex items-center gap-2 flex-wrap">
+              <input v-model="editName" :placeholder="t('cf.namePh')" dir="auto" maxlength="140"
+                     class="h-9 w-[160px] ps-3 pe-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] focus:outline-none" />
               <input v-model="editPhone" :placeholder="t('cf.phonePh')" inputmode="tel"
                      class="h-9 w-[150px] ps-3 pe-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] font-mono focus:outline-none" />
               <input v-model="editCity" :placeholder="t('cf.cityPh')"
@@ -388,6 +390,14 @@
                      class="h-9 flex-1 min-w-[160px] ps-3 pe-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] focus:outline-none" dir="auto" />
               <button class="h-9 px-3.5 rounded-lg text-[12px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
                       :disabled="savingContact" @click="saveContact(r)">{{ t('cf.saveContact') }}</button>
+            </div>
+            <!-- Every parcel on this lane is already with the carrier — that
+                 is what put it here. So the warning is not conditional the
+                 way it is in confirmation: the label ALWAYS carries the old
+                 details by the time a rescue agent is looking at the row. -->
+            <div class="flex items-start gap-1.5 text-[11px] text-amber-800/90 leading-snug">
+              <Icon name="alert-triangle" :size="12" class="mt-[2px] shrink-0" />
+              <span>{{ t('cf.contactLate') }}</span>
             </div>
           </div>
         </Transition>
@@ -731,6 +741,7 @@ async function parkWithCarrier(r, days) {
 }
 
 const editFor = ref("");
+const editName = ref("");
 const editPhone = ref("");
 const editCity = ref("");
 const editAddress = ref("");
@@ -754,6 +765,7 @@ function openEdit(r) {
   if (editFor.value === r.id) { editFor.value = ""; return; }
   editFor.value = r.id;
   detailFor.value = "";
+  editName.value = r.customer || "";
   editPhone.value = r.phone || "";
   editCity.value = r.city || "";
   editAddress.value = "";
@@ -763,10 +775,13 @@ async function saveContact(r) {
   savingContact.value = true;
   try {
     await apiPost("confirmation.update_contact", {
-      order: r.order, phone: editPhone.value.trim() || undefined,
+      order: r.order,
+      name: editName.value.trim() || undefined,
+      phone: editPhone.value.trim() || undefined,
       city: editCity.value.trim() || undefined,
       address_line: editAddress.value.trim() || undefined,
     });
+    r.customer = editName.value.trim() || r.customer;
     r.phone = editPhone.value.trim() || r.phone;
     r.city = editCity.value.trim() || r.city;
     editFor.value = "";

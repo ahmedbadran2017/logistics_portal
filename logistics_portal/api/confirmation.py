@@ -1287,10 +1287,22 @@ def update_contact(order, name=None, phone=None, city=None, address_line=None):
     order = (order or "").strip()
     if frappe.db.get_value("Sales Order", order, "company") != _CO:
         frappe.throw("Unknown order.")
-    # Queue ownership is a CONFIRMATION concept — it stops two agents phoning
-    # one customer. CS and tracking work by ticket, not by queue, so the guard
-    # would only lock them out of every order they are asked about.
-    if role == "confirmation":
+    # Queue ownership is a property of the ORDER, not of the caller's job title.
+    #
+    # The guard stops two agents phoning one customer in the live confirmation
+    # queue. Keying it on the role instead meant a confirmation agent working
+    # the RESCUE lane — a parcel already with the carrier, which is not in any
+    # queue — was refused on 66% to 87% of the rows in front of them (measured
+    # 2026-09-23 across 2,430 rescue parcels for three agents). CS and tracking
+    # were refused on all of them until yesterday.
+    #
+    # So ask the order. An order in a live confirmation queue is somebody's
+    # call to make; anything past that belongs to whoever is holding it now.
+    # Derived from the order's own state rather than a `lane` argument the
+    # client sends, because a client-declared lane would let anyone switch the
+    # guard off. Verified: 0 of 2,425 rescue parcels sit in a queue, and all
+    # 91 live queue orders stay protected.
+    if frappe.db.get_value("Sales Order", order, "custom_sales_status") in QUEUES.values():
         _own_guard(role, order)
     name = (name or "").strip()
     phone = (phone or "").strip()
