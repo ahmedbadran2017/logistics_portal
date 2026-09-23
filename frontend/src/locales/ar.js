@@ -1331,6 +1331,7 @@ export default {
     title: "قوائم التجهيز", subtitle: "{n} قائمة · آخر {d} أيام",
     searchPh: "بحث: قائمة · طلب · مجهِّز…", fromBoard: "إنشاء من لوحة الطلبات",
     fAll: "الكل", fDraft: "مسودة", fOpen: "جُهّزت · للشحن", fShipped: "شُحنت", fPartial: "جزئية", fCancelled: "ملغاة",
+    kUrgent: "مستعجل",
     kReady: "اتجمّع ومتبعتش",
     fReady: "اتجمّع ومتبعتش",
     kDraft: "مسودة", kOpen: "جُهّزت · بانتظار الشحن", kShipped: "شُحنت", kCancelled: "ملغاة",

@@ -48,6 +48,7 @@
                   class="w-full text-start rounded-xl ring-1 p-3 transition-all"
                   :class="selected.has(o.no)
                     ? 'ring-[var(--accent-400)] bg-[var(--accent-50)]/50 shadow-[0_2px_12px_-4px_var(--accent-200)]'
+                    : o.urgent ? 'ring-2 ring-rose-400 bg-rose-50/40'
                     : 'ring-stone-200/70 bg-white hover:ring-stone-300'">
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2 min-w-0">
@@ -56,6 +57,11 @@
                   <Icon v-if="selected.has(o.no)" name="check" :size="11" />
                 </span>
                 <span class="font-mono text-[12px] font-semibold text-stone-900 truncate">{{ o.no }}</span>
+                <!-- The server sorts these to the top; the chip says why. -->
+                <span v-if="o.urgent"
+                      class="inline-flex items-center gap-1 px-1.5 h-[18px] rounded text-[10px] font-bold text-white bg-rose-600 flex-shrink-0">
+                  <Icon name="zap" :size="9" />{{ t("queue.urgent") }}
+                </span>
               </div>
               <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium ring-1"
                     :class="stockChip(o).cls">

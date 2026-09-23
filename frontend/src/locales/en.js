@@ -1332,6 +1332,7 @@ export default {
     title: "Pick lists", subtitle: "{n} pick lists · last {d} days",
     searchPh: "Search PL, order, picker…", fromBoard: "Create from Orders board",
     fAll: "All", fDraft: "Draft", fOpen: "Picked · to ship", fShipped: "Shipped", fPartial: "Partial", fCancelled: "Cancelled",
+    kUrgent: "Urgent",
     kReady: "Picked, not sent",
     fReady: "Picked, not sent",
     kDraft: "Draft", kOpen: "Picked · awaiting shipment", kShipped: "Shipped", kCancelled: "Cancelled",

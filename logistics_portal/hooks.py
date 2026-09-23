@@ -171,6 +171,12 @@ scheduler_events = {
             # Post-delivery feedback: read the replies to the question we
             # asked, thank or ticket, expire the silent ones.
             "logistics_portal.api.feedback.run_replies",
+            # An urgent badge on a parcel that already left teaches the floor
+            # to ignore the next one. The on_update hook that was supposed to
+            # remove it almost never fires — the logistics status is written
+            # with db_set and raw UPDATEs, and by the carrier integration,
+            # none of which run document hooks.
+            "logistics_portal.api.orders.drop_stale_urgent",
         ],
         # Carrier status pull: the Cathedis resync the team used to run by
         # hand, hourly at :20, so 'Pending' means the carrier said so.

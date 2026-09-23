@@ -1501,6 +1501,18 @@ _PICKER_ID = {
 }
 
 
+def _urgent_col():
+    """`so.custom_urgent_at`, or a literal NULL before the field is migrated.
+    Mirrors picking._urgent_col; duplicated rather than imported because
+    picking imports this module."""
+    try:
+        if frappe.get_meta("Sales Order").has_field("custom_urgent_at"):
+            return "so.custom_urgent_at"
+    except Exception:
+        pass
+    return "NULL"
+
+
 @frappe.whitelist()
 def list(scope="floor", picker=None, limit=60):  # noqa: A001 — public RPC name.
     # WARNING: this shadows the builtin `list` for the WHOLE module. Never call
@@ -1526,7 +1538,7 @@ def list(scope="floor", picker=None, limit=60):  # noqa: A001 — public RPC nam
         rows = frappe.db.sql(
             f"""SELECT so.name, so.customer_name, so.grand_total, so.custom_channel,
                        so.custom_logistics_status, so.custom_items_count,
-                       so.custom_awb, so.creation,
+                       so.custom_awb, so.creation, {_urgent_col()} AS urgent_at,
                        pl.picker AS pl_picker, pl.bin AS pl_bin
                 FROM `tabSales Order` so
                 LEFT JOIN (SELECT pli.sales_order,
@@ -1541,7 +1553,7 @@ def list(scope="floor", picker=None, limit=60):  # noqa: A001 — public RPC nam
                   AND so.custom_logistics_status IN ({ph})
                   AND so.creation >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
                   {picker_cond}
-                ORDER BY so.modified DESC LIMIT %s""",
+                ORDER BY {_urgent_col()} IS NULL, so.modified DESC LIMIT %s""",
             tuple(args), as_dict=True)
         out = []
         for r in rows:
@@ -1559,6 +1571,7 @@ def list(scope="floor", picker=None, limit=60):  # noqa: A001 — public RPC nam
                 "picker": pl.get("picker_id"),
                 "mins": _age_mins(r.creation),
                 "awb": r.custom_awb,
+                "urgent": bool(r.get("urgent_at")),
             })
         return out
     except Exception:
@@ -2498,8 +2511,50 @@ def drop_urgent_on_ship(doc, method=None):
             return
         doc.db_set("custom_urgent_at", None, update_modified=False)
         doc.db_set("custom_urgent_by", "", update_modified=False)
+        doc.db_set("custom_urgent_reason", "", update_modified=False)
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "orders.drop_urgent_on_ship")
+
+
+def drop_stale_urgent():
+    """Clear urgent flags on parcels that already moved on. Scheduled, because
+    the hook above cannot do it.
+
+    `drop_urgent_on_ship` is wired to Sales Order `on_update`, which only fires
+    on a real `doc.save()` — the Desk path. Almost nothing else takes it: the
+    logistics status is written with `db_set` and with raw UPDATE statements in
+    this app's own picking code, and by the carrier integration outside it,
+    none of which run document hooks. The result was measured on 2026-09-23:
+    two of the nine live flags were sitting on parcels that had already left,
+    one of them shipped. That is precisely the noise the flag was built to
+    avoid — a badge on a parcel the warehouse cannot hurry teaches the floor
+    to ignore the next one.
+
+    Direct SQL on purpose: this must not re-enter the hook it exists to
+    replace, and the flag column is indexed (lp_so_urgent_idx)."""
+    try:
+        if not _urgent_ready():
+            return 0
+        stale = """custom_urgent_at IS NOT NULL
+               AND (COALESCE(custom_logistics_status, '') NOT IN ('', 'Pending')
+                    OR COALESCE(custom_sales_status, '') = 'Cancelled'
+                    OR docstatus = 2)"""
+        cleared = frappe.db.sql(
+            f"SELECT COUNT(*) FROM `tabSales Order` WHERE {stale}")[0][0]
+        if not cleared:
+            return 0
+        frappe.db.sql(f"""
+            UPDATE `tabSales Order`
+               SET custom_urgent_at = NULL,
+                   custom_urgent_by = '',
+                   custom_urgent_reason = ''
+             WHERE {stale}""")
+        frappe.db.commit()
+        frappe.cache().delete_keys("lp_suggest")
+        return int(cleared or 0)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "orders.drop_stale_urgent")
+        return 0
 
 
 def drop_callback_when_done(doc, method=None):

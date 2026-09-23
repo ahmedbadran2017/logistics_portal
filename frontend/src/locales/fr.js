@@ -1331,6 +1331,7 @@ export default {
     title: "Pick lists", subtitle: "{n} pick lists · {d} derniers jours",
     searchPh: "Rechercher PL, commande, préparateur…", fromBoard: "Créer depuis le tableau Commandes",
     fAll: "Tout", fDraft: "Brouillon", fOpen: "Préparée · à expédier", fShipped: "Expédiée", fPartial: "Partielle", fCancelled: "Annulée",
+    kUrgent: "Urgent",
     kReady: "Prélevé, non envoyé",
     fReady: "Prélevé, non envoyé",
     kDraft: "Brouillon", kOpen: "Préparée · attend l’expédition", kShipped: "Expédiée", kCancelled: "Annulée",

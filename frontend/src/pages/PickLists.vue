@@ -471,7 +471,8 @@
           </thead>
           <tbody class="divide-y divide-stone-100">
             <tr v-for="p in shown" :key="p.no" class="transition-colors cursor-pointer hover:bg-stone-50"
-                :class="selected.has(p.no) ? 'bg-[var(--accent-50)]/40' : ''" @click="openDetail(p)">
+                :class="selected.has(p.no) ? 'bg-[var(--accent-50)]/40'
+                        : p.urgent ? 'bg-rose-50/50' : ''" @click="openDetail(p)">
               <td v-if="isLiveData" class="px-3 py-2.5" @click.stop>
                 <!-- 'ready' is deliberately not selectable here: the bulk
                      action deletes drafts, and a finished list is picked
@@ -479,7 +480,7 @@
                 <input v-if="p.status === 'draft'" type="checkbox" class="blk-cb"
                        :checked="selected.has(p.no)" @change="toggleSel(p.no)" />
               </td>
-              <td class="px-4 py-2.5 font-mono text-[12px] font-semibold text-stone-900 whitespace-nowrap">{{ p.no }}<svg v-if="p.errors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" class="text-rose-500 inline ms-1.5 -mt-0.5"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg></td>
+              <td class="px-4 py-2.5 font-mono text-[12px] font-semibold text-stone-900 whitespace-nowrap">{{ p.no }}<svg v-if="p.errors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" class="text-rose-500 inline ms-1.5 -mt-0.5"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg><span v-if="p.urgent" class="inline-flex items-center px-1.5 h-[17px] rounded ms-1.5 text-[9.5px] font-bold text-white bg-rose-600 align-middle">{{ t("queue.urgent") }}<template v-if="p.urgent > 1"> {{ p.urgent }}</template></span></td>
               <td class="px-4 py-2.5"><div class="flex items-center gap-1.5"><span class="w-5 h-5 rounded-full bg-stone-200 text-stone-600 flex items-center justify-center text-[9px] font-bold">{{ pickerInitials(p.picker) }}</span><span class="text-[12px] text-stone-700">{{ pickerName(p.picker) }}</span></div></td>
               <td class="px-4 py-2.5 text-[12px] text-stone-600">
                 <div class="flex items-center gap-1.5">
@@ -648,6 +649,7 @@ const dataMode = ref("loading");   // loading | live | error
 const loadError = ref("");
 const counts = ref({});
 const total = ref(0);
+const urgentTotal = ref(0);
 const page = ref(1);
 const pageSize = 30;
 const daysF = ref(7);
@@ -725,6 +727,7 @@ async function load(keepPage = false) {
     rows.value = live.rows.map((p) => ({ ...p }));
     counts.value = live.counts || {};
     total.value = live.total || 0;
+    urgentTotal.value = live.urgentTotal || 0;
     if (!ap.value.runs.length && !ap.value.enabled) apRefresh();
   } catch (e) {
     dataMode.value = "error";
@@ -779,6 +782,12 @@ const toggles = reactive([
 
 const withErrors = computed(() => rows.value.filter((p) => p.errors).length);
 const kpis = computed(() => [
+  // Only when there is one: a tile permanently reading zero is furniture.
+  // Counted over the whole window, not the page, so it does not lie when
+  // the urgent list has been paged past.
+  ...(urgentTotal.value
+    ? [{ label: t("pl.kUrgent"), value: urgentTotal.value, icon: alertIcon(13) }]
+    : []),
   // First, and it earns the place: a finished list nobody sent is picked
   // goods in a tote with the stock held and the customer waiting on one
   // click. It used to be counted as a plain draft next to the lists a

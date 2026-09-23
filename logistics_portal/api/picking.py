@@ -610,10 +610,14 @@ def pick_lists(status="", q="", days=7, limit=30, offset=0):
                        (SELECT COUNT(DISTINCT pli.item_code) FROM `tabPick List Item` pli
                         WHERE pli.parent = pl.name) AS skus,
                        (SELECT MAX(pli.sales_order) FROM `tabPick List Item` pli
-                        WHERE pli.parent = pl.name) AS so_one
+                        WHERE pli.parent = pl.name) AS so_one,
+                       (SELECT COUNT(DISTINCT pli.sales_order) FROM `tabPick List Item` pli
+                        JOIN `tabSales Order` so ON so.name = pli.sales_order
+                        WHERE pli.parent = pl.name
+                          AND {_urgent_col()} IS NOT NULL) AS urgent
                 FROM `tabPick List` pl
                 WHERE {where}
-                ORDER BY pl.creation DESC
+                ORDER BY urgent DESC, pl.creation DESC
                 LIMIT %(limit)s OFFSET %(offset)s""",
             vals, as_dict=True)
 
@@ -636,9 +640,21 @@ def pick_lists(status="", q="", days=7, limit=30, offset=0):
                 "customer": "",
                 "status": r.status,
                 "pct": int(r.pct or 0),
+                "urgent": int(r.urgent or 0),
                 "created": str(r.creation)[:16],
             })
+        # Urgent lists lead the board. The window is paginated, so a badge
+        # alone was not enough — a priority on page three is not a priority.
+        # The sort is total and stable, so paging stays coherent.
+        urgent_total = frappe.db.sql(
+            f"""SELECT COUNT(*) FROM `tabPick List` pl
+                 WHERE {where} AND EXISTS (
+                     SELECT 1 FROM `tabPick List Item` pli
+                     JOIN `tabSales Order` so ON so.name = pli.sales_order
+                     WHERE pli.parent = pl.name
+                       AND {_urgent_col()} IS NOT NULL)""", vals)[0][0]
         return {"rows": out, "counts": counts, "total": int(total or 0), "days": days,
+                "urgentTotal": int(urgent_total or 0),
                 "serverNow": str(frappe.utils.now_datetime())[:19]}
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.pick_lists")
