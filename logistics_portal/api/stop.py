@@ -232,6 +232,10 @@ def preview(order):
             DT, {"so": order, "state": _OPEN}, "name") or ""
     return {"order": order, "stage": stage, "mode": mode,
             "already": existing,
+            # The vocabulary rides along so the dialog needs one call, not two.
+            # It is the SAME list confirmation.act validates against, which is
+            # why a stop and a plain cancel group together in every report.
+            "reasons": _reasons(),
             "status": frappe.db.get_value("Sales Order", order,
                                           "custom_sales_status") or ""}
 

@@ -986,9 +986,32 @@ def act(order, action, note=None, _bulk=False):
     reason; dna/followup/onhold re-queue with a retry time and bump the
     attempt counter. `_bulk` marks the comment "(bulk)" so bonus scoring can
     exclude batch work, as the scheme promises."""
-    role = _gate()
+    # A CANCEL is not queue work, and its gate says so.
+    #
+    # "The customer does not want it" is something any lane can hear — CS on a
+    # complaint, tracking on a delivery call — and stop.request_stop, the half
+    # of this that handles a parcel already moving, has admitted all four
+    # roles since it was built. The half that handles an order still sitting
+    # here did not, so an agent who heard the customer could act only if the
+    # goods had already left. 25 people could cancel, 5 could not.
+    #
+    # Everything else act() does — confirm, dna, followup, onhold, reopen — is
+    # working the confirmation queue and keeps the workspace gate.
+    action = (action or "").strip()
+    if action == "cancel":
+        from logistics_portal.api.auth import resolve_role
+        from logistics_portal.api.orders import _URGENT_ROLES
+        role = resolve_role(frappe.session.user)
+        if role not in _URGENT_ROLES:
+            frappe.throw("Not authorized to cancel an order.",
+                         frappe.PermissionError)
+    else:
+        role = _gate()
     order = (order or "").strip()
-    _own_guard(role, order)
+    # Queue ownership is a confirmation-queue idea; a cancel heard by CS is not
+    # a colleague's call being stolen. Same rule as update_contact.
+    if action != "cancel" or role == "confirmation":
+        _own_guard(role, order)
     if action not in _ACTIONS:
         frappe.throw("Unknown action.")
     if not frappe.db.exists("Sales Order", order):
@@ -1013,7 +1036,17 @@ def act(order, action, note=None, _bulk=False):
         # who opens it and reaches the customer decides on the spot — the
         # reopen-then-decide detour was two clicks for one truth (Ahmed,
         # 2026-09-16). Same fences as reopen: nothing the warehouse holds.
-        direct = so.custom_sales_status == "Duplicated" and action in ("confirm", "dna", "followup", "cancel")
+        # A CONFIRMED order the warehouse has not touched can be cancelled on
+        # the spot, like a Duplicated one. Requiring reopen-then-cancel was
+        # two clicks for one truth — the same argument Ahmed settled for
+        # Duplicated on 2026-09-16 — and the fences below are what actually
+        # protect the parcel: no warehouse stage, no pick list. Measured
+        # 2026-09-23: 73 orders sit in exactly this state, 24,139 MAD, the
+        # oldest 9 days, none of them carrying an AWB. Anything further along
+        # never reaches here; the cancel branch hands it to api.stop.
+        direct = (so.custom_sales_status == "Duplicated"
+                  and action in ("confirm", "dna", "followup", "cancel")) \
+            or (so.custom_sales_status == "Confirmed" and action == "cancel")
         if action != "reopen" and not direct:
             frappe.throw(f"Order is already {so.custom_sales_status}. Reopen it "
                          "first if the decision was wrong.")

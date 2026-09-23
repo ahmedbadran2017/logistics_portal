@@ -36,9 +36,21 @@ _TAB_STATUSES = {
 
 
 def _gate():
+    """Exchanges belong to the lane that handles them.
+
+    The page sits in the CS lane's own sidebar — Tickets, Exchanges, Waiting
+    on stock — and its gate admitted confirmation and manager only, so the
+    three CS agents were refused by a tab that was listed for them. An
+    exchange IS the customer-service conversation: a broken piece, a wrong
+    size, a change of mind.
+
+    Same role set as the urgent flag and the contact editor, reused rather
+    than re-declared so the four cannot drift apart.
+    """
     from logistics_portal.api.auth import resolve_role
+    from logistics_portal.api.orders import _URGENT_ROLES
     role = resolve_role(frappe.session.user)
-    if role not in ("confirmation", "manager"):
+    if role not in _URGENT_ROLES:
         frappe.throw("Not authorized for the exchanges workspace.",
                      frappe.PermissionError)
     return role

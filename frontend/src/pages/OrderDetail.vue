@@ -76,8 +76,46 @@
                       @click="sending = !sending">
                 <Icon name="package-check" :size="12" />{{ t(sending ? "common.close" : "snd.open") }}
               </button>
+              <!-- The customer does not want it. Never a refusal: what the
+                   parcel's position changes is what we can DO, and the server
+                   decides that from where the goods actually are. -->
+              <button v-if="canSeeCustomer && isLive"
+                      class="text-[11.5px] font-semibold inline-flex items-center gap-1"
+                      :class="cancelling ? 'text-stone-400' : 'text-rose-600 hover:text-rose-800'"
+                      @click="openCancel">
+                <Icon name="package-x" :size="12" />{{ t(cancelling ? "common.close" : "cnx.open") }}
+              </button>
             </div>
             <div class="text-[11.5px] text-stone-400 mt-0.5">{{ items.length }} {{ t(items.length === 1 ? "od.item" : "od.items", "items") }}</div>
+
+            <!-- What can still be done about it, named before anything is
+                 pressed — so the button never promises a recall we cannot
+                 make, nor refuses a cancel we can. -->
+            <div v-if="cancelling" class="mt-2.5 rounded-xl bg-rose-50 ring-1 ring-rose-300 p-2.5 space-y-2">
+              <div v-if="cxPrev" class="flex items-start gap-1.5 text-[12px] text-rose-900 leading-snug">
+                <Icon name="alert-triangle" :size="13" class="mt-[2px] shrink-0" />
+                <!-- Keyed on the STAGE, not the mode: `back` and `delivered`
+                     share mode "too_late" but are opposite facts — one parcel
+                     is on its way home, the other is in the customer's hands,
+                     and one sentence for both would be wrong for one of them. -->
+                <span>{{ t("cnx.at_" + cxPrev.stage) }}</span>
+              </div>
+              <div v-if="cxPrev && cxPrev.already" class="text-[11px] font-semibold text-amber-700">
+                {{ t("cnx.already") }}
+              </div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <select v-model="cxReason"
+                        class="h-8 px-2 rounded-lg bg-white ring-1 ring-rose-200 text-[12px] focus:outline-none">
+                  <option value="">{{ t("cnx.why") }}</option>
+                  <option v-for="r in (cxPrev?.reasons || [])" :key="r" :value="r">{{ r }}</option>
+                </select>
+                <input v-model="cxNote" :placeholder="t('cnx.notePh')" maxlength="200" dir="auto"
+                       class="h-8 flex-1 min-w-[120px] px-2.5 rounded-lg bg-white ring-1 ring-rose-200 text-[12px] focus:outline-none" />
+                <button class="h-8 px-3.5 rounded-lg text-[12px] font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40"
+                        :disabled="!cxReason || cxBusy || cxPrev?.mode === 'too_late'"
+                        @click="doCancel">{{ cxBusy ? "…" : t("cnx." + (cxPrev?.mode === 'cancel_now' ? 'do' : 'ask')) }}</button>
+              </div>
+            </div>
 
             <!-- Pick the pieces, say why, send. The reason is required because
                  it is the one thing nobody can reconstruct afterwards — 94 of
@@ -653,6 +691,52 @@ const stockOf = (it) => (it.avail === null || it.avail === undefined
   ? null : Math.max(0, Number(it.avail)));
 const faceOf = (it) => (it.availFace === null || it.availFace === undefined
   ? null : Math.max(0, Number(it.availFace)));
+
+// Cancelling. One preview call names the stage, the mode and the reason list,
+// so the dialog is built from what the server already decided rather than
+// from a guess the page makes about where the parcel is.
+const cancelling = ref(false);
+const cxPrev = ref(null);
+const cxReason = ref("");
+const cxNote = ref("");
+const cxBusy = ref(false);
+async function openCancel() {
+  if (cancelling.value) { cancelling.value = false; return; }
+  cancelling.value = true;
+  cxPrev.value = null;
+  cxReason.value = "";
+  cxNote.value = "";
+  try {
+    cxPrev.value = await api("stop.preview", { order: liveOrder.value?.name || order.value.no });
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+    cancelling.value = false;
+  }
+}
+async function doCancel() {
+  cxBusy.value = true;
+  const name = liveOrder.value?.name || order.value.no;
+  try {
+    if (cxPrev.value?.mode === "cancel_now") {
+      await apiPost("confirmation.act", { order: name, action: "cancel", note: cxReason.value });
+      success(t("cnx.done"), name);
+    } else {
+      // Already moving: the request is recorded whatever the stage, which is
+      // the whole point — a fact the system refuses is a fact it loses.
+      await apiPost("stop.request_stop", { order: name, reason: cxReason.value, note: cxNote.value });
+      success(t("cnx.asked"), name);
+    }
+    cancelling.value = false;
+    // Re-read the order so the status chip and the parcel clock reflect what
+    // just happened, rather than the page claiming a stale state.
+    const fresh = await liveOr(null, () => api("orders.detail", { name: props.name }));
+    if (fresh && fresh.name) liveOrder.value = fresh;
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    cxBusy.value = false;
+  }
+}
 
 // ONLY the reasons where nothing comes back.
 //
