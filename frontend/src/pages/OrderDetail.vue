@@ -120,6 +120,9 @@
                 </button>
               </div>
               <div class="text-[10.5px] text-violet-700/80">{{ t("snd.hint") }}</div>
+              <!-- Anything that comes back is an exchange, and saying so here
+                   is cheaper than an agent discovering it afterwards. -->
+              <div class="text-[10.5px] text-stone-500">{{ t("snd.notHere") }}</div>
             </div>
           </div>
           <div class="overflow-x-auto"><table class="w-full min-w-[440px]">
@@ -651,7 +654,15 @@ const stockOf = (it) => (it.avail === null || it.avail === undefined
 const faceOf = (it) => (it.availFace === null || it.availFace === undefined
   ? null : Math.max(0, Number(it.availFace)));
 
-const SEND_REASONS = ["Missing piece", "Damaged on arrival", "Wrong item sent", "Goodwill"];
+// ONLY the reasons where nothing comes back.
+//
+// Ahmed's rules, 2026-09-23: a broken piece and a wrong size are "we send the
+// replacement AND take back what they have" — two legs, a Sales Exchange. A
+// missing piece and a goodwill send take nothing back, which is the one shape
+// this panel has. Offering "damaged" here would quietly send a replacement
+// and leave the broken one with the customer, contradicting the rule on the
+// very screen that is supposed to enforce it.
+const SEND_REASONS = ["Missing piece", "Goodwill"];
 const sending = ref(false);
 const sendPick = ref([]);
 const sendReason = ref("");

@@ -2158,7 +2158,6 @@ def _do_merge(names, force=0):
             "items": len(base.items), "cancelled": names}
 
 
-@frappe.whitelist()
 def _uncoverable(order, rows):
     """Which of these lines we cannot actually cover, with the numbers.
 
@@ -2209,6 +2208,7 @@ def _uncoverable(order, rows):
     return out
 
 
+@frappe.whitelist()
 def reship(order, items=None, free=0, reason=None):
     """Re-enter a failed delivery into the shipping cycle. Creates a NEW Sales
     Order copy (same customer/address/items) that flows through pick → sort →

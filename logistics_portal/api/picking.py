@@ -96,7 +96,6 @@ def _resolve_order_name(order):
 # ---------------------------------------------------------------------------
 # Whitelisted API
 # ---------------------------------------------------------------------------
-@frappe.whitelist()
 def _pl_life(names):
     """The pick list's LIFE STORY — picked / sorted / printed / shipped — for
     a batch of lists in two grouped reads. Ahmed 2026-09-11: the list must
