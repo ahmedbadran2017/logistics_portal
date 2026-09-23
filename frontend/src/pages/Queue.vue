@@ -43,18 +43,24 @@
         <div class="text-[12px] text-stone-400 mt-0.5">{{ t("queue.emptyBody") }}</div>
       </div>
 
-      <!-- queue: the picker's draft pick lists, oldest first -->
+      <!-- queue: the picker's draft pick lists. Urgent lists first, then
+           oldest — the server orders it, the ring below only shows why. -->
       <div v-else class="space-y-2.5">
         <button
           v-for="pl in queue"
           :key="pl.pick_list"
           class="w-full text-start bg-white rounded-2xl ring-1 p-3.5 transition-all active:scale-[0.99]"
-          :class="ageMins(pl) > 120 ? 'ring-rose-200' : 'ring-stone-200/70'"
+          :class="pl.urgent ? 'ring-2 ring-rose-400 bg-rose-50/40'
+                  : ageMins(pl) > 120 ? 'ring-rose-200' : 'ring-stone-200/70'"
           @click="openPick(pl)"
         >
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-2 min-w-0">
               <span class="font-mono text-[13px] font-bold text-stone-900 truncate">{{ pl.pick_list }}</span>
+              <span v-if="pl.urgent"
+                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold whitespace-nowrap text-white bg-rose-600">
+                <Icon name="zap" :size="9" />{{ t("queue.urgent") }}<template v-if="pl.urgent > 1"> {{ pl.urgent }}</template>
+              </span>
               <span v-if="pl.orders > 1"
                 class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold ring-1 whitespace-nowrap text-violet-700 bg-violet-50 ring-violet-200/60">
                 {{ pl.orders }} {{ t("ordersPg.blOrders") }}

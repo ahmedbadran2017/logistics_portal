@@ -710,10 +710,15 @@ async function setUrgent(on) {
   urgentBusy.value = true;
   try {
     if (on) {
-      await apiPost("orders.mark_urgent", {
+      const r = await apiPost("orders.mark_urgent", {
         order: canon.value, reason: urgentReason.value.trim() });
       if (order.value) order.value.urgentAt = new Date().toISOString();
-      success(t("od.urgentDone"), props.name);
+      // Say whether anyone actually heard it. Marking an order urgent used
+      // to return a cheerful toast whether or not a single person on the
+      // floor would ever see the flag.
+      const told = Number(r?.told || 0);
+      success(t("od.urgentDone"),
+        told ? t("od.urgentTold").replace("{n}", String(told)) : t("od.urgentNobody"));
     } else {
       await apiPost("orders.clear_urgent", { order: canon.value });
       if (order.value) order.value.urgentAt = "";

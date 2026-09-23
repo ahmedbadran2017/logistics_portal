@@ -388,6 +388,7 @@ export default {
     resumed: "Batch resumed",
   },
   queue: {
+    urgent: "Urgent",
     hi: "Hi,",
     today: "lists today",
     waiting: "waiting",
@@ -456,6 +457,8 @@ export default {
     st_disputed: "disagreement",
   },
   pickm: {
+    urgent: "Urgent",
+    urgentHead: "Priority order on this list",
     printLbl: "Print SKU label",
     pbLaterConfirm: "Press again to confirm",
     pbTitle: "Put these back before the order leaves",
@@ -1154,6 +1157,8 @@ export default {
     urgentOff: "Clear",
     urgentPh: "Why now? (the customer called, it's late…)",
     urgentDone: "Pushed to the front of the pick queue",
+    urgentTold: "{n} on the floor told",
+    urgentNobody: "Flagged — but nobody was on the floor to tell",
     csNone: "No complaint has been raised on this order.",
     csBy: "{who} · from {from}",
     customerHistory: "This customer's history",

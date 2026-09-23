@@ -388,6 +388,7 @@ export default {
     resumed: "تم فتح الدفعة",
   },
   queue: {
+    urgent: "مستعجل",
     hi: "أهلاً،",
     today: "قايمة النهارده",
     waiting: "في الانتظار",
@@ -456,6 +457,8 @@ export default {
     st_disputed: "في اختلاف",
   },
   pickm: {
+    urgent: "مستعجل",
+    urgentHead: "في أوردر مستعجل في القايمة دي",
     printLbl: "اطبع ليبل الـ SKU",
     pbLaterConfirm: "دوس تاني للتأكيد",
     pbTitle: "رجّع دول قبل ما الأوردر يخرج",
@@ -1153,6 +1156,8 @@ export default {
     urgentOff: "شيل العلامة",
     urgentPh: "ليه دلوقتي؟ (العميل كلّم، الأوردر متأخر…)",
     urgentDone: "اتحط في أول طابور التجهيز",
+    urgentTold: "اتبلّغ {n} في المخزن",
+    urgentNobody: "اتعلّم — بس مفيش حد في المخزن يتبلّغ",
     csNone: "مفيش شكوى اتفتحت على الأوردر ده.",
     csBy: "{who} · من {from}",
     customerHistory: "تاريخ العميل ده",

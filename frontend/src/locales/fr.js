@@ -388,6 +388,7 @@ export default {
     resumed: "Lot repris",
   },
   queue: {
+    urgent: "Urgent",
     hi: "Salut,",
     today: "listes aujourd'hui",
     waiting: "en attente",
@@ -456,6 +457,8 @@ export default {
     st_disputed: "désaccord",
   },
   pickm: {
+    urgent: "Urgent",
+    urgentHead: "Commande prioritaire sur cette liste",
     printLbl: "Imprimer l'étiquette SKU",
     pbLaterConfirm: "Appuyez encore pour confirmer",
     pbTitle: "Remettre ceci avant que la commande sorte",
@@ -1153,6 +1156,8 @@ export default {
     urgentOff: "Retirer",
     urgentPh: "Pourquoi maintenant ? (le client a appelé, c'est en retard…)",
     urgentDone: "Placée en tête de la file de prélèvement",
+    urgentTold: "{n} personne(s) prévenue(s) sur le terrain",
+    urgentNobody: "Marquée — mais personne sur le terrain à prévenir",
     csNone: "Aucune réclamation sur cette commande.",
     csBy: "{who} · depuis {from}",
     customerHistory: "Historique de ce client",

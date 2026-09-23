@@ -2309,6 +2309,102 @@ def _urgent_ready():
         return False
 
 
+_URGENT_I18N = {
+    "en": ("Urgent order: {o}", "{who} asked for this one to be pulled forward."),
+    "fr": ("Commande urgente : {o}", "{who} demande de la faire passer en premier."),
+    "ar": ("أوردر مستعجل: {o}", "{who} طالب إنه يتقدّم في الدور."),
+}
+
+
+def _floor_targets():
+    """Who on the floor can actually act on a priority.
+
+    The role table alone cannot answer this. `resolve_role` calls nineteen
+    enabled accounts dispatcher-or-manager, because the System Manager
+    heuristic sweeps in HR, developers and a test login — while the accounts
+    that cut nearly every batch carry no logistics role at all, so a query on
+    the role field reaches none of them. Ring the wrong nineteen once and the
+    bell is dead for everybody (short-pick did exactly that: 3,462 rings in a
+    week, one of them read).
+
+    So the set is MEASURED first — whoever cut a pick list in the last week —
+    and only then widened by the two role sources."""
+    try:
+        from logistics_portal.api.auth import SEED_ROLES
+        users = {u for u, r in SEED_ROLES.items() if r in ("dispatcher", "manager")}
+        users |= {u for (u,) in frappe.db.sql(
+            """SELECT name FROM `tabUser`
+               WHERE enabled = 1 AND custom_logistics_role = 'dispatcher'""")}
+        users |= {u for (u,) in frappe.db.sql(
+            """SELECT DISTINCT owner FROM `tabPick List`
+               WHERE creation >= DATE_SUB(NOW(), INTERVAL 7 DAY)""")}
+        users.discard("Administrator")
+        users.discard("Guest")
+        if not users:
+            return []
+        return [u for (u,) in frappe.db.sql(
+            "SELECT name FROM `tabUser` WHERE enabled = 1 AND name IN %s",
+            (tuple(users),))]
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "orders._floor_targets")
+        return []
+
+
+def _ring_floor(order, reason=""):
+    """Tell the floor a priority just landed, and return how many heard it.
+
+    Until now the flag only re-sorted a pool: it was written, a comment was
+    added, and then it waited for a dispatcher to open the batch builder.
+    Nothing was pushed anywhere — zero Notification Log rows in the feature's
+    whole life — so an agent who marked an order urgent had no way to know
+    whether anyone would ever see it. The count comes back so the toast can
+    say so instead of pretending.
+
+    Dedup is on the URGENT subject, not on the order: an unread short-pick
+    alert on the same parcel is a different message and must not silence
+    this one."""
+    told = 0
+    try:
+        who = (frappe.session.user or "").split("@")[0]
+        i18n = {k: {"t": t.format(o=order),
+                    "b": b.format(who=who) + (f" — {reason.strip()}" if (reason or "").strip() else "")}
+                for k, (t, b) in _URGENT_I18N.items()}
+        import json as _json
+        packed = _json.dumps({"lp": i18n, "sev": "warning", "kind": "urgent"},
+                             ensure_ascii=False).replace("--", "- -")
+        subject = i18n["en"]["t"]
+        quiet = frappe.utils.add_to_date(now_datetime(), hours=-6)
+        for d in _floor_targets():
+            if d == frappe.session.user:
+                continue
+            try:
+                if frappe.db.sql(
+                        """SELECT 1 FROM `tabNotification Log`
+                           WHERE for_user = %s AND subject = %s
+                             AND (`read` = 0 OR creation >= %s) LIMIT 1""",
+                        (d, subject, quiet)):
+                    continue
+                frappe.get_doc({
+                    "doctype": "Notification Log", "type": "Alert",
+                    "subject": subject,
+                    "email_content": i18n["en"]["b"] + "\n<!--lp-i18n " + packed + " -->",
+                    "document_type": "Sales Order", "document_name": order,
+                    "for_user": d,
+                }).insert(ignore_permissions=True)
+                frappe.publish_realtime("logistics_alert", {
+                    "severity": "warning", "title": subject,
+                    "detail": i18n["en"]["b"], "i18n": i18n, "audience": "user",
+                }, user=d)
+                told += 1
+            except Exception:
+                continue
+    except Exception:
+        # Telling them is the point, but failing to tell them must never undo
+        # the flag itself.
+        frappe.log_error(frappe.get_traceback()[:2000], "orders._ring_floor")
+    return told
+
+
 @frappe.whitelist(methods=["POST"])
 def mark_urgent(order, reason=""):
     """Push one order to the front of the next pick batch.
@@ -2359,11 +2455,12 @@ def mark_urgent(order, reason=""):
         "Comment", "Urgent: pushed to the front of the pick queue"
                    + (f" — {reason.strip()}" if (reason or "").strip() else "")
                    + f" · by {frappe.session.user}")
+    told = _ring_floor(order, reason)
     frappe.db.commit()
     for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
         frappe.cache().delete_value(k)
     frappe.cache().delete_keys("lp_suggest")
-    return {"ok": True, "order": order, "at": str(now)[:19]}
+    return {"ok": True, "order": order, "at": str(now)[:19], "told": told}
 
 
 @frappe.whitelist(methods=["POST"])

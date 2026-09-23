@@ -164,12 +164,16 @@ def my_queue(user=None):
                        WHERE pli.parent = pl.name) AS so_one,
                       (SELECT MAX(so.customer_name) FROM `tabPick List Item` pli
                        LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
-                       WHERE pli.parent = pl.name) AS customer
+                       WHERE pli.parent = pl.name) AS customer,
+                      (SELECT COUNT(DISTINCT pli.sales_order) FROM `tabPick List Item` pli
+                       JOIN `tabSales Order` so ON so.name = pli.sales_order
+                       WHERE pli.parent = pl.name
+                         AND {URGENT} IS NOT NULL) AS urgent
                FROM `tabPick List` pl
                WHERE pl.docstatus = 0
                  AND (pl.custom_assigned_picker = %(u)s OR pl.owner = %(u)s)
                ORDER BY pl.creation
-               LIMIT 50""",
+               LIMIT 50""".replace("{URGENT}", _urgent_col()),
             {"u": user}, as_dict=True)
         life = _pl_life([pl.name for pl in pls])
         out = []
@@ -187,8 +191,13 @@ def my_queue(user=None):
                 "total": 0,
                 "stage": "Pending",
                 "sla": "On Track",
+                "urgent": int(pl.urgent or 0),
                 "created": str(pl.creation)[:16],
             })
+        # A priority nobody re-orders for is a note, not a priority. Urgent
+        # lists climb to the top; inside each group the cutoff-first order
+        # (oldest list first) is untouched, so the batching rule still holds.
+        out.sort(key=lambda x: (not x["urgent"], x["created"]))
         return out
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.my_queue")
@@ -656,19 +665,20 @@ def pick_list_detail(name):
                       COALESCE(pli.custom_scanned_qty,0) AS scanned_qty, pli.uom,
                       pli.sales_order AS so, so.customer_name AS customer,
                       so.custom_awb AS awb, it.item_group AS grp, it.image,
-                      it.custom_sku AS real_sku
+                      it.custom_sku AS real_sku, {URGENT} AS urgent_at
                FROM `tabPick List Item` pli
                LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
                LEFT JOIN `tabItem` it ON it.name = pli.item_code
                WHERE pli.parent = %(pl)s
-               ORDER BY pli.warehouse, pli.idx""",
+               ORDER BY pli.warehouse, pli.idx""".replace("{URGENT}", _urgent_col()),
             {"pl": name}, as_dict=True)
 
         orders, seen = [], set()
         for l in lines:
             if l.so and l.so not in seen:
                 seen.add(l.so)
-                orders.append({"so": l.so, "customer": l.customer or "", "awb": l.awb or ""})
+                orders.append({"so": l.so, "customer": l.customer or "",
+                               "awb": l.awb or "", "urgent": bool(l.get("urgent_at"))})
 
         # Size / color for the picker's eyes: variant attributes first (81% of
         # picked items carry them), else the "-color / size" tail Shopify puts
@@ -723,8 +733,10 @@ def pick_list_detail(name):
                 "scannedQty": int(l.scanned_qty or 0),
                 "so": l.so or "", "customer": l.customer or "", "grp": l.grp or "",
                 "image": l.image or "",
+                "urgent": bool(l.get("urgent_at")),
                 "size": l.size, "color": l.color,
             } for l in lines],
+            "urgent": sum(1 for o in orders if o["urgent"]),
         }
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.pick_list_detail")

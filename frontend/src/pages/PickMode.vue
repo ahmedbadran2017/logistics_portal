@@ -63,6 +63,14 @@
              :class="allDone ? 'bg-emerald-500' : 'bg-[var(--accent-500)]'"
              :style="{ width: pct + '%' }" />
       </div>
+      <!-- The sort wall only reads SUBMITTED lists, so between the batch
+           being cut and the list being submitted an urgent order used to
+           have no badge anywhere — which is exactly the walk. Here it is. -->
+      <div v-if="urgentN" class="mt-2 flex items-center gap-1.5 rounded-lg bg-rose-600 text-white px-2.5 py-1.5">
+        <Icon name="zap" :size="13" />
+        <span class="text-[12px] font-bold">{{ t('pickm.urgentHead') }}</span>
+        <span v-if="urgentN > 1" class="text-[11.5px] font-bold tabular-nums ms-auto">{{ urgentN }}</span>
+      </div>
     </div>
 
     <!-- Scanner -->
@@ -89,7 +97,8 @@
           :key="l.sku + l.so"
           class="bg-white rounded-2xl ring-1 p-3 flex items-center gap-3 transition-all"
           :class="flash === l.sku ? 'ring-2 ring-[var(--accent-500)] shadow-md'
-            : l.scannedQty >= l.qty ? 'ring-emerald-200 bg-emerald-50/40' : 'ring-stone-200/70'"
+            : l.scannedQty >= l.qty ? 'ring-emerald-200 bg-emerald-50/40'
+            : l.urgent ? 'ring-2 ring-rose-400 bg-rose-50/40' : 'ring-stone-200/70'"
         >
           <img v-if="l.image" :src="l.image" alt="" loading="lazy" @error="hideImg"
                class="w-12 h-12 rounded-xl object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
@@ -104,6 +113,9 @@
               <span v-if="l.size" class="inline-flex items-center h-6 px-2 rounded-md bg-stone-900 text-white text-[13px] font-bold uppercase tracking-wide">{{ shortSize(l.size) }}</span>
               <span v-if="l.color" class="inline-flex items-center h-6 px-2 rounded-md bg-amber-50 ring-1 ring-amber-300 text-amber-900 text-[12.5px] font-semibold">{{ l.color }}</span>
               <span class="font-mono text-[11px] text-stone-500">{{ l.realSku || l.sku }}</span>
+              <span v-if="l.urgent" class="inline-flex items-center gap-1 h-5 px-1.5 rounded-md bg-rose-600 text-white text-[10px] font-bold uppercase tracking-wide">
+                <Icon name="zap" :size="9" />{{ t('pickm.urgent') }}
+              </span>
             </div>
           </div>
           <div class="text-end flex-shrink-0 flex items-center gap-2">
@@ -204,6 +216,10 @@ const total = computed(() => lines.value.reduce((a, l) => a + l.qty, 0));
 const done = computed(() => lines.value.reduce((a, l) => a + Math.min(l.scannedQty, l.qty), 0));
 const pct = computed(() => (total.value ? Math.round(done.value / total.value * 100) : 0));
 const allDone = computed(() => total.value > 0 && done.value >= total.value);
+// Counted off the lines rather than the list's own total, so the head
+// and the rose lines below it can never disagree.
+const urgentN = computed(() =>
+  new Set(lines.value.filter((l) => l.urgent && l.so).map((l) => l.so)).size);
 
 async function onScan(code) {
   // While pieces are being returned, every scan is a return, not a pick.
