@@ -517,13 +517,17 @@
           </thead>
           <tbody class="divide-y divide-stone-100">
             <tr v-for="r in rows" :key="r.no" class="hover:bg-stone-50/70 transition-colors cursor-pointer group"
-                :class="selected.has(r.no) ? 'bg-[var(--accent-50)]/50' : ''"
+                :class="selected.has(r.no) ? 'bg-[var(--accent-50)]/50'
+                        : r.urgent ? 'bg-rose-50/50' : ''"
                 @click="openDrawer(r)">
               <td v-if="selectableStage" class="px-3 py-3 text-center" @click.stop>
                 <input type="checkbox" class="board-cb" :checked="selected.has(r.no)" @change="toggleRow(r.no)" />
               </td>
               <td class="px-4 py-3">
-                <div class="font-mono font-bold text-stone-900 whitespace-nowrap">{{ r.no }}</div>
+                <div class="font-mono font-bold text-stone-900 whitespace-nowrap">{{ r.no }}<span
+                      v-if="r.urgent"
+                      class="inline-flex items-center gap-0.5 ms-1.5 px-1.5 h-[17px] rounded text-[9.5px] font-bold text-white bg-rose-600 align-middle">
+                      <Icon name="zap" :size="9" />{{ t("queue.urgent") }}</span></div>
                 <span v-if="activeStage === 'to_pick' && missedCutoff(r)"
                       class="inline-flex items-center gap-1 mt-0.5 text-[10.5px] font-medium text-amber-600 whitespace-nowrap">
                   <span class="w-1 h-1 rounded-full bg-amber-500" /> {{ t("ordersPg.missedCutoff") }}

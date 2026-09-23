@@ -508,6 +508,14 @@ _SO_FIELDS = """so.name, so.customer_name, so.grand_total, so.custom_channel,
     COALESCE(NULLIF(so.custom_shipping_city,''), addr.city) AS city_val"""
 
 
+def _so_fields():
+    """_SO_FIELDS plus the urgent stamp. Lazy, because _urgent_col reads the
+    doctype meta and this module is imported before the site is up. Every board
+    stage selects through here, so the badge reaches every list at once rather
+    than being wired screen by screen."""
+    return _SO_FIELDS + ",\n    " + _urgent_col() + " AS urgent_at"
+
+
 def _q_cond(q, args):
     """Search filter over order no / customer / AWB (parameterized LIKE)."""
     if not q:
@@ -632,6 +640,7 @@ def _row(r, **extra):
         "track": r.custom_track_shipment_status or "", "ageMins": age,
         "created": str(r.creation)[:16],
         "itemsDesc": (r.get("items_desc") or "").strip(),
+        "urgent": bool(r.get("urgent_at")),
     }, **extra)
 
 
@@ -1383,21 +1392,23 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
                 return []
             pc = " AND so.name IN (%s)" % ", ".join(["%s"] * len(pick_names))
             args.extend(pick_names)
-        rows = frappe.db.sql(f"""SELECT {_SO_FIELDS} FROM `tabSales Order` so {addr} {pl_join}
+        rows = frappe.db.sql(f"""SELECT {_so_fields()} FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Pending' AND pl.sales_order IS NULL
-              AND so.creation >= %s {qc} {cc} {dc}{pc} ORDER BY {_order_by(sort, 'so.creation ASC')} LIMIT {limit} OFFSET {offset}""",
+              AND so.creation >= %s {qc} {cc} {dc}{pc}
+            ORDER BY {_urgent_col()} IS NULL, {_order_by(sort, 'so.creation ASC')} LIMIT {limit} OFFSET {offset}""",
             tuple(args), as_dict=True)
         return [_row(r) for r in rows]
 
     if stage == "picking":
         args = [w]
         qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
-        rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, pl.pl, pl.picker, pl.pl_owner
+        rows = frappe.db.sql(f"""SELECT {_so_fields()}, pl.pl, pl.picker, pl.pl_owner
             FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Pending' AND pl.pl_ds = 0
-              AND so.creation >= %s {qc} {cc} {dc} ORDER BY {_order_by(sort, 'so.modified DESC')} LIMIT {limit} OFFSET {offset}""",
+              AND so.creation >= %s {qc} {cc} {dc}
+            ORDER BY {_urgent_col()} IS NULL, {_order_by(sort, 'so.modified DESC')} LIMIT {limit} OFFSET {offset}""",
             tuple(args), as_dict=True)
         return [_row(r, pl=r.pl, picker=r.picker or r.pl_owner) for r in rows]
 
@@ -1407,7 +1418,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
         ph = ", ".join(["%s"] * len(statuses))
         args = statuses + [w]
         qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
-        rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, pl.pl, pl.picker, pl.pl_owner
+        rows = frappe.db.sql(f"""SELECT {_so_fields()}, pl.pl, pl.picker, pl.pl_owner
             FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status IN ({ph}) AND so.creation >= %s {qc} {cc} {dc}
@@ -1422,7 +1433,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
             cond = "AND so.custom_track_shipment_status = %s"
             args.append(track)
         qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
-        rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, sh.sh FROM `tabSales Order` so {addr}
+        rows = frappe.db.sql(f"""SELECT {_so_fields()}, sh.sh FROM `tabSales Order` so {addr}
             LEFT JOIN (SELECT dni.against_sales_order so_name, MAX(sdn.parent) sh
                        FROM `tabDelivery Note Item` dni
                        JOIN `tabShipment Delivery Note` sdn ON sdn.delivery_note = dni.parent
@@ -1435,7 +1446,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
     if stage == "delivered":
         args = [dw]
         qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
-        rows = frappe.db.sql(f"""SELECT {_SO_FIELDS} FROM `tabSales Order` so {addr}
+        rows = frappe.db.sql(f"""SELECT {_so_fields()} FROM `tabSales Order` so {addr}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Delivered' AND so.creation >= %s {qc} {cc} {dc}
             ORDER BY so.modified DESC LIMIT {limit} OFFSET {offset}""", tuple(args), as_dict=True)
@@ -1447,7 +1458,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
             else "AND NOT " + back_in_house_sql()
         args = [dw]
         qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
-        rows = frappe.db.sql(f"""SELECT {_SO_FIELDS}, dn.ret, dn.dn FROM `tabSales Order` so {addr}
+        rows = frappe.db.sql(f"""SELECT {_so_fields()}, dn.ret, dn.dn FROM `tabSales Order` so {addr}
             LEFT JOIN (SELECT dni.against_sales_order so_name, MAX(d.custom_return_shipment) ret,
                               MAX(d.name) dn
                        FROM `tabDelivery Note Item` dni JOIN `tabDelivery Note` d ON d.name=dni.parent
@@ -1461,7 +1472,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
 
     if stage == "attention":
         out = []
-        for r in frappe.db.sql(f"""SELECT {_SO_FIELDS}, pl.pl, pl.picker, 'cancelled_midflow' kind
+        for r in frappe.db.sql(f"""SELECT {_so_fields()}, pl.pl, pl.picker, 'cancelled_midflow' kind
             FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Cancelled'
               AND so.custom_logistics_status NOT IN ('Delivered','Returned')
@@ -1469,14 +1480,14 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
               AND pl.pl IS NOT NULL AND so.creation >= %s
             ORDER BY so.modified DESC LIMIT 30""", (dw,), as_dict=True):
             out.append(_row(r, pl=r.pl, picker=r.picker, kind="cancelled_midflow"))
-        for r in frappe.db.sql(f"""SELECT {_SO_FIELDS}, pl.pl, pl.picker, 'no_awb' kind
+        for r in frappe.db.sql(f"""SELECT {_so_fields()}, pl.pl, pl.picker, 'no_awb' kind
             FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Pending' AND pl.pl_ds = 1
               AND (so.custom_awb IS NULL OR so.custom_awb='') AND so.creation >= %s
             ORDER BY so.modified DESC LIMIT 30""", (dw,), as_dict=True):
             out.append(_row(r, pl=r.pl, picker=r.picker, kind="no_awb"))
-        for r in frappe.db.sql(f"""SELECT {_SO_FIELDS}, 'sync_lag' kind FROM `tabSales Order` so {addr}
+        for r in frappe.db.sql(f"""SELECT {_so_fields()}, 'sync_lag' kind FROM `tabSales Order` so {addr}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Shipped'
               AND so.custom_track_shipment_status='Delivered' AND so.creation >= %s

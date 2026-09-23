@@ -141,8 +141,13 @@
             <div v-if="rows.length" class="mt-2.5 space-y-1 max-h-[180px] overflow-y-auto">
               <div v-for="(r, i) in rows.slice(0, cap)" :key="r.order"
                    class="flex items-center gap-2 text-[11.5px] rounded-lg px-2.5 py-1.5 ring-1"
-                   :class="r.blocked ? 'bg-rose-50/50 ring-rose-200/60' : 'bg-white ring-stone-200/60'">
+                   :class="r.blocked ? 'bg-rose-50/50 ring-rose-200/60'
+                           : r.urgent ? 'bg-rose-50/40 ring-2 ring-rose-400' : 'bg-white ring-stone-200/60'">
                 <span class="text-stone-300 tabular-nums w-5 text-end">{{ i + 1 }}</span>
+                <!-- The server returns the pool urgent-first, so these sit at
+                     the top AND take the stock first: the coverage preview
+                     allocates greedily in exactly this order. -->
+                <Icon v-if="r.urgent" name="zap" :size="11" class="text-rose-600 flex-shrink-0" />
                 <span class="font-semibold tabular-nums" :class="r.blocked ? 'text-rose-700 line-through' : 'text-stone-800'">{{ r.order }}</span>
                 <span class="text-stone-500 truncate flex-1 min-w-0">{{ r.customer }} · {{ r.city }}</span>
                 <span v-if="r.blocked" class="text-[10.5px] font-mono text-rose-600 whitespace-nowrap" :title="r.blocked">{{ t("cpl.noStock") }} {{ r.blocked.slice(-6) }}</span>

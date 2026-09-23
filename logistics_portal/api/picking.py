@@ -972,7 +972,8 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
                    COUNT(DISTINCT COALESCE(NULLIF(i.default_supplier,''),'(none)')) AS sup_count,
                    MAX(COALESCE(NULLIF(i.default_supplier,''),'(none)')) AS one_supplier,
                    MAX(CASE WHEN %(sku)s <> '' AND (i.custom_sku = %(sku)s
-                            OR soi.item_code = %(sku)s) THEN 1 ELSE 0 END) AS sku_hit
+                            OR soi.item_code = %(sku)s) THEN 1 ELSE 0 END) AS sku_hit,
+                   MAX({_urgent_col()}) AS urgent_at
             FROM `tabSales Order` so
             JOIN `tabSales Order Item` soi ON soi.parent = so.name
             {_LINE_JOIN}
@@ -980,7 +981,7 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
             {_CAND_CITY_JOIN}
             WHERE {_POOL_WHERE}{_city_known_clause()}
             GROUP BY so.name, so.customer_name, so.grand_total, city
-            ORDER BY so.creation""", {"sku": sku}, as_dict=True)
+            ORDER BY MAX({_urgent_col()}) IS NULL, so.creation""", {"sku": sku}, as_dict=True)
 
     # Order -> shelf zones (leading letter of the stocked shelf bin), for the
     # zone facet and filter. One cheap pass over the pool (~0.04s on prod).
@@ -1091,8 +1092,10 @@ def pick_candidates(items="any", supplier="", city="", sku="", zone="", limit=20
             "lines": int(r.line_count or 0), "units": int(r.units or 0),
             "supplier": r.one_supplier if int(r.sup_count or 0) == 1 else "mixed",
             "blocked": blocked_by.get(r.name, ""),
+            "urgent": bool(r.get("urgent_at")),
         } for r in page],
         "matched": len(matched), "shown": len(page),
+        "urgent": sum(1 for r in matched if r.get("urgent_at")),
         "matchedUnits": sum(int(r.units or 0) for r in matched),
         "pickable": len(pickable),
         "pickableUnits": sum(int(r.units or 0) for r in pickable),
@@ -2848,20 +2851,23 @@ def sorting_lists(days=2, limit=30):
                                        AND COALESCE(so.custom_label_url,'') = ''
                                        AND COALESCE(so.custom_logistics_status,'') NOT IN %s
                                        AND COALESCE(so.custom_sales_status,'') <> 'Cancelled'
-                                      THEN pli.sales_order END) AS blocked
+                                      THEN pli.sales_order END) AS blocked,
+                  COUNT(DISTINCT CASE WHEN {URGENT} IS NOT NULL
+                                      THEN pli.sales_order END) AS urgent
            FROM `tabPick List` pl
            JOIN `tabPick List Item` pli ON pli.parent = pl.name
            LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
            WHERE pl.docstatus = 1 AND pl.creation >= DATE_SUB(NOW(), INTERVAL %s DAY)
            GROUP BY pl.name
            HAVING pending > 0
-           ORDER BY pl.creation DESC LIMIT %s""",
+           ORDER BY urgent DESC, pl.creation DESC LIMIT %s""".replace("{URGENT}", _urgent_col()),
         (_SORT_DONE, _SORT_DONE, days, limit), as_dict=True)
     life = _pl_life([r.name for r in rows])
     active = [{"name": r.name, "picker": (r.picker or "").split("@")[0],
                "orders": int(r.orders or 0), "qty": int(r.qty or 0),
                "printed": int(r.printed or 0), "pending": int(r.pending or 0),
-               "blocked": int(r.blocked or 0), "life": life.get(r.name)}
+               "blocked": int(r.blocked or 0), "urgent": int(r.urgent or 0),
+               "life": life.get(r.name)}
               for r in rows]
 
     # The handover zone. A list that finished sorting is not finished with the

@@ -59,7 +59,8 @@
         </div>
         <button
           v-for="l in lists" :key="l.name"
-          class="w-full bg-white rounded-2xl ring-1 ring-stone-200/70 p-4 flex items-center gap-4 text-start hover:ring-[var(--accent-400)] hover:shadow-sm transition-all"
+          class="w-full bg-white rounded-2xl ring-1 p-4 flex items-center gap-4 text-start hover:ring-[var(--accent-400)] hover:shadow-sm transition-all"
+          :class="l.urgent ? 'ring-2 ring-rose-400 bg-rose-50/40' : 'ring-stone-200/70'"
           @click="openWall(l.name)"
         >
           <span class="w-10 h-10 rounded-xl bg-[var(--accent-50)] text-[var(--accent-600)] flex items-center justify-center flex-shrink-0">
@@ -69,6 +70,12 @@
             <span class="block font-mono text-[14px] font-bold text-stone-900">{{ l.name }}</span>
             <span class="block text-[12px] text-stone-500 mt-0.5">
               {{ l.picker }} · {{ l.orders }} {{ t('ordersPg.blOrders') }} · {{ l.qty }} {{ t('consol.items') }}
+            </span>
+            <!-- The order badge already existed INSIDE a list; what was
+                 missing is which list to open first. Lists carrying an
+                 urgent order lead the wall and say so here. -->
+            <span v-if="l.urgent" class="inline-flex items-center gap-1 mt-1 me-1 text-[11px] font-bold text-white bg-rose-600 rounded-md px-1.5 py-0.5">
+              <Icon name="zap" :size="11" />{{ t('sort.badgeUrgent') }}<template v-if="l.urgent > 1"> {{ l.urgent }}</template>
             </span>
             <span v-if="l.blocked" class="inline-flex items-center gap-1 mt-1 text-[11px] font-semibold text-amber-700 bg-amber-50 ring-1 ring-amber-200/70 rounded-md px-1.5 py-0.5">
               <Icon name="alert-triangle" :size="11" />{{ l.blocked }} {{ t('sort.blockedChip') }}
