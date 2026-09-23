@@ -2514,6 +2514,8 @@ export default {
     "r_Goodwill": "Geste commercial",
     free: "Gratuit",
     send: "Envoyer",
+    none: "Rien de disponible — voyez l'entrepôt avant de promettre au client.",
+    offFace: "En stock mais pas sur une face de prélèvement — un transfert est nécessaire.",
     sent: "Remplacement en route",
     hint: "Une nouvelle commande pour les pièces choisies, directement en préparation et chez le transporteur — liée à celle-ci, avec le motif enregistré.",
   },

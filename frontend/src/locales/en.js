@@ -2521,6 +2521,8 @@ export default {
     "r_Goodwill": "Goodwill",
     free: "Free of charge",
     send: "Send it",
+    none: "Nothing available — ask the warehouse before promising the customer.",
+    offFace: "In the building but not on a pick face — it needs a transfer first.",
     sent: "Replacement on its way",
     hint: "A new order for the pieces you picked, straight into picking and the carrier — linked back to this one, with the reason on file.",
   },

@@ -84,11 +84,26 @@
                  these went out in 90 days with none. -->
             <div v-if="sending" class="mt-2.5 rounded-xl bg-violet-50/70 ring-1 ring-violet-200 p-2.5 space-y-2">
               <div class="flex flex-wrap gap-1.5">
+                <!-- The number is on the chip, before the pick — not in a
+                     refusal afterwards. A piece at zero cannot be chosen at
+                     all; one that is merely off the face can, because that
+                     is a transfer and not a shortage. -->
                 <button v-for="(it, i) in items" :key="'s' + i"
-                        class="text-[11px] font-medium rounded-lg px-2 py-1 ring-1 transition-colors"
+                        class="text-[11px] font-medium rounded-lg px-2 py-1 ring-1 transition-colors inline-flex items-center gap-1.5 disabled:opacity-45 disabled:cursor-not-allowed"
+                        :disabled="stockOf(it) === 0"
+                        :title="stockOf(it) === 0 ? t('snd.none') : ''"
                         :class="sendPick.includes(it.sku) ? 'bg-violet-600 text-white ring-violet-600'
                                 : 'bg-white text-stone-600 ring-violet-200 hover:bg-violet-50'"
-                        @click="togglePick(it.sku)" dir="auto">{{ it.name }}</button>
+                        @click="togglePick(it.sku)" dir="auto">
+                  <span>{{ it.name }}</span>
+                  <span v-if="stockOf(it) !== null" class="tabular-nums text-[10px] font-bold rounded px-1"
+                        :class="sendPick.includes(it.sku) ? 'bg-white/20'
+                                : stockOf(it) === 0 ? 'bg-rose-100 text-rose-700'
+                                : stockOf(it) < 5 ? 'bg-amber-100 text-amber-700'
+                                : 'bg-emerald-100 text-emerald-700'">{{ stockOf(it) }}</span>
+                  <Icon v-if="stockOf(it) > 0 && faceOf(it) === 0" name="alert-triangle"
+                        :size="10" :title="t('snd.offFace')" />
+                </button>
               </div>
               <div class="flex items-center gap-2 flex-wrap">
                 <select v-model="sendReason"
@@ -625,6 +640,17 @@ const openSku = useSkuLink();
 
 // Sending a replacement piece. Same server path as a reship, which is what
 // it is — the difference is a subset of lines and no money.
+// The ONE availability contract the whole portal uses — orders.detail already
+// computed it per line, bundles exploded, reservations and shelf-empty reports
+// subtracted. Reading Bin here instead would be a fourth answer to a question
+// that already has one.
+// `null` means the server did not answer, which is NOT the same as zero: a
+// backend without the field would otherwise disable every chip on the panel.
+const stockOf = (it) => (it.avail === null || it.avail === undefined
+  ? null : Math.max(0, Number(it.avail)));
+const faceOf = (it) => (it.availFace === null || it.availFace === undefined
+  ? null : Math.max(0, Number(it.availFace)));
+
 const SEND_REASONS = ["Missing piece", "Damaged on arrival", "Wrong item sent", "Goodwill"];
 const sending = ref(false);
 const sendPick = ref([]);
@@ -837,6 +863,12 @@ onMounted(async () => {
         sku: it.sku, realSku: it.real_sku || "", name: it.name || it.sku, bin: it.bin || "—",
         qty: it.qty || 1, price: it.price || 0, line: it.line || 0,
         image: it.image || "",
+        // orders.detail already answers "how much of this may THIS order
+        // take" — bundles exploded, reservations and shelf-empty reports
+        // subtracted. Dropping it here and re-asking the database would be a
+        // second answer to a question that has one.
+        avail: it.avail ?? null, availFace: it.availFace ?? null,
+        short: !!it.short, offFace: !!it.offFace,
       }));
     }
   }

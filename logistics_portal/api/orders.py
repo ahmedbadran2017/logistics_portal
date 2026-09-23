@@ -2159,6 +2159,56 @@ def _do_merge(names, force=0):
 
 
 @frappe.whitelist()
+def _uncoverable(order, rows):
+    """Which of these lines we cannot actually cover, with the numbers.
+
+    `rows` = [(item_code, qty)] from the order being copied. Returns
+    [{code, name, need, have, onFace}] for the ones that fall short.
+
+    Bundle-aware through `Packed Item`, and that is not a detail. A Product
+    Bundle is is_stock_item = 0 and holds NO stock by design — asked about the
+    bundle code, the contract correctly answers zero, and a naive check would
+    refuse every bundle on the site while its components sat in thousands.
+    That exact mistake put 67 healthy orders on an out-of-stock list on
+    2026-09-22. ERPNext already writes the exploded lines to Packed Item, so
+    this asks those when they exist.
+
+    Measured on the "sell" scope — ours to promise at all — not "pick". A
+    piece sitting in SLOW ZONE is a transfer, not a refusal, and the caller is
+    told the face number separately so it can say which.
+    """
+    if not rows:
+        return []
+    want = {}
+    packed = frappe.db.sql(
+        """SELECT parent_item, item_code, qty FROM `tabPacked Item`
+           WHERE parent = %s AND parenttype = 'Sales Order'""", (order,), as_dict=True)
+    by_parent = {}
+    for p in packed:
+        by_parent.setdefault(p.parent_item, []).append((p.item_code, float(p.qty or 0)))
+    for code, qty in rows:
+        if code in by_parent:
+            # Packed Item already carries the TOTAL for the parent's own qty,
+            # so it is used as-is rather than multiplied again.
+            for c, q in by_parent[code]:
+                want[c] = want.get(c, 0.0) + q
+        else:
+            want[code] = want.get(code, 0.0) + float(qty or 0)
+    from logistics_portal.api.picking import availability
+    codes = list(want)
+    _t, _r, free_sell = availability(codes, scope="sell")
+    _t2, _r2, free_pick = availability(codes)
+    out = []
+    for c, need in want.items():
+        have = float(free_sell(order, c) or 0)
+        if have < need:
+            out.append({"code": c,
+                        "name": frappe.db.get_value("Item", c, "item_name") or c,
+                        "need": need, "have": max(0.0, have),
+                        "onFace": max(0.0, float(free_pick(order, c) or 0))})
+    return out
+
+
 def reship(order, items=None, free=0, reason=None):
     """Re-enter a failed delivery into the shipping cycle. Creates a NEW Sales
     Order copy (same customer/address/items) that flows through pick → sort →
@@ -2238,6 +2288,30 @@ def reship(order, items=None, free=0, reason=None):
         if new.meta.has_field(f):
             new.set(f, None)
     if partial:
+        # Do not promise a piece we do not have.
+        #
+        # Measured 2026-09-23 over the 94 free sends of the last 90 days: 43
+        # of their 100 lines are for an item that is short TODAY, and the part
+        # they send most — a replacement box, 17 times — is at zero on both
+        # scopes. Six of those sends never got a carrier label at all. A
+        # replacement that cannot be picked leaves an already-unhappy customer
+        # waiting a second time, which is the whole failure this send exists
+        # to prevent.
+        #
+        # Refuses only at ZERO coverage, where a pick list would simply be a
+        # lie. Anything above that is a judgement the agent makes with the
+        # number in front of them — blocking on a merely tight number is how
+        # a live sale got cancelled on 2026-09-22 with 1,986 units in the
+        # building.
+        _rows = [(r.item_code, float(r.qty or 0)) for r in so.items
+                 if (not items) or r.item_code in items]
+        _bad = _uncoverable(name, _rows)
+        _none = [b for b in _bad if b["have"] <= 0]
+        if _none:
+            frappe.throw(
+                "Nothing to send: " + "; ".join(
+                    f"{b['name']} — 0 available" for b in _none[:3])
+                + ". Ask the warehouse before promising the customer.")
         if items:
             keep = [r for r in new.items if r.item_code in items]
             if not keep:
@@ -2289,6 +2363,8 @@ def reship(order, items=None, free=0, reason=None):
     frappe.db.commit()
     return {"ok": True, "order": new.name, "original": name,
             "free": free, "reason": reason,
+            # Short but not empty: it went through, and the caller says so.
+            "short": _bad if partial else [],
             "total": float(new.grand_total or 0)}
 
 
