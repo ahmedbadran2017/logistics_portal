@@ -2814,6 +2814,7 @@ export default {
     feeNo: "our fault — no pickup fee",
     feeWord: "pickup",
     noneYet: "no reason on file",
+    nothingSetYet: "nothing set yet — no items, nothing coming back",
     backTitle: "Coming back",
     backHint: "tick what the van collects — nothing ticked means nothing comes back",
     outTitle: "Going out",

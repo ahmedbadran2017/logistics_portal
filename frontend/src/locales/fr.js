@@ -2807,6 +2807,7 @@ export default {
     feeNo: "de notre faute — pas de frais",
     feeWord: "ramassage",
     noneYet: "aucun motif enregistré",
+    nothingSetYet: "rien de défini — aucun article, rien à récupérer",
     backTitle: "Ce qui revient",
     backHint: "cochez ce que le chauffeur récupère — rien de coché, rien ne revient",
     outTitle: "Ce qui part",

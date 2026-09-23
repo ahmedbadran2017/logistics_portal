@@ -80,16 +80,29 @@
               <!-- The reason IS the money: it decides the 25 MAD and whether
                    the difference is zero. The board never showed it, so the
                    edit panel reopened blank on a required field and the agent
-                   re-picked from memory. -->
-              <span class="inline-flex items-center gap-1"
-                    :class="r.reason ? 'text-stone-500' : 'text-stone-300'">
+                   re-picked from memory.
+                   Missing, it is not a grey footnote — it is the reason the
+                   row cannot move, so it is written as the thing to fix. -->
+              <span v-if="r.reason" class="inline-flex items-center gap-1 text-stone-500">
                 <Icon name="help-circle" :size="11" class="text-stone-300" />
-                {{ r.reason ? t('ex.r_' + r.reason, r.reason) : t('ex.noneYet') }}
+                {{ t('ex.r_' + r.reason, r.reason) }}
               </span>
-              <span class="inline-flex items-center gap-1 text-stone-400"><Icon name="clock" :size="11" />{{ ageLabel(r.ageH) }}</span>
+              <button v-else class="ex-todo" @click="toggleEdit(r)">
+                <Icon name="help-circle" :size="11" />{{ t('ex.noneYet') }}
+              </button>
+              <!-- Days, not hours, is a promise somebody stopped keeping. -->
+              <span class="inline-flex items-center gap-1"
+                    :class="r.ageH >= 72 ? 'text-rose-600 font-semibold' : 'text-stone-400'">
+                <Icon name="clock" :size="11" />{{ ageLabel(r.ageH) }}
+              </span>
             </div>
             <div v-if="r.itemsText" class="text-[11.5px] text-stone-500 truncate max-w-[560px] mt-1" :title="r.itemsText" dir="auto">
               <Icon name="package" :size="11" class="inline -mt-px me-1 text-stone-300" />{{ r.itemsText }}
+            </div>
+            <!-- Otherwise the row is silent about why it is stuck, and 39 of
+                 the 61 waiting have no replacement items at all. -->
+            <div v-else-if="tab === 'waiting'" class="text-[11.5px] text-stone-400 mt-1">
+              <Icon name="package" :size="11" class="inline -mt-px me-1 text-stone-300" />{{ t('ex.nothingSetYet') }}
             </div>
           </div>
           <div class="flex items-center gap-1.5 flex-wrap">
@@ -764,11 +777,19 @@ function ageLabel(h) {
   height: 38px; border-radius: 12px; font-size: 12.5px; font-weight: 700;
   transition: all .15s ease; white-space: nowrap;
 }
-.ex-act:disabled { opacity: .5; }
+.ex-act:disabled { cursor: not-allowed; }
 .ex-act-main {
   padding: 0 16px; color: white;
   background: linear-gradient(135deg, rgb(251 191 36), rgb(217 119 6));
   box-shadow: 0 4px 12px -4px rgb(217 119 6 / 0.4);
+}
+/* The loudest control on every row was the one you cannot press: every
+   exchange waiting for items showed a full-colour "Generate AWB" at .5
+   opacity, which still reads as the thing to do. Disabled now looks like a
+   disabled control instead of a dimmed invitation. */
+.ex-act-main:disabled {
+  background: rgb(245 245 244); color: rgb(168 162 158);
+  box-shadow: inset 0 0 0 1px rgb(var(--border));
 }
 .ex-act-main:hover:not(:disabled) { transform: translateY(-1px); }
 .ex-act-soft {
@@ -777,6 +798,14 @@ function ageLabel(h) {
   display: inline-flex; align-items: center; justify-content: center;
 }
 .ex-act-soft:hover { background: rgb(var(--card)); transform: scale(1.06); }
+.ex-todo {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 20px; padding: 0 8px; border-radius: 7px;
+  font-size: 11px; font-weight: 700;
+  color: rgb(180 83 9); background: rgb(254 243 199);
+  transition: background .15s ease;
+}
+.ex-todo:hover { background: rgb(253 230 138); }
 .ex-empty { background: linear-gradient(180deg, white, rgb(250 250 249)); box-shadow: inset 0 0 0 1px rgb(var(--border) / 0.8); }
 .ex-shimmer {
   background: linear-gradient(90deg, rgb(var(--bg)) 25%, rgb(var(--border) / 0.6) 50%, rgb(var(--bg)) 75%);

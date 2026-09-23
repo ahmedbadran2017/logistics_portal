@@ -106,6 +106,24 @@ const PATHS = {
   wallet: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
   "dollar-sign": '<line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  // Asked for by name and never defined — a missing key renders an EMPTY
+  // svg, so the button is there, clickable, and looks like a blank box.
+  list: '<path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/>',
+  "help-circle": '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+  "arrow-down-left": '<path d="M17 7 7 17"/><path d="M17 17H7V7"/>',
+  "arrow-up-right": '<path d="M7 7h10v10"/><path d="M7 17 17 7"/>',
+  // Swept the whole app for the same fault: eight more names were being asked
+  // for that nothing answered, each one a blank control on a live page.
+  "arrow-down": '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
+  ban: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+  circle: '<circle cx="12" cy="12" r="10"/>',
+  history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+  inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  move: '<path d="M12 2v20"/><path d="m15 19-3 3-3-3"/><path d="m19 9 3 3-3 3"/><path d="M2 12h20"/><path d="m5 9-3 3 3 3"/><path d="m9 5 3-3 3 3"/>',
+  "scan-line": '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/>',
+  // Lucide ships no brand marks; the conversation glyph is what the rest of
+  // the portal already uses for a WhatsApp thread.
+  whatsapp: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/>',
   activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
   eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
   "arrow-right": '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
@@ -126,5 +144,19 @@ const PATHS = {
   image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
 };
 
-const path = computed(() => PATHS[props.name] || "");
+// A name with no path used to render an EMPTY svg: the control kept its size
+// and its click target and simply showed nothing, which is how a details
+// button shipped as a blank box nobody could read. An unknown name draws a
+// dashed circle instead — visibly wrong, so it gets fixed instead of shipped —
+// and says so in the console during development.
+const FALLBACK = '<circle cx="12" cy="12" r="9" stroke-dasharray="3 3"/><path d="M12 16h.01"/><path d="M9.5 9.5a2.5 2.5 0 0 1 4.5 1.5c0 1.5-2 2-2 2"/>';
+const path = computed(() => {
+  const p = PATHS[props.name];
+  if (p) return p;
+  if (import.meta.env?.DEV) {
+    // eslint-disable-next-line no-console
+    console.warn(`[Icon] no path for "${props.name}"`);
+  }
+  return FALLBACK;
+});
 </script>
