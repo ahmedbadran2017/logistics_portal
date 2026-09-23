@@ -2504,6 +2504,9 @@ export default {
     o_delivered: "اتسلّم", o_failed: "استثناء", o_cancelled: "اتلغت",
     o_open: "لسه مفيش حالة", o_unknown: "مفيش أثر",
   },
+  exs: {
+    open: "تبديل / استرجاع",
+  },
   cnx: {
     open: "إلغاء الأوردر",
     why: "السبب…",

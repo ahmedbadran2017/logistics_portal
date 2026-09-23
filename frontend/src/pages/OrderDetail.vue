@@ -76,6 +76,15 @@
                       @click="sending = !sending">
                 <Icon name="package-check" :size="12" />{{ t(sending ? "common.close" : "snd.open") }}
               </button>
+              <!-- Anything that comes BACK. Four of the five after-sale cases
+                   need this — broken, wrong size, changed mind, different
+                   product — and until now the only way in was typing the order
+                   number into a box on another page. -->
+              <button v-if="canSeeCustomer && isLive"
+                      class="text-[11.5px] font-semibold inline-flex items-center gap-1 text-amber-700 hover:text-amber-900 disabled:opacity-40"
+                      :disabled="exBusy" @click="startExchange">
+                <Icon name="refresh-cw" :size="12" />{{ exBusy ? "…" : t("exs.open") }}
+              </button>
               <!-- The customer does not want it. Never a refusal: what the
                    parcel's position changes is what we can DO, and the server
                    decides that from where the goods actually are. -->
@@ -691,6 +700,30 @@ const stockOf = (it) => (it.avail === null || it.avail === undefined
   ? null : Math.max(0, Number(it.avail)));
 const faceOf = (it) => (it.availFace === null || it.availFace === undefined
   ? null : Math.max(0, Number(it.availFace)));
+
+// Starting an exchange from the order in front of the agent. The heavy
+// lifting — the reason, the 25 MAD pickup, the replacement lines — lives on
+// the Exchanges page, so this creates the record and hands them straight to
+// it rather than growing a second copy of that panel here.
+const exBusy = ref(false);
+async function startExchange() {
+  exBusy.value = true;
+  const name = liveOrder.value?.name || order.value.no;
+  try {
+    await apiPost("exchange.start", { order: name });
+  } catch (e) {
+    const msg = String(e.message || e);
+    // "already exists" is not a failure — it is the answer, and the agent
+    // still wants to land on it.
+    if (!/already exists/i.test(msg)) {
+      warn(t("cf.actFail"), msg);
+      exBusy.value = false;
+      return;
+    }
+  }
+  exBusy.value = false;
+  router.push({ name: "Exchanges", query: { q: name } });
+}
 
 // Cancelling. One preview call names the stage, the mode and the reason list,
 // so the dialog is built from what the server already decided rather than

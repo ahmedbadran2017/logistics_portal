@@ -2505,6 +2505,9 @@ export default {
     o_delivered: "Livrée", o_failed: "Exception", o_cancelled: "Annulée",
     o_open: "Pas encore de statut", o_unknown: "Sans trace",
   },
+  exs: {
+    open: "Échange / retour",
+  },
   cnx: {
     open: "Annuler la commande",
     why: "Motif…",

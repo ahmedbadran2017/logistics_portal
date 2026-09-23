@@ -175,7 +175,11 @@ const TABS = [
 ];
 
 const tab = ref("waiting");
-const q = ref("");
+// Opened from an order screen: ?q=<order> lands here already searched, the
+// same contract Find-a-customer has had for months. An agent on a call should
+// not have to copy an order number, leave the page and type it again.
+const route = useRoute();
+const q = ref(String(route.query.q || ""));
 const page = ref(1);
 const pageSize = 30;
 const data = ref(null);

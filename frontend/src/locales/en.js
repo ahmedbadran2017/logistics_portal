@@ -2512,6 +2512,9 @@ export default {
     o_delivered: "Delivered", o_failed: "Exception", o_cancelled: "Cancelled",
     o_open: "No status yet", o_unknown: "No trace",
   },
+  exs: {
+    open: "Exchange / return",
+  },
   cnx: {
     open: "Cancel order",
     why: "Reason…",
