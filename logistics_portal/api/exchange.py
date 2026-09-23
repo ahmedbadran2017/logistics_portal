@@ -227,7 +227,7 @@ def _price_of(doc, code, fallback_order=""):
     return flt(frappe.db.get_value("Item", code, "standard_rate") or 0)
 
 
-def _apply_money(doc, reason):
+def _apply_money(doc, reason, preview=False):
     """The rows the reason implies — the pickup fee, or the no-charge offset.
 
     Rewritten from scratch every time rather than appended, so changing the
@@ -257,6 +257,7 @@ def _apply_money(doc, reason):
     cfg = _cs_settings()
     doc.set("taxes", [r for r in (doc.get("taxes") or [])
                       if (r.description or "").strip() not in _MONEY_TAGS])
+    skipped = []
 
     def _row(acc, tag, amount):
         if not acc:
@@ -264,7 +265,14 @@ def _apply_money(doc, reason):
         if not frappe.db.exists("Account", acc):
             # Never block a customer's exchange over a chart-of-accounts
             # change: the row is dropped and the trail says so.
-            doc.add_comment("Comment", f"{tag} skipped — account {acc} not found.")
+            #
+            # NOT from the preview. add_comment writes a row immediately, and
+            # quote() runs on every keystroke — a renamed account would have
+            # filled the document with hundreds of identical notes while
+            # somebody was still typing. The preview reports it back instead.
+            skipped.append(f"{tag} — account {acc} not found")
+            if not preview:
+                doc.add_comment("Comment", f"{tag} skipped — account {acc} not found.")
             return
         doc.append("taxes", {"charge_type": "Actual", "account_head": acc,
                             "description": tag, "tax_amount": amount, "rate": 0})
@@ -273,7 +281,7 @@ def _apply_money(doc, reason):
         fee = flt(cfg.get("pickupFee") or 0)
         if fee > 0:
             _row((cfg.get("pickupFeeAccount") or "").strip(), _FEE_TAG, fee)
-        return
+        return skipped
 
     # Our own mistake. If we are sending a replacement, the customer owes
     # nothing and is owed nothing — so close the gap to exactly zero.
@@ -284,7 +292,7 @@ def _apply_money(doc, reason):
     # it would quietly cancel a refund we owe.
     rows = doc.get("exchange_items") or []
     if not rows:
-        return
+        return skipped
     # Summed from the rows, NOT read off the field.
     #
     # `original_total` is recomputed by validate() from original_items, and
@@ -303,8 +311,9 @@ def _apply_money(doc, reason):
     orig = sum(flt(r.rate) * flt(r.qty) for r in back)
     gap = orig - sum(flt(r.rate) * flt(r.qty) for r in rows)
     if abs(gap) < 0.01:
-        return
+        return skipped
     _row((cfg.get("noChargeAccount") or "").strip(), _FREE_TAG, gap)
+    return skipped
 
 
 def _fill_returning(doc, returning):
@@ -344,8 +353,17 @@ def _fill_returning(doc, returning):
             continue
         rate = 0.0
         if order:
-            rate = flt(frappe.db.get_value(
-                "Sales Order Item", {"parent": order, "item_code": code}, "rate"))
+            # Weighted across every line carrying this code, not the first one
+            # found. 519 orders repeat an item_code, and on the ones checked
+            # the repeated lines each had a DIFFERENT rate — get_value would
+            # have picked one of them arbitrarily and refunded the customer a
+            # price they may not have paid. Total paid / total bought is the
+            # rate that is true whichever line the piece came off.
+            row = frappe.db.sql(
+                """SELECT SUM(rate * qty), SUM(qty) FROM `tabSales Order Item`
+                   WHERE parent = %s AND item_code = %s""", (order, code))
+            if row and flt(row[0][1]) > 0:
+                rate = flt(row[0][0]) / flt(row[0][1])
         doc.append("original_items", {"item_code": code, "qty": qty, "rate": rate})
 
 
@@ -410,7 +428,7 @@ def quote(name, items=None, reason=None, returning=None):
     doc = frappe.get_doc("Sales Exchange", name)
     _fill_returning(doc, returning)
     resolved, unpriced = _fill_items(doc, items)
-    _apply_money(doc, reason)
+    skipped = _apply_money(doc, reason, preview=True)
     doc.run_method("validate")
     codes = [r["code"] for r in resolved]
     if codes:
@@ -419,7 +437,7 @@ def quote(name, items=None, reason=None, returning=None):
         for r in resolved:
             r["avail"] = float(free(doc.sales_order or "", r["code"]) or 0)
     return {"name": name, "reason": reason, "items": resolved,
-            "unpriced": sorted(set(unpriced)),
+            "unpriced": sorted(set(unpriced)), "skipped": skipped,
             "originalTotal": float(doc.original_total or 0),
             "exchangeTotal": float(doc.exchange_total or 0),
             "fee": float(doc.taxes_and_shipping_total or 0),
