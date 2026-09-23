@@ -291,6 +291,81 @@ def _apply_money(doc, reason):
     _row((cfg.get("noChargeAccount") or "").strip(), _FREE_TAG, gap)
 
 
+def _fill_items(doc, items):
+    """Put the replacement rows on the doc and say what they resolved to.
+
+    Shared by set_items and quote so the number the agent is shown BEFORE
+    saving cannot disagree with the one that gets saved — the preview is the
+    same code, not a second implementation of the same rules.
+    """
+    doc.set("exchange_items", [])
+    resolved, unpriced = [], []
+    for it in items:
+        code = str(it.get("item_code") or "").strip()
+        qty = float(it.get("qty") or 0)
+        rate = float(it.get("rate") or 0)
+        if not code or qty <= 0:
+            frappe.throw("Each row needs an item and a positive quantity.")
+        typed = code
+        if not frappe.db.exists("Item", code):
+            # Portal SKUs: fall back to the real-SKU custom field.
+            by_sku = frappe.db.get_value("Item", {"custom_sku": code})
+            if not by_sku:
+                frappe.throw(f"Unknown item: {code}")
+            code = by_sku
+        auto = rate <= 0
+        if auto:
+            # Blank means "the price we already know", not "free".
+            rate = _price_of(doc, code)
+        doc.append("exchange_items", {"item_code": code, "qty": qty, "rate": rate})
+        if rate <= 0:
+            unpriced.append(code)
+        resolved.append({"typed": typed, "code": code,
+                         "name": frappe.db.get_value("Item", code, "item_name") or code,
+                         "qty": qty, "rate": float(rate), "auto": auto})
+    return resolved, unpriced
+
+
+@frappe.whitelist()
+def quote(name, items=None, reason=None):
+    """What this exchange WOULD settle at, without saving a thing.
+
+    The agent is on the phone and has to say a number out loud. Until now the
+    only way to see it was to save, so the price we would use, the item the
+    code resolves to and the money the customer owes were all invisible at
+    the moment they were being decided. Nothing here is written: the doc is
+    built in memory, validated, and dropped.
+    """
+    import json as _json
+    _gate()
+    name = (name or "").strip()
+    if not frappe.db.exists("Sales Exchange", name):
+        frappe.throw("Unknown exchange.")
+    if isinstance(items, str):
+        items = _json.loads(items)
+    items = [it for it in (items or []) if str(it.get("item_code") or "").strip()]
+    if len(items) > 20:
+        frappe.throw("20 items max.")
+    reason = (reason or "").strip()
+    doc = frappe.get_doc("Sales Exchange", name)
+    resolved, unpriced = _fill_items(doc, items)
+    _apply_money(doc, reason)
+    doc.run_method("validate")
+    codes = [r["code"] for r in resolved]
+    if codes:
+        from logistics_portal.api.picking import availability
+        _t, _r, free = availability(codes, scope="sell")
+        for r in resolved:
+            r["avail"] = float(free(doc.sales_order or "", r["code"]) or 0)
+    return {"name": name, "reason": reason, "items": resolved,
+            "unpriced": sorted(set(unpriced)),
+            "originalTotal": float(doc.original_total or 0),
+            "exchangeTotal": float(doc.exchange_total or 0),
+            "fee": float(doc.taxes_and_shipping_total or 0),
+            "difference": float(doc.difference_amount or 0),
+            "direction": doc.settlement_direction or ""}
+
+
 @frappe.whitelist()
 def set_items(name, items=None, reason=None, city=None, sector=None,
               address=None, phone=None):
@@ -343,26 +418,7 @@ def set_items(name, items=None, reason=None, city=None, sector=None,
     doc = frappe.get_doc("Sales Exchange", name)
     if doc.exchange_status not in ("Draft", "Waiting for Cathedis API"):
         frappe.throw(f"Exchange is already {doc.exchange_status}.")
-    doc.set("exchange_items", [])
-    unpriced = []
-    for it in items:
-        code = str(it.get("item_code") or "").strip()
-        qty = float(it.get("qty") or 0)
-        rate = float(it.get("rate") or 0)
-        if not code or qty <= 0:
-            frappe.throw("Each row needs an item and a positive quantity.")
-        if not frappe.db.exists("Item", code):
-            # Portal SKUs: fall back to the real-SKU custom field.
-            by_sku = frappe.db.get_value("Item", {"custom_sku": code})
-            if not by_sku:
-                frappe.throw(f"Unknown item: {code}")
-            code = by_sku
-        if rate <= 0:
-            # Blank means "the price we already know", not "free".
-            rate = _price_of(doc, code)
-        doc.append("exchange_items", {"item_code": code, "qty": qty, "rate": rate})
-        if rate <= 0:
-            unpriced.append(code)
+    resolved, unpriced = _fill_items(doc, items)
     for field, val in (("exchange_city", city), ("exchange_sector", sector),
                        ("exchange_address", address), ("customer_phone", phone)):
         if val and str(val).strip():

@@ -128,29 +128,63 @@
                    out. Leaving the rows empty is that case, not a mistake. -->
               <span class="ms-auto text-[10.5px] text-stone-400">{{ t('ex.emptyOk') }}</span>
             </div>
-            <p class="text-[10.5px] text-stone-400">{{ t('ex.rateAuto') }}</p>
-            <div v-for="(it, i) in editItems" :key="i" class="flex items-center gap-2 flex-wrap">
-              <input v-model="it.item_code" :placeholder="t('ex.itemPh')" maxlength="140"
-                     class="flex-1 min-w-[220px] h-9 ps-3 pe-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] font-mono focus:outline-none" />
-              <input v-model.number="it.qty" type="number" min="1" :placeholder="t('ex.qtyPh')"
-                     class="w-[80px] h-9 ps-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] tabular-nums focus:outline-none" />
-              <!-- Blank is not free. 743 of the 1,096 replacement rows on this
-                   site are priced at zero, which made the settlement read
-                   "refund the whole order" on parcels we were replacing. The
-                   server prices a blank row from what the item last sold for
-                   (96.9% of rows), so this box is for the rare correction. -->
-              <input v-model.number="it.rate" type="number" min="0" :placeholder="t('ex.ratePh')"
-                     :title="t('ex.rateAuto')"
-                     class="w-[110px] h-9 ps-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] tabular-nums focus:outline-none" />
-              <button :title="t('common.close')" class="w-8 h-8 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 inline-flex items-center justify-center"
-                      @click="editItems.splice(i, 1)"><Icon name="x" :size="13" /></button>
+            <!-- Column headings. Three unlabelled boxes made the price look
+                 like a second quantity, and the one showing a hard 0 was the
+                 field that decided whether we refund the whole order. -->
+            <div v-if="editItems.length" class="flex items-end gap-2 px-0.5">
+              <span class="flex-1 min-w-[220px] text-[10.5px] font-semibold text-stone-500">{{ t('ex.colItem') }}</span>
+              <span class="w-[72px] text-[10.5px] font-semibold text-stone-500">{{ t('ex.colQty') }}</span>
+              <span class="w-[116px] text-[10.5px] font-semibold text-stone-500">
+                {{ t('ex.colPrice') }}
+                <span class="font-normal text-stone-400">· {{ t('ex.colPriceAuto') }}</span>
+              </span>
+              <span class="w-8" />
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
+            <div v-for="(it, i) in editItems" :key="i" class="space-y-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <input v-model="it.item_code" :placeholder="t('ex.itemPh')" maxlength="140"
+                       @input="quoteSoon" @blur="quoteSoon(0)"
+                       class="flex-1 min-w-[220px] h-9 ps-3 pe-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] font-mono focus:outline-none" />
+                <input v-model.number="it.qty" type="number" min="1" :placeholder="t('ex.qtyPh')"
+                       @input="quoteSoon"
+                       class="w-[72px] h-9 ps-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] tabular-nums focus:outline-none" />
+                <!-- Empty, never 0. 743 of the 1,096 replacement rows on this
+                     site are priced at zero, which made the settlement read
+                     "refund the whole order" on parcels we were replacing. A
+                     blank box is priced from what the item last sold for
+                     (96.9% of rows); a literal 0 would have said "free". -->
+                <input v-model.number="it.rate" type="number" min="0"
+                       :placeholder="priced(i) ? String(priced(i).rate) : t('ex.ratePh')"
+                       @input="quoteSoon"
+                       class="w-[116px] h-9 ps-3 rounded-lg bg-white ring-1 ring-amber-200 text-[12.5px] tabular-nums focus:outline-none"
+                       :class="it.rate > 0 ? 'text-stone-800' : 'text-stone-400'" />
+                <button :title="t('common.close')" class="w-8 h-8 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 inline-flex items-center justify-center"
+                        @click="editItems.splice(i, 1); quoteSoon(0)"><Icon name="x" :size="13" /></button>
+              </div>
+              <!-- What the typed code actually resolved to, before saving. -->
+              <p v-if="priced(i)" class="text-[11px] ps-1 flex items-center gap-2 flex-wrap" dir="auto">
+                <span class="text-stone-600 font-medium truncate max-w-[300px]">{{ priced(i).name }}</span>
+                <span class="text-stone-400 tabular-nums">{{ priced(i).rate }} MAD<template v-if="priced(i).auto"> · {{ t('ex.fromLastSold') }}</template></span>
+                <span class="tabular-nums" :class="priced(i).avail > 0 ? 'text-emerald-600' : 'text-rose-600'">
+                  {{ priced(i).avail > 0 ? t('ex.onShelf').replace('{n}', String(priced(i).avail)) : t('ex.noneOnShelf') }}
+                </span>
+              </p>
+              <p v-else-if="quoteErr && it.item_code.trim()" class="text-[11px] ps-1 text-rose-600">{{ quoteErr }}</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap pt-1">
               <button class="h-8 px-3 rounded-lg text-[11.5px] font-semibold text-amber-700 bg-white ring-1 ring-amber-200 hover:bg-amber-100 transition-colors"
-                      @click="editItems.push({ item_code: '', qty: 1, rate: 0 })">
+                      @click="editItems.push({ item_code: '', qty: 1, rate: null }); quoteSoon(0)">
                 <Icon name="plus" :size="12" class="inline -mt-px me-1" />{{ t('ex.addItem') }}
               </button>
-              <span class="ms-auto" />
+              <!-- The sentence the agent says out loud. It was only knowable
+                   AFTER saving, which is the wrong order: the number is what
+                   the customer is being told while the panel is still open.
+                   Same server code as the save, so it cannot disagree. -->
+              <span v-if="editReason" class="ms-auto text-[12px] font-semibold tabular-nums"
+                    :class="settleTone">
+                <Icon :name="settleIcon" :size="13" class="inline -mt-px me-1" />{{ settleText }}
+              </span>
+              <span v-else class="ms-auto" />
               <button class="h-9 px-4 rounded-lg text-[12px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 transition-colors"
                       :disabled="savingItems || !editReason" @click="saveItems(r)">
                 {{ savingItems ? '…' : t('px.common.save') }}
@@ -175,7 +209,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
@@ -227,6 +261,64 @@ async function loadFeePolicy() {
 }
 const savingItems = ref(false);
 
+// ---- live quote -----------------------------------------------------------
+// The panel used to be write-only: the agent typed a code, a quantity and a
+// price, pressed Save, and only then learned which item the code meant, what
+// price we would use and what the customer owed. All three are decisions made
+// with the customer on the line, so they are answered here instead — by the
+// SAME server call the save runs, minus the save.
+const quoted = ref(null);
+const quoteErr = ref("");
+let quoteTimer = null;
+function priced(i) {
+  const q = quoted.value;
+  if (!q || !Array.isArray(q.items)) return null;
+  const typed = (editItems.value[i]?.item_code || "").trim();
+  if (!typed) return null;
+  return q.items.find((x) => x.typed === typed) || null;
+}
+async function runQuote() {
+  const name = editFor.value;
+  if (!name) return;
+  const items = editItems.value
+    .filter((x) => (x.item_code || "").trim())
+    .map((x) => ({ item_code: x.item_code.trim(), qty: x.qty || 1, rate: x.rate || 0 }));
+  try {
+    quoted.value = await api("exchange.quote", { name, items, reason: editReason.value });
+    quoteErr.value = "";
+  } catch (e) {
+    // An unknown code is the common case while still typing — say so on the
+    // row rather than clearing the money line to a silent blank.
+    quoted.value = null;
+    quoteErr.value = String(e?.message || e || "");
+  }
+}
+function quoteSoon(delay = 400) {
+  clearTimeout(quoteTimer);
+  quoteTimer = setTimeout(runQuote, typeof delay === "number" ? delay : 400);
+}
+watch(editReason, () => quoteSoon(0));
+const settleText = computed(() => {
+  const q = quoted.value;
+  if (!q) return t("ex.settleWorking");
+  const d = Math.round(q.difference || 0);
+  if (!d) return t("ex.settleNone");
+  return (d > 0 ? t("ex.settleCollect") : t("ex.settleRefund"))
+    .replace("{n}", String(Math.abs(d)));
+});
+const settleTone = computed(() => {
+  const d = Math.round(quoted.value?.difference || 0);
+  if (!quoted.value) return "text-stone-400";
+  if (!d) return "text-emerald-700";
+  return d > 0 ? "text-amber-700" : "text-rose-700";
+});
+const settleIcon = computed(() => {
+  const d = Math.round(quoted.value?.difference || 0);
+  if (!quoted.value) return "clock";
+  if (!d) return "check-circle";
+  return d > 0 ? "arrow-down-left" : "arrow-up-right";
+});
+
 let qTimer = null;
 function debouncedLoad() {
   clearTimeout(qTimer);
@@ -272,8 +364,13 @@ async function start() {
 function toggleEdit(r) {
   if (editFor.value === r.name) { editFor.value = ""; return; }
   editFor.value = r.name;
-  editItems.value = [{ item_code: "", qty: 1, rate: 0 }];
+  // rate null, never 0: the box has to LOOK empty for "leave it blank and we
+  // use the last price" to be true. A literal 0 read as "this is free".
+  editItems.value = [{ item_code: "", qty: 1, rate: null }];
   editReason.value = r.reason || "";
+  quoted.value = null;
+  quoteErr.value = "";
+  quoteSoon(0);
 }
 
 async function saveItems(r) {
