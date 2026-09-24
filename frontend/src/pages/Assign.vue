@@ -343,10 +343,15 @@ async function doAssign(pid) {
       picker: picker?.email || undefined,
     });
     orderNos.forEach((no) => { assign[no] = pid; });
-    const nSkip = (res.skipped || []).length;
+    const skipped = res.skipped || [];
     success(
       `${res.orders} assigned → ${picker?.short || pid}`,
-      `${res.pl}` + (nSkip ? ` · ${nSkip} skipped` : ""),
+      `${res.pl}`
+        + (skipped.length
+            ? ` · ${skipped.length} skipped — `
+              + skipped.slice(0, 2).map((k) => `${k.order}: ${k.reason}`).join(" · ")
+              + (skipped.length > 2 ? " …" : "")
+            : ""),
     );
     clearSelection();
   } catch (e) {

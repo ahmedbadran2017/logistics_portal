@@ -1146,13 +1146,22 @@ def _pick_gate(name):
         return "unknown order"
     so = frappe.db.get_value(
         "Sales Order", name,
-        ["docstatus", "custom_sales_status", "custom_logistics_status"], as_dict=True)
+        ["docstatus", "custom_sales_status", "custom_logistics_status",
+         "per_picked"], as_dict=True)
     if so.docstatus != 1 or so.custom_sales_status != "Confirmed":
         return "not a submitted Confirmed order"
     if so.custom_logistics_status not in (None, "", "Pending"):
         return f"already in the flow ({so.custom_logistics_status})"
     if frappe.db.exists("Pick List Item", {"sales_order": name, "docstatus": ["<", 2]}):
         return "already on a pick list"
+    # The gate that was missing, and the reason a twenty-order batch died on
+    # one row. ERPNext's validate_sales_order_percentage refuses the WHOLE
+    # pick list when any line's order is at per_picked = 100, and says only
+    # "Row #42: item ... has been picked already" — an item nobody can act on,
+    # for an order it never names. Catching it here skips that one order and
+    # builds the other nineteen, which is what this gate exists to do.
+    if flt(so.per_picked) >= 100:
+        return "ERPNext counts it fully picked already — reset it before picking"
     # The 24h cool-down that used to live here is gone. It marked the ORDER
     # for something that was true of a SHELF: it blocked 38 of the 40 orders
     # the board called ready, while the next order carrying the same item

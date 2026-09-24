@@ -1296,11 +1296,18 @@ async function createPL() {
     const res = await apiPost("picking.create_pick_list_from_orders", {
       orders: Array.from(selected.value),
     });
-    const nSkip = (res.skipped || []).length;
+    const skipped = res.skipped || [];
     const nPls = (res.pls || [res.pl]).length;
     const title = nPls > 1 ? `${nPls} pick lists created` : `Pick List ${res.pl} created`;
+    // Name them and say why. "3 skipped (out of stock / already picked)" made
+    // the dispatcher guess which three and which of the two reasons, and the
+    // real reason is often neither.
     const detail = `${res.orders} orders · ${res.items} items — draft, ready to assign`
-      + (nSkip ? ` · ${nSkip} skipped (out of stock / already picked)` : "");
+      + (skipped.length
+          ? ` · ${skipped.length} skipped — `
+            + skipped.slice(0, 3).map((k) => `${k.order}: ${k.reason}`).join(" · ")
+            + (skipped.length > 3 ? " …" : "")
+          : "");
     success(title, detail);
     selected.value = new Set();
     load("to_pick");
