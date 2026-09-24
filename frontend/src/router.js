@@ -146,6 +146,7 @@ const routes = [
       { path: "move", name: "MoveStock", component: () => import("@/pages/MoveStock.vue") },
       { path: "goods-in", name: "GoodsIn", component: () => import("@/pages/GoodsIn.vue") },
       { path: "crossdock-in", name: "CrossdockIn", component: () => import("@/pages/CrossdockIn.vue") },
+      { path: "supplier-pickup", name: "SupplierPickup", component: () => import("@/pages/SupplierPickup.vue") },
       { path: "count", name: "CycleCount", component: () => import("@/pages/CycleCount.vue") },
       // The manager's view OF the counting campaign (the screen above is the
       // floor's view FROM inside it).

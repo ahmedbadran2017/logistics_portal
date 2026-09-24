@@ -65,6 +65,7 @@ export const ROLE_CONFIG = {
           { to: "Inventory", label: "nav.stock", icon: "boxes" },
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
           { to: "CrossdockIn", label: "nav.crossdockIn", icon: "truck" },
+          { to: "SupplierPickup", label: "nav.supplierPickup", icon: "rotate-ccw" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
           { to: "CycleCount", label: "nav.count", icon: "list-checks" },
           { to: "ZoneSurvey", label: "nav.zoneSurvey", icon: "map-pin" },
@@ -136,6 +137,7 @@ export const ROLE_CONFIG = {
           { to: "Inventory", label: "nav.stock", icon: "boxes" },
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
           { to: "CrossdockIn", label: "nav.crossdockIn", icon: "truck" },
+          { to: "SupplierPickup", label: "nav.supplierPickup", icon: "rotate-ccw" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
           { to: "CycleCount", label: "nav.count", icon: "list-checks" },
           { to: "ZoneSurvey", label: "nav.zoneSurvey", icon: "map-pin" },
@@ -337,6 +339,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
           { to: "CrossdockIn", label: "nav.crossdockIn", icon: "truck" },
+          { to: "SupplierPickup", label: "nav.supplierPickup", icon: "rotate-ccw" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
           { to: "CycleCount", label: "nav.count", icon: "list-checks" },
           { to: "ShelfLabels", label: "nav.shelfLabels", icon: "printer" },
