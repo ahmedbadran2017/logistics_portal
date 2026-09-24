@@ -1487,6 +1487,20 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
               AND (so.custom_awb IS NULL OR so.custom_awb='') AND so.creation >= %s
             ORDER BY so.modified DESC LIMIT 30""", (dw,), as_dict=True):
             out.append(_row(r, pl=r.pl, picker=r.picker, kind="no_awb"))
+        # Confirmed, waiting, on no list — and ERPNext will refuse to put them
+        # on one, because per_picked is already 100. They look like ordinary
+        # to-pick work and can never be picked; worse, selecting one kills the
+        # whole batch it is in. Never visible anywhere before 2026-09-24.
+        for r in frappe.db.sql(f"""SELECT {_so_fields()}, 'picked_never_listed' kind
+            FROM `tabSales Order` so {addr}
+            WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
+              AND COALESCE(so.custom_logistics_status,'') IN ('','Pending')
+              AND so.per_picked >= 100 AND so.creation >= %s
+              AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
+                   JOIN `tabPick List` p ON p.name = pli.parent AND p.docstatus < 2
+                   WHERE pli.sales_order = so.name)
+            ORDER BY so.modified DESC LIMIT 30""", (dw,), as_dict=True):
+            out.append(_row(r, kind="picked_never_listed"))
         for r in frappe.db.sql(f"""SELECT {_so_fields()}, 'sync_lag' kind FROM `tabSales Order` so {addr}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Shipped'
@@ -2074,6 +2088,46 @@ def merge_orders(orders, force=0):
         return _do_merge(names, force=frappe.utils.cint(force))
 
 
+def _reset_fulfilment_state(doc):
+    """Strip the SOURCE order's fulfilment history off a fresh copy.
+
+    `frappe.copy_doc` takes `ignore_no_copy=True` by DEFAULT — its own
+    docstring reads "No_copy fields also get copied" — so every field ERPNext
+    marks no_copy, including `per_picked` and the rows' `picked_qty`, rides
+    along. A reship of a parcel that already shipped is therefore born at
+    per_picked = 100, and ERPNext's Pick List refuses it:
+
+        validate_sales_order_percentage ->
+        "Row #{}: item {} has been picked already."
+
+    That is thrown for the WHOLE pick list, so one such order silently kills a
+    twenty-order batch the dispatcher just built (observed 2026-09-23, four
+    reships from one evening). The order itself can never be picked again.
+
+    Flipping copy_doc to ignore_no_copy=False would fix it and break more: on
+    Sales Order that also clears naming_series, transaction_date, delivery_date
+    and title, which the copy needs. So the reset is explicit and narrow —
+    the counters that gate fulfilment, plus the stamps that describe a journey
+    the new order has not taken."""
+    for f in ("per_picked", "per_delivered", "per_billed", "advance_paid",
+              "delivery_status", "billing_status",
+              # stage stamps: they belong to the parcel that already went out
+              "custom_picked_at", "custom_labeled_at", "custom_shipped_at",
+              "custom_delivered_at", "custom_returned_at", "custom_packed_at",
+              "custom_packed_by", "custom_short_picked_at",
+              # and the attention the original earned, not this one
+              "custom_urgent_at", "custom_urgent_by", "custom_urgent_reason",
+              "custom_call_attempts", "custom_next_call_at", "custom_last_call_at",
+              "custom_first_touch_by", "custom_first_touch_at"):
+        if doc.meta.has_field(f):
+            doc.set(f, None)
+    for row in (doc.get("items") or []):
+        for f in ("picked_qty", "delivered_qty", "returned_qty", "billed_amt",
+                  "stock_reserved_qty", "ordered_qty", "work_order_qty"):
+            if row.meta.has_field(f):
+                row.set(f, 0)
+
+
 def _strip_external_identity(doc):
     """A copied Sales Order must NOT inherit the source's external identity.
     ecommerce_integrations hooks Sales Order autoname and names the doc from
@@ -2139,6 +2193,7 @@ def _do_merge(names, force=0):
     docs.sort(key=lambda d: d.creation)
     base = frappe.copy_doc(docs[0])
     _strip_external_identity(base)
+    _reset_fulfilment_state(base)
     for extra in docs[1:]:
         for it in extra.items:
             base.append("items", {
@@ -2346,6 +2401,7 @@ def reship(order, items=None, free=0, reason=None):
 
     new = frappe.copy_doc(so)
     _strip_external_identity(new)
+    _reset_fulfilment_state(new)
     new.custom_sales_status = "Confirmed"
     for f in ("custom_logistics_status",):
         if new.meta.has_field(f):

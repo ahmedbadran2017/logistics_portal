@@ -870,7 +870,8 @@ _POOL_WHERE = f"""so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
                  AND NOT {_BAD_CITY}
                  AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
                                  JOIN `tabPick List` p ON p.name = pli.parent
-                                 WHERE pli.sales_order = so.name AND p.docstatus < 2)"""
+                                 WHERE pli.sales_order = so.name AND p.docstatus < 2)
+                 AND COALESCE(so.per_picked, 0) < 100"""
 
 # The city FENCE (2026-09-11, Ahmed's call): an order whose city Cathedis
 # has refused — or that our AWB history has never successfully labeled —
