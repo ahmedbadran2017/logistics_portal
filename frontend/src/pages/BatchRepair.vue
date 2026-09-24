@@ -298,6 +298,61 @@
       </template>
     </div>
 
+    <!-- ═══ Sibling four: orders ERPNext counts as picked that nothing picked ═══ -->
+    <div v-if="pk" class="space-y-4 pt-2">
+      <div class="flex items-center gap-2">
+        <Icon name="package-x" :size="15" class="text-rose-500" />
+        <h2 class="text-[15px] font-bold text-stone-900">{{ t('brepair.pkTitle') }}</h2>
+      </div>
+      <p class="text-[12.5px] text-stone-500 -mt-2">{{ t('brepair.pkHint') }}</p>
+
+      <div v-if="!pk.stuck" class="bg-white rounded-xl ring-1 ring-emerald-200/70 p-6 text-center">
+        <Icon name="check-circle" :size="20" class="mx-auto mb-1.5 text-emerald-500" />
+        <div class="text-[13px] font-semibold text-stone-800">{{ t('brepair.pkClean') }}</div>
+      </div>
+      <template v-else>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-white rounded-xl ring-1 ring-rose-200/70 p-4">
+            <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('brepair.pkCount') }}</div>
+            <div class="text-[24px] font-extrabold tabular-nums text-rose-600 mt-1">{{ fmt(pk.stuck) }}</div>
+          </div>
+          <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4">
+            <div class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t('brepair.pkMad') }}</div>
+            <div class="text-[24px] font-extrabold tabular-nums text-stone-900 mt-1">{{ fmt(pk.mad) }}</div>
+          </div>
+        </div>
+        <div v-if="(pk.sample || []).length" class="bg-white rounded-xl ring-1 ring-stone-200/70 divide-y divide-stone-100">
+          <div v-for="r in pk.sample" :key="r.order" class="px-4 py-2 flex items-center gap-3 text-[12px] tabular-nums">
+            <span class="font-mono text-stone-800 truncate">{{ r.order }}</span>
+            <span v-if="r.city" class="text-stone-500 truncate">{{ r.city }}</span>
+            <span class="ms-auto text-stone-700"><b>{{ fmt(r.mad) }}</b> MAD</span>
+            <span class="text-stone-400">{{ r.since }}</span>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl ring-1 ring-stone-200/70 p-4 flex items-center gap-2 flex-wrap">
+          <span class="text-[12px] text-stone-500">{{ t('brepair.limitLabel') }}</span>
+          <button v-for="n in [1, 50, 500]" :key="n"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold tabular-nums ring-1 transition-colors"
+                  :class="pkLimit === n ? 'text-white bg-[var(--accent-600)] ring-[var(--accent-600)]' : 'text-stone-700 bg-white ring-stone-200 hover:bg-stone-50'"
+                  @click="pkLimit = n">{{ n }}</button>
+          <button
+            class="h-9 px-4 rounded-lg text-[13px] font-semibold transition-colors disabled:opacity-50 ms-auto"
+            :class="pkArmed ? 'text-white bg-rose-600' : 'text-white bg-[var(--accent-600)] hover:bg-[var(--accent-700)]'"
+            :disabled="pkBusy" @click="doPickedReset">
+            <span class="inline-flex items-center gap-1.5">
+              <Icon name="rotate-ccw" :size="14" />
+              {{ pkBusy ? t('brepair.pkResetting') : pkArmed ? t('brepair.pkSure').replace('{n}', String(pkLimit)) : t('brepair.pkBtn').replace('{n}', String(pkLimit)) }}
+            </span>
+          </button>
+        </div>
+        <div v-if="pkRes" class="bg-white rounded-xl ring-1 ring-emerald-200/70 px-4 py-2.5 flex items-center gap-2 flex-wrap">
+          <Icon name="check-circle" :size="14" class="text-emerald-600" />
+          <span class="text-[12px] font-semibold text-stone-900">{{ t('brepair.pkDoneLine').replace('{n}', fmt(pkRes.reset)) }}</span>
+          <span v-if="pkRes.failed" class="text-[11.5px] text-rose-600 font-medium">{{ t('brepair.resultFailed').replace('{n}', String(pkRes.failed)) }}</span>
+        </div>
+      </template>
+    </div>
+
     <!-- ═══ Sibling three: the ledger chain that disagrees with itself ═══ -->
     <div v-if="chain" class="space-y-4 pt-2">
       <div class="flex items-center gap-2">
@@ -377,6 +432,12 @@ const sc = ref(null);
 const radar = ref(null);
 const res = ref(null);
 const sre = ref(null);
+const pk = ref(null);
+const pkLimit = ref(1);
+const pkArmed = ref(false);
+const pkBusy = ref(false);
+const pkRes = ref(null);
+let pkArmT = null;
 const rr = ref(null);
 const rrLimit = ref(1);
 const rrArmed = ref("");
@@ -455,6 +516,30 @@ async function doSreRelease() {
     sreBusy.value = false;
   }
 }
+async function doPickedReset() {
+  // Two presses, like every other repair here: this rewrites a counter on a
+  // submitted order, and the second press is the only thing between a slip
+  // and 500 orders.
+  if (!pkArmed.value) {
+    pkArmed.value = true;
+    clearTimeout(pkArmT);
+    pkArmT = setTimeout(() => { pkArmed.value = false; }, 4000);
+    return;
+  }
+  pkArmed.value = false;
+  pkBusy.value = true;
+  try {
+    const r = await apiPost("batch_repair.picked_reset", { limit: pkLimit.value });
+    pkRes.value = r;
+    success(t("brepair.pkDone"), t("brepair.pkDoneLine").replace("{n}", fmt(r.reset)));
+    pk.value = await api("batch_repair.picked_scan");
+  } catch (e) {
+    warn(t("brepair.pkFail"), String(e.message || e));
+  } finally {
+    pkBusy.value = false;
+  }
+}
+
 const probes = ref({});
 const probing = ref("");
 const draft = ref(null);
@@ -474,6 +559,7 @@ async function load() {
   try { draft.value = await api("picking.draft_radar"); } catch (e) { draft.value = null; }
   sc.value = await liveOr(null, () => api("batch_repair.scan"));
   sre.value = await liveOr(null, () => api("batch_repair.sre_scan"));
+  pk.value = await liveOr(null, () => api("batch_repair.picked_scan"));
   chain.value = await liveOr(null, () => api("batch_repair.ledger_chain_scan"));
   rr.value = await liveOr(null, () => api("returns_repair.scan"));
   loading.value = false;

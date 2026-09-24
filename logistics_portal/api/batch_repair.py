@@ -454,3 +454,101 @@ def ledger_chain_repair(warehouse="Return Zone - JM", limit=1):
     return {"ok": True, "queued": made, "skippedAlreadyQueued": skipped,
             "note": "Reposts run in the background scheduler; re-scan in a "
                     "few minutes to watch the broken count fall."}
+
+
+# ---------------------------------------------------------------------------
+# Orders ERPNext counts as fully picked that are on no pick list.
+#
+# frappe.copy_doc takes ignore_no_copy=True by default ("No_copy fields also
+# get copied"), so a reship inherits the ORIGINAL parcel's per_picked and
+# picked_qty and is born at 100%. ERPNext's validate_sales_order_percentage
+# then refuses any pick list containing it — the whole list, naming only an
+# item — so one such order destroys the batch a dispatcher just built, and the
+# order itself can never be picked. The copy is fixed at source; this clears
+# the ones already written.
+#
+# The fence is deliberately tight. Zeroing a fulfilment counter on an order
+# that really WAS picked would let the floor pick it a second time, so this
+# touches only orders that are still waiting at the start of the journey:
+# Pending, on no live list, nothing delivered, and no Delivery Note anywhere.
+# Reships already at Label Generated are NOT in scope — they are moving, and
+# their counters are not blocking anything.
+# ---------------------------------------------------------------------------
+_PICKED_STUCK = """
+    FROM `tabSales Order` so
+    WHERE so.docstatus = 1
+      AND so.custom_sales_status = 'Confirmed'
+      AND COALESCE(so.custom_logistics_status, '') IN ('', 'Pending')
+      AND so.per_picked >= 100
+      AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
+                      JOIN `tabPick List` p ON p.name = pli.parent AND p.docstatus < 2
+                      WHERE pli.sales_order = so.name)
+      AND NOT EXISTS (SELECT 1 FROM `tabSales Order Item` si
+                      WHERE si.parent = so.name AND COALESCE(si.delivered_qty, 0) > 0)
+      AND NOT EXISTS (SELECT 1 FROM `tabDelivery Note Item` dni
+                      JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus < 2
+                      WHERE dni.against_sales_order = so.name)
+"""
+
+
+@frappe.whitelist()
+def picked_scan():
+    """The evidence: orders the pick list will refuse, that nothing has picked."""
+    _gate()
+    tot = frappe.db.sql(
+        f"SELECT COUNT(*), COALESCE(SUM(so.grand_total), 0) {_PICKED_STUCK}")[0]
+    sample = frappe.db.sql(
+        f"""SELECT so.name, so.per_picked, so.grand_total, DATE(so.creation),
+                   COALESCE(so.custom_shipping_city, '')
+            {_PICKED_STUCK} ORDER BY so.creation LIMIT 20""")
+    return {
+        "stuck": int(tot[0] or 0),
+        "mad": round(float(tot[1] or 0), 2),
+        "sample": [{"order": r[0], "perPicked": round(float(r[1] or 0)),
+                    "mad": round(float(r[2] or 0), 2), "since": str(r[3]),
+                    "city": (r[4] or "").title()} for r in sample],
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def picked_reset(limit=50):
+    """Zero picked_qty / per_picked on up to `limit` of them (oldest first).
+
+    Direct SQL: the orders are submitted, so a save() is not available, and
+    ERPNext recomputes per_picked from the rows on the next pick anyway. Each
+    order gets a Comment, because a counter that changes with no trail is how
+    the next person loses a day."""
+    _gate()
+    limit = min(max(int(limit or 50), 1), 500)
+    names = [r[0] for r in frappe.db.sql(
+        f"SELECT so.name {_PICKED_STUCK} ORDER BY so.creation LIMIT %s", (limit,))]
+    if not names:
+        return {"reset": 0, "failed": 0, "orders": []}
+    done, failed = [], 0
+    for nm in names:
+        try:
+            frappe.db.sql(
+                """UPDATE `tabSales Order Item`
+                      SET picked_qty = 0, stock_reserved_qty = 0
+                    WHERE parent = %s""", (nm,))
+            frappe.db.sql(
+                "UPDATE `tabSales Order` SET per_picked = 0 WHERE name = %s", (nm,))
+            try:
+                frappe.get_doc("Sales Order", nm).add_comment(
+                    "Comment",
+                    "Pick counters reset: the order was copied from one that had "
+                    "already shipped, so ERPNext counted it fully picked and "
+                    "refused every pick list it was put on. Nothing was ever "
+                    f"picked for it · by {frappe.session.user}")
+            except Exception:
+                pass
+            done.append(nm)
+        except Exception:
+            failed += 1
+            frappe.log_error(frappe.get_traceback(), "batch_repair.picked_reset")
+    frappe.db.commit()
+    cache = frappe.cache()
+    for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+        cache.delete_value(k)
+    cache.delete_keys("lp_suggest")
+    return {"reset": len(done), "failed": failed, "orders": done[:20]}
