@@ -175,6 +175,17 @@ def resolve(code, supplier=None):
     the oldest waiting order (of this supplier, if one is open) that needs it."""
     _gate()
     code = (code or "").strip()
+    # The supplier's printed handover sheet (supplier_portal "Supplier
+    # Handover", HO-YYYY-#####): opens exactly the orders on it.
+    if code.upper().startswith("HO-") and frappe.db.table_exists("Supplier Handover"):
+        h = frappe.db.get_value("Supplier Handover", code.upper(), ["name", "supplier", "orders", "status"],
+                                as_dict=True)
+        if not h or h.status == "Cancelled":
+            return {"ok": False, "reason": "unknown", "code": code}
+        sos = [o.get("so") for o in json.loads(h.orders or "[]") if o.get("so")]
+        waiting = {l.po for l in _expected_lines(supplier=h.supplier) if l.so in sos}
+        return {"ok": True, "kind": "handover", "handover": h.name, "supplier": h.supplier,
+                "pos": sorted(waiting), "total": len(sos)}
     so = _norm_order(code)
     if so:
         lines = _expected_lines(so=so)

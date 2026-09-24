@@ -59,10 +59,21 @@
         <button class="h-9 px-3 rounded-lg text-[12px] font-semibold text-stone-600 bg-stone-100 hover:bg-stone-200" @click="closeSupplier">{{ t('cdi.change') }}</button>
       </div>
 
+      <!-- A scanned handover sheet: only its orders, unless widened -->
+      <div v-if="sheet" class="rounded-xl bg-[var(--accent-50)] ring-1 ring-[var(--accent-200)] px-4 py-2.5 flex items-center gap-3 flex-wrap">
+        <Icon name="clipboard-check" :size="15" class="text-[var(--accent-600)]" />
+        <span class="text-[12.5px] font-semibold text-stone-800">{{ t('cdi.sheet') }} <span class="font-mono">{{ sheet.name }}</span></span>
+        <span class="text-[11.5px] text-stone-500 tabular-nums">{{ sheet.pos.length }}/{{ sheet.total }} {{ t('cdi.sheetWaiting') }}</span>
+        <label class="ms-auto flex items-center gap-1.5 text-[12px] text-stone-600 cursor-pointer">
+          <input type="checkbox" v-model="sheetOnly" /> {{ t('cdi.sheetOnly') }}
+        </label>
+        <button class="h-7 px-2.5 rounded-lg text-[11.5px] font-semibold text-emerald-700 bg-white ring-1 ring-emerald-200 hover:bg-emerald-50" @click="fillSheet">{{ t('cdi.fillSheet') }}</button>
+      </div>
+
       <p v-if="!loading && !orders.length" class="bg-white rounded-2xl ring-1 ring-stone-200/70 py-10 text-center text-[12.5px] text-stone-400">{{ t('cdi.noneWaiting') }}</p>
 
       <div class="space-y-2.5">
-        <div v-for="o in orders" :key="o.po" :id="'cdi-' + o.po"
+        <div v-for="o in shownOrders" :key="o.po" :id="'cdi-' + o.po"
              class="bg-white rounded-2xl ring-1 shadow-sm overflow-hidden transition-all"
              :class="[o.problem ? 'ring-rose-300' : orderCount(o) >= o.pending ? 'ring-emerald-300' : orderCount(o) ? 'ring-amber-300' : 'ring-stone-200/70',
                       flash === o.po ? 'ring-2 ring-[var(--accent-500)]' : '']">
@@ -167,6 +178,10 @@ const note = ref("");
 const busy = ref(false);
 const armed = ref(false);
 const flash = ref("");
+const sheet = ref(null);        // { name, pos: [po], total } — a scanned handover sheet
+const sheetOnly = ref(true);
+const shownOrders = computed(() =>
+  sheet.value && sheetOnly.value ? orders.value.filter((o) => sheet.value.pos.includes(o.po)) : orders.value);
 
 const orderCount = (o) => o.lines.reduce((s, l) => s + (l.qty || 0), 0);
 const entries = computed(() => orders.value
@@ -196,6 +211,7 @@ async function openSupplier(name, keep = false) {
   loading.value = true;
   try {
     const r = await api("crossdock_in.supplier_orders", { supplier: name });
+    if (supplier.value !== name) sheet.value = null;
     supplier.value = name;
     orders.value = (r.orders || []).map((o) => ({ ...o, problem: null, lines: o.lines.map((l) => ({ ...l, qty: 0 })) }));
   } catch (e) {
@@ -207,10 +223,11 @@ async function openSupplier(name, keep = false) {
 }
 
 function closeSupplier() {
-  supplier.value = ""; orders.value = []; note.value = "";
+  supplier.value = ""; orders.value = []; note.value = ""; sheet.value = null;
   setTimeout(() => scanner.value?.refocus(), 50);
 }
 
+function fillSheet() { shownOrders.value.forEach(fillOrder); }
 function fillOrder(o) { o.lines.forEach((l) => { l.qty = l.pending; }); }
 function clearOrder(o) { o.lines.forEach((l) => { l.qty = 0; }); }
 function clampLine(l) { l.qty = Math.max(0, Math.min(l.pending, Number(l.qty) || 0)); }
@@ -235,16 +252,26 @@ async function onScan(raw) {
     return;
   }
   if (res.supplier !== supplier.value) await openSupplier(res.supplier);
+  if (res.kind === "handover") {
+    sheet.value = { name: res.handover, pos: res.pos || [], total: res.total || 0 };
+    sheetOnly.value = true;
+    scanner.value?.showSuccess(`${res.handover} · ${(res.pos || []).length}/${res.total}`);
+    return;
+  }
   if (res.kind === "order") {
     scanner.value?.showSuccess(res.so);
     highlight(res.po);
     return;
   }
-  // A piece: the oldest waiting order that still has room for it.
-  for (const tgt of res.targets) {
+  // A piece: the oldest waiting order that still has room for it — the
+  // scanned sheet's orders first.
+  const onSheet = (p) => (sheet.value && sheet.value.pos.includes(p) ? 0 : 1);
+  const targets = [...res.targets].sort((a, b) => onSheet(a.po) - onSheet(b.po));
+  for (const tgt of targets) {
     const o = orders.value.find((x) => x.po === tgt.po);
     const l = o?.lines.find((x) => x.poItem === tgt.poItem);
     if (l && (l.qty || 0) < l.pending) {
+      if (sheet.value && !sheet.value.pos.includes(o.po)) sheetOnly.value = false;
       l.qty = (l.qty || 0) + 1;
       scanner.value?.showSuccess(`${o.so} · ${res.name} · ${l.qty}/${l.pending}`);
       highlight(o.po);
@@ -268,8 +295,13 @@ async function post() {
       warn(t("cdi.someFailed"), res.failed.map((f) => `${f.po}: ${f.error}`).join(" · "));
     }
     const current = supplier.value;
+    const keepSheet = sheet.value;
     await loadBoot();
     await openSupplier(current);
+    if (keepSheet) {
+      const still = new Set(orders.value.map((o) => o.po));
+      sheet.value = { ...keepSheet, pos: keepSheet.pos.filter((p) => still.has(p)) };
+    }
   } catch (e) {
     warn(t("cdi.someFailed"), String(e.message || e));
   } finally {
