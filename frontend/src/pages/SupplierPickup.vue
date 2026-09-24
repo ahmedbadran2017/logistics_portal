@@ -89,7 +89,8 @@
               <div class="text-[10.5px] text-stone-400 truncate"><span class="font-mono">{{ l.sku || l.itemCode }}</span> · {{ l.so }} · {{ t('spk.back') }} {{ l.returnedOn }}</div>
             </div>
             <span v-if="!l.returnable" class="text-[10.5px] font-semibold rounded px-1.5 py-0.5 bg-stone-200 text-stone-600 whitespace-nowrap">{{ t('spk.noReceipt') }}</span>
-            <span v-else-if="!l.source" class="text-[10.5px] font-semibold rounded px-1.5 py-0.5 bg-amber-100 text-amber-800 whitespace-nowrap">{{ t('spk.noStock') }}</span>
+            <span v-else-if="!l.source" class="text-[10.5px] font-semibold rounded px-1.5 py-0.5 bg-amber-100 text-amber-800 whitespace-nowrap"
+                  :title="l.elsewhere ? t('spk.elsewhere') + ' ' + l.elsewhere : ''">{{ t('spk.noStock') }}<template v-if="l.elsewhere"> · {{ short(l.elsewhere) }}</template></span>
             <span v-else class="text-[10.5px] font-mono rounded px-1.5 py-0.5 bg-stone-100 text-stone-600 whitespace-nowrap">{{ short(l.source) }}</span>
             <span class="text-[13px] font-bold tabular-nums w-8 text-end">×{{ l.qty }}</span>
           </div>

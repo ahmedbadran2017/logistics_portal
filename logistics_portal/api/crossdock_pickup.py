@@ -12,8 +12,8 @@ team booked each hand-back by hand in Desk (304 Purchase Receipt returns in
   * scan each piece as it is handed over (or tick it), write who collects.
   * one "Hand over" books a Purchase Receipt return per original receipt
     (make_return_doc — rates, PO link and accounting from the original),
-    out of the bin that actually holds the piece: Return Zone first, then
-    where the return was received, then any bin with it.
+    out of the RETURN bin that holds the piece (Return Zone first) — never
+    a shelf or stock zone, whose units are sellable stock.
   * the supplier portal flips those lines to "Collected" on its own.
 
 Lines with no original receipt (old orders, shipped without one) cannot be
@@ -103,9 +103,17 @@ def _waiting_lines(supplier=None):
     return out
 
 
+def _is_return_bin(wh):
+    n = (wh or "").lower()
+    return ("return" in n or "retour" in n) and "adjustment" not in n
+
+
 def _attach_sources(lines):
-    """Where each piece physically is: Return Zone, else where the return was
-    received, else any bin holding it."""
+    """Where each piece physically is — only among RETURN bins: the Return
+    Zone, else the bin the return was received into, else any other return
+    bin. Never a shelf or a stock zone: a unit there is sellable stock, and
+    handing it over would give the supplier our inventory. When the piece is
+    only elsewhere, `elsewhere` says where, for a manager to move it first."""
     items = list({l["itemCode"] for l in lines})
     if not items:
         return
@@ -117,13 +125,16 @@ def _attach_sources(lines):
     for l in lines:
         have = bins.get(l["itemCode"], {})
         src = None
-        for wh in [RETURN_WH, l["returnedTo"]] + sorted(have, key=lambda w: -have[w]):
+        cands = [RETURN_WH] + ([l["returnedTo"]] if _is_return_bin(l["returnedTo"]) else []) \
+            + sorted([w for w in have if _is_return_bin(w)], key=lambda w: -have[w])
+        for wh in cands:
             if wh and have.get(wh, 0) - used.get((l["itemCode"], wh), 0) >= l["qty"]:
                 src = wh
                 break
         if src:
             used[(l["itemCode"], src)] = used.get((l["itemCode"], src), 0) + l["qty"]
         l["source"] = src
+        l["elsewhere"] = None if src else (max(have, key=lambda w: have[w]) if have else None)
 
 
 @frappe.whitelist()
