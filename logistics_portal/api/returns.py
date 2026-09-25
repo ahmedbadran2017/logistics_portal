@@ -1103,3 +1103,155 @@ def guard_over_return(doc, method=None):
                 f"but {int(already.get(code, 0))} already returned and this "
                 f"document adds {int(q)}. A piece can only come back as many "
                 "times as it went out.")
+
+
+@frappe.whitelist()
+def return_sheet(name=None):
+    """The carrier handover sheet for a receiving batch, parcel by parcel.
+
+    The counterpart of shipping.manifest_sheet, and the missing half of the
+    return loop: the floor signs for what the driver brings back, but until now
+    it had nothing on paper to sign. A scanned batch lives only on a screen, so
+    a short delivery is a memory against the driver's own list.
+
+    Prints for a DRAFT on purpose — that is the moment it is needed, with the
+    driver standing there — and says so on the page. `missing` is the count the
+    argument is actually about: ordered by the return, not in the van.
+
+    Defaults to today's open batch."""
+    _recv_gate()
+    if name:
+        if not frappe.db.exists("Return Shipment", name):
+            frappe.throw("Unknown return batch.")
+    else:
+        draft = frappe.get_all("Return Shipment",
+                               filters={"docstatus": 0,
+                                        "posting_date": frappe.utils.nowdate()},
+                               order_by="creation desc", limit=1)
+        if not draft:
+            frappe.throw("No open return batch today.")
+        name = draft[0].name
+    doc = frappe.get_doc("Return Shipment", name)
+
+    # One row per PARCEL (the unit the driver hands over), its lines beneath.
+    parcels, order = {}, []
+    for it in doc.items:
+        key = it.awb or it.delivery_note or "—"
+        if key not in parcels:
+            order.append(key)
+            parcels[key] = {"awb": it.awb or "", "dn": it.delivery_note or "",
+                            "order": "", "customer": "", "city": "",
+                            "lines": [], "ordered": 0, "actual": 0, "missing": 0,
+                            "value": 0.0}
+        p = parcels[key]
+        o_qty, a_qty = int(it.ordered_qty or 0), int(it.actual_qty or 0)
+        p["lines"].append({
+            "sku": it.sku or it.item_code or "",
+            "name": (it.item_name or it.item_code or "")[:60],
+            "ordered": o_qty, "actual": a_qty,
+            "missing": max(0, o_qty - a_qty)})
+        p["ordered"] += o_qty
+        p["actual"] += a_qty
+        p["missing"] += max(0, o_qty - a_qty)
+        p["value"] += float(it.item_rate or 0) * a_qty
+
+    # Customer/city per parcel, from the delivery note's order. One pass.
+    dns = [p["dn"] for p in parcels.values() if p["dn"]]
+    if dns:
+        for r in frappe.db.sql(
+                """SELECT dni.parent dn, MAX(dni.against_sales_order) so_name
+                   FROM `tabDelivery Note Item` dni
+                   WHERE dni.parent IN %s GROUP BY dni.parent""",
+                (tuple(dns),), as_dict=True):
+            so = frappe.db.get_value(
+                "Sales Order", r.so_name,
+                ["customer_name", "custom_shipping_city"], as_dict=True) or {}
+            for p in parcels.values():
+                if p["dn"] == r.dn:
+                    p["order"] = r.so_name or ""
+                    p["customer"] = so.get("customer_name") or ""
+                    p["city"] = (so.get("custom_shipping_city") or "").strip().title()
+
+    rows = [parcels[k] for k in order]
+    return {
+        "batch": doc.name,
+        "date": str(doc.posting_date or "")[:10],
+        "status": "submitted" if doc.docstatus == 1 else "draft",
+        "carrier": (doc.shipping_company or "cathedis").upper(),
+        "parcels": len(rows),
+        "ordered": sum(r["ordered"] for r in rows),
+        "actual": sum(r["actual"] for r in rows),
+        "missing": sum(r["missing"] for r in rows),
+        "value": round(sum(r["value"] for r in rows), 2),
+        "rows": rows,
+    }
+
+
+@frappe.whitelist()
+def shipments(days=30, q="", limit=30, offset=0, only_short=0):
+    """The Return Shipments board — every receiving batch, newest first.
+
+    The batches existed as a tab inside the returns workspace, which is where a
+    document with its own money, its own shortages and its own paper trail goes
+    to be overlooked. `only_short` is the filter the whole screen is for: the
+    batches where what came back did not match what was expected."""
+    _recv_gate()
+    days = min(max(int(days or 30), 1), 365)
+    limit = min(max(int(limit or 30), 1), 100)
+    offset = max(int(offset or 0), 0)
+    vals = {"days": days, "limit": limit, "offset": offset}
+    conds = ["rs.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(days)s DAY)"]
+    if int(only_short or 0):
+        conds.append("rs.total_missing_qty > 0")
+    if q and str(q).strip():
+        vals["q"] = f"%{str(q).strip()}%"
+        conds.append("""(rs.name LIKE %(q)s OR rs.owner LIKE %(q)s
+                         OR EXISTS (SELECT 1 FROM `tabReturn Shipment Item` ri
+                                    WHERE ri.parent = rs.name
+                                      AND (ri.awb LIKE %(q)s OR ri.sku LIKE %(q)s)))""")
+    where = " AND ".join(conds)
+
+    k = frappe.db.sql(
+        f"""SELECT COUNT(*) batches,
+                   COALESCE(SUM(rs.total_orders), 0) orders,
+                   COALESCE(SUM(rs.total_actual_qty), 0) units,
+                   COALESCE(SUM(rs.total_missing_qty), 0) missing,
+                   SUM(rs.total_missing_qty > 0) shortBatches,
+                   SUM(rs.docstatus = 0) openDrafts
+            FROM `tabReturn Shipment` rs WHERE {where}""", vals, as_dict=True)[0]
+    total = frappe.db.sql(
+        f"SELECT COUNT(*) FROM `tabReturn Shipment` rs WHERE {where}", vals)[0][0]
+    rows = frappe.db.sql(
+        f"""SELECT rs.name, rs.posting_date, rs.docstatus, rs.status, rs.owner,
+                   rs.total_orders, rs.total_ordered_qty, rs.total_actual_qty,
+                   rs.total_missing_qty, rs.return_percentage,
+                   rs.sales_returns_created, rs.shipping_company,
+                   (SELECT COUNT(DISTINCT COALESCE(NULLIF(ri.awb,''), ri.delivery_note))
+                    FROM `tabReturn Shipment Item` ri WHERE ri.parent = rs.name) parcels
+            FROM `tabReturn Shipment` rs WHERE {where}
+            ORDER BY rs.posting_date DESC, rs.modified DESC
+            LIMIT %(limit)s OFFSET %(offset)s""", vals, as_dict=True)
+    return {
+        "rows": [{
+            "no": r.name, "date": str(r.posting_date or "")[:10],
+            "status": "draft" if r.docstatus == 0 else (r.status or "Returned"),
+            "draft": r.docstatus == 0,
+            "carrier": (r.shipping_company or "cathedis").upper(),
+            "owner": (r.owner or "").split("@")[0],
+            "parcels": int(r.parcels or 0),
+            "orders": int(r.total_orders or 0),
+            "ordered": int(r.total_ordered_qty or 0),
+            "actual": int(r.total_actual_qty or 0),
+            "missing": int(r.total_missing_qty or 0),
+            "pct": round(float(r.return_percentage or 0), 1),
+            "srCreated": bool(r.sales_returns_created),
+        } for r in rows],
+        "total": int(total or 0), "days": days,
+        "kpis": {
+            "batches": int(k.batches or 0), "orders": int(k.orders or 0),
+            "units": int(k.units or 0), "missing": int(k.missing or 0),
+            "shortBatches": int(k.shortBatches or 0),
+            "openDrafts": int(k.openDrafts or 0),
+        },
+        "serverNow": str(frappe.utils.now_datetime())[:19],
+    }

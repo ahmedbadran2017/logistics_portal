@@ -15,6 +15,13 @@
               :class="state.missing > 0 ? 'text-amber-700 bg-amber-50 ring-amber-200' : 'text-emerald-700 bg-emerald-50 ring-emerald-200'">
           {{ state.actual }}/{{ state.ordered }} {{ t('recv.units') }}
         </span>
+        <!-- Printed while the driver is still here, not afterwards: a short
+             delivery is only arguable before the van leaves. -->
+        <button
+          class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[12px] font-semibold text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-100 disabled:opacity-50"
+          :disabled="printing" @click="printSheet">
+          <Icon name="printer" :size="14" />{{ printing ? t('recv.printing') : t('recv.printSheet') }}
+        </button>
       </div>
     </header>
 
@@ -140,6 +147,7 @@ import ScanInput from "@/components/ui/ScanInput.vue";
 import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
+import { printReturnSheet } from "@/lib/returnSheetPrint";
 
 const { t } = useI18n();
 const { success, warn } = useToast();
@@ -151,6 +159,21 @@ const closing = ref(false);
 const confirmClose = ref(false);
 
 const loadError = ref("");
+const printing = ref(false);
+
+async function printSheet() {
+  // Always the LIVE batch, fetched at press time — printing a stale copy of
+  // the screen is how a driver signs for a count that has since changed.
+  printing.value = true;
+  try {
+    const sheet = await api("returns.return_sheet", { name: state.value?.batch });
+    if (!printReturnSheet(sheet)) warn(t("recv.printBlocked"), "");
+  } catch (e) {
+    warn(t("recv.printFail"), String(e.message || e));
+  } finally {
+    printing.value = false;
+  }
+}
 
 // Parcels scanned in but not fully received — the ones at risk of being closed
 // out as "missing" when they're really just unscanned.

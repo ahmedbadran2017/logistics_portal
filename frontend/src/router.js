@@ -102,6 +102,9 @@ const routes = [
       // Returns
       { path: "returns", name: "Returns", component: () => import("@/pages/Returns.vue") },
       { path: "returns/receive", name: "ReturnReceiving", component: () => import("@/pages/ReturnReceiving.vue") },
+      // The receiving batches as DOCUMENTS — money, shortages and a paper
+      // trail — instead of a tab inside the returns workspace.
+      { path: "returns/shipments", name: "ReturnShipments", component: () => import("@/pages/ReturnShipments.vue") },
       { path: "returns/restock", name: "RestockZone", component: () => import("@/pages/RestockZone.vue") },
 
       // Manager

@@ -54,6 +54,7 @@ export const ROLE_CONFIG = {
           { to: "Exceptions", label: "nav.exceptions", icon: "alert-circle" },
           { to: "Returns", label: "nav.returns", icon: "rotate-ccw" },
           { to: "ReturnReceiving", label: "nav.receiving", icon: "package-check" },
+          { to: "ReturnShipments", label: "nav.returnShipments", icon: "clipboard-check" },
           { to: "RestockZone", label: "nav.restock", icon: "boxes" },
         ],
       },
@@ -330,6 +331,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "Returns", label: "nav.returns", icon: "rotate-ccw" },
           { to: "ReturnReceiving", label: "nav.receiving", icon: "package-check" },
+          { to: "ReturnShipments", label: "nav.returnShipments", icon: "clipboard-check" },
           { to: "RestockZone", label: "nav.restock", icon: "boxes" },
           { to: "Tracking", label: "nav.tracking", icon: "map-pin" },
         ],
