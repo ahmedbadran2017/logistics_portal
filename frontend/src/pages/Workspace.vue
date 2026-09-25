@@ -467,6 +467,19 @@
                     @click="panel = panel === 'cancel' ? '' : 'cancel'">
               <Icon name="x" :size="14" /><span>{{ t('rs.actCancel') }}</span> <kbd>4</kbd>
             </button>
+            <!-- The same order twice is the agent's call, and it was the one
+                 decision they could not take here. The board has had this
+                 button all along, but the board's inline actions are a
+                 manager instrument by design — agents decide in the
+                 Workspace, and the Workspace had no way to say "duplicate".
+                 So they went to the Desk: of the nine orders standing as
+                 Duplicated, every one was marked there and not one through
+                 the portal, by three agents who could not see this button.
+                 The server always allowed it; only the button was missing. -->
+            <button class="ws-decide flex-1 min-w-[130px] bg-violet-50 text-violet-700 ring-1 ring-violet-200 hover:bg-violet-100"
+                    :disabled="busy" @click="decide('duplicate')">
+              <Icon name="copy" :size="14" /><span>{{ t('cf.actDuplicate') }}</span> <kbd>5</kbd>
+            </button>
           </div>
 
           <!-- Not-Delivered decisions: Rescue's action set, run through
@@ -1455,6 +1468,7 @@ function onKey(e) {
   else if (c === "Digit2" || c === "Numpad2") decide("dna");
   else if (c === "Digit3" || c === "Numpad3") decide("followup");
   else if (c === "Digit4" || c === "Numpad4") panel.value = panel.value === "cancel" ? "" : "cancel";
+  else if (c === "Digit5" || c === "Numpad5") decide("duplicate");
   else if (c === "KeyD") panel.value = panel.value === "amend" ? "" : "amend";
   else if (c === "KeyF") panel.value = panel.value === "contact" ? "" : "contact";
   else if (c === "KeyM") panel.value = panel.value === "note" ? "" : "note";
