@@ -65,13 +65,20 @@
                           :custom-label="t('cityfix.useTyped')"
                           :none-text="t('cityfix.noCity')" />
           </div>
-          <button class="h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-40 shrink-0"
+          <!-- Saving alone is only an answer BEFORE the parcel is picked.
+               An in-flow parcel is past that: its label already failed, and
+               a city with no new label request leaves it exactly where it
+               was — which is why the row came back and the fix looked lost.
+               Measured 2026-09-25: 79 of the 89 orders someone saved twice
+               in a fortnight were in-flow, 119 of those repeats re-entering
+               the identical city. So in flow there is one button, and it is
+               the one that finishes the job. -->
+          <button v-if="!r.inFlow"
+                  class="h-9 px-4 rounded-lg text-[12.5px] font-semibold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-40 shrink-0"
                   :disabled="!pick[r.order] || busy === r.order" @click="save(r)">
             {{ t('px.common.save') }}
           </button>
-          <!-- In-flow parcels also need the AWB regenerated after the fix;
-               saves the picked city first when one is chosen. -->
-          <button v-if="r.inFlow"
+          <button v-else
                   class="h-9 px-3.5 rounded-lg text-[12.5px] font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 shrink-0 inline-flex items-center gap-1.5"
                   :disabled="busy === r.order" @click="fixAndRetry(r)">
             <Icon name="refresh-cw" :size="13" /> {{ t('cityfix.retryAwb') }}

@@ -2081,7 +2081,7 @@ export default {
     intro: "Commandes dont la ville d'expédition ne peut pas devenir une étiquette — définissez une ville valide pour l'expédition.",
     held: "hors préparation", warn: "encore préparable",
     blocked: "Bloquée", unmatched: "Non reconnue",
-    inFlow: "Préparée · sans AWB", retryAwb: "Relancer l'AWB", retried: "Relance AWB lancée",
+    inFlow: "Préparée · sans AWB", retryAwb: "Enregistrer et relancer", retried: "Relance AWB lancée",
     current: "Saisie", pickCity: "Définir la ville de livraison…",
     searchCity: "Rechercher une ville…", noCity: "Aucune ville correspondante",
     useTyped: 'Utiliser « {q} »',

@@ -2085,7 +2085,7 @@ export default {
     intro: "Orders whose shipping city the carrier can't turn into a label — set a valid city so they can ship.",
     held: "held from picking", warn: "still pickable",
     blocked: "Blocked", unmatched: "Unmatched",
-    inFlow: "Picked · no AWB", retryAwb: "Retry AWB", retried: "AWB retry started",
+    inFlow: "Picked · no AWB", retryAwb: "Save & get label", retried: "AWB retry started",
     current: "Entered", pickCity: "Set the delivery city…",
     searchCity: "Search a city…", noCity: "No matching city",
     useTyped: 'Use "{q}"',
