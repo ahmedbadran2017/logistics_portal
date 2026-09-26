@@ -1558,40 +1558,59 @@ def label_orphans():
 # Not the same question as the sort wall's handover gap, which is about parcels
 # still HERE that a closing manifest left behind. This one is the opposite and
 # worse: the parcel is gone. The carrier itself is the witness — it reports
-# movement on an AWB that sits on no submitted Shipment — so the proof arrives
-# only after the van has left, which is exactly why nothing has ever caught it.
+# movement on a parcel that sits on no manifest — so the proof arrives only
+# after the van has left, which is why nothing has ever caught it.
 #
-# Measured 2026-09-26 over 30 days: the carrier touched 9,285 orders and 9,097
-# of them (98%) were on a manifest, so the exceptions are an anomaly and not
-# background noise. 41 real-money orders worth 11,309 MAD were not, and 8 of
-# those — 5,003 MAD — were still in flight and could still be acted on.
+# Measured 2026-09-26 over 30 days: the carrier touched 9,285 orders and 8,958
+# of them were on a manifest, so the exceptions are an anomaly, not background.
 #
-# Exchanges are excluded by default. 15 of the 58 raw hits are `-ex` orders at
-# zero value that travel a different path; leaving them in would make more than
-# a third of the list something nobody should act on, and a radar that is a
-# third noise is a radar the floor stops opening.
+# Three things this got wrong on the first pass, all caught in audit:
+#
+# 1. DRAFT manifests count as handed. Requiring a SUBMITTED Shipment flagged
+#    #262303 — scanned onto SH-000282 that same morning, the manifest simply
+#    not closed yet. A parcel scanned at the door is not a parcel that slipped
+#    past it, and that row was the headline example.
+# 2. The correlated-EXISTS shape is the one the handover code was rewritten
+#    away from after it took the server down under load (2026-09-15). It cost
+#    2.55s for the count alone; one grouped pass and a join costs 0.54s and
+#    answers all three buckets at once.
+# 3. An order with NO delivery note cannot be on a Shipment at all, so the
+#    join hid it instead of flagging it. Seven real-money orders are sitting
+#    at Shipped with no note, no AWB and no carrier event — nothing behind
+#    them whatsoever. They are the worst of the three and were invisible.
+#
+# Exchanges are excluded by default: 15 of the raw hits are `-ex` orders at
+# zero value on a different path, and a radar that is a third noise is one the
+# floor stops opening.
 # ---------------------------------------------------------------------------
 _CARRIER_MOVED = ("In Transit", "Out for Delivery", "Out For Delivery", "Delivered",
                   "Received", "Failed", "Failed Attempt", "Returned", "Return",
                   "Delivery Exception")
 _SETTLED = ("Delivered", "Returned")
+# Delivery notes are posted around the order, not inside its creation window —
+# a 30-day order can carry a note posted later. The note window is wider on
+# purpose, or late notes read as orders that never had one.
+_DN_WINDOW_DAYS = 45
 
-_HAS_DN = """EXISTS (SELECT 1 FROM `tabDelivery Note Item` dni
-               JOIN `tabDelivery Note` d ON d.name = dni.parent AND d.docstatus = 1
-               WHERE dni.against_sales_order = so.name)"""
-_ON_MANIFEST = """EXISTS (SELECT 1 FROM `tabDelivery Note Item` dni
-               JOIN `tabDelivery Note` d ON d.name = dni.parent AND d.docstatus = 1
-               JOIN `tabShipment Delivery Note` sdn ON sdn.delivery_note = d.name
-               JOIN `tabShipment` s ON s.name = sdn.parent AND s.docstatus = 1
-               WHERE dni.against_sales_order = so.name)"""
+# One grouped pass over the note window: per order, whether ANY of its live
+# notes sits on ANY live manifest. Orders absent from this table have no note.
+_OFFBOOK_DN_JOIN = """LEFT JOIN (
+        SELECT dni.against_sales_order so_name,
+               MAX(CASE WHEN s.name IS NOT NULL THEN 1 ELSE 0 END) on_man
+        FROM `tabDelivery Note Item` dni
+        JOIN `tabDelivery Note` d ON d.name = dni.parent AND d.docstatus < 2
+        LEFT JOIN `tabShipment Delivery Note` sdn ON sdn.delivery_note = d.name
+        LEFT JOIN `tabShipment` s ON s.name = sdn.parent AND s.docstatus < 2
+        WHERE d.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(win)s DAY)
+        GROUP BY dni.against_sales_order) dn ON dn.so_name = so.name"""
 
 
 def _offbook_where(include_exchanges=False):
-    w = f"""so.docstatus = 1 AND so.company = 'Justyol Morocco'
+    w = """so.docstatus = 1 AND so.company = 'Justyol Morocco'
         AND so.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)
         AND (so.custom_track_shipment_status IN %(mv)s
              OR so.custom_logistics_status IN ('Shipped', 'Delivered', 'Returned'))
-        AND {_HAS_DN} AND NOT {_ON_MANIFEST}"""
+        AND COALESCE(dn.on_man, 0) = 0"""
     if not include_exchanges:
         w += " AND so.name NOT LIKE '%%-ex%%' AND COALESCE(so.grand_total, 0) > 0"
     return w
@@ -1599,18 +1618,20 @@ def _offbook_where(include_exchanges=False):
 
 @frappe.whitelist()
 def offbook_parcels(days=30, limit=80, include_exchanges=0):
-    """Orders the carrier has moved that are on no submitted manifest.
+    """Orders the carrier has moved that are on no manifest.
 
-    `live` are the ones still in flight — the only ones anybody can still do
-    something physical about, so they lead. `settled` have been delivered or
-    returned already: the goods and the money are gone and the fix is
-    paperwork, which is a different job on a different day."""
+    Three tiers, because they are three different jobs. `live` are still in
+    flight and are the only ones anybody can do something physical about, so
+    they lead. `noDoc` have no delivery note at all — nothing was ever raised
+    for them, so they could never have reached a manifest. `settled` have been
+    delivered or returned already: goods and money gone, the fix is paperwork
+    on another day."""
     from logistics_portal.api.auth import resolve_role
     if not resolve_role(frappe.session.user):
         frappe.throw("Not authorized.", frappe.PermissionError)
     days = min(max(int(days or 30), 1), 180)
     limit = min(max(int(limit or 80), 1), 300)
-    vals = {"days": days, "mv": _CARRIER_MOVED}
+    vals = {"days": days, "mv": _CARRIER_MOVED, "win": _DN_WINDOW_DAYS, "limit": limit}
     where = _offbook_where(bool(int(include_exchanges or 0)))
     rows = frappe.db.sql(
         f"""SELECT so.name, so.custom_awb awb, so.custom_logistics_status ls,
@@ -1618,13 +1639,13 @@ def offbook_parcels(days=30, limit=80, include_exchanges=0):
                    so.customer_name customer,
                    COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone) phone,
                    COALESCE(so.custom_shipping_city,'') city,
-                   so.modified, TIMESTAMPDIFF(HOUR, so.modified, NOW()) age_h
-            FROM `tabSales Order` so
+                   TIMESTAMPDIFF(HOUR, so.modified, NOW()) age_h,
+                   dn.so_name IS NULL AS no_doc
+            FROM `tabSales Order` so {_OFFBOOK_DN_JOIN}
             WHERE {where}
-            ORDER BY so.modified DESC LIMIT %(limit)s""",
-        dict(vals, limit=limit), as_dict=True)
+            ORDER BY so.modified DESC LIMIT %(limit)s""", vals, as_dict=True)
 
-    live, settled = [], []
+    live, settled, nodoc = [], [], []
     for r in rows:
         row = {
             "order": r.name, "awb": r.awb or "", "noAwb": not (r.awb or "").strip(),
@@ -1634,29 +1655,38 @@ def offbook_parcels(days=30, limit=80, include_exchanges=0):
             "city": (r.city or "").strip().title(),
             "ageH": int(r.age_h or 0),
         }
-        (settled if (r.ls or "") in _SETTLED else live).append(row)
+        if int(r.no_doc or 0):
+            nodoc.append(row)
+        elif (r.ls or "") in _SETTLED:
+            settled.append(row)
+        else:
+            live.append(row)
+    tot = lambda xs: round(sum(x["mad"] for x in xs), 2)  # noqa: E731
     return {
-        "live": live, "settled": settled,
-        "liveMad": round(sum(x["mad"] for x in live), 2),
-        "settledMad": round(sum(x["mad"] for x in settled), 2),
+        "live": live, "settled": settled, "noDoc": nodoc,
+        "liveMad": tot(live), "settledMad": tot(settled), "noDocMad": tot(nodoc),
         "days": days, "capped": len(rows) >= limit,
         "serverNow": str(frappe.utils.now_datetime())[:19],
     }
 
 
+# A standing problem must not page for ever. Only rows the floor has touched
+# recently can still be settled with a driver; the older ones live on the
+# banner, where they are read on purpose rather than pushed.
+_OFFBOOK_FRESH_H = 72
+
+
 def offbook_live_count(days=30):
-    """Just the live count + worst row, for the alert. Cheap enough to run on
-    every tick: the same indexed window the radar uses, no row building."""
-    vals = {"days": days, "mv": _CARRIER_MOVED}
-    where = _offbook_where(False)
+    """(n, MAD, biggest order) for the alert — FRESH live rows only."""
+    vals = {"days": days, "mv": _CARRIER_MOVED, "win": _DN_WINDOW_DAYS,
+            "st": _SETTLED, "fresh": _OFFBOOK_FRESH_H}
+    where = _offbook_where(False) + """
+        AND dn.so_name IS NOT NULL
+        AND COALESCE(so.custom_logistics_status,'') NOT IN %(st)s
+        AND so.modified >= DATE_SUB(NOW(), INTERVAL %(fresh)s HOUR)"""
     r = frappe.db.sql(
-        f"""SELECT COUNT(*) n, ROUND(COALESCE(SUM(so.grand_total), 0)) mad
-            FROM `tabSales Order` so
-            WHERE {where} AND COALESCE(so.custom_logistics_status,'') NOT IN %(st)s""",
-        dict(vals, st=_SETTLED), as_dict=True)[0]
-    top = frappe.db.sql(
-        f"""SELECT so.name FROM `tabSales Order` so
-            WHERE {where} AND COALESCE(so.custom_logistics_status,'') NOT IN %(st)s
-            ORDER BY so.grand_total DESC LIMIT 1""",
-        dict(vals, st=_SETTLED))
-    return int(r.n or 0), int(r.mad or 0), (top[0][0] if top else "")
+        f"""SELECT COUNT(*) n, ROUND(COALESCE(SUM(so.grand_total), 0)) mad,
+                   SUBSTRING_INDEX(GROUP_CONCAT(so.name ORDER BY so.grand_total DESC), ',', 1) top
+            FROM `tabSales Order` so {_OFFBOOK_DN_JOIN}
+            WHERE {where}""", vals, as_dict=True)[0]
+    return int(r.n or 0), int(r.mad or 0), (r.top or "")

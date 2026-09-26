@@ -1390,6 +1390,8 @@ export default {
     openPlain: "Open", critical: "Critical",
   },
   shp: {
+    nodocTitle: "Marked shipped with nothing behind them",
+    nodocHint: "No delivery note at all — so no manifest was ever possible",
     offbookTitle: "Gone with the carrier, on no manifest",
     offbookHint: "Nobody scanned these out — the carrier is the only witness",
     offbookNoAwb: "NO AWB",

@@ -997,11 +997,11 @@ _ALERTS = {
     },
     "offbook": {
         "en": ("Parcels with the carrier that were never on a manifest",
-               "{n} parcel(s) worth {mad} MAD are moving with the carrier and sit on no submitted manifest — nobody scanned them out. Biggest is {order}. They are still in flight: settle it with the driver now, not from the paperwork later."),
+               "{n} parcel(s) worth {mad} MAD are moving with the carrier and sit on no submitted manifest — nobody scanned them out. Biggest is {order}. They moved in the last 3 days and are still in flight: settle it with the driver now, not from the paperwork later."),
         "fr": ("Colis chez le transporteur jamais passés sur un manifeste",
-               "{n} colis d'une valeur de {mad} MAD circulent chez le transporteur sans figurer sur aucun manifeste validé — personne ne les a scannés à la sortie. Le plus important est {order}. Ils sont encore en route : réglez-le avec le chauffeur maintenant, pas sur papier plus tard."),
+               "{n} colis d'une valeur de {mad} MAD circulent chez le transporteur sans figurer sur aucun manifeste validé — personne ne les a scannés à la sortie. Le plus important est {order}. Ils ont bougé ces 3 derniers jours et sont encore en route : réglez-le avec le chauffeur maintenant, pas sur papier plus tard."),
         "ar": ("طرود مع شركة الشحن وماعدّتش على أي مانيفست",
-               "{n} طرد بقيمة {mad} درهم ماشيين مع شركة الشحن ومش على أي مانيفست متسبمت — محدش عملّهم scan وهما خارجين. أكبرهم {order}. لسه في الطريق: صفّيها مع السواق دلوقتي، مش من الورق بعدين."),
+               "{n} طرد بقيمة {mad} درهم ماشيين مع شركة الشحن ومش على أي مانيفست متسبمت — محدش عملّهم scan وهما خارجين. أكبرهم {order}. اتحركوا في آخر ٣ أيام ولسه في الطريق: صفّيها مع السواق دلوقتي، مش من الورق بعدين."),
     },
     "found_in_building": {
         "en": ("Manifested parcels found in the building",

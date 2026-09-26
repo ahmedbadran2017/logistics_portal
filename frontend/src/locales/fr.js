@@ -1389,6 +1389,8 @@ export default {
     openPlain: "Ouverts", critical: "Critiques",
   },
   shp: {
+    nodocTitle: "Marquées expédiées sans aucun document",
+    nodocHint: "Aucun bon de livraison — donc aucun manifeste n'était possible",
     offbookTitle: "Partis avec le transporteur, sur aucun manifeste",
     offbookHint: "Personne ne les a scannés à la sortie — le transporteur est le seul témoin",
     offbookNoAwb: "SANS AWB",

@@ -181,6 +181,37 @@
            reports movement on an AWB nobody scanned out. It stands open
            rather than behind a button — by the time this is true the parcel
            has left, so nobody would think to go looking for it. -->
+      <!-- Nothing behind them at all: no delivery note, so they could never
+           have reached a manifest — the join that finds the others hid these
+           instead of flagging them. Shown apart because the fix is different:
+           there is no scan to chase, the paperwork itself is missing. -->
+      <div v-if="offbook && offbook.noDoc.length"
+           class="mb-4 rounded-xl ring-1 ring-rose-300 bg-white overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap bg-rose-100/60">
+          <Icon name="alert-triangle" :size="14" class="text-rose-700" />
+          <span class="text-[12.5px] font-bold text-stone-900">{{ t('shp.nodocTitle') }} ({{ offbook.noDoc.length }})</span>
+          <span class="text-[11.5px] text-stone-500 hidden sm:inline">{{ t('shp.nodocHint') }}</span>
+          <span class="ms-auto text-[12px] font-bold text-rose-700 tabular-nums whitespace-nowrap">
+            {{ fmtMAD(offbook.noDocMad) }} MAD
+          </span>
+        </div>
+        <div class="divide-y divide-stone-100 max-h-[240px] overflow-y-auto">
+          <button v-for="r in offbook.noDoc" :key="r.order"
+                  class="w-full text-start px-4 py-2 flex items-center gap-2.5 flex-wrap hover:bg-stone-50"
+                  @click="$router.push({ name: 'OrderDetail', params: { name: r.order } })">
+            <span class="font-mono text-[12px] font-semibold text-stone-900">{{ r.order }}</span>
+            <span v-if="r.noAwb" class="text-[10px] font-bold px-1.5 h-[17px] inline-flex items-center rounded bg-rose-600 text-white">
+              {{ t('shp.offbookNoAwb') }}
+            </span>
+            <span class="text-[11.5px] text-stone-500 truncate max-w-[180px]" dir="auto">{{ r.customer }}</span>
+            <span v-if="r.city" class="text-[11px] text-stone-400">{{ r.city }}</span>
+            <span class="text-[11px] text-stone-500">{{ r.status }}</span>
+            <span class="ms-auto text-[12px] font-semibold text-stone-900 tabular-nums whitespace-nowrap">{{ fmtMAD(r.mad) }} MAD</span>
+            <span class="text-[11px] text-stone-400 tabular-nums w-12 text-end">{{ r.ageH }}h</span>
+          </button>
+        </div>
+      </div>
+
       <div v-if="offbook && offbook.live.length"
            class="mb-4 rounded-xl ring-1 ring-rose-300 bg-white overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap bg-rose-50/60">
