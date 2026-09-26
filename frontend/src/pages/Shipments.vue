@@ -165,10 +165,12 @@
           <p class="text-[12.5px] text-stone-500 mt-0.5">{{ CARRIER }} · {{ WAREHOUSE }}</p>
         </div>
         <div class="flex items-center gap-2">
-          <button class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium rounded-lg ring-1 transition-colors whitespace-nowrap"
-                  :class="orphansOpen ? 'text-white bg-rose-600 ring-rose-600' : 'text-rose-700 bg-rose-50 ring-rose-200 hover:bg-rose-100'"
-                  @click="toggleOrphans">
-            <Icon name="alert-triangle" :size="14" /> {{ t("shp.orphansBtn") }}<template v-if="orphans"> · {{ orphans.stuckN + orphans.leakedN }}</template>
+          <!-- The gaps left this page (Ahmed 2026-09-26): three red panels
+               above the board buried the board. They are one job now, on
+               their own screen, with a link from here. -->
+          <button class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium rounded-lg ring-1 transition-colors whitespace-nowrap text-rose-700 bg-rose-50 ring-rose-200 hover:bg-rose-100"
+                  @click="$router.push({ name: 'HandoverGaps' })">
+            <Icon name="alert-triangle" :size="14" /> {{ t("shp.gapsBtn") }}<template v-if="gapsN"> · {{ gapsN }}</template>
           </button>
           <button class="inline-flex items-center gap-1.5 px-3 h-9 text-[13px] font-medium text-white bg-stone-900 rounded-lg hover:bg-stone-800 transition-colors whitespace-nowrap"
                   @click="$router.push({ name: 'Manifest' })">
@@ -181,106 +183,6 @@
            reports movement on an AWB nobody scanned out. It stands open
            rather than behind a button — by the time this is true the parcel
            has left, so nobody would think to go looking for it. -->
-      <!-- Nothing behind them at all: no delivery note, so they could never
-           have reached a manifest — the join that finds the others hid these
-           instead of flagging them. Shown apart because the fix is different:
-           there is no scan to chase, the paperwork itself is missing. -->
-      <div v-if="offbook && offbook.noDoc.length"
-           class="mb-4 rounded-xl ring-1 ring-rose-300 bg-white overflow-hidden">
-        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap bg-rose-100/60">
-          <Icon name="alert-triangle" :size="14" class="text-rose-700" />
-          <span class="text-[12.5px] font-bold text-stone-900">{{ t('shp.nodocTitle') }} ({{ offbook.noDoc.length }})</span>
-          <span class="text-[11.5px] text-stone-500 hidden sm:inline">{{ t('shp.nodocHint') }}</span>
-          <span class="ms-auto text-[12px] font-bold text-rose-700 tabular-nums whitespace-nowrap">
-            {{ fmtMAD(offbook.noDocMad) }} MAD
-          </span>
-        </div>
-        <div class="divide-y divide-stone-100 max-h-[240px] overflow-y-auto">
-          <button v-for="r in offbook.noDoc" :key="r.order"
-                  class="w-full text-start px-4 py-2 flex items-center gap-2.5 flex-wrap hover:bg-stone-50"
-                  @click="$router.push({ name: 'OrderDetail', params: { name: r.order } })">
-            <span class="font-mono text-[12px] font-semibold text-stone-900">{{ r.order }}</span>
-            <span v-if="r.noAwb" class="text-[10px] font-bold px-1.5 h-[17px] inline-flex items-center rounded bg-rose-600 text-white">
-              {{ t('shp.offbookNoAwb') }}
-            </span>
-            <span class="text-[11.5px] text-stone-500 truncate max-w-[180px]" dir="auto">{{ r.customer }}</span>
-            <span v-if="r.city" class="text-[11px] text-stone-400">{{ r.city }}</span>
-            <span class="text-[11px] text-stone-500">{{ r.status }}</span>
-            <span class="ms-auto text-[12px] font-semibold text-stone-900 tabular-nums whitespace-nowrap">{{ fmtMAD(r.mad) }} MAD</span>
-            <span class="text-[11px] text-stone-400 tabular-nums w-12 text-end">{{ r.ageH }}h</span>
-          </button>
-        </div>
-      </div>
-
-      <div v-if="offbook && offbook.live.length"
-           class="mb-4 rounded-xl ring-1 ring-rose-300 bg-white overflow-hidden">
-        <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap bg-rose-50/60">
-          <Icon name="alert-triangle" :size="14" class="text-rose-600" />
-          <span class="text-[12.5px] font-bold text-stone-900">{{ t('shp.offbookTitle') }} ({{ offbook.live.length }})</span>
-          <span class="text-[11.5px] text-stone-500 hidden sm:inline">{{ t('shp.offbookHint') }}</span>
-          <span class="ms-auto text-[12px] font-bold text-rose-700 tabular-nums whitespace-nowrap">
-            {{ fmtMAD(offbook.liveMad) }} MAD
-          </span>
-        </div>
-        <div class="divide-y divide-stone-100 max-h-[300px] overflow-y-auto">
-          <button v-for="r in offbook.live" :key="r.order"
-                  class="w-full text-start px-4 py-2 flex items-center gap-2.5 flex-wrap hover:bg-stone-50"
-                  @click="$router.push({ name: 'OrderDetail', params: { name: r.order } })">
-            <span class="font-mono text-[12px] font-semibold text-stone-900">{{ r.order }}</span>
-            <span v-if="r.noAwb" class="text-[10px] font-bold px-1.5 h-[17px] inline-flex items-center rounded bg-rose-600 text-white">
-              {{ t('shp.offbookNoAwb') }}
-            </span>
-            <span v-else class="font-mono text-[11px] text-stone-400">{{ r.awb }}</span>
-            <span class="text-[11.5px] text-stone-500 truncate max-w-[180px]" dir="auto">{{ r.customer }}</span>
-            <span v-if="r.city" class="text-[11px] text-stone-400">{{ r.city }}</span>
-            <span class="text-[11px] text-stone-500">{{ r.track || r.status }}</span>
-            <span class="ms-auto text-[12px] font-semibold text-stone-900 tabular-nums whitespace-nowrap">{{ fmtMAD(r.mad) }} MAD</span>
-            <span class="text-[11px] text-stone-400 tabular-nums w-12 text-end">{{ r.ageH }}h</span>
-          </button>
-        </div>
-        <div v-if="offbook.settled.length" class="px-4 py-2 border-t border-stone-100 text-[11.5px] text-stone-500">
-          {{ t('shp.offbookSettled').replace('{n}', String(offbook.settled.length)).replace('{v}', fmtMAD(offbook.settledMad)) }}
-        </div>
-      </div>
-
-      <!-- Labeled, never manifest-scanned. Two silences with two meanings:
-           a box still standing here, and a box that left without the one
-           scan that proves the carrier took it. -->
-      <div v-if="orphansOpen" class="mb-4 rounded-xl ring-1 ring-rose-200/70 bg-white overflow-hidden">
-        <div v-if="orphansLoading" class="p-6 text-center text-[12.5px] text-stone-400">…</div>
-        <div v-else-if="orphans" class="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-stone-100">
-          <div v-for="side in ['stuck', 'leaked']" :key="side" class="min-w-0">
-            <div class="px-4 py-2.5 flex items-center gap-2"
-                 :class="side === 'stuck' ? 'bg-rose-50/60' : 'bg-amber-50/60'">
-              <Icon :name="side === 'stuck' ? 'package-x' : 'shield-alert'" :size="14"
-                    :class="side === 'stuck' ? 'text-rose-600' : 'text-amber-600'" />
-              <span class="text-[12.5px] font-bold" :class="side === 'stuck' ? 'text-rose-700' : 'text-amber-700'">
-                {{ t('shp.orphans_' + side) }} · {{ orphans[side + 'N'] }}
-              </span>
-              <span class="text-[11px] text-stone-500 truncate">{{ t('shp.orphans_' + side + 'Hint') }}</span>
-            </div>
-            <div class="max-h-[320px] overflow-y-auto">
-              <table class="w-full">
-                <tbody>
-                  <tr v-for="r in orphans[side]" :key="r.dn" class="border-t border-stone-50 text-[12px]">
-                    <td class="px-4 py-1.5 font-mono text-[11px] text-stone-700">{{ r.order || r.dn }}</td>
-                    <td class="px-2 py-1.5 font-mono text-[10.5px] text-stone-400 hidden sm:table-cell">{{ r.awb || '—' }}</td>
-                    <td class="px-2 py-1.5 text-stone-600 truncate max-w-[140px]" dir="auto">{{ r.customer }}</td>
-                    <td class="px-2 py-1.5 text-[11px] text-stone-500 hidden lg:table-cell">{{ r.track || '—' }}</td>
-                    <td class="px-4 py-1.5 text-end tabular-nums font-bold"
-                        :class="r.ageH >= 72 ? 'text-rose-600' : 'text-stone-600'">
-                      {{ Math.floor(r.ageH / 24) }}{{ t('shp.dayShort') }}</td>
-                  </tr>
-                  <tr v-if="!orphans[side].length">
-                    <td class="px-4 py-4 text-center text-[12px] text-stone-400">{{ t('shp.orphansNone') }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- KPI strip (skeleton while the live call is in flight) -->
       <div v-if="loading" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <div v-for="n in 4" :key="n" class="h-[86px] bg-stone-50 rounded-xl ring-1 ring-stone-200/60 animate-pulse" />
@@ -384,7 +286,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { CARRIER, WAREHOUSE, fmtMAD } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
@@ -402,31 +304,24 @@ const open = ref(null);
 const shipments = ref([]);
 const loading = ref(true);
 
-// The orphan panel — deep-linked from the Cockpit's cycle strip (?orphans=1)
-// or toggled by its header button.
-const offbook = ref(null);
-const orphansOpen = ref(false);
-const orphans = ref(null);
-const orphansLoading = ref(false);
-async function loadOrphans() {
-  orphansLoading.value = true;
-  try { orphans.value = await api("shipping.label_orphans"); }
-  catch { orphans.value = { stuck: [], leaked: [], stuckN: 0, leakedN: 0 }; }
-  orphansLoading.value = false;
-}
-function toggleOrphans() {
-  orphansOpen.value = !orphansOpen.value;
-  if (orphansOpen.value && !orphans.value) loadOrphans();
-}
+// Only the COUNT lives here now; the rows live on the gaps page. The
+// Cockpit's ?orphans=1 deep link redirects there instead of opening a panel.
+const gapsN = ref(0);
 const _route = useRoute();
-if (_route.query.orphans) { orphansOpen.value = true; loadOrphans(); }
+const router = useRouter();
+async function loadGapCount() {
+  const [ob, or_] = await Promise.all([
+    liveOr(null, () => api("shipping.offbook_parcels", { days: 30 })).catch(() => null),
+    liveOr(null, () => api("shipping.label_orphans")).catch(() => null),
+  ]);
+  gapsN.value = (ob ? ob.live.length + ob.noDoc.length : 0) + (or_ ? or_.stuckN : 0);
+}
 
 onMounted(async () => {
-  // Never blocks the board: a radar that can break the page it warns on is
-  // worse than no radar.
-  liveOr(null, () => api("shipping.offbook_parcels", { days: 30 }))
-    .then((r) => { if (r) offbook.value = r; })
-    .catch(() => {});
+  if (_route.query.orphans) { router.push({ name: "HandoverGaps" }); return; }
+  // Never blocks the board: a badge that can break the page it sits on is
+  // worse than no badge.
+  loadGapCount().catch(() => {});
   try {
     const live = await liveOr(null, () => api("shipping.shipments", { limit: 30 }));
     if (Array.isArray(live) && live.length) shipments.value = live;

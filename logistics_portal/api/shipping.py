@@ -1524,6 +1524,17 @@ def label_orphans():
         frappe.throw("Not authorized.", frappe.PermissionError)
     from frappe.utils import now_datetime
     now = str(now_datetime())[:19]
+    # The check has to be per ORDER, not per delivery note. An order routinely
+    # carries more than one live note — an amend, a duplicate, a partial — and
+    # only one of them is the one that went on the manifest. Asking "is THIS
+    # note on a manifest" therefore calls the order's other notes orphans.
+    #
+    # Measured 2026-09-26, which is why this changed: of 1,630 notes this
+    # function called "left without a scan", 1,551 belonged to orders that were
+    # on a manifest all along. 79 were real. The panel had been reporting a
+    # number twenty times the truth, which is the same trap _handover_rows was
+    # rewritten for ("keeps the amended/duplicate DN of one order from reading
+    # as a parcel that never left") and this function never got.
     rows = frappe.db.sql("""
         SELECT dn.name dn, dn.custom_awb awb, dn.customer_name customer,
                dn.custom_track_shipment_status trk,
@@ -1537,8 +1548,28 @@ def label_orphans():
           AND NOT EXISTS (SELECT 1 FROM `tabShipment Delivery Note` sdn
                           WHERE sdn.delivery_note = dn.name)
         ORDER BY dn.creation""", {"now": now}, as_dict=True)
+    orders = tuple({r.so for r in rows if r.so}) or None
+    handed = set()
+    if orders:
+        handed = {x[0] for x in frappe.db.sql("""
+            SELECT DISTINCT dni.against_sales_order
+            FROM `tabDelivery Note Item` dni
+            JOIN `tabDelivery Note` d ON d.name = dni.parent AND d.docstatus < 2
+            JOIN `tabShipment Delivery Note` sdn ON sdn.delivery_note = d.name
+            JOIN `tabShipment` s ON s.name = sdn.parent AND s.docstatus < 2
+            WHERE dni.against_sales_order IN %s""", (orders,))}
+    seen_orders = set()
     stuck, leaked = [], []
     for r in rows:
+        # This order already went out on another note — this one is a ghost.
+        if r.so and r.so in handed:
+            continue
+        # One row per order, not per note: the duplicate notes of one parcel
+        # are one problem to go and solve, not three.
+        if r.so:
+            if r.so in seen_orders:
+                continue
+            seen_orders.add(r.so)
         row = {"dn": r.dn, "order": r.so or "", "awb": r.awb or "",
                "customer": r.customer or "", "track": r.trk or "",
                "ageH": int(r.age_h or 0)}

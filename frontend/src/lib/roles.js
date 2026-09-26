@@ -43,6 +43,7 @@ export const ROLE_CONFIG = {
           { to: "PackStation", label: "nav.pack", icon: "tag" },
           { to: "PackDesk", label: "nav.packing", icon: "package-check" },
           { to: "Shipments", label: "nav.shipments", icon: "truck" },
+          { to: "HandoverGaps", label: "nav.handoverGaps", icon: "alert-triangle" },
           { to: "Carriers", label: "nav.carriers", icon: "send" },
         ],
       },
@@ -121,6 +122,9 @@ export const ROLE_CONFIG = {
           // The server always allowed it; only this menu did not, which made
           // the repair look manager-only.
           { to: "PackStation", label: "nav.pack", icon: "tag" },
+          // relabel_order and the handover chase are dispatcher acts; the
+          // gaps API has always allowed the role, only this menu did not.
+          { to: "HandoverGaps", label: "nav.handoverGaps", icon: "alert-triangle" },
         ],
       },
       {
@@ -211,6 +215,7 @@ export const ROLE_CONFIG = {
           { to: "LabelQueue", label: "nav.label", icon: "printer" },
           { to: "Manifest", label: "nav.manifest", icon: "package-check" },
           { to: "Shipments", label: "nav.shipments", icon: "truck" },
+          { to: "HandoverGaps", label: "nav.handoverGaps", icon: "alert-triangle" },
           { to: "Carriers", label: "nav.carriers", icon: "send" },
         ],
       },

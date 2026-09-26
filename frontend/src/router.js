@@ -119,6 +119,9 @@ const routes = [
       // The full tail behind one of the velocity board's stuck cards.
       { path: "stuck/:key", name: "StuckOrders", component: () => import("@/pages/StuckOrders.vue") },
       { path: "shipments", name: "Shipments", component: () => import("@/pages/Shipments.vue") },
+      // Parcels that fell out of the handover, all four failures in one
+      // place — they used to be red panels stacked on top of the board.
+      { path: "handover-gaps", name: "HandoverGaps", component: () => import("@/pages/HandoverGaps.vue") },
       // The tracking portal's own screens (served under the /tracking base).
       { path: "board", name: "ShipBoard", component: () => import("@/pages/ShipBoard.vue") },
       { path: "ship-settings", name: "ShipSettings", component: () => import("@/pages/ShipSettings.vue") },
