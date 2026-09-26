@@ -1389,6 +1389,10 @@ export default {
     openPlain: "مفتوح", critical: "حرج",
   },
   shp: {
+    offbookTitle: "خرجوا مع شركة الشحن ومش على أي مانيفست",
+    offbookHint: "محدش عملّهم scan وهما خارجين — شركة الشحن هي الشاهد الوحيد",
+    offbookNoAwb: "من غير AWB",
+    offbookSettled: "{n} كمان اتسلّموا أو رجعوا خلاص ({v} درهم) — ورق، مش جري وراهم.",
     cyc_noList: "مؤكد بلا قايمة",
     cyc_picking: "على الأرضية",
     cyc_noManifest: "ليبل بلا مانيفست",

@@ -995,6 +995,14 @@ _ALERTS = {
         "ar": ("أوردرات فوّتت موجتها ولسه جوه المخزن",
                "{n} أوردر. أقدمهم {order}، عدّى موجة {due} بـ {h} ساعة."),
     },
+    "offbook": {
+        "en": ("Parcels with the carrier that were never on a manifest",
+               "{n} parcel(s) worth {mad} MAD are moving with the carrier and sit on no submitted manifest — nobody scanned them out. Biggest is {order}. They are still in flight: settle it with the driver now, not from the paperwork later."),
+        "fr": ("Colis chez le transporteur jamais passés sur un manifeste",
+               "{n} colis d'une valeur de {mad} MAD circulent chez le transporteur sans figurer sur aucun manifeste validé — personne ne les a scannés à la sortie. Le plus important est {order}. Ils sont encore en route : réglez-le avec le chauffeur maintenant, pas sur papier plus tard."),
+        "ar": ("طرود مع شركة الشحن وماعدّتش على أي مانيفست",
+               "{n} طرد بقيمة {mad} درهم ماشيين مع شركة الشحن ومش على أي مانيفست متسبمت — محدش عملّهم scan وهما خارجين. أكبرهم {order}. لسه في الطريق: صفّيها مع السواق دلوقتي، مش من الورق بعدين."),
+    },
     "found_in_building": {
         "en": ("Manifested parcels found in the building",
                "{n} parcel(s) on a manifest were found still in the warehouse by the tracking team ({order}). They need a new handover — they are not with the carrier."),
@@ -1204,7 +1212,21 @@ def run_alerts():
         if len(noscan) >= 10:
             _emit("no_scan", {"n": len(noscan)}, "critical", cooldown_h=12)
 
-        # 4) Parcels the carrier has had too long to still call in transit.
+        # 4) Gone without a manifest. The carrier is the only witness, and it
+        # only speaks once the van has left — so this can never be caught at
+        # the door, and has to be caught the moment the sync brings it back.
+        # Live ones only: a delivered parcel is a paperwork job, not a page.
+        try:
+            from logistics_portal.api.shipping import offbook_live_count
+            n_ob, mad_ob, top_ob = offbook_live_count(30)
+            if n_ob:
+                _emit("offbook", {"n": n_ob, "mad": mad_ob, "order": top_ob or "—"},
+                      "critical", cooldown_h=6, order=top_ob or None,
+                      audience=("tracking", "manager"))
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:1200], "shipments.offbook_alert")
+
+        # 5) Parcels the carrier has had too long to still call in transit.
         chase_h = int(cfg.get("chaseDays") or 5) * 24 * 60
         chase = [r for r in carrier if r["lateMin"] > chase_h]
         if len(chase) >= 10:

@@ -1550,3 +1550,113 @@ def label_orphans():
             leaked.append(row)
     return {"stuck": stuck[:200], "leaked": leaked[:200],
             "stuckN": len(stuck), "leakedN": len(leaked)}
+
+
+# ---------------------------------------------------------------------------
+# Parcels that left the building without ever being scanned onto a manifest.
+#
+# Not the same question as the sort wall's handover gap, which is about parcels
+# still HERE that a closing manifest left behind. This one is the opposite and
+# worse: the parcel is gone. The carrier itself is the witness — it reports
+# movement on an AWB that sits on no submitted Shipment — so the proof arrives
+# only after the van has left, which is exactly why nothing has ever caught it.
+#
+# Measured 2026-09-26 over 30 days: the carrier touched 9,285 orders and 9,097
+# of them (98%) were on a manifest, so the exceptions are an anomaly and not
+# background noise. 41 real-money orders worth 11,309 MAD were not, and 8 of
+# those — 5,003 MAD — were still in flight and could still be acted on.
+#
+# Exchanges are excluded by default. 15 of the 58 raw hits are `-ex` orders at
+# zero value that travel a different path; leaving them in would make more than
+# a third of the list something nobody should act on, and a radar that is a
+# third noise is a radar the floor stops opening.
+# ---------------------------------------------------------------------------
+_CARRIER_MOVED = ("In Transit", "Out for Delivery", "Out For Delivery", "Delivered",
+                  "Received", "Failed", "Failed Attempt", "Returned", "Return",
+                  "Delivery Exception")
+_SETTLED = ("Delivered", "Returned")
+
+_HAS_DN = """EXISTS (SELECT 1 FROM `tabDelivery Note Item` dni
+               JOIN `tabDelivery Note` d ON d.name = dni.parent AND d.docstatus = 1
+               WHERE dni.against_sales_order = so.name)"""
+_ON_MANIFEST = """EXISTS (SELECT 1 FROM `tabDelivery Note Item` dni
+               JOIN `tabDelivery Note` d ON d.name = dni.parent AND d.docstatus = 1
+               JOIN `tabShipment Delivery Note` sdn ON sdn.delivery_note = d.name
+               JOIN `tabShipment` s ON s.name = sdn.parent AND s.docstatus = 1
+               WHERE dni.against_sales_order = so.name)"""
+
+
+def _offbook_where(include_exchanges=False):
+    w = f"""so.docstatus = 1 AND so.company = 'Justyol Morocco'
+        AND so.creation >= DATE_SUB(NOW(), INTERVAL %(days)s DAY)
+        AND (so.custom_track_shipment_status IN %(mv)s
+             OR so.custom_logistics_status IN ('Shipped', 'Delivered', 'Returned'))
+        AND {_HAS_DN} AND NOT {_ON_MANIFEST}"""
+    if not include_exchanges:
+        w += " AND so.name NOT LIKE '%%-ex%%' AND COALESCE(so.grand_total, 0) > 0"
+    return w
+
+
+@frappe.whitelist()
+def offbook_parcels(days=30, limit=80, include_exchanges=0):
+    """Orders the carrier has moved that are on no submitted manifest.
+
+    `live` are the ones still in flight — the only ones anybody can still do
+    something physical about, so they lead. `settled` have been delivered or
+    returned already: the goods and the money are gone and the fix is
+    paperwork, which is a different job on a different day."""
+    from logistics_portal.api.auth import resolve_role
+    if not resolve_role(frappe.session.user):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    days = min(max(int(days or 30), 1), 180)
+    limit = min(max(int(limit or 80), 1), 300)
+    vals = {"days": days, "mv": _CARRIER_MOVED}
+    where = _offbook_where(bool(int(include_exchanges or 0)))
+    rows = frappe.db.sql(
+        f"""SELECT so.name, so.custom_awb awb, so.custom_logistics_status ls,
+                   so.custom_track_shipment_status trk, so.grand_total mad,
+                   so.customer_name customer,
+                   COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone) phone,
+                   COALESCE(so.custom_shipping_city,'') city,
+                   so.modified, TIMESTAMPDIFF(HOUR, so.modified, NOW()) age_h
+            FROM `tabSales Order` so
+            WHERE {where}
+            ORDER BY so.modified DESC LIMIT %(limit)s""",
+        dict(vals, limit=limit), as_dict=True)
+
+    live, settled = [], []
+    for r in rows:
+        row = {
+            "order": r.name, "awb": r.awb or "", "noAwb": not (r.awb or "").strip(),
+            "status": r.ls or "", "track": r.trk or "",
+            "mad": round(float(r.mad or 0), 2),
+            "customer": r.customer or "", "phone": r.phone or "",
+            "city": (r.city or "").strip().title(),
+            "ageH": int(r.age_h or 0),
+        }
+        (settled if (r.ls or "") in _SETTLED else live).append(row)
+    return {
+        "live": live, "settled": settled,
+        "liveMad": round(sum(x["mad"] for x in live), 2),
+        "settledMad": round(sum(x["mad"] for x in settled), 2),
+        "days": days, "capped": len(rows) >= limit,
+        "serverNow": str(frappe.utils.now_datetime())[:19],
+    }
+
+
+def offbook_live_count(days=30):
+    """Just the live count + worst row, for the alert. Cheap enough to run on
+    every tick: the same indexed window the radar uses, no row building."""
+    vals = {"days": days, "mv": _CARRIER_MOVED}
+    where = _offbook_where(False)
+    r = frappe.db.sql(
+        f"""SELECT COUNT(*) n, ROUND(COALESCE(SUM(so.grand_total), 0)) mad
+            FROM `tabSales Order` so
+            WHERE {where} AND COALESCE(so.custom_logistics_status,'') NOT IN %(st)s""",
+        dict(vals, st=_SETTLED), as_dict=True)[0]
+    top = frappe.db.sql(
+        f"""SELECT so.name FROM `tabSales Order` so
+            WHERE {where} AND COALESCE(so.custom_logistics_status,'') NOT IN %(st)s
+            ORDER BY so.grand_total DESC LIMIT 1""",
+        dict(vals, st=_SETTLED))
+    return int(r.n or 0), int(r.mad or 0), (top[0][0] if top else "")

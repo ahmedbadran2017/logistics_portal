@@ -1390,6 +1390,10 @@ export default {
     openPlain: "Open", critical: "Critical",
   },
   shp: {
+    offbookTitle: "Gone with the carrier, on no manifest",
+    offbookHint: "Nobody scanned these out — the carrier is the only witness",
+    offbookNoAwb: "NO AWB",
+    offbookSettled: "{n} more already delivered or returned ({v} MAD) — paperwork, not a chase.",
     cyc_noList: "Confirmed, no list",
     cyc_picking: "On the floor",
     cyc_noManifest: "Label, no manifest",

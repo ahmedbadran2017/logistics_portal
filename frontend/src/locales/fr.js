@@ -1389,6 +1389,10 @@ export default {
     openPlain: "Ouverts", critical: "Critiques",
   },
   shp: {
+    offbookTitle: "Partis avec le transporteur, sur aucun manifeste",
+    offbookHint: "Personne ne les a scannés à la sortie — le transporteur est le seul témoin",
+    offbookNoAwb: "SANS AWB",
+    offbookSettled: "{n} autres déjà livrés ou retournés ({v} MAD) — du papier, pas une relance.",
     cyc_noList: "Confirmée, sans liste",
     cyc_picking: "Sur le plancher",
     cyc_noManifest: "Étiquette sans manifeste",
