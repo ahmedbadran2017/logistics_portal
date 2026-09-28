@@ -1390,6 +1390,12 @@ export default {
     openPlain: "Ouverts", critical: "Critiques",
   },
   hgap: {
+    excel: "Excel", excelAll: "Tout · ", exported: "{n} lignes exportées",
+    noAwbWord: "sans AWB",
+    colBucket: "Problème", colOrder: "Commande", colDn: "Bon de livraison", colAwb: "AWB",
+    colCustomer: "Client", colPhone: "Téléphone", colCity: "Ville",
+    colStatus: "Notre statut", colTrack: "Statut transporteur", colMad: "Valeur (MAD)",
+    colAge: "Ancienneté (heures)",
     title: "Écarts de remise",
     intro: "Colis sortis du circuit de remise — quatre défaillances différentes, quatre traitements différents.",
     refresh: "Actualiser", clean: "Rien ici. Chaque colis est justifié.",

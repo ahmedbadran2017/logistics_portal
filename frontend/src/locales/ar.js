@@ -1390,6 +1390,12 @@ export default {
     openPlain: "مفتوح", critical: "حرج",
   },
   hgap: {
+    excel: "إكسيل", excelAll: "الكل · ", exported: "اتصدّر {n} صف",
+    noAwbWord: "من غير AWB",
+    colBucket: "المشكلة", colOrder: "الأوردر", colDn: "بون ليفريزون", colAwb: "AWB",
+    colCustomer: "العميل", colPhone: "التليفون", colCity: "المدينة",
+    colStatus: "حالتنا", colTrack: "حالة شركة الشحن", colMad: "القيمة (درهم)",
+    colAge: "العمر (ساعات)",
     title: "فجوات التسليم",
     intro: "طرود وقعت من دايرة التسليم — أربع حالات مختلفة، وأربع طرق علاج مختلفة.",
     refresh: "تحديث", clean: "مفيش حاجة هنا. كل طرد متحسّب.",

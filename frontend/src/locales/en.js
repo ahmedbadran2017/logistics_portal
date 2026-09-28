@@ -1391,6 +1391,12 @@ export default {
     openPlain: "Open", critical: "Critical",
   },
   hgap: {
+    excel: "Excel", excelAll: "All · ", exported: "{n} rows exported",
+    noAwbWord: "no AWB",
+    colBucket: "Problem", colOrder: "Order", colDn: "Delivery note", colAwb: "AWB",
+    colCustomer: "Customer", colPhone: "Phone", colCity: "City",
+    colStatus: "Our status", colTrack: "Carrier status", colMad: "Value (MAD)",
+    colAge: "Age (hours)",
     title: "Handover gaps",
     intro: "Parcels that fell out of the handover — four different failures, four different jobs.",
     refresh: "Refresh", clean: "Nothing here. Every parcel is accounted for.",

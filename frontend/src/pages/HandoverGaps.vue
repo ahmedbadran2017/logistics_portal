@@ -5,10 +5,20 @@
         <h1 class="text-[20px] font-bold text-stone-900 tracking-tight">{{ t('hgap.title') }}</h1>
         <p class="text-[12.5px] text-stone-500 mt-0.5">{{ t('hgap.intro') }}</p>
       </div>
-      <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[12.5px] font-semibold text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50"
-              :disabled="loading" @click="load">
-        <Icon name="rotate-ccw" :size="14" />{{ t('hgap.refresh') }}
-      </button>
+      <div class="flex items-center gap-2">
+        <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[12.5px] font-semibold text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 disabled:opacity-50"
+                :disabled="loading || !activeRows.length" @click="exportTab">
+          <Icon name="file-text" :size="14" />{{ t('hgap.excel') }}
+        </button>
+        <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[12.5px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50 disabled:opacity-50"
+                :disabled="loading || !totalRows" @click="exportAll">
+          {{ t('hgap.excelAll') }}<span class="tabular-nums text-stone-400">{{ totalRows }}</span>
+        </button>
+        <button class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[12.5px] font-semibold text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50"
+                :disabled="loading" @click="load">
+          <Icon name="rotate-ccw" :size="14" />{{ t('hgap.refresh') }}
+        </button>
+      </div>
     </header>
 
     <!-- Four questions, in the order the parcel fails them. -->
@@ -69,9 +79,12 @@ import { computed, onMounted, ref } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { fmtMAD } from "@/lib/handoffData";
 import { api, liveOr } from "@/lib/resource";
+import { downloadCsv, stampName } from "@/lib/csvExport";
 import { useI18n } from "@/composables/useI18n";
+import { useToast } from "@/composables/useToast";
 
 const { t } = useI18n();
+const { success } = useToast();
 
 const offbook = ref(null);
 const orphans = ref(null);
@@ -99,6 +112,64 @@ const activeRows = computed(() => {
 });
 
 const activeHint = computed(() => t("hgap.hint_" + tab.value));
+
+// The column set is the same for every bucket, so one export covers all four
+// and a `bucket` column keeps them apart in the sheet. `noAwb` travels as a
+// word rather than true/false: the person filtering this in Excel is looking
+// for the ones with nothing to chase.
+const columns = () => [
+  { key: "bucket", label: t("hgap.colBucket") },
+  { key: "order", label: t("hgap.colOrder") },
+  { key: "dn", label: t("hgap.colDn") },
+  { key: "awb", label: t("hgap.colAwb") },
+  { key: "customer", label: t("hgap.colCustomer") },
+  { key: "phone", label: t("hgap.colPhone") },
+  { key: "city", label: t("hgap.colCity") },
+  { key: "status", label: t("hgap.colStatus") },
+  { key: "track", label: t("hgap.colTrack") },
+  { key: "mad", label: t("hgap.colMad") },
+  { key: "ageH", label: t("hgap.colAge") },
+];
+
+function shape(rows, bucketId) {
+  return (rows || []).map((r) => ({
+    bucket: t("hgap.tab" + bucketId),
+    order: r.order || "",
+    dn: r.dn || "",
+    awb: r.awb || (r.noAwb ? t("hgap.noAwbWord") : ""),
+    customer: r.customer || "",
+    phone: r.phone || "",
+    city: r.city || "",
+    status: r.status || "",
+    track: r.track || "",
+    mad: r.mad === undefined ? "" : r.mad,
+    ageH: r.ageH ?? "",
+  }));
+}
+
+const BUCKETS = [
+  ["live", "Live"], ["nodoc", "NoDoc"], ["stuck", "Stuck"], ["settled", "Settled"],
+];
+const rowsFor = (id) => (id === "live" ? offbook.value?.live
+  : id === "nodoc" ? offbook.value?.noDoc
+  : id === "settled" ? offbook.value?.settled
+  : orphans.value?.stuck) || [];
+
+const totalRows = computed(() =>
+  BUCKETS.reduce((n, [id]) => n + rowsFor(id).length, 0));
+
+function exportTab() {
+  const id = BUCKETS.find(([b]) => b === tab.value);
+  const n = downloadCsv(stampName("handover-gaps-" + tab.value), columns(),
+                        shape(activeRows.value, id[1]));
+  success(t("hgap.exported").replace("{n}", String(n)), "");
+}
+
+function exportAll() {
+  const rows = BUCKETS.flatMap(([id, label]) => shape(rowsFor(id), label));
+  const n = downloadCsv(stampName("handover-gaps-all"), columns(), rows);
+  success(t("hgap.exported").replace("{n}", String(n)), "");
+}
 
 async function load() {
   loading.value = true;
