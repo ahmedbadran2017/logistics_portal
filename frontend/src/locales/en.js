@@ -1801,6 +1801,12 @@ export default {
     phonePh: "Phone…",
     namePh: "Customer name…",
     // Not an error — the edit is saved. It just cannot reach the driver.
+    addrBefore: "No label yet — the carrier will be given this address when it is created.",
+    addrPrinted: "The printed label carries the old address. The carrier cannot edit a parcel once created, so dispatch must void this one and raise a new parcel before handover.",
+    addrCarrier: "The parcel is already with the carrier, so no label can change it. The carrier has to be told the new address.",
+    tellCarrier: "Tell the carrier",
+    tellCarrierDone: "Sent to the carrier as a redelivery",
+    addrFixedNote: "Address corrected:",
     contactLate: "Saved to our records, but the parcel is already made and its label carries the old details. Raise it with the team if the driver needs to know.",
     addrPh: "Street, building, landmark…",
     cityPh: "City…",

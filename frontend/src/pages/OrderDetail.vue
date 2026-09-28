@@ -279,12 +279,29 @@
                 <button class="h-8 px-3 rounded-lg text-[11.5px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
                         :disabled="edBusy" @click="saveContact">{{ t("cf.saveContact") }}</button>
               </div>
-              <!-- Only when it is true: the parcel exists, so its label was
-                   printed from the old details and this edit cannot reach it. -->
-              <div v-if="(isLive && liveOrder.dn) || order.dn"
-                   class="flex items-start gap-1.5 text-[11px] text-amber-800/90 leading-snug">
-                <Icon name="alert-triangle" :size="12" class="mt-[2px] shrink-0" />
-                <span>{{ t("cf.contactLate") }}</span>
+              <!-- What this edit can and cannot reach, which depends
+                   entirely on where the parcel is. Cathedis creates a
+                   delivery and never updates it: re-printing returns the
+                   address IT stored, and re-creating books a SECOND parcel
+                   (its payload carries no id and the integration has no
+                   existing-AWB guard). So there is no honest "regenerate"
+                   here — only the truth about the stage, and the one action
+                   that still changes where the parcel ends up. -->
+              <div v-if="addrReach.key === 'before'"
+                   class="flex items-start gap-1.5 text-[11px] text-emerald-800/90 leading-snug">
+                <Icon name="check" :size="12" class="mt-[2px] shrink-0" />
+                <span>{{ t("cf.addrBefore") }}</span>
+              </div>
+              <div v-else class="rounded-lg bg-white/70 ring-1 ring-amber-200 p-2 space-y-1.5">
+                <div class="flex items-start gap-1.5 text-[11px] text-amber-800/90 leading-snug">
+                  <Icon name="alert-triangle" :size="12" class="mt-[2px] shrink-0" />
+                  <span>{{ t(addrReach.key === 'carrier' ? 'cf.addrCarrier' : 'cf.addrPrinted') }}</span>
+                </div>
+                <button v-if="addrReach.key === 'carrier' && addrReach.dn"
+                        class="h-8 px-3 rounded-lg text-[11.5px] font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-50 inline-flex items-center gap-1.5"
+                        :disabled="edBusy" @click="tellCarrier">
+                  <Icon name="truck" :size="12" />{{ t("cf.tellCarrier") }}
+                </button>
               </div>
             </div>
             <div class="space-y-1.5 mt-2 text-[12px]">
@@ -859,6 +876,38 @@ watch(editing, async (on) => {
     } catch (_) { cityOptions.value = []; }
   }
 });
+// Where the parcel is decides what an address edit can still reach.
+const addrReach = computed(() => {
+  const o = (isLive.value && liveOrder.value) ? liveOrder.value : (order.value || {});
+  const dn = o.dn || "";
+  if (!o.awb) return { key: "before", dn };
+  const t = String(o.tracking_status || o.track || "");
+  const moving = !!o.sh || ["In Transit", "Out For Delivery", "Delivered",
+                            "Delivery Exception", "Failed Attempt",
+                            "Picked up", "Picked Up"].includes(t);
+  return { key: moving ? "carrier" : "printed", dn };
+});
+
+// The parcel is already out; the label cannot follow it, but the carrier can
+// be told. That is the same Redeliver the rescue lane runs, from the screen
+// the correction was just made on.
+async function tellCarrier() {
+  const dn = addrReach.value.dn;
+  if (!dn) return;
+  edBusy.value = true;
+  try {
+    await apiPost("rescue.act", {
+      id: dn, action: "redeliver",
+      note: (t("cf.addrFixedNote") + " " + (edCity.value || "")).trim().slice(0, 140),
+    });
+    success(t("cf.tellCarrierDone"), order.value.no);
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    edBusy.value = false;
+  }
+}
+
 async function saveContact() {
   edBusy.value = true;
   try {
