@@ -173,8 +173,19 @@ def _accepted_cities():
 
 @frappe.whitelist()
 def cathedis_cities(q=""):
-    """Searchable list of Cathedis-accepted (Latin) cities for the picker."""
-    _gate()
+    """Searchable list of Cathedis-accepted (Latin) cities for the picker.
+
+    Gated wider than the rest of this module on purpose. It is a vocabulary,
+    not a decision: it shows which spellings the carrier accepts and carries
+    nothing about any order. Everyone allowed to correct a customer's address
+    needs it, or they are left typing a city into a free box -- which is the
+    exact input the City-check queue exists to clean up afterwards. The
+    queue and the fixes themselves keep the narrower _gate().
+    """
+    from logistics_portal.api.auth import resolve_role
+    from logistics_portal.api.orders import _URGENT_ROLES
+    if resolve_role(frappe.session.user) not in set(_URGENT_ROLES) | {"dispatcher"}:
+        frappe.throw("lp:cityFixRole", frappe.PermissionError)
     cities = _accepted_cities()
     q = (q or "").strip().lower()
     if q:

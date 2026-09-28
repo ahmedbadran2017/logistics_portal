@@ -1343,6 +1343,15 @@ def update_contact(order, name=None, phone=None, city=None, address_line=None):
     address_line = (address_line or "").strip()
     if not name and not phone and not city and not address_line:
         frappe.throw("Nothing to update.")
+    # A city Cathedis cannot read is the thing this endpoint exists to prevent,
+    # and until now it accepted any string at all -- including the Arabic town
+    # name and the phone-number-in-the-city-box that the whole City-check queue
+    # was built to catch. Same test as the city module's own, so a correction
+    # made here can never create the row someone else has to fix there.
+    if city:
+        from logistics_portal.api.city import _has_arabic
+        if _has_arabic(city) or any(ch.isdigit() for ch in city):
+            frappe.throw("lp:cityNotLatin")
     old = frappe.db.get_value(
         "Sales Order", order,
         ["custom_customer_phone", "custom_shipping_phone", "custom_shipping_city",
@@ -1379,7 +1388,25 @@ def update_contact(order, name=None, phone=None, city=None, address_line=None):
     addr_name = old.shipping_address_name or old.customer_address
     if (city or address_line or phone):
         if addr_name and frappe.db.exists("Address", addr_name):
+            # An Address is a shared record, and 3,346 of the last 90 days'
+            # addresses carry more than one order. Editing one in place also
+            # rewrites where its SIBLINGS were sent -- and 2,614 of those
+            # shared addresses have a sibling that has ALREADY been delivered,
+            # with 2,012 live orders sitting on them. Correcting today's
+            # parcel must not restate where last month's parcel went, so when
+            # a delivered order is recorded against this address the order
+            # gets its own copy instead and history is left alone.
+            settled = frappe.db.sql(
+                """SELECT 1 FROM `tabSales Order`
+                   WHERE COALESCE(shipping_address_name, customer_address) = %s
+                     AND name <> %s
+                     AND (COALESCE(custom_track_shipment_status,'') = 'Delivered'
+                          OR COALESCE(custom_logistics_status,'') = 'Delivered')
+                   LIMIT 1""", (addr_name, order))
             adoc = frappe.get_doc("Address", addr_name)
+            if settled:
+                adoc = frappe.copy_doc(adoc)
+                adoc.address_type = "Shipping"
             if address_line and (adoc.address_line1 or "") != address_line:
                 log.append(f"address {(adoc.address_line1 or '—')} → {address_line}")
                 adoc.address_line1 = address_line
@@ -1388,7 +1415,15 @@ def update_contact(order, name=None, phone=None, city=None, address_line=None):
             if phone:
                 adoc.phone = phone
             adoc.flags.ignore_permissions = True
-            adoc.save(ignore_permissions=True)
+            if settled:
+                adoc.insert(ignore_permissions=True)
+                updates["shipping_address_name"] = adoc.name
+                if old.customer_address == addr_name:
+                    updates["customer_address"] = adoc.name
+                log.append(f"own address copy ({adoc.name}) — a delivered order "
+                           f"shares {addr_name}")
+            else:
+                adoc.save(ignore_permissions=True)
         elif address_line or city:
             # No Address on the order — Cathedis logs this as "Address None
             # not found". Build one and link it so the parcel has somewhere to
@@ -1413,6 +1448,17 @@ def update_contact(order, name=None, phone=None, city=None, address_line=None):
 
     if not log:
         return {"ok": True, "unchanged": True}
+    # A city a human vouched for here joins the accepted list, exactly as it
+    # does when set from the City-check screen -- otherwise the order this
+    # call just corrected reappears there as "unmatched", which is how one
+    # fix becomes two people's work.
+    if city:
+        try:
+            from logistics_portal.api.city import _add_manual_city
+            _add_manual_city(city)
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:2000],
+                             "confirmation.update_contact city")
     frappe.db.set_value("Sales Order", order, updates, update_modified=True)
     frappe.get_doc("Sales Order", order).add_comment(
         "Comment", "Contact updated: " + "; ".join(log) + f" · by {frappe.session.user}")

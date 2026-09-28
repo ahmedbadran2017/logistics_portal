@@ -255,6 +255,27 @@
                        class="h-8 flex-1 min-w-[130px] ps-2.5 rounded-lg bg-white ring-1 ring-amber-200 text-[12px] focus:outline-none" />
                 <input v-model="edPhone" :placeholder="t('cf.phonePh')" inputmode="tel"
                        class="h-8 w-[130px] ps-2.5 rounded-lg bg-white ring-1 ring-amber-200 text-[12px] font-mono focus:outline-none" />
+              </div>
+              <!-- The rest of the address, on the screen the tracking team
+                   already has open. They are the ones a customer tells "the
+                   street is wrong, that is why nobody found me", and until
+                   now the only thing they could correct was the name and the
+                   phone — so the correction that actually moves the parcel
+                   had to be made somewhere else, or not at all. -->
+              <input v-model="edAddr" :placeholder="t('cf.addrPh')" dir="auto" maxlength="240"
+                     class="h-8 w-full ps-2.5 rounded-lg bg-white ring-1 ring-amber-200 text-[12px] focus:outline-none" />
+              <div class="flex items-center gap-2 flex-wrap">
+                <div class="flex-1 min-w-[150px]">
+                  <!-- The carrier reads this one and refuses what it cannot
+                       spell, so it is the vetted list rather than a free box.
+                       Typing is still allowed for a town the list has not met
+                       yet — that is how the list grows. -->
+                  <ReasonSelect v-model="edCity" :options="cityOptions" allow-custom
+                                :placeholder="t('cf.cityPh')"
+                                :search-placeholder="t('cityfix.searchCity')"
+                                :custom-label="t('cityfix.useTyped')"
+                                :none-text="t('cityfix.noCity')" />
+                </div>
                 <button class="h-8 px-3 rounded-lg text-[11.5px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
                         :disabled="edBusy" @click="saveContact">{{ t("cf.saveContact") }}</button>
               </div>
@@ -614,6 +635,7 @@ import Icon from "@/components/ui/Icon.vue";
 import { local } from "@/lib/clock";
 import JourneyTimeline from "@/components/JourneyTimeline.vue";
 import CsHandover from "@/components/CsHandover.vue";
+import ReasonSelect from "@/components/ui/ReasonSelect.vue";
 import { setCsContext } from "@/composables/useCsContext";
 import {
   ORDERS, CHANNELS, STAGE, SLA, STAGE_LABEL, SLA_LABEL, TRACK_LABEL,
@@ -815,11 +837,27 @@ async function sendReplacement() {
 const editing = ref(false);
 const edName = ref("");
 const edPhone = ref("");
+const edAddr = ref("");
+const edCity = ref("");
 const edBusy = ref(false);
-watch(editing, (on) => {
+const cityOptions = ref([]);
+watch(editing, async (on) => {
   if (!on) return;
   edName.value = order.value.customer || "";
   edPhone.value = phone.value === "—" ? "" : phone.value;
+  // Prefill from what is on the order, so an edit to one field cannot blank
+  // the others by sending an empty string over a good value.
+  const o = liveOrder.value || {};
+  edAddr.value = o.address_line || "";
+  edCity.value = o.city || "";
+  if (!cityOptions.value.length) {
+    // The vetted list, fetched once and only when the panel is actually
+    // opened — most visits to this page never touch the address.
+    try {
+      const r = await api("city.cathedis_cities");
+      cityOptions.value = (r && (r.cities || r)) || [];
+    } catch (_) { cityOptions.value = []; }
+  }
 });
 async function saveContact() {
   edBusy.value = true;
@@ -828,10 +866,14 @@ async function saveContact() {
       order: liveOrder.value?.name || order.value.no,
       name: edName.value.trim() || undefined,
       phone: edPhone.value.trim() || undefined,
+      address_line: edAddr.value.trim() || undefined,
+      city: edCity.value.trim() || undefined,
     });
     if (liveOrder.value) {
       liveOrder.value.customer = edName.value.trim() || liveOrder.value.customer;
       liveOrder.value.phone = edPhone.value.trim() || liveOrder.value.phone;
+      if (edAddr.value.trim()) liveOrder.value.address_line = edAddr.value.trim();
+      if (edCity.value.trim()) liveOrder.value.city = edCity.value.trim();
     }
     editing.value = false;
     success(t("cf.contactSaved"), order.value.no);

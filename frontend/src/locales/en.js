@@ -1802,6 +1802,7 @@ export default {
     namePh: "Customer name…",
     // Not an error — the edit is saved. It just cannot reach the driver.
     contactLate: "Saved to our records, but the parcel is already made and its label carries the old details. Raise it with the team if the driver needs to know.",
+    addrPh: "Street, building, landmark…",
     cityPh: "City…",
     addressPh: "Street / details (address line)…",
     editAddrTitle: "Delivery address",
@@ -1975,6 +1976,7 @@ export default {
     leadsOnly: "Tracking leads only.",
     managerOnly: "Only a manager can change the leads list.",
     badPayload: "The request was not understood.",
+    cityNotLatin: "The city must be written in Latin letters, with no numbers — that is what the carrier reads.",
     cityFixRole: "Only a dispatcher, tracking agent or manager can fix shipping cities.",
     unknownRow: "That feedback row no longer exists.",
     pickTemplate: "Pick a template first.",
