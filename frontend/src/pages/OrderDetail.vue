@@ -136,6 +136,7 @@
                      all; one that is merely off the face can, because that
                      is a transfer and not a shortage. -->
                 <button v-for="(it, i) in items" :key="'s' + i"
+                        v-show="sendMode === 'same'"
                         class="text-[11px] font-medium rounded-lg px-2 py-1 ring-1 transition-colors inline-flex items-center gap-1.5 disabled:opacity-45 disabled:cursor-not-allowed"
                         :disabled="stockOf(it) === 0"
                         :title="stockOf(it) === 0 ? t('snd.none') : ''"
@@ -152,18 +153,59 @@
                         :size="10" :title="t('snd.offFace')" />
                 </button>
               </div>
+              <!-- Two different acts behind one panel. "From this order" is a
+                   replacement of what they already bought; "something else" is
+                   a different article entirely, which is the case that had no
+                   button at all and was being typed by hand — 47 orders in 30
+                   days went to a customer whose earlier parcel had failed. -->
+              <div class="flex items-center gap-1.5 text-[11.5px]">
+                <button v-for="m in ['same', 'other']" :key="m"
+                        class="h-7 px-2.5 rounded-full font-semibold ring-1 transition-colors"
+                        :class="sendMode === m ? 'bg-violet-700 text-white ring-violet-700'
+                                : 'bg-white text-stone-600 ring-violet-200 hover:bg-violet-50'"
+                        @click="setSendMode(m)">{{ t('snd.mode_' + m) }}</button>
+              </div>
+              <div v-if="sendMode === 'other'" class="space-y-1.5">
+                <input v-model="otherQ" @input="otherSearchSoon" :placeholder="t('snd.findItem')"
+                       class="h-8 w-full ps-2.5 rounded-lg bg-white ring-1 ring-violet-200 text-[12px] focus:outline-none" />
+                <div v-if="otherHits.length" class="max-h-32 overflow-auto rounded-lg ring-1 ring-violet-100 bg-white">
+                  <button v-for="h in otherHits" :key="h.code"
+                          class="w-full text-start px-2 py-1.5 text-[11.5px] hover:bg-violet-50 flex items-center gap-2"
+                          @click="addOther(h)" dir="auto">
+                    <span class="flex-1 truncate">{{ h.name }}</span>
+                    <span class="tabular-nums text-[10px] font-bold rounded px-1"
+                          :class="h.avail > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'">{{ h.avail }}</span>
+                  </button>
+                </div>
+                <div v-for="(l, i) in otherLines" :key="'o' + i"
+                     class="flex items-center gap-1.5 text-[11.5px]">
+                  <span class="flex-1 truncate" dir="auto">{{ l.name }}</span>
+                  <input v-model.number="l.qty" type="number" min="1"
+                         class="h-7 w-14 px-1.5 text-center rounded-lg bg-white ring-1 ring-violet-200" />
+                  <!-- Most of the catalogue has never been sold, so there is
+                       often no price on file and it has to be typed. Blank is
+                       not zero: the server refuses rather than shipping free. -->
+                  <input v-model.number="l.rate" type="number" min="0" :placeholder="t('snd.rate')"
+                         class="h-7 w-20 px-1.5 text-center rounded-lg bg-white ring-1 ring-violet-200" />
+                  <button class="text-stone-400 hover:text-rose-600" @click="otherLines.splice(i, 1)">
+                    <Icon name="x" :size="13" />
+                  </button>
+                </div>
+              </div>
               <div class="flex items-center gap-2 flex-wrap">
                 <select v-model="sendReason"
                         class="h-8 px-2 rounded-lg bg-white ring-1 ring-violet-200 text-[12px] focus:outline-none">
                   <option value="">{{ t("snd.why") }}</option>
                   <option v-for="r in SEND_REASONS" :key="r" :value="r">{{ t("snd.r_" + r) }}</option>
                 </select>
-                <label class="inline-flex items-center gap-1.5 text-[11.5px] text-stone-600">
+                <label v-if="sendMode === 'same'" class="inline-flex items-center gap-1.5 text-[11.5px] text-stone-600">
                   <input v-model="sendFree" type="checkbox" class="accent-violet-600" />{{ t("snd.free") }}
                 </label>
                 <button class="ms-auto h-8 px-3.5 rounded-lg text-[12px] font-bold text-white bg-violet-700 hover:bg-violet-800 disabled:opacity-40"
-                        :disabled="!sendPick.length || !sendReason || sendBusy" @click="sendReplacement">
-                  {{ sendBusy ? "…" : t("snd.send") }}
+                        :disabled="sendMode === 'same' ? (!sendPick.length || !sendReason || sendBusy)
+                                                       : (!otherLines.length || !sendReason || sendBusy)"
+                        @click="sendMode === 'same' ? sendReplacement() : sendSomethingElse()">
+                  {{ sendBusy ? "…" : t(sendMode === 'same' ? "snd.send" : "snd.sendOther") }}
                 </button>
               </div>
               <div class="text-[10.5px] text-violet-700/80">{{ t("snd.hint") }}</div>
@@ -825,6 +867,73 @@ const sendPick = ref([]);
 const sendReason = ref("");
 const sendFree = ref(true);
 const sendBusy = ref(false);
+// "same" = replace a line they already bought. "other" = a different article
+// entirely, which is a sale and never free.
+const sendMode = ref("same");
+const otherQ = ref("");
+const otherHits = ref([]);
+const otherLines = ref([]);
+let otherTimer = null;
+
+function setSendMode(m) {
+  sendMode.value = m;
+  otherHits.value = [];
+  otherQ.value = "";
+}
+
+function otherSearchSoon() {
+  clearTimeout(otherTimer);
+  otherTimer = setTimeout(async () => {
+    const query = otherQ.value.trim();
+    if (!query) { otherHits.value = []; return; }
+    try {
+      const res = await api("inventory.sku_lookup", { query });
+      const out = [];
+      for (const g of (res?.groups || [])) {
+        for (const it of (g.items || [])) {
+          out.push({ code: it.code, name: it.name || it.code, avail: it.avail || 0 });
+        }
+      }
+      otherHits.value = out.slice(0, 12);
+    } catch { otherHits.value = []; }
+  }, 350);
+}
+
+function addOther(h) {
+  if (!otherLines.value.some((x) => x.item_code === h.code)) {
+    otherLines.value.push({ item_code: h.code, name: h.name, qty: 1, rate: null });
+  }
+  otherQ.value = "";
+  otherHits.value = [];
+}
+
+async function sendSomethingElse() {
+  sendBusy.value = true;
+  try {
+    const res = await apiPost("orders.send_instead", {
+      order: liveOrder.value?.name || order.value.no,
+      lines: JSON.stringify(otherLines.value.map((l) => ({
+        item_code: l.item_code, qty: l.qty || 1,
+        ...(l.rate ? { rate: l.rate } : {}),
+      }))),
+      reason: sendReason.value,
+    });
+    otherLines.value = [];
+    sendReason.value = "";
+    // The original is meant to be stopped with it; if that half was refused
+    // say so, because two parcels going out is the failure this prevents.
+    if (res && res.stopped && res.stopped.ok === false) {
+      warn(t("snd.notStopped"), res.order);
+    } else {
+      success(t("snd.sentOther"), res?.order || "");
+    }
+    load();
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    sendBusy.value = false;
+  }
+}
 function togglePick(sku) {
   const i = sendPick.value.indexOf(sku);
   if (i >= 0) sendPick.value.splice(i, 1);

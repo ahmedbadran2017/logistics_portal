@@ -490,6 +490,32 @@ def _board_counts():
                  AND so.custom_logistics_status='Pending'
                  AND (so.custom_awb IS NULL OR so.custom_awb='')
                  AND so.creation >= %s""", (dw,))[0][0] or 0),
+        # A parcel with a carrier label that the floor never picked.
+        #
+        # Found 2026-09-29 on the reship feature: 10 of the 17 reships ever
+        # made have NO pick list and NO delivery note, yet carry an AWB and a
+        # printed label -- the label was pulled straight from the Sales Order,
+        # which is a path that skips picking entirely. Whatever left the
+        # building on those labels was never deducted from stock, and the
+        # warehouse had nothing to pick.
+        #
+        # Exchanges are excluded and that is the difference between a usable
+        # number and a false alarm: an `-ex` order ships with no pick list and
+        # no DN BY DESIGN. Counting them read 145; the real figure is 13, of
+        # which 8 are reships.
+        "label_unpicked": int(frappe.db.sql(
+            """SELECT COUNT(*) FROM `tabSales Order` so
+               WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
+                 AND COALESCE(so.custom_awb,'') <> ''
+                 AND so.name NOT LIKE '%%-ex'
+                 AND so.creation >= %s
+                 AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
+                                 JOIN `tabPick List` p ON p.name = pli.parent
+                                 WHERE pli.sales_order = so.name AND p.docstatus = 1)
+                 AND NOT EXISTS (SELECT 1 FROM `tabDelivery Note Item` di
+                                 JOIN `tabDelivery Note` d ON d.name = di.parent
+                                 WHERE di.against_sales_order = so.name
+                                   AND d.docstatus = 1)""", (dw,))[0][0] or 0),
         # carrier says Delivered but the order status is stuck at Shipped
         "sync_lag": frappe.db.count("Sales Order", {
             "docstatus": 1, "custom_sales_status": "Confirmed",
@@ -2489,6 +2515,148 @@ def reship(order, items=None, free=0, reason=None):
             # Short but not empty: it went through, and the caller says so.
             "short": _bad if partial else [],
             "total": float(new.grand_total or 0)}
+
+
+def _last_sold_rate(code):
+    """What this item last actually sold for on a submitted order.
+
+    The catalogue is not the answer: prices live in Shopify, and 242 of the
+    248 items ever used as a replacement here have no Item Price at all --
+    see exchange._price_of, which learned this the expensive way. The last
+    rate a customer really paid covers 96.9%; the rest we must ask for,
+    because the alternative is a parcel that goes out priced at zero.
+    """
+    r = frappe.db.sql("""SELECT soi.rate FROM `tabSales Order Item` soi
+                         JOIN `tabSales Order` so ON so.name = soi.parent
+                         WHERE soi.item_code = %s AND so.docstatus = 1
+                           AND soi.rate > 0 AND so.company = "Justyol Morocco"
+                         ORDER BY so.creation DESC LIMIT 1""", (code,))
+    return float(r[0][0]) if r else 0.0
+
+
+@frappe.whitelist(methods=["POST"])
+def send_instead(order, lines=None, reason=None):
+    """Send a DIFFERENT item in place of one that never arrived.
+
+    The third case, and until now the only one with no button. The parcel
+    failed, the customer still wants to buy, but wants something else:
+
+        reship       the same items again, same money
+        replacement  SOME of the same lines, free
+        exchange     the customer HAS the goods; a swap, old one collected
+        send_instead the customer has nothing, and wants a different item
+
+    Exchange is the near miss and the wrong tool: it books a collection of
+    goods the customer never received. Measured 2026-09-29, it is not being
+    misused either -- 670 of the 674 exchanges in 90 days are on delivered
+    orders. What happens instead is that the order gets typed by hand: 47 in
+    30 days went to a customer whose earlier parcel had failed, with no link
+    to it and no reason on file.
+
+    Unlike reship's `items`, which filters the ORIGINAL lines, these come
+    from the catalogue -- that is the whole point, and the reason this could
+    not be another argument on reship.
+
+    It goes through the warehouse like any sale: Confirmed + Pending, into
+    the pick pool, its own pick list, DN and AWB. That is deliberate and it
+    is the half that has been failing -- 10 of the 17 reships ever made have
+    NO pick list and no delivery note, because a label was pulled straight
+    from the Sales Order and the floor never saw them. An order that leaves
+    the building without being picked is stock that was never deducted.
+    """
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager",
+                                                 "confirmation", "tracking", "cs"):
+        frappe.throw("Not authorized to send a replacement order.",
+                     frappe.PermissionError)
+    import json as _j
+    name = (order or "").strip()
+    if not frappe.db.exists("Sales Order", name):
+        frappe.throw("Unknown order.")
+    if isinstance(lines, str):
+        lines = _j.loads(lines or "[]")
+    lines = [l for l in (lines or []) if (l or {}).get("item_code")]
+    if not lines:
+        frappe.throw("Pick at least one item to send.")
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw("Say why something else is going out — it is the one "
+                     "thing nobody can reconstruct later.")
+
+    so = frappe.get_doc("Sales Order", name)
+    if so.docstatus != 1:
+        frappe.throw("The original order must be submitted.")
+    if so.company != "Justyol Morocco":
+        frappe.throw("Unknown order.")
+
+    # Do not promise what we cannot pick. Same test the free sends use.
+    want = [(str(l["item_code"]).strip(), float(l.get("qty") or 1)) for l in lines]
+    empty = [b for b in _uncoverable(name, want) if b["have"] <= 0]
+    if empty:
+        frappe.throw("Nothing to send: " + "; ".join(
+            f"{b['name']} — 0 available" for b in empty[:3])
+            + ". Ask the warehouse before promising the customer.")
+
+    new = frappe.copy_doc(so)
+    _strip_external_identity(new)
+    _reset_fulfilment_state(new)
+    new.custom_sales_status = "Confirmed"
+    for f, v in (("custom_logistics_status", "Pending"),):
+        if new.meta.has_field(f):
+            new.set(f, v)
+    for f in ("custom_awb", "custom_label_url", "custom_tracking_number",
+              "custom_track_shipment_status", "custom_short_picked_at"):
+        if new.meta.has_field(f):
+            new.set(f, None)
+    # The lines are NEW, not a filter of the old ones.
+    new.items = []
+    for l in lines:
+        code = str(l["item_code"]).strip()
+        qty = float(l.get("qty") or 1)
+        rate = float(l.get("rate") or 0) or _last_sold_rate(code)
+        if rate <= 0:
+            frappe.throw(f"{code} has never been sold, so its price is not on "
+                         f"file — type the rate for it.")
+        new.append("items", {"item_code": code, "qty": qty, "rate": rate,
+                             "delivery_date": so.delivery_date})
+    for f, v in (("custom_replaces_order", name), ("custom_send_reason", reason)):
+        if new.meta.has_field(f):
+            new.set(f, v)
+    new.flags.ignore_permissions = True
+    new.insert(ignore_permissions=True)
+    from logistics_portal.api.utils import submit_new_sales_order
+    submit_new_sales_order(new)
+
+    what = ", ".join(f"{r.item_code} x{int(r.qty)}" for r in new.items)[:160]
+    new.add_comment("Comment", f"Sent instead of {name} — {reason} ({what}) "
+                               f"· by {frappe.session.user}")
+    so.add_comment("Comment", f"Something else sent instead, as {new.name} — "
+                              f"{reason} · by {frappe.session.user}")
+
+    # Two parcels must not go out for one change of mind. Never refuses --
+    # if the first one already left, the stop is a request the floor and the
+    # carrier lane read, which is exactly what stop.request_stop is for.
+    stopped = None
+    try:
+        from logistics_portal.api.stop import request_stop
+        # "Modification" is the vocabulary's own word for this and it is
+        # already in the list request_stop validates against -- a reason of
+        # my own invention would either be refused or quietly pollute the
+        # cancellation stats with a category nobody reports on.
+        stopped = request_stop(name, "Modification",
+                               f"Something else sent instead ({new.name}): {reason}")
+    except Exception as e:
+        # stop's own gate is narrower than this one (no dispatcher), and a
+        # stop that did not happen must not look like one that did -- the
+        # whole point is that two parcels do not go out.
+        stopped = {"ok": False, "why": str(e)[:120]}
+        frappe.log_error(frappe.get_traceback()[:2000], "orders.send_instead stop")
+
+    for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    frappe.db.commit()
+    return {"ok": True, "order": new.name, "original": name, "reason": reason,
+            "total": float(new.grand_total or 0), "stopped": stopped}
 
 
 def guard_cancelled_resurrect(doc, method=None):
