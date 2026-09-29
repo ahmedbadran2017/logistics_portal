@@ -854,7 +854,16 @@ def restock_move(item_code, qty, target=None, disposition="restock"):
     if qty > available:
         frappe.throw(f"Only {available} in the Return Zone.")
 
-    if disposition == "defective":
+    # A returned consignment piece is still the supplier's: it goes back to
+    # their section, never onto one of our shelves and never to Returns
+    # Adjustment (writing off someone else's stock is not ours to do). The
+    # section overrides whatever the dropdown sent.
+    from logistics_portal.api.consignment import owner as _cn_owner
+    _cn_sup, _cn_section = _cn_owner(item_code)
+    if _cn_section:
+        target = _cn_section
+        disposition = "restock"
+    elif disposition == "defective":
         target = ADJUST_WH
     else:
         if not target or not frappe.db.exists("Warehouse", target):

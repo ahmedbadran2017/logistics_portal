@@ -53,6 +53,16 @@ def get_restock_suggestions(days=7, safety_days=7):
     source_stock = {}
     for r in source_rows:
         source_stock.setdefault(r.item_code, {})[r.warehouse] = r.actual_qty
+    # Consignment stock is the supplier's and lives in their own section; this
+    # engine exists to feed FAST / Textile / MU / Accessory / Cosmetic, which
+    # are ours. After go-live supplier_portal rejects those Stock Entries
+    # outright, so a suggestion here is work that cannot be done.
+    from logistics_portal.api.consignment import sections_for
+    _cn = sections_for(list(source_stock.keys()))
+    if _cn:
+        source_stock = {k: v for k, v in source_stock.items() if k not in _cn}
+        if not source_stock:
+            return _empty_payload(days, safety_days)
     source_codes = list(source_stock.keys())[:MAX_SOURCE_ITEMS]
     truncated_items = len(source_stock) > MAX_SOURCE_ITEMS
 

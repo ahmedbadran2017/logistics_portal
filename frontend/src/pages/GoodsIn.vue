@@ -224,7 +224,14 @@ function runPoSearch() {
 async function selectPo(name, bump = null) {
   try {
     const o = await apiPost("purchasing.open_po", { po: name });
-    if (!o.ok) { warn(t("gi.poNotOpen"), name); return; }
+    if (!o.ok) {
+      // A Cross-dock PO is received on its own screen, into Cross-dock - JM —
+      // posted here its goods land in a zone picking vetoes. Say which order,
+      // so the counter knows what it is holding.
+      if (o.reason === "crossdock") warn(t("gi.crossdockPo"), o.so || name);
+      else warn(t("gi.poNotOpen"), name);
+      return;
+    }
     po.value = { po: o.po, supplier: o.supplier, currency: o.currency, ordered: o.ordered,
                  received: o.received != null ? o.received : (o.ordered - o.pending) };
     poLines.value = (o.lines || []).map((l) => ({ ...l, qty: 0 }));
@@ -276,7 +283,11 @@ async function scanToOpen(code) {
     scanner.value?.showSuccess(t("gi.choosePo"));
     return;
   }
-  try { const o = await apiPost("purchasing.open_po", { po: code }); if (o.ok) return selectPo(code); }
+  try {
+    const o = await apiPost("purchasing.open_po", { po: code });
+    if (o.ok) return selectPo(code);
+    if (o.reason === "crossdock") { scanner.value?.showError(t("gi.crossdockPo")); return; }
+  }
   catch (e) { /* fall through */ }
   scanner.value?.showError(t("pickm.unknown"));
 }

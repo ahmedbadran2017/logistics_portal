@@ -111,6 +111,18 @@
       <div class="flex items-start gap-3 flex-wrap">
         <span class="text-[12.5px] font-medium text-stone-600 w-16 mt-2">{{ t('mv.to') }}</span>
         <div class="flex-1 min-w-[200px] space-y-2">
+          <!-- Consignment: exactly one lawful bin, so show it locked rather
+               than inviting a typed alternative the server would refuse. -->
+          <div v-if="consignment" class="space-y-1">
+            <div class="h-10 px-3 rounded-lg flex items-center gap-2 ring-1"
+                 style="background: var(--accent-50); border-color: var(--accent-300)"
+                 :style="{ '--tw-ring-color': 'var(--accent-300)' }">
+              <span class="text-[13px] font-semibold truncate" style="color: var(--accent-800)">{{ short(consignment.warehouse) }}</span>
+              <span class="text-[11px]" style="color: var(--accent-700)">· {{ t('mv.locked') }}</span>
+            </div>
+            <p class="text-[11px] text-stone-500">{{ t('mv.consignmentHint').replace('{s}', consignment.supplier) }}</p>
+          </div>
+          <template v-else>
           <div v-if="targetChips.length" class="flex flex-wrap gap-1.5">
             <button
               v-for="b in targetChips" :key="b.warehouse"
@@ -135,6 +147,7 @@
           <p v-if="targetHint && !target" class="text-[11px] text-[var(--accent-700)] font-medium">{{ t('mv.targetHint').replace('{z}', targetHint) }}</p>
           <p v-if="target && !targetValid" class="text-[11px] text-rose-600">{{ t('mv.invalidBin') }}</p>
           <p v-else-if="target && target === source" class="text-[11px] text-rose-600">{{ t('mv.sameBin') }}</p>
+          </template>
         </div>
       </div>
 
@@ -266,6 +279,7 @@ const sourceQty = computed(() => {
   const b = (current.value?.bins || []).find((x) => x.warehouse === source.value);
   return b ? b.qty : 0;
 });
+const consignment = computed(() => current.value?.consignment || null);
 const targetChips = computed(() =>
   (current.value?.bins || []).filter((b) => b.warehouse !== source.value).slice(0, 3));
 const targetValid = computed(() =>
@@ -355,7 +369,7 @@ async function onScan(raw) {
   current.value = res;
   source.value = res.bins[0]?.warehouse || "";
   qty.value = res.bins[0]?.qty || 1;
-  target.value = "";
+  target.value = res.consignment?.warehouse || "";
   scanner.value?.showSuccess(`${res.name} · ${res.bins.length} ${t('mv.bins')}`);
 }
 
@@ -379,7 +393,8 @@ async function prefill(r, src, tgt, n) {
   source.value = src && res.bins.some((b) => b.warehouse === src) ? src : (res.bins[0]?.warehouse || "");
   const cap = (res.bins.find((b) => b.warehouse === source.value) || {}).qty || 1;
   qty.value = Math.min(Math.max(1, n || cap), cap);
-  target.value = tgt || "";
+  // A put-away/slotting row suggests a shelf; consignment stock overrules it.
+  target.value = res.consignment?.warehouse || tgt || "";
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 

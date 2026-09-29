@@ -2120,6 +2120,14 @@ def _resolve_bins(item_codes):
             (tuple(item_codes),), as_dict=True):
         locked[(r.item_code, r.warehouse)] = float(r.q or 0)
 
+    # A consignment piece has one lawful home: its own supplier's section. The
+    # section is not an aisle bin, so on shelf-vs-staging alone it would rank
+    # LAST — exactly backwards. Outrank both: after go-live supplier_portal
+    # refuses a Delivery Note that ships consignment goods from anywhere else,
+    # so picking from our shelf would fail at submit rather than pick wrong.
+    from logistics_portal.api.consignment import sections_for
+    sections = sections_for(item_codes)
+
     best, pool = {}, {}
     for r in rows:
         avail = float(r.avail or 0) - locked.get((r.item_code, r.warehouse), 0)
@@ -2128,6 +2136,7 @@ def _resolve_bins(item_codes):
         m = _SHELF_RE.match(r.warehouse or "")
         cand = {
             "bin": r.warehouse,
+            "section": sections.get(r.item_code) == r.warehouse,
             "shelf": bool(m),
             "aisle": m.group(1) if m else "STG",
             "walk": (m.group(1), int(m.group(2)), m.group(3)) if m else ("~", 0, ""),
@@ -2135,8 +2144,10 @@ def _resolve_bins(item_codes):
         }
         pool.setdefault(r.item_code, []).append(cand)
         cur = best.get(r.item_code)
-        # prefer shelf over staging; within the same class prefer more stock
-        if not cur or (cand["shelf"], cand["qty"]) > (cur["shelf"], cur["qty"]):
+        # the owner's section first, then shelf over staging; within the same
+        # class prefer more stock
+        if not cur or (cand["section"], cand["shelf"], cand["qty"]) \
+                > (cur["section"], cur["shelf"], cur["qty"]):
             best[r.item_code] = cand
     # EVERY candidate bin, richest shelf first. One line pinned to one bin was
     # the bug: an item with 1 unit on the shelf and 19 in staging got its whole
@@ -2152,7 +2163,8 @@ def _resolve_bins(item_codes):
     # being offered bins their batch ledger says are not there.
     truth = _batch_truth(set(pool))
     for code, cands in pool.items():
-        cands.sort(key=lambda c: (not c["shelf"], -c["qty"], c["walk"]))
+        cands.sort(key=lambda c: (not c["section"], not c["shelf"],
+                                  -c["qty"], c["walk"]))
         cap = truth.get(code)
         if cap is not None:
             room = max(0.0, float(cap))
@@ -2170,7 +2182,8 @@ def _resolve_bins(item_codes):
         if code in best:
             # The headline bin has to be one that survived the cap.
             best[code] = {**best[code], **{k: cands[0][k] for k in
-                                           ("bin", "shelf", "aisle", "walk", "qty")}}
+                                           ("bin", "section", "shelf", "aisle",
+                                            "walk", "qty")}}
             best[code]["pool"] = cands
     return best
 

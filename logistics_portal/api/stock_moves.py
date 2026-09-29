@@ -31,6 +31,11 @@ _SUPPLY_ONLY_LIKE = ["Yakuplu%"]
 SLOW_WH = "SLOW ZONE - JM"
 _RECEIVING_LIKE = ["%receiv%", "%reception%"]
 
+# Consignment goods are the supplier's, not ours: they live in that supplier's
+# own section and may not mix into our bins. The policy — and the definition of
+# "consignment" — belongs to supplier_portal; api/consignment.py is the single
+# import point. See it before changing anything here.
+
 
 def _movable_condition(col="name", as_source=False):
     """(sql, args) — WHERE fragment selecting warehouses stock may move
@@ -161,8 +166,13 @@ def move_lookup(code):
                             "qty": int(b.qty or 0),
                             "disabled": bool(b.off)} for b in parked]}
     image = frappe.db.get_value("Item", item_code, "image") or ""
+    from logistics_portal.api.consignment import owner as _cn_owner
+    sup, shelf = _cn_owner(item_code)
     return {"ok": True, "itemCode": item_code, "sku": r.get("sku") or "",
             "name": r.get("name") or item_code, "image": image,
+            # Present => the screen fills the target in and locks it: this
+            # piece has exactly one lawful destination.
+            "consignment": {"supplier": sup, "warehouse": shelf} if shelf else None,
             "bins": [{"warehouse": b.warehouse, "qty": int(b.qty or 0)} for b in bins]}
 
 
@@ -197,6 +207,16 @@ def move_stock(item_code, qty, source, target):
         tuple([target, *targs]))
     if not ok_target:
         frappe.throw(f"{target} is not a valid target bin.")
+    # Consignment stock answers to its owner's shelf and nowhere else — the
+    # screen pre-fills it, this refuses the hand-typed alternative.
+    from logistics_portal.api.consignment import owner as _cn_owner
+    sup, shelf = _cn_owner(item_code)
+    if shelf and target != shelf:
+        frappe.throw(
+            f"This piece is {sup}'s consignment stock — it may only go to "
+            f"{shelf}. Mixed onto another bin, nobody can tell whose stock is "
+            "whose when the supplier settles.")
+
     available = int(frappe.db.get_value(
         "Bin", {"warehouse": source, "item_code": item_code}, "actual_qty") or 0)
     if qty > available:
@@ -246,10 +266,18 @@ def putaway_queue(limit=40):
             WHERE b.actual_qty > 0 AND b.warehouse LIKE %s AND {rcond}
             ORDER BY b.actual_qty DESC LIMIT %s""",
         tuple(["% - JM", *rargs, limit]), as_dict=True)
+    # The SQL suggestion is "the shelf already holding this SKU", which for a
+    # consignment piece is one of ours — the move supplier_portal refuses after
+    # go-live. Swap in the owner's section rather than dropping the row: the
+    # put-away is real (1,444 units were waiting on 2026-09-30) and move_stock
+    # enforces the same destination anyway.
+    from logistics_portal.api.consignment import sections_for
+    sections = sections_for([r.item_code for r in rows])
     return {"rows": [{
         "itemCode": r.item_code, "sku": r.sku or "", "name": r.name,
         "image": r.image or "", "source": r.source, "qty": int(r.qty or 0),
-        "suggest": r.suggest or "",
+        "suggest": sections.get(r.item_code) or r.suggest or "",
+        "consignment": bool(sections.get(r.item_code)),
     } for r in rows]}
 
 
@@ -283,8 +311,14 @@ def replenish_queue(limit=40):
             WHERE COALESCE(sh.q, 0) < %s
             ORDER BY s.sold DESC LIMIT %s""",
         (SLOW_WH, low, limit), as_dict=True)
+    # SLOW ZONE → our pick face is by definition a move into our own bins, so
+    # a consignment piece has no business in this queue at all.
+    from logistics_portal.api.consignment import sections_for
+    _cn = sections_for([r.item_code for r in rows])
     out = []
     for r in rows:
+        if r.item_code in _cn:
+            continue
         sold = float(r.sold or 0)
         week_cover = max(int(round(sold / 2.0)), low)  # 14d sales ÷ 2 = a week
         suggested = min(int(r.slowQty or 0), max(1, week_cover - int(r.shelfQty or 0)))

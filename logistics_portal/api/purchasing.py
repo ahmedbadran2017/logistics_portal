@@ -26,6 +26,52 @@ _OPEN_PO = ("po.docstatus = 1 AND po.company = %(company)s "
             "AND po.status NOT IN ('Closed', 'Completed', 'Cancelled')")
 
 
+# --- Cross-dock POs belong to their own lane ---------------------------------
+# A Cross-dock supplier's PO is per-order, and its goods must land in
+# Cross-dock - JM: a pickable staging bin the order's own reservation protects
+# (crossdock_in). Received through Goods In instead, they went to the default
+# target Receiving Zone - JM, which ee's pick controller vetoes — so the order
+# starved with its goods already on site. Measured 2026-09-30: 2,352 receipts /
+# 2,946u of cross-dock stock sat in Receiving, and one is_rejected_warehouse
+# tick on 2026-09-29 took 714 items / 6,116u dark at once. One person was
+# posting through both doors, so closing this one is a gate, not training.
+#
+# The test is the Cross-dock lane's OWN condition, imported rather than copied,
+# so the two can never drift apart. It deliberately blocks only what that lane
+# can actually receive: a cross-dock PO whose order already shipped or closed
+# is invisible to it, and blocking that one would leave it receivable nowhere.
+
+
+def _crossdock_ready():
+    return (frappe.db.has_column("Supplier", "custom_fulfillment_model")
+            and frappe.db.has_column("Purchase Order", "custom_sales_order"))
+
+
+def _not_lane_owned():
+    """SQL tail for the PO lists: hide every PO the Cross-dock in lane shows.
+    Correlated on the OUTER `po`/`poi` aliases; `s` and `so` are subquery-local,
+    and the fragment needs the %(company)s arg every caller already passes."""
+    if not _crossdock_ready():
+        return ""
+    from logistics_portal.api.crossdock_in import _EXPECTED
+    return f"""
+              AND NOT EXISTS (
+                  SELECT 1 FROM `tabSupplier` s
+                  JOIN `tabSales Order` so ON so.name = po.custom_sales_order
+                  WHERE s.name = po.supplier AND {_EXPECTED})"""
+
+
+def _lane_owns(po):
+    """Is this exact PO one the Cross-dock in lane is waiting at the door for?"""
+    if not _crossdock_ready():
+        return False
+    so = frappe.db.get_value("Purchase Order", po, "custom_sales_order") or ""
+    if not so:
+        return False
+    from logistics_portal.api.crossdock_in import _expected_lines
+    return any(l.po == po for l in _expected_lines(so=so))
+
+
 def _gate():
     from logistics_portal.api.auth import resolve_role
     if resolve_role(frappe.session.user) not in ("manager", "dispatcher", "returns", "packer"):
@@ -55,7 +101,7 @@ def receive_boot():
                    COUNT(*) AS nlines
             FROM `tabPurchase Order` po
             JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
-            WHERE {_OPEN_PO} AND poi.qty > poi.received_qty
+            WHERE {_OPEN_PO} AND poi.qty > poi.received_qty{_not_lane_owned()}
             GROUP BY po.name
             ORDER BY pending DESC LIMIT 24""",
         {"company": COMPANY}, as_dict=True)
@@ -87,7 +133,7 @@ def find_po(q=""):
             FROM `tabPurchase Order` po
             JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
             WHERE {_OPEN_PO} AND poi.qty > poi.received_qty
-              AND (po.name LIKE %(q)s OR po.supplier LIKE %(q)s)
+              AND (po.name LIKE %(q)s OR po.supplier LIKE %(q)s){_not_lane_owned()}
             GROUP BY po.name ORDER BY pending DESC LIMIT 20""",
         {"company": COMPANY, "q": like}, as_dict=True)
     return {"rows": [_po_card(r) for r in rows]}
@@ -122,6 +168,9 @@ def open_po(po):
     if not h or h.docstatus != 1 or h.company != COMPANY \
             or h.status in ("Closed", "Completed", "Cancelled"):
         return {"ok": False, "reason": "not_open", "po": po}
+    if _lane_owns(po):
+        return {"ok": False, "reason": "crossdock", "po": po,
+                "so": frappe.db.get_value("Purchase Order", po, "custom_sales_order") or ""}
     lines = _po_lines(po)
     return {
         "ok": True, "po": po, "supplier": h.supplier or "",
@@ -152,7 +201,7 @@ def resolve_piece(code):
                    (poi.qty - poi.received_qty) AS pending, 1 AS nlines
             FROM `tabPurchase Order` po
             JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
-            WHERE {_OPEN_PO} AND poi.item_code = %(item)s AND poi.qty > poi.received_qty
+            WHERE {_OPEN_PO} AND poi.item_code = %(item)s AND poi.qty > poi.received_qty{_not_lane_owned()}
             ORDER BY po.transaction_date DESC, po.creation DESC""",
         {"company": COMPANY, "item": item_code}, as_dict=True)
     return {
@@ -197,6 +246,12 @@ def post_purchase_receipt(po, items=None, target=None, note=None):
     if not h or h.docstatus != 1 or h.company != COMPANY \
             or h.status in ("Closed", "Completed", "Cancelled"):
         frappe.throw("That PO is not open.")
+    if _lane_owns(po):
+        frappe.throw(
+            "This is a Cross-dock order — receive it on the Cross-dock in screen. "
+            "Posted here the goods land in Receiving Zone, which picking vetoes, "
+            f"and order {frappe.db.get_value('Purchase Order', po, 'custom_sales_order')} "
+            "would starve with its stock already in the building.")
 
     if isinstance(items, str):
         items = json.loads(items)

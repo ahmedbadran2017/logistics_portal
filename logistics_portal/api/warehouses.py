@@ -15,8 +15,17 @@ import frappe
 # is never sellable off the shelf, whatever the settings say. Goods In Transit /
 # WIP / Cathedis hold stock that is physically NOT on the floor (carrier hands,
 # containers at sea) — they were toggleable-by-omission before, a policy hole.
+#
+# "Consignment Receiving" belongs here rather than in DEFAULT_EXCLUDED: that
+# default only applies when a manager has NEVER saved the zone list, and prod
+# saved one long ago (28 zones), so a default would have been dead code. Goods
+# sitting there have not been counted or put away into their supplier's
+# section yet — promising them is promising a piece nobody has checked in.
+# The `CN - … - JM` sections themselves stay pickable: that IS the pick face
+# for consignment stock.
 _FAMILY = ["Defective%", "Container%", "Air Freight%", "%Old%", "CORRECTING%",
-           "Goods In Transit%", "Work In Progress%", "Cathedis%"]
+           "Goods In Transit%", "Work In Progress%", "Cathedis%",
+           "Consignment Receiving%"]
 
 # Configurable zones excluded by default (returned goods, per ops' new policy).
 DEFAULT_EXCLUDED = ["Return Zone - JM", "Returns Adjustment - JM"]
@@ -116,9 +125,12 @@ def pickable_condition(col="warehouse"):
 
 def _family_excluded(name):
     n = (name or "").lower()
+    # "consignment receiving" is spelled in full on purpose — "consignment"
+    # alone would also swallow the CN sections, which must stay pickable.
     return any(k in n for k in ("defective", "container", "air freight", "old",
                                 "correcting", "goods in transit",
-                                "work in progress", "cathedis"))
+                                "work in progress", "cathedis",
+                                "consignment receiving"))
 
 
 @frappe.whitelist()
@@ -142,6 +154,10 @@ def floor_map():
                         THEN CONCAT('Aisles ', UPPER(LEFT(TRIM(REPLACE(b.warehouse, ' - JM', '')), 1)))
                       WHEN UPPER(b.warehouse) LIKE 'AG-%%' THEN 'AG racks'
                       WHEN UPPER(b.warehouse) LIKE 'BAB-%%' THEN 'BAB racks'
+                      -- One section per supplier would list 20 near-empty
+                      -- zones next to our own; the floor thinks of it as one
+                      -- area, so roll it up like the racks.
+                      WHEN b.warehouse LIKE 'CN - %%' THEN 'Consignment'
                       ELSE TRIM(REPLACE(b.warehouse, ' - JM', ''))
                     END AS grp
              FROM `tabBin` b
