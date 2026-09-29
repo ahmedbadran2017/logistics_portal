@@ -281,6 +281,134 @@ def putaway_queue(limit=40):
     } for r in rows]}
 
 
+# --- Evacuation: what is in Receiving that the container is not ------------
+# Receiving is an inbound lane, but it doubles as overflow, so when a container
+# lands and the zone is vetoed while it is counted (2026-09-29: STE-11163,
+# 4,413 units over 336 lines, then is_rejected_warehouse ticked the same hour)
+# everything ELSE parked there freezes with it — 1,703 units over 388 items
+# that have nothing to do with the container.
+#
+# Residue is defined by policy, not by guessing which pieces came off the
+# boat: consignment and cross-dock stock should never sit in Receiving at all,
+# whatever its age, and our own bulk counts once it has missed the 3-day
+# put-away SLA the staleReceiving radar already uses. A freshly-landed
+# container is none of those, so it stays out of this list by construction —
+# no container has to be identified or tracked.
+_PUTAWAY_SLA_DAYS = 3
+
+
+@frappe.whitelist()
+def evacuate_queue(limit=200):
+    """Stock stranded in the receiving zones that has a home elsewhere, with
+    that home resolved per row. Ordered by how wrong the placement is:
+    someone else's goods first, then our own backlog."""
+    _gate()
+    limit = min(max(int(limit or 200), 1), 500)
+    rcond, rargs = _receiving_condition("b.warehouse")
+    shelf = _shelf_aisle_regexp().format(c="b2.warehouse")
+    rows = frappe.db.sql(
+        f"""SELECT b.item_code, b.warehouse AS source, b.actual_qty AS qty,
+                   it.custom_sku AS sku, it.image,
+                   COALESCE(NULLIF(it.item_name,''), b.item_code) AS name,
+                   IFNULL(s.custom_fulfillment_model, '') AS model,
+                   (SELECT MAX(sle.posting_date) FROM `tabStock Ledger Entry` sle
+                     WHERE sle.item_code = b.item_code AND sle.warehouse = b.warehouse
+                       AND sle.is_cancelled = 0 AND sle.actual_qty > 0) AS last_in,
+                   (SELECT b2.warehouse FROM `tabBin` b2
+                     WHERE b2.item_code = b.item_code AND b2.actual_qty > 0
+                       AND b2.warehouse LIKE '%% - JM' AND {shelf}
+                     ORDER BY b2.actual_qty DESC LIMIT 1) AS suggest
+            FROM `tabBin` b
+            LEFT JOIN `tabItem` it ON it.name = b.item_code
+            LEFT JOIN `tabSupplier` s ON s.name = it.default_supplier
+            WHERE b.actual_qty > 0 AND b.warehouse LIKE %s AND {rcond}""",
+        tuple(["% - JM", *rargs]), as_dict=True)
+
+    from logistics_portal.api.consignment import sections_for
+    from logistics_portal.api.crossdock_in import CROSSDOCK_WH
+    sections = sections_for([r.item_code for r in rows])
+    cutoff = frappe.utils.add_days(frappe.utils.nowdate(), -_PUTAWAY_SLA_DAYS)
+
+    out = []
+    for r in rows:
+        sec = sections.get(r.item_code)
+        if sec:
+            kind, target = "consignment", sec
+        elif r.model == "Cross-dock":
+            kind, target = "crossdock", CROSSDOCK_WH
+        elif r.last_in and str(r.last_in) < cutoff:
+            kind, target = "stale", (r.suggest or "")
+        else:
+            continue  # fresh stock of ours — a container mid-count lives here
+        out.append({
+            "itemCode": r.item_code, "sku": r.sku or "", "name": r.name,
+            "image": r.image or "", "source": r.source, "qty": int(r.qty or 0),
+            "kind": kind, "suggest": target,
+            "days": frappe.utils.date_diff(frappe.utils.nowdate(), r.last_in)
+                    if r.last_in else None,
+        })
+    rank = {"consignment": 0, "crossdock": 1, "stale": 2}
+    out.sort(key=lambda x: (rank[x["kind"]], -x["qty"]))
+    totals = {}
+    for x in out:
+        b = totals.setdefault(x["kind"], {"items": 0, "units": 0})
+        b["items"] += 1
+        b["units"] += x["qty"]
+    return {"rows": out[:limit], "totals": totals,
+            "items": len(out), "units": sum(x["qty"] for x in out)}
+
+
+# --- A container does not belong in Receiving -------------------------------
+# What actually happened on 2026-09-29 was a DESK Stock Entry, so a portal-side
+# check could never have caught it — this is a doc hook for that reason.
+# Measured over 340 Stock Entries into Receiving since 2026-06-01: 310 are a
+# single line and the mean is 31 units. The threshold is VOLUME only, not line
+# count — replaying a line rule over that history caught five entries that are
+# plainly not containers (STE-07638 is 113 lines carrying 127 units, about one
+# piece each: a multi-SKU correction sweep). Volume separates cleanly: four
+# entries clear 500 units (4,413 / 1,000 / 987 / 931) while the largest that
+# passes is 339 — the gap between 339 and 931 is empty, so 500 sits in open
+# space rather than cutting through real work. Refuses 4 of 340 entries.
+_CONTAINER_UNITS = 500
+
+
+def guard_receiving_intake(doc, method=None):
+    """Stock Entry validate: refuse a container-sized transfer INTO a receiving
+    zone. Those bins are a pass-through; parking a whole container there is
+    what forces someone to veto the zone, which freezes every unrelated piece
+    already in it. Container warehouses exist for this and are permanently
+    non-pickable, so counting in one blocks nothing."""
+    try:
+        rows = [i for i in (doc.get("items") or [])
+                if (i.get("t_warehouse") or "") and _is_receiving(i.get("t_warehouse"))]
+        if not rows:
+            return
+        units = sum(abs(float(i.get("transfer_qty") or i.get("qty") or 0)) for i in rows)
+        if units < _CONTAINER_UNITS:
+            return
+        where = sorted({i.get("t_warehouse") for i in rows})
+        frappe.throw(
+            f"This moves {int(units)} units over {len(rows)} lines into "
+            f"{', '.join(where)}. A receiving zone is a pass-through, and a load "
+            "this size parked there is what forces the zone to be closed to "
+            "picking — which freezes every unrelated piece already in it. Send "
+            "it to a Container warehouse instead: those are permanently off "
+            "picking, so it can be counted without blocking anything, and moved "
+            "to shelves from there.",
+            title="Send a container to a Container warehouse")
+    except frappe.ValidationError:
+        raise
+    except Exception:
+        # A guard must never be the reason a legitimate document cannot save.
+        frappe.log_error(frappe.get_traceback()[:2000],
+                         "stock_moves.guard_receiving_intake")
+
+
+def _is_receiving(warehouse):
+    n = (warehouse or "").lower()
+    return any(k.strip("%") in n for k in _RECEIVING_LIKE)
+
+
 @frappe.whitelist()
 def replenish_queue(limit=40):
     """Shelves running dry while SLOW ZONE holds the same SKU: sold recently,

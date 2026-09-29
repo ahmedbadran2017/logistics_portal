@@ -196,6 +196,32 @@
         </button>
       </div>
 
+      <!-- evacuate: stranded in Receiving with a home elsewhere -->
+      <div v-else-if="tab === 'evacuate'" class="divide-y divide-stone-50 max-h-[440px] overflow-y-auto">
+        <p v-if="!evacuate.length" class="px-4 py-6 text-center text-[12.5px] text-stone-400">{{ t('mv.evacuateEmpty') }}</p>
+        <button
+          v-for="r in evacuate" :key="r.itemCode + r.source"
+          class="w-full text-start px-4 py-2.5 flex items-center gap-3 hover:bg-stone-50 transition-colors"
+          @click="prefill(r, r.source, r.suggest, r.qty)"
+        >
+          <RowImg :src="r.image" />
+          <div class="min-w-0 flex-1">
+            <div class="text-[12.5px] font-medium text-stone-900 truncate">{{ r.name }}</div>
+            <div class="font-mono text-[10.5px] text-stone-400">
+              {{ r.sku || r.itemCode }} · {{ short(r.source) }}<span v-if="r.days"> · {{ r.days }}{{ t('mv.daysShort') }}</span>
+            </div>
+          </div>
+          <span class="h-5 px-1.5 rounded text-[10.5px] font-semibold self-center"
+                :class="r.kind === 'consignment' ? 'bg-violet-50 text-violet-700'
+                      : r.kind === 'crossdock' ? 'bg-sky-50 text-sky-700'
+                      : 'bg-stone-100 text-stone-600'">{{ t('mv.kind_' + r.kind) }}</span>
+          <span class="text-[12px] font-bold tabular-nums text-stone-800">{{ r.qty }}</span>
+          <span class="text-[11.5px] tabular-nums w-[110px] text-end" :class="r.suggest ? 'text-emerald-600 font-semibold' : 'text-stone-400'">
+            {{ r.suggest ? '→ ' + short(r.suggest) : t('mv.noShelfYet') }}
+          </span>
+        </button>
+      </div>
+
       <!-- replenish -->
       <div v-else-if="tab === 'replenish'" class="divide-y divide-stone-50 max-h-[440px] overflow-y-auto">
         <p v-if="!replenish.length" class="px-4 py-6 text-center text-[12.5px] text-stone-400">{{ t('mv.replenishEmpty') }}</p>
@@ -246,6 +272,7 @@ const { success, warn } = useToast();
 
 const TABS = [
   { key: "putaway", label: "mv.tabPutaway" },
+  { key: "evacuate", label: "mv.tabEvacuate" },
   { key: "replenish", label: "mv.tabReplenish" },
   { key: "recent", label: "mv.tabRecent" },
 ];
@@ -271,9 +298,14 @@ const busy = ref(false);
 const tab = ref("putaway");
 const loadingTab = ref(true);
 const putaway = ref([]);
+const evacuate = ref([]);
 const replenish = ref([]);
 const recent = ref([]);
-const counts = computed(() => ({ putaway: putaway.value.length, replenish: replenish.value.length }));
+const counts = computed(() => ({
+  putaway: putaway.value.length,
+  evacuate: evacuate.value.length,
+  replenish: replenish.value.length,
+}));
 
 const sourceQty = computed(() => {
   const b = (current.value?.bins || []).find((x) => x.warehouse === source.value);
@@ -302,6 +334,7 @@ async function loadTab(which) {
   loadingTab.value = true;
   try {
     if (which === "putaway") putaway.value = (await api("stock_moves.putaway_queue")).rows || [];
+    else if (which === "evacuate") evacuate.value = (await api("stock_moves.evacuate_queue")).rows || [];
     else if (which === "replenish") replenish.value = (await api("stock_moves.replenish_queue")).rows || [];
     else recent.value = (await api("stock_moves.recent_moves")).rows || [];
   } catch (e) {

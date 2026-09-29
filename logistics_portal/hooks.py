@@ -56,8 +56,13 @@ doc_events = {
         "validate": "logistics_portal.api.utils.clamp_item_names",
     },
     "Stock Entry": {
-        # Same overflow class: Stock Entry Detail is still varchar(140).
-        "validate": "logistics_portal.api.utils.clamp_item_names",
+        "validate": [
+            # Same overflow class: Stock Entry Detail is still varchar(140).
+            "logistics_portal.api.utils.clamp_item_names",
+            # A container parked in Receiving is what forces the zone to be
+            # closed to picking, freezing everything else already in it.
+            "logistics_portal.api.stock_moves.guard_receiving_intake",
+        ],
     },
     "Pick List": {
         "before_submit": "logistics_portal.api.picking.enforce_picker_on_submit",
