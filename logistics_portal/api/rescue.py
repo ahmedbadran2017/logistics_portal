@@ -791,6 +791,10 @@ def board(tab="todo", days=30, q="", limit=30, offset=0, reason="", surface="",
                  # NOW, and a call booked for Thursday is not.
                  "so.custom_next_call_at <= %(snow)s"]
         vals["co"] = _CO
+        # This branch builds its own vals and never passes through _dn_where,
+        # which is the only other place that binds it — the due test above
+        # went in without it and took the whole chip down with a KeyError.
+        vals["snow"] = _site_now()
         if q and str(q).strip():
             vals["q"] = f"%{str(q).strip()}%"
             conds.append("(so.name LIKE %(q)s OR so.customer_name LIKE %(q)s"
