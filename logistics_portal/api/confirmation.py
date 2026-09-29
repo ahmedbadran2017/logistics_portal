@@ -2113,12 +2113,18 @@ def report(days=7, frm=None, to=None):
             rng_vals, as_dict=True):
         r.day = str(_clock.to_floor(r.first_at))[:10] if r.first_at else ""
         bulk = "(bulk)" in r.content or " bulk " in r.content
+        # "Confirmation: amend of <order> (…)" parses to `amend`, and until it
+        # had a bucket it was read and thrown away — which is why changing an
+        # order counted as nothing an agent did (TKT-2609-4071122). The amend
+        # writes TWO comments: `amend of` on the new order and `amended` on
+        # the old one. Only the first has a bucket, so one amendment counts
+        # once.
         action = (r.content.split("Confirmation: ", 1)[1] or "").split(" ", 1)[0]
         action = action.strip("()—- ")
         a = per_agent.setdefault(r.owner, {"confirm": 0, "cancel": 0, "dna": 0,
                                            "followup": 0, "onhold": 0,
                                            "duplicate": 0, "reopen": 0,
-                                           "bulk": 0})
+                                           "amend": 0, "bulk": 0})
         if action in a:
             a[action] += int(r.n or 0)
         if bulk:
@@ -2169,7 +2175,7 @@ def report(days=7, frm=None, to=None):
             a = per_agent.setdefault(r.owner, {"confirm": 0, "cancel": 0, "dna": 0,
                                                "followup": 0, "onhold": 0,
                                                "duplicate": 0, "reopen": 0,
-                                               "bulk": 0})
+                                               "amend": 0, "bulk": 0})
             if action in a:
                 a[action] += 1
             if action in _HANDLED_ACTIONS:
@@ -2356,7 +2362,8 @@ def report(days=7, frm=None, to=None):
     # renders `Administrator` as a pinned "Automation" row and excludes it
     # from the team average — same contract, same numbers).
     auto_acts = {"confirm": 0, "cancel": 0, "dna": 0, "followup": 0,
-                 "onhold": 0, "duplicate": 0, "reopen": 0, "bulk": 0}
+                 "onhold": 0, "duplicate": 0, "reopen": 0, "amend": 0,
+                 "bulk": 0}
     auto_orders = set()
     for r in frappe.db.sql(
             f"""SELECT v.docname, v.data FROM `tabVersion` v
@@ -2502,7 +2509,7 @@ def report(days=7, frm=None, to=None):
     for user in set(list(per_agent) + list(money)):
         a = per_agent.get(user, {"confirm": 0, "cancel": 0, "dna": 0,
                                  "followup": 0, "onhold": 0, "duplicate": 0,
-                                 "reopen": 0, "bulk": 0})
+                                 "reopen": 0, "amend": 0, "bulk": 0})
         m = money.get(user) or {}
         g = lambda k: m.get(k) or 0          # money rows are plain dicts, and an
                                              # agent may appear in only one of

@@ -179,6 +179,16 @@
                                   : i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-stone-100 text-stone-500'">{{ i + 1 }}</span>
                     <span class="font-medium text-stone-900">{{ a.agent }}</span>
                     <Icon v-if="a.bulk" name="layers" :size="11" class="text-stone-300" :title="t('cfr.thBulk')" />
+                    <!-- Changing an order for a customer was real work that
+                         appeared in no column, so it read as nothing the
+                         agent did (TKT-2609-4071122). It is a save, not a
+                         decision, so it is a mark next to the name rather
+                         than a column that would compete with the rates. -->
+                    <span v-if="a.actions?.amend"
+                          class="inline-flex items-center gap-1 text-[9.5px] font-bold text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded-full"
+                          :title="t('cfr.amendHint')">
+                      <Icon name="edit" :size="9" />{{ a.actions.amend }}
+                    </span>
                     <!-- Not on this team. The row stays — the work was real
                          — but it is out of the lane's own averages, and a
                          manager's cleanup must not read as a bad agent. -->

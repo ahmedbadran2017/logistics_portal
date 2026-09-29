@@ -1848,6 +1848,8 @@ export default {
     historyHint: "Confirmed / cancelled / duplicated",
     slaLate: "1ST CALL LATE",
     actDuplicate: "Duplicate order",
+    actDuplicateHint: "Same order twice — take this one out (it does not create a copy)",
+    openWs: "Open in the workspace — change items, discount, contact",
     done_duplicate: "Marked as duplicate",
     done_confirm: "Confirmed — heads to picking",
     done_dna: "Logged: no answer",
@@ -2444,6 +2446,7 @@ export default {
     thStick: "Stick %",
     thConfirmedValue: "Confirmed",
     thBulk: "Includes bulk actions",
+    amendHint: "orders this agent changed for the customer",
     cohortHint: "orders that arrived in the window",
     // The leaderboard is a SLICE, and saying so is the whole point: 63% of
     // orders are confirmed before any agent sees them.

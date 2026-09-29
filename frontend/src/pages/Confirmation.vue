@@ -335,7 +335,16 @@
             </button>
             <button class="cf-act cf-act-soft text-amber-700" :disabled="busy === r.order" :title="t('cf.actDna')" @click="act(r, 'dna')"><Icon name="phone-off" :size="15" /></button>
             <button class="cf-act cf-act-soft text-sky-700" :disabled="busy === r.order" :title="t('cf.actFollowup')" @click="act(r, 'followup')"><Icon name="clock" :size="15" /></button>
-            <button class="cf-act cf-act-soft text-violet-600" :disabled="busy === r.order" :title="t('cf.actDuplicate')" @click="act(r, 'duplicate')"><Icon name="copy" :size="15" /></button>
+            <!-- Says what it DOES. Called just "Duplicate", it was read as
+                 "make me a copy of this order" and raised a ticket asking why
+                 it did not create one — it marks the order as being the same
+                 order twice, which is the opposite. -->
+            <button class="cf-act cf-act-soft text-violet-600" :disabled="busy === r.order" :title="t('cf.actDuplicateHint')" @click="act(r, 'duplicate')"><Icon name="copy" :size="15" /></button>
+            <!-- ...and the thing it was mistaken for. Changing an order lives
+                 in the Workspace, and the row only opens the Workspace for
+                 agents: a manager or section admin gets these inline buttons
+                 INSTEAD, so they had no way to reach it at all. -->
+            <button class="cf-act cf-act-soft text-stone-600" :disabled="busy === r.order" :title="t('cf.openWs')" @click.stop="openWs(r)"><Icon name="external-link" :size="15" /></button>
             <button :title="t('common.close')" class="cf-act cf-act-soft text-rose-600" :disabled="busy === r.order"
                     :class="cancelFor === r.order ? 'ring-2' : ''"
                     @click="cancelFor = cancelFor === r.order ? '' : r.order"><Icon name="circle-x" :size="15" /></button>
