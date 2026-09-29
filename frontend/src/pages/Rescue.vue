@@ -270,10 +270,6 @@
                     @click="openReason(r, 'followup'); moreFor = ''">
               <Icon name="clock" :size="14" />{{ t('rs.actFollowup') }}
             </button>
-            <button class="rs-act rs-act-lbl text-stone-600"
-                    @click="openReason(r, 'cancel'); moreFor = ''">
-              <Icon name="circle-x" :size="14" />{{ t('rs.actCancel') }}
-            </button>
             <button v-if="!isNdTab && !r.heldMine" class="rs-act rs-act-lbl text-teal-700"
                     :disabled="busy === r.id" @click="take(r); moreFor = ''">
               <Icon name="hand" :size="14" />{{ t('rs.take') }}
@@ -453,7 +449,11 @@ const LEGEND = [
   { key: "reship", icon: "send", label: "rs.actReship", hint: "rs.lg_reship", tint: "bg-violet-50 text-violet-800" },
   { key: "dna", icon: "phone-off", label: "cf.actDna", hint: "rs.lg_dna", tint: "bg-amber-50 text-amber-800" },
   { key: "return", icon: "rotate-ccw", label: "rs.actReturn", hint: "rs.lg_return", tint: "bg-rose-50 text-rose-800" },
-  { key: "cancel", icon: "circle-x", label: "rs.actCancel", hint: "rs.lg_cancel", tint: "bg-stone-100 text-stone-700" },
+  // "Send instead" replaces Cancel order here. Cancelling from a rescue row
+  // was the one action on this board that ended the sale outright, and it
+  // lives on the order page where the whole order is in front of you; what
+  // this lane needs at that moment is the way to keep the customer.
+  { key: "sendInstead", icon: "package-check", label: "rs.actSendInstead", hint: "rs.lg_sendInstead", tint: "bg-violet-50 text-violet-800" },
 ];
 
 // The carrier's last word splits the exceptions: a call can save a parcel
