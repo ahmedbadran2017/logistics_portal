@@ -1384,6 +1384,7 @@ export default {
     actRedeliver: "Relivrer", actRedeliverHint: "Consigner : redemander une tentative au transporteur",
     actReturn: "Demander retour", actReturnHint: "Consigner : demander le renvoi au transporteur",
     actResolved: "Résolu", actResolvedHint: "Consigner : réglé (livré / client joint)",
+    actSendInstead: "Envoyer à la place",
     actReship: "Réexpédier", actReshipHint: "Nouvelle commande copie — repasse par préparation → expédition",
     triaged: "Décision consignée", triageFail: "Échec de l'enregistrement",
     reshipped: "Réexpédiée", reshipFail: "Échec de la réexpédition",

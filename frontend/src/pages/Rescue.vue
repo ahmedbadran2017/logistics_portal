@@ -255,6 +255,17 @@
                     @click="openReason(r, 'reship'); moreFor = ''">
               <Icon name="send" :size="14" />{{ t('rs.actReship') }}
             </button>
+            <!-- Next to Reship, because it is the same conversation: the
+                 customer still wants to buy, just not this. It LINKS to the
+                 order page instead of repeating the picker here — choosing a
+                 different article needs a catalogue search, and a second copy
+                 of that is a second thing to drift. -->
+            <RouterLink v-if="!isNdTab && r.order" class="rs-act rs-act-lbl text-violet-700"
+                        :to="{ name: 'OrderDetail',
+                               params: { name: String(r.order).replace('#', '') },
+                               query: { send: 'other' } }" @click="moreFor = ''">
+              <Icon name="package-check" :size="14" />{{ t('rs.actSendInstead') }}
+            </RouterLink>
             <button v-if="!isNdTab" class="rs-act rs-act-lbl text-sky-700"
                     @click="openReason(r, 'followup'); moreFor = ''">
               <Icon name="clock" :size="14" />{{ t('rs.actFollowup') }}

@@ -875,6 +875,13 @@ const otherHits = ref([]);
 const otherLines = ref([]);
 let otherTimer = null;
 
+// Arriving from the rescue board's "Send instead": open the panel already on
+// the right mode, so the agent lands where they meant to go.
+onMounted(() => {
+  const q = String(router.currentRoute.value.query.send || "");
+  if (q === "other") { sending.value = true; sendMode.value = "other"; }
+});
+
 function setSendMode(m) {
   sendMode.value = m;
   otherHits.value = [];

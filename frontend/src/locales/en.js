@@ -1385,6 +1385,7 @@ export default {
     actRedeliver: "Redeliver", actRedeliverHint: "Record: ask the carrier for another attempt",
     actReturn: "Request return", actReturnHint: "Record: ask the carrier to send it back",
     actResolved: "Resolved", actResolvedHint: "Record: sorted out (delivered / customer reached)",
+    actSendInstead: "Send instead",
     actReship: "Reship", actReshipHint: "New order copy — flows through pick → ship again",
     triaged: "Decision recorded", triageFail: "Couldn't record the decision",
     reshipped: "Reshipped", reshipFail: "Couldn't reship",

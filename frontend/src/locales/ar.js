@@ -1384,6 +1384,7 @@ export default {
     actRedeliver: "إعادة محاولة", actRedeliverHint: "تسجيل: نطلب من الناقل محاولة تانية",
     actReturn: "طلب إرجاع", actReturnHint: "تسجيل: نطلب من الناقل يرجّعها",
     actResolved: "تم الحل", actResolvedHint: "تسجيل: اتحلت (اتسلمت / اتواصلنا مع العميل)",
+    actSendInstead: "ابعت بدالها",
     actReship: "إعادة شحن", actReshipHint: "أوردر جديد بنفس البيانات — يدخل دورة التجهيز والشحن من الأول",
     triaged: "القرار اتسجل", triageFail: "تعذّر تسجيل القرار",
     reshipped: "اتعمل إعادة شحن", reshipFail: "تعذّرت إعادة الشحن",
