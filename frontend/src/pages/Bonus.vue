@@ -107,13 +107,21 @@
                 #{{ d.me.rank }}
               </span>
             </div>
-            <div class="h-2 rounded-full bg-stone-100 overflow-hidden mt-2.5 max-w-[420px]">
-              <div class="h-full rounded-full transition-all duration-700"
-                   :class="d.me.points >= d.target ? 'bg-emerald-500' : 'bg-amber-500'"
-                   :style="{ width: pct + '%' }" />
-            </div>
-            <div class="text-[11px] text-stone-400 mt-1.5 tabular-nums">
-              {{ d.me.actions }} {{ t('bn.actions') }} · {{ pct }}% {{ t('bn.ofTarget') }}
+            <!-- A lane whose weights have not been priced yet has no target,
+                 and "0% of target" under a full month's work reads as failure
+                 rather than as "we are still measuring". Say the true thing. -->
+            <template v-if="d.target">
+              <div class="h-2 rounded-full bg-stone-100 overflow-hidden mt-2.5 max-w-[420px]">
+                <div class="h-full rounded-full transition-all duration-700"
+                     :class="d.me.points >= d.target ? 'bg-emerald-500' : 'bg-amber-500'"
+                     :style="{ width: pct + '%' }" />
+              </div>
+              <div class="text-[11px] text-stone-400 mt-1.5 tabular-nums">
+                {{ d.me.actions }} {{ t('bn.actions') }} · {{ pct }}% {{ t('bn.ofTarget') }}
+              </div>
+            </template>
+            <div v-else class="text-[11px] text-stone-400 mt-1.5 tabular-nums">
+              {{ d.me.actions }} {{ t('bn.actions') }} · {{ t('bn.measuring') }}
             </div>
             <!-- how the payout was reached — never a black box -->
             <div v-if="d.me.pay" class="flex flex-wrap items-center gap-1.5 mt-2">

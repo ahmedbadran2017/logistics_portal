@@ -2897,6 +2897,7 @@ export default {
     intro: "Chaque décision rapporte des points — atteignez l'objectif mensuel, dominez le classement.",
     pts: "pts",
     actions: "décisions",
+    measuring: "ce mois est en cours de mesure — pas encore d'objectif",
     ofTarget: "de l'objectif",
     thPoints: "Points",
     thPay: "Prime",

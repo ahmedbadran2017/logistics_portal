@@ -2904,6 +2904,7 @@ export default {
     intro: "Every decision earns points — hit the monthly target, top the board.",
     pts: "pts",
     actions: "decisions",
+    measuring: "this month is being measured — no target set yet",
     ofTarget: "of target",
     thPoints: "Points",
     thPay: "Payout",

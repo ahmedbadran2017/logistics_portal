@@ -64,8 +64,14 @@ _BONUS_KEY = "lp_bonus_settings"
 # playing by these rules; showing them would put unearned zeros and unearned
 # heroes on the same board. Every month FROM here on stays browsable forever.
 SCHEME_START = "2026-09"
-GROUPS = ("cc", "floor")
-_ROLE_GROUP = {"confirmation": "cc", "picker": "floor"}
+GROUPS = ("cc", "floor", "ship")
+# The rescue lane had no board at all: bonus_group_for("tracking") returned
+# None, so the two agents who made 89% of its decisions opened the Bonus page
+# and read "not available". Measured 2026-09-30 over their first five weeks --
+# 1,565 and 796 actions each — against a scoring table that priced three of
+# their action types and none of the rest.
+_ROLE_GROUP = {"confirmation": "cc", "picker": "floor",
+               "tracking": "ship", "cs": "ship"}
 # What a point is WORTH. The old handoff design paid money and gated it on
 # quality — a much better idea than bare points, so it comes back here, wired
 # to real numbers. Every figure below is a default for the manager to tune in
@@ -84,20 +90,20 @@ _MONEY_DEFAULTS = {
     # median regular ~200. At 4.0 the top lands ~1,340 MAD under the 1,500
     # cap and the middle ~800. The old 1.0 was priced on a basis that scored
     # 2% of the work.
-    "perPoint": {"cc": 4.0, "floor": 4.0},   # MAD per point earned
-    "monthlyCap": {"cc": 1500, "floor": 1500},
+    "perPoint": {"cc": 4.0, "floor": 4.0, "ship": 0.0},   # MAD per point earned
+    "monthlyCap": {"cc": 1500, "floor": 1500, "ship": 0},
     # Quality gate: no payout above the base until the agent clears it.
     # cc is gated on DELIVERY rate (see _quality_pct) — of what the agent
     # confirmed and shipped, what actually stuck. Confirm rate would reward
     # the opposite: confirm everything and score 100%.
     # floor has NO honest per-person quality signal yet (same-day measures the
     # dispatcher's list timing, not the picker's work), so it stays off.
-    "gateOn": {"cc": 1, "floor": 0},
+    "gateOn": {"cc": 1, "floor": 0, "ship": 0},
     # Re-measured 2026-09-09 on the corrected per-agent basis: real delivery
     # rates run 46-85%, the working regulars 60-71%. A 60 gate would fail an
     # agent sitting exactly on the busiest cohort's floor; 55 sits under every
     # regular with margin while still refusing carelessness.
-    "gatePct": {"cc": 55, "floor": 0},
+    "gatePct": {"cc": 55, "floor": 0, "ship": 0},
     # Streak: +N% per 5 consecutive working days, capped.
     "streakStepPct": 10,
     "streakCapPct": 30,
@@ -116,7 +122,12 @@ _BONUS_DEFAULTS = {
     # nobody could ever reach, and the hero card read "0% of target" forever.
     # 250 is just under the best real month: reachable by the strongest,
     # aspirational for the middle.
-    "targets": {"cc": 250, "floor": 300},
+    # ship has NO target yet, and 0 is the honest placeholder rather than a
+    # guess: its weights are priced on a complete month the way cc's were
+    # priced on June, and this lane's shape changed fivefold in its last two
+    # weeks (421 actions to 2,325). A target invented before that month is a
+    # bar set against a learning curve.
+    "targets": {"cc": 250, "floor": 300, "ship": 0},
     "money": dict(_MONEY_DEFAULTS),
     # Weights, priced against a real completed month (June): the top agent
     # lands near the cap and the rest spread out beneath. The first cut of
@@ -143,8 +154,32 @@ _BONUS_DEFAULTS = {
         # of those orders later CONVERTED — the follow-through the log
         # exists to drive.
         "cf.dna": 0.0, "cf.followup": 0.0,
-        "rs.redeliver": 0.5, "rs.reship": 0.5, "rs.returnreq": 0.1,
-        "rs.dna": 0.0, "rs.cancel": 0.0, "rs.resolve": 0.1,
+        # The rescue lane, re-priced 2026-09-30 onto its OUTCOMES.
+        #
+        # These paid for the click: redeliver 0.5 whether or not the parcel
+        # ever arrived, and returnreq 0.1 for giving up — which was the
+        # commonest action on the board, 1,195 of them, and 53% of the top
+        # agent's points. The lane's own delivered/failed ledger did not
+        # exist when they were set. It does now, so the money moves to it,
+        # exactly as cf.confirm 0.1 / cf.delivered 0.4 / cf.returned -0.2
+        # already do on the confirmation side.
+        "rs.redeliver": 0.1, "rs.reship": 0.1,
+        # Giving up is often the RIGHT call and must cost nothing, but it
+        # must not pay either: at 0.1 it bought end-of-day sweeps, which is
+        # the same trap cf.cancel was zeroed for.
+        "rs.returnreq": 0.0, "rs.dna": 0.0, "rs.cancel": 0.0, "rs.resolve": 0.1,
+        # THE OUTCOMES, all four written by the carrier or by our own
+        # receiving dock — never by the agent, so none of them can be typed
+        # into existence.
+        "rs.landed": 0.4,          # the promise held: the parcel arrived
+        "rs.failed_again": -0.2,   # it broke: the carrier failed a second time
+        "rs.recovered": 0.15,      # a requested return reached our shelves
+        "rs.never_came_back": 0.0, # the carrier lost it — not the agent's fault
+        # The corrections that stop a delivery failing in the first place.
+        # 761 city fixes and 1,003 address fixes in three weeks scored
+        # nothing at all, on either board — including 1,002 made by
+        # confirmation agents who DO have one.
+        "city.fix": 0.1, "contact.fix": 0.1,
         "cs.resolve": 0.3, "cs.reply": 0.05, "cs.create": 0.05,
         "cs.take": 0.02, "cs.hold": 0.0, "cs.reopen": 0.0,
         # THE OUTCOME. A confirm is a promise; a delivered parcel is the money.
@@ -314,7 +349,7 @@ def _board(group, month, pts):
             return _json.loads(hit)
         except Exception:
             pass
-    rows = (_cc_board if group == "cc" else _floor_board)(month, pts)
+    rows = {"cc": _cc_board, "ship": _ship_board}.get(group, _floor_board)(month, pts)
     try:
         # 900s, not 120: the warmer below recomputes every 10 minutes, so a
         # TTL longer than the warm interval means no human ever pays the cold
@@ -518,6 +553,119 @@ def _cc_board(month, pts):
             "delivered": o["delivered"], "returned": o["returned"],
             "deliveryRate": round(o["delivered"] * 100.0 / shipped, 1) if shipped else None,
             "returnRate": round(o["returned"] * 100.0 / shipped, 1) if shipped else None,
+        })
+    return sorted(rows, key=lambda x: -x["points"])
+
+
+def _ship_board(month, pts):
+    """The rescue lane's month: what each agent decided, and how it ended.
+
+    Two halves, and the split is the whole point. The ACTIONS are what the
+    agent did; the OUTCOMES are what the carrier and our own receiving dock
+    then did about it, and they carry most of the weight — the same shape as
+    the cc board, for the same reason. An agent cannot type an outcome.
+
+    Every trail the lane leaves is read, not just the rescue one. Measured
+    2026-09-30: 761 city fixes and 1,003 address corrections in three weeks
+    scored zero on any board, and four people with 250-500 actions each would
+    have ranked at or near nothing — the exact failure the confirmation board
+    already had once, when it scored 2% of its lane's work.
+
+    One point per (agent, parcel, action), so a decision flipped back and
+    forth cannot be farmed.
+    """
+    start = f"{month}-01 00:00:00"
+    args = {"start": start}
+    # ── what they did ──
+    acts = frappe.db.sql(
+        """SELECT SUBSTRING_INDEX(c.content, '\u00b7 by ', -1) u,
+                  c.reference_name so,
+                  CASE WHEN c.content LIKE 'Rescue:%%'
+                         THEN CONCAT('rs.', SUBSTRING_INDEX(
+                              SUBSTRING_INDEX(c.content, 'Rescue: ', -1), ' ', 1))
+                       WHEN c.content LIKE 'Shipping city set to%%' THEN 'city.fix'
+                       WHEN c.content LIKE 'Contact updated:%%' THEN 'contact.fix'
+                       ELSE '' END act
+           FROM `tabComment` c
+           WHERE c.reference_doctype = 'Sales Order' AND c.comment_type = 'Comment'
+             AND c.creation >= %(start)s
+             AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
+             AND c.content LIKE '%%\u00b7 by %%'
+             AND (c.content LIKE 'Rescue:%%' OR c.content LIKE 'Shipping city set to%%'
+                  OR c.content LIKE 'Contact updated:%%')""",
+        args, as_dict=True)
+    # ── how it ended, credited to whoever made the last call on that parcel ──
+    outs = frappe.db.sql(
+        """SELECT dn.custom_rescue_outcome o, dni.against_sales_order so,
+                  (SELECT SUBSTRING_INDEX(c2.content, '\u00b7 by ', -1)
+                     FROM `tabComment` c2
+                    WHERE c2.reference_doctype = 'Sales Order'
+                      AND c2.reference_name = dni.against_sales_order
+                      AND c2.comment_type = 'Comment'
+                      AND c2.content LIKE 'Rescue:%%'
+                      AND c2.creation <= dn.custom_rescue_outcome_at
+                    ORDER BY c2.creation DESC LIMIT 1) u
+           FROM `tabDelivery Note` dn
+           JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
+           WHERE dn.docstatus = 1 AND dn.company = %(co)s
+             AND COALESCE(dn.custom_rescue_outcome, '') <> ''
+             AND dn.custom_rescue_outcome_at >= %(start)s
+             AND dn.custom_rescue_outcome_at < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
+           GROUP BY dn.name""",
+        dict(args, co=_CO), as_dict=True)
+
+    # Only this lane's people. Without the test the board fills with whoever
+    # left a trail on an order: run for September it put a manager and a
+    # confirmation agent in the top two seats, on 614 and 457 address/city
+    # fixes, above both tracking agents — work that belongs to the cc board,
+    # where those two already are and where the same fixes now score.
+    from logistics_portal.api.auth import resolve_role
+    ok = {}
+    def mine(user):
+        u = str(user or "").split(" ")[0].strip()
+        if not u or "@" not in u or u in ("Administrator", "Guest"):
+            return ""
+        if u not in ok:
+            try:
+                ok[u] = _ROLE_GROUP.get(resolve_role(u) or "") == "ship"
+            except Exception:
+                ok[u] = False
+        return u if ok[u] else ""
+
+    seen, tally = set(), {}
+    def add(user, key, n=1):
+        u = mine(user)
+        if not u:
+            return
+        d = tally.setdefault(u, {})
+        d[key] = d.get(key, 0) + n
+
+    for r in acts:
+        if not r.act:
+            continue
+        u = mine(r.u)
+        if not u:
+            continue
+        k = (u, r.so, r.act)
+        if k in seen:
+            continue
+        seen.add(k)
+        add(r.u, r.act)
+    for r in outs:
+        add(r.u, "rs." + str(r.o or ""))
+
+    rows = []
+    for u, d in tally.items():
+        pts_total = sum(float(pts.get(k, 0) or 0) * n for k, n in d.items())
+        rows.append({
+            "agent": u.split("@")[0], "user": u,
+            "cols": [d.get("rs.redeliver", 0) + d.get("rs.reship", 0),
+                     d.get("rs.returnreq", 0), d.get("rs.dna", 0),
+                     d.get("city.fix", 0) + d.get("contact.fix", 0),
+                     d.get("rs.landed", 0), d.get("rs.failed_again", 0),
+                     d.get("rs.recovered", 0)],
+            "points": round(pts_total, 1),
+            "actions": sum(d.values()),
         })
     return sorted(rows, key=lambda x: -x["points"])
 
