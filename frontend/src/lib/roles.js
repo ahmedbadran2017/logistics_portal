@@ -37,6 +37,7 @@ export const ROLE_CONFIG = {
           { to: "Consolidation", label: "nav.consolidation", icon: "git-merge" },
           { to: "PickLists", label: "nav.picklists", icon: "package" },
           { to: "Stranded", label: "nav.stranded", icon: "package-x" },
+          { to: "ShortPicks", label: "nav.shortPicks", icon: "search" },
           // CityCheck left this nav (Ahmed 2026-09-22): repairing a shipping
           // city is TRACKING work — it lives on /tracking under Ship tools.
           // The route and the API stay open; only the floor menu drops it.
@@ -113,6 +114,7 @@ export const ROLE_CONFIG = {
           { to: "Pipeline", label: "nav.orders", icon: "shopping-bag" },
           { to: "PickLists", label: "nav.picklists", icon: "package" },
           { to: "Stranded", label: "nav.stranded", icon: "package-x" },
+          { to: "ShortPicks", label: "nav.shortPicks", icon: "search" },
           // CityCheck left this nav (Ahmed 2026-09-22): repairing a shipping
           // city is TRACKING work — it lives on /tracking under Ship tools.
           // The route and the API stay open; only the floor menu drops it.

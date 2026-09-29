@@ -75,6 +75,7 @@ const routes = [
           { path: "", name: "Tickets", component: () => import("@/pages/Tickets.vue") },
           { path: "exchanges", name: "Exchanges", component: () => import("@/pages/Exchanges.vue") },
           { path: "stock-wait", name: "StockWait", component: () => import("@/pages/StockWait.vue") },
+      { path: "short-picks", name: "ShortPicks", component: () => import("@/pages/ShortPicks.vue") },
           { path: "reports", name: "TicketsReports", component: () => import("@/pages/TicketsReports.vue") },
           { path: "settings", name: "TicketsSettings", component: () => import("@/pages/TicketsSettings.vue") },
         ],

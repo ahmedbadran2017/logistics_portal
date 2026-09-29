@@ -282,3 +282,243 @@ def seed_from_comments():
             mark(code, wh)
             n += 1
     return {"marks": n}
+
+
+# ---------------------------------------------------------------------------
+# The manager's radar — every order a picker said was short, and whether the
+# building agrees.
+#
+# A short pick is one person's glance, and it decides an order's fate: the
+# order leaves the list and reads as out of stock. Measured 2026-09-30 over 30
+# days: 2,748 reports on 628 orders, one order short-picked 62 times in six
+# days. On 152 of those orders the SAME item that was "not on the shelf" later
+# shipped on that same order — the piece was in the building all along, and
+# that is only the floor of it, since -ex / J- orders ship without a Delivery
+# Note and are invisible to that test.
+#
+# count_worklist above is the FLOOR's view (which shelf to count). This is the
+# MANAGER's view of the same evidence, per order: who said it, how many times,
+# what the ledger says right now, and a verdict to record. The verdict is a
+# comment on the order — the audit trail this module already writes — so a
+# pair drops off the radar once checked and comes back on its own if a picker
+# reports it short again afterwards.
+# ---------------------------------------------------------------------------
+import re as _re
+
+_CHECK = "Short pick check:"
+_ITEM_RE = _re.compile(r"item \(([^)]+)\)")
+_WHO_RE = _re.compile(r" by (\S+) — pulled off ([^;]+);")
+
+
+def _radar_gate():
+    from logistics_portal.api.auth import resolve_role
+    if resolve_role(frappe.session.user) not in ("manager", "dispatcher"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+
+
+def _bin_classes():
+    """(pickable, movable) warehouse sets. Pickable = the policy AND ee's veto,
+    exactly what availability uses. Movable-but-not-pickable is stock that is
+    in the building and one Move Stock away from a shelf."""
+    from logistics_portal.api.picking import _ee_rejected
+    from logistics_portal.api.stock_moves import _movable_condition
+    from logistics_portal.api.warehouses import pickable_condition
+    pc, pa = pickable_condition("name")
+    pickable = set(frappe.db.sql_list(
+        f"SELECT name FROM `tabWarehouse` WHERE is_group = 0 AND {pc}", tuple(pa)))
+    pickable -= set(_ee_rejected())
+    mc, ma = _movable_condition("name")
+    movable = set(frappe.db.sql_list(
+        f"SELECT name FROM `tabWarehouse` WHERE is_group = 0 AND disabled = 0 AND {mc}",
+        tuple(ma)))
+    return pickable, movable
+
+
+@frappe.whitelist()
+def radar(days=14, show="open"):
+    """Short-picked (order, item) pairs on orders still waiting to ship.
+
+    show = "open"     pairs nobody has checked since the last report (default)
+           "checked"  pairs a manager already ruled on
+    Verdict per pair, from the ledger as it stands now:
+      ready    free stock on a pickable bin — the picker is probably wrong
+      zone     free stock only in a zone picking skips — it needs a move
+      nostock  the ledger agrees nothing is free anywhere we can move from
+    """
+    _radar_gate()
+    days = min(max(int(days or 14), 1), 60)
+    since = frappe.utils.add_days(frappe.utils.now_datetime(), -days)
+
+    reports = frappe.db.sql(
+        """SELECT reference_name AS so, content, creation
+           FROM `tabComment`
+           WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
+             AND content LIKE 'Short pick:%%' AND creation >= %s
+           ORDER BY creation""", (since,), as_dict=True)
+    pairs = {}
+    for r in reports:
+        m = _ITEM_RE.search(r.content or "")
+        if not m:
+            continue
+        k = (r.so, m.group(1))
+        p = pairs.get(k)
+        if not p:
+            p = pairs[k] = {"so": r.so, "item": m.group(1), "times": 0,
+                            "first": r.creation, "last": r.creation,
+                            "picker": "", "list": "", "tote": False}
+        p["times"] += 1
+        p["last"] = r.creation
+        w = _WHO_RE.search(r.content or "")
+        if w:
+            p["picker"], p["list"] = w.group(1), w.group(2).strip()
+        if "STILL IN THE TOTE" in (r.content or ""):
+            p["tote"] = True
+    if not pairs:
+        return _empty_radar(days)
+
+    sos = tuple({k[0] for k in pairs})
+    orders = {r.name: r for r in frappe.db.sql(
+        """SELECT name, customer_name, transaction_date,
+                  IFNULL(custom_logistics_status, '') AS log
+           FROM `tabSales Order`
+           WHERE name IN %s AND docstatus = 1
+             AND status NOT IN ('Closed', 'Completed', 'Cancelled')
+             AND IFNULL(custom_logistics_status, '') IN ('', 'Pending')""",
+        (sos,), as_dict=True)}
+
+    # The latest ruling per pair. A ruling older than the latest report is
+    # stale: a picker came back and said short again after it was checked.
+    ruled = {}
+    for r in frappe.db.sql(
+            """SELECT reference_name AS so, content, creation, owner
+               FROM `tabComment`
+               WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
+                 AND content LIKE %s AND reference_name IN %s
+               ORDER BY creation""", (_CHECK + "%", sos), as_dict=True):
+        m = _ITEM_RE.search(r.content or "")
+        if m:
+            verdict = "present" if " present " in (r.content or "") else "missing"
+            ruled[(r.so, m.group(1))] = {"at": r.creation, "by": r.owner,
+                                        "verdict": verdict}
+
+    # Is the order back on a list right now? Then a picker is on it already.
+    on_list = {}
+    for r in frappe.db.sql(
+            """SELECT pli.sales_order AS so, MAX(p.name) AS pl
+               FROM `tabPick List Item` pli
+               JOIN `tabPick List` p ON p.name = pli.parent
+               WHERE p.docstatus = 0 AND pli.sales_order IN %s
+               GROUP BY pli.sales_order""", (sos,), as_dict=True):
+        on_list[r.so] = r.pl
+
+    live = [p for k, p in pairs.items() if k[0] in orders]
+    if not live:
+        return _empty_radar(days)
+    codes = tuple({p["item"] for p in live})
+    pickable, movable = _bin_classes()
+    marks = active()
+    bins = {}
+    for r in frappe.db.sql(
+            """SELECT item_code, warehouse, actual_qty,
+                      GREATEST(actual_qty - reserved_qty, 0) AS free
+               FROM `tabBin` WHERE item_code IN %s AND actual_qty > 0
+               ORDER BY actual_qty DESC""", (codes,), as_dict=True):
+        cls = ("pick" if r.warehouse in pickable
+               else "zone" if r.warehouse in movable else "other")
+        bins.setdefault(r.item_code, []).append({
+            "warehouse": r.warehouse, "qty": int(r.actual_qty or 0),
+            "free": int(r.free or 0), "cls": cls,
+            "held": int(marks.get((r.item_code, r.warehouse), 0))})
+    info = {r.name: r for r in frappe.db.sql(
+        """SELECT name, item_name, custom_sku, image FROM `tabItem`
+           WHERE name IN %s""", (codes,), as_dict=True)}
+
+    now = frappe.utils.now_datetime()
+    rows, counts, checked = [], {"ready": 0, "zone": 0, "nostock": 0}, 0
+    for p in live:
+        rule = ruled.get((p["so"], p["item"]))
+        fresh = rule and rule["at"] > p["last"]
+        if fresh:
+            checked += 1
+        if (show == "checked") != bool(fresh):
+            continue
+        bs = bins.get(p["item"], [])
+        pick = sum(b["free"] for b in bs if b["cls"] == "pick")
+        zone = sum(b["free"] for b in bs if b["cls"] == "zone")
+        verdict = "ready" if pick > 0 else "zone" if zone > 0 else "nostock"
+        counts[verdict] += 1
+        o, it = orders[p["so"]], info.get(p["item"])
+        rows.append({
+            "order": p["so"], "customer": o.customer_name or "",
+            "item": p["item"], "sku": (it.custom_sku if it else "") or "",
+            "name": (it.item_name if it else "") or p["item"],
+            "image": (it.image if it else "") or "",
+            "times": p["times"], "firstAt": str(p["first"])[:16],
+            "lastAt": str(p["last"])[:16],
+            "hours": int((now - p["first"]).total_seconds() // 3600),
+            "picker": p["picker"], "pickList": p["list"], "tote": p["tote"],
+            "onList": on_list.get(p["so"], ""),
+            "verdict": verdict, "pickFree": pick, "zoneFree": zone,
+            "bins": [b for b in bs if b["cls"] != "other"][:6],
+            "ruling": ({"verdict": rule["verdict"], "by": rule["by"],
+                        "at": str(rule["at"])[:16]} if fresh else None),
+        })
+    rank = {"ready": 0, "zone": 1, "nostock": 2}
+    rows.sort(key=lambda x: (rank[x["verdict"]], -x["times"], x["firstAt"]))
+    return {"rows": rows, "counts": counts, "checked": checked,
+            "open": len(live) - checked, "days": days}
+
+
+def _empty_radar(days):
+    return {"rows": [], "counts": {"ready": 0, "zone": 0, "nostock": 0},
+            "checked": 0, "open": 0, "days": days}
+
+
+@frappe.whitelist()
+def rule(order, item_code, verdict, warehouse=None, note=None):
+    """Record a manager's double-check on one short-picked (order, item).
+
+    present  They found it. Every shelf belief about the item is dropped — the
+             glance was wrong, and a held bin would keep the order unpickable.
+             If the ledger has pickable stock the order is back in the pool at
+             once; if it does not, the piece is physically there but the books
+             say otherwise, and only a count can fix that — say so rather than
+             pretend the order is ready.
+    missing  Confirmed not on the shelf. The belief stays; if the ledger still
+             claims stock there, that bin is what needs counting.
+    """
+    _radar_gate()
+    order, item_code = (order or "").strip(), (item_code or "").strip()
+    if verdict not in ("present", "missing"):
+        frappe.throw("Verdict must be present or missing.")
+    if not frappe.db.exists("Sales Order", order):
+        frappe.throw("Unknown order.")
+    if not frappe.db.exists("Item", item_code):
+        frappe.throw("Unknown item.")
+    warehouse = (warehouse or "").strip() or None
+    user = frappe.session.user
+
+    cleared = 0
+    if verdict == "present":
+        cleared = clear(item_code)
+        for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+            frappe.cache().delete_value(k)
+
+    where = f" at {warehouse}" if warehouse else ""
+    extra = f" — {note.strip()}" if (note or "").strip() else ""
+    text = (f"{_CHECK} present — item ({item_code}) found{where} by {user}"
+            if verdict == "present" else
+            f"{_CHECK} missing — item ({item_code}) confirmed not on the shelf{where} by {user}")
+    frappe.get_doc("Sales Order", order).add_comment("Comment", text + extra)
+
+    pickable, _mv = _bin_classes()
+    pick_free = sum(float(r.free or 0) for r in frappe.db.sql(
+        """SELECT warehouse, GREATEST(actual_qty - reserved_qty, 0) AS free
+           FROM `tabBin` WHERE item_code = %s AND actual_qty > 0""",
+        (item_code,), as_dict=True) if r.warehouse in pickable)
+    frappe.db.commit()
+    return {"ok": True, "verdict": verdict, "cleared": cleared,
+            "pickFree": int(pick_free),
+            # Found it, but the books have nothing to allocate: the order
+            # cannot become ready until the shelf is counted up.
+            "needsCount": verdict == "present" and pick_free <= 0}
