@@ -315,6 +315,9 @@ _RS_DEFAULTS = {
     # the CARRIER's: how long since anything happened to the parcel after
     # we told the customer it was coming.
     "promiseSlaH": 48,
+    # A requested return that never arrives is stock we paid for and lost, so
+    # it needs a day on which we stop waiting and say so.
+    "returnGraceD": 14,
     # Kept: the vocabulary for ENDING a parcel (return / cancel).
     "reasons": ["Client injoignable", "Refuse le colis", "Adresse introuvable",
                 "Reporté par le client", "Annulé par le client"],
@@ -1317,6 +1320,29 @@ def settle_outcomes(limit=400):
     moving. None of that was recorded anywhere; it was recomputed on every
     page load and true only for that second.
 
+    Return Requested is settled here too, and until 2026-09-30 it was not:
+    the action covered only Redeliver / Reship / Follow Up, so the lane's
+    COMMONEST decision — 1,195 parcels, 54% of one agent's whole output —
+    had no recorded ending at all and its quality could not be judged.
+
+    It can be. Asking a carrier to send a parcel back is a promise like any
+    other, and whether it was kept is whether the parcel arrived at our own
+    dock: 714 of those 1,195 are physically back, and of the ones older than
+    ten days 80% came home, so the missing fifth is real and worth naming.
+    The witness is the receiving scan (returns.back_in_house_sql) -- the same
+    one the returns lane reads, never the carrier, which does not report a
+    return at all.
+
+    `recovered` is the goods on our shelves again. `never_came_back` is a
+    parcel written off after _RETURN_GRACE_D days -- and it is a fact about
+    the carrier, not a mark against the agent who asked.
+
+    Oldest first, and that is load-bearing rather than tidy. The batch is
+    capped, and a parcel still inside its grace period cannot be settled yet
+    -- with no order the run kept re-reading the same young rows every hour
+    while the settleable ones sat past the limit, unreachable. Measured: an
+    unordered batch of 400 settled 13 and left 387 open.
+
     Scheduled. Idempotent — it only ever writes a blank outcome, and every
     new decision blanks it again, so a parcel worked twice is judged twice."""
     try:
@@ -1325,20 +1351,41 @@ def settle_outcomes(limit=400):
         rows = frappe.db.sql(
             f"""SELECT dn.name, dn.custom_track_shipment_status trk,
                        dn.custom_return_shipment ret,
+                       dn.custom_exception_action act,
                        {_fail_event_at_sql()} fail_at,
-                       dn.custom_exception_actioned_at act_at
+                       dn.custom_exception_actioned_at act_at,
+                       {_back_in_house()} AS back_in_house,
+                       TIMESTAMPDIFF(DAY, dn.custom_exception_actioned_at,
+                                     %(snow)s) AS age_d
                 FROM `tabDelivery Note` dn
                 JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
                 JOIN `tabSales Order` so ON so.name = dni.against_sales_order
                 WHERE dn.docstatus = 1 AND dn.company = %(co)s
-                  AND dn.custom_exception_action IN ('Redeliver', 'Reship', 'Follow Up')
+                  AND dn.custom_exception_action IN ('Redeliver', 'Reship',
+                                                     'Follow Up', 'Return Requested')
                   AND dn.custom_exception_actioned_at IS NOT NULL
                   AND COALESCE(dn.custom_rescue_outcome,'') = ''
                 GROUP BY dn.name
-                LIMIT {int(limit)}""", {"co": _CO}, as_dict=True)
+                ORDER BY dn.custom_exception_actioned_at
+                LIMIT {int(limit)}""", {"co": _CO, "snow": _site_now()}, as_dict=True)
         now = now_datetime()
         done = 0
+        grace = _return_grace_d()
         for r in rows:
+            # A return we ASKED for ends at our own dock, not at the carrier's
+            # status, which never says "returned" at all.
+            if r.act == "Return Requested":
+                if int(r.back_in_house or 0):
+                    out = "recovered"
+                elif int(r.age_d or 0) >= grace:
+                    out = "never_came_back"
+                else:
+                    continue
+                frappe.db.set_value("Delivery Note", r.name, {
+                    "custom_rescue_outcome": out,
+                    "custom_rescue_outcome_at": now}, update_modified=False)
+                done += 1
+                continue
             # A parcel physically back in the building is settled whatever
             # the tracker says — the return note is the harder evidence.
             if r.ret:
@@ -1369,6 +1416,18 @@ def settle_outcomes(limit=400):
 
 def _promise_sla_h():
     return int(_rs_settings().get("promiseSlaH", 48))
+
+
+def _return_grace_d():
+    """How long a requested return may be in transit before we call it lost.
+
+    Fourteen days because the measured curve says so: of the return requests
+    older than ten days, 80% had already reached our dock. Waiting longer
+    than that stops teaching us anything and only delays the write-off; a
+    shorter window would blame the carrier for parcels still legitimately
+    moving. Tunable, because the carrier's speed is not a constant.
+    """
+    return int(_rs_settings().get("returnGraceD", 14))
 
 
 @frappe.whitelist(methods=["POST"])
