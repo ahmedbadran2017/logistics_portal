@@ -8,12 +8,16 @@
        the wall screens keep it. Held back until the role is known, so it
        never flashes on a PDA during boot. -->
   <TaskHubWidget v-if="showTasks" portal="Logistics" />
+  <!-- Acknowledged, not dismissed: it guards itself (login, role, view-as,
+       the announcement's window) and stays silent once read. -->
+  <BonusLaunch />
 </template>
 
 <script setup>
 import { computed, ref } from "vue";
 import ToastLayer from "@/components/ui/ToastLayer.vue";
 import TaskHubWidget from "@/components/TaskHubWidget.vue";
+import BonusLaunch from "@/components/BonusLaunch.vue";
 import { useAuth } from "@/composables/useAuth";
 import { isMobileRole } from "@/lib/roles";
 

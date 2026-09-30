@@ -15,6 +15,10 @@
         <span class="w-2 h-2 rounded-full animate-pulse" :style="{ background: 'var(--accent-500)' }" />
         {{ t('bn.soonChip') }}
       </span>
+      <div class="mt-5">
+        <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12px] font-semibold ring-1 ring-stone-200 bg-white text-stone-700 hover:bg-stone-50"
+                @click="openRules()"><Icon name="list-checks" :size="14" />{{ t('an.rules') }}</button>
+      </div>
     </div>
   </div>
 
@@ -25,6 +29,8 @@
         <p class="text-[12.5px] text-stone-500 mt-0.5">{{ t('bn.intro') }}</p>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
+        <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12px] font-semibold ring-1 ring-stone-200 bg-white text-stone-700 hover:bg-stone-50"
+                @click="openRules()"><Icon name="list-checks" :size="14" />{{ t('an.rules') }}</button>
         <!-- group switch (manager only — the server sends one group otherwise) -->
         <div v-if="(d?.groups || []).length > 1" class="flex items-center gap-1">
           <button v-for="g in d.groups" :key="g"
@@ -40,6 +46,34 @@
         </div>
       </div>
     </header>
+
+    <!-- Who has read the launch notice. At the end of the month "nobody told
+         me" is the objection a manager cannot answer without this. -->
+    <div v-if="ackStat" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4">
+      <div class="flex items-center gap-3 flex-wrap">
+        <span class="inline-flex w-9 h-9 rounded-xl items-center justify-center bg-emerald-50 text-emerald-600">
+          <Icon name="check" :size="18" />
+        </span>
+        <div class="flex-1 min-w-[200px]">
+          <div class="text-[13px] font-semibold text-stone-900">{{ t('an.ackTitle') }}</div>
+          <div class="text-[12px] text-stone-500 tabular-nums">
+            {{ ackStat.acked }} / {{ ackStat.total }} {{ t('an.ackRead') }}
+          </div>
+        </div>
+        <div class="h-2 w-40 rounded-full bg-stone-100 overflow-hidden">
+          <div class="h-full rounded-full bg-emerald-500 transition-all duration-700"
+               :style="{ width: (ackStat.total ? 100 * ackStat.acked / ackStat.total : 0) + '%' }" />
+        </div>
+        <button v-if="ackPending.length" class="text-[12px] font-medium text-stone-500 hover:text-stone-900"
+                @click="ackOpen = !ackOpen">{{ ackOpen ? t('an.ackHide') : t('an.ackShow') }}</button>
+      </div>
+      <div v-if="ackOpen && ackPending.length" class="mt-3 flex flex-wrap gap-1.5">
+        <span v-for="r in ackPending" :key="r.user"
+              class="text-[11.5px] rounded-md px-2 py-1 bg-amber-50 text-amber-800 ring-1 ring-amber-200/60">
+          {{ r.name }}<span v-if="r.role" class="text-amber-600/80"> · {{ r.role }}</span>
+        </span>
+      </div>
+    </div>
 
     <!-- The CC scheme isn't approved yet (Ahmed 2026-08-28): agents see a
          promise, not a leaderboard. Managers and section admins keep the full
@@ -84,6 +118,12 @@
     </div>
 
     <template v-else-if="d">
+      <!-- September was the trial: points so people can see how the scheme
+           reads their work, no money (Ahmed 2026-09-30). -->
+      <div v-if="d.trial" class="rounded-2xl px-4 py-3 flex items-start gap-3 bg-amber-50 ring-1 ring-amber-200/70">
+        <Icon name="info" :size="16" class="text-amber-600 mt-0.5 flex-shrink-0" />
+        <div class="text-[12.5px] text-amber-900 leading-relaxed">{{ t('an.trialBanner') }}</div>
+      </div>
       <!-- my card. Only for someone actually ON this board: a manager opens
            the page to read the team, and a permanent "0 pts / 250 · 0% of
            target" card about themselves is noise at best and, at 0%,
@@ -461,6 +501,7 @@ import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
 import { useAuth } from "@/composables/useAuth";
 import { IS_CC, IS_SHIP } from "@/lib/portal";
+import { useBonusLaunch } from "@/composables/useBonusLaunch";
 
 const { t } = useI18n();
 const { role, ccAdmin, viewAs } = useAuth();
@@ -469,6 +510,17 @@ const { role, ccAdmin, viewAs } = useAuth();
 const floorComingSoon = computed(() =>
   ["picker", "packer", "dispatcher", "returns"].includes(role.value));
 const isManager = computed(() => role.value === "manager");
+const { openRules } = useBonusLaunch();
+
+// The launch notice's read-receipt, manager only (and not while viewing as a
+// member — the server would refuse, and the card is not theirs to see).
+const ackStat = ref(null);
+const ackOpen = ref(false);
+const ackPending = computed(() => (ackStat.value?.rows || []).filter((r) => !r.ackedAt));
+async function loadAcks() {
+  if (!isManager.value || viewAs.value) return;
+  try { ackStat.value = await api("announcements.status"); } catch { ackStat.value = null; }
+}
 // CC agents — and a manager viewing as one — get the coming-soon panel; only
 // the manager/section admins see (and keep designing) the actual board.
 const comingSoon = computed(() => {
@@ -651,6 +703,7 @@ async function saveScheme() {
 }
 
 onMounted(async () => {
+  loadAcks();
   if (floorComingSoon.value) return;
   // Scheme first: comingSoon depends on money.on, so the promise page must
   // not be the thing that decides whether we ever find out it was switched on.
