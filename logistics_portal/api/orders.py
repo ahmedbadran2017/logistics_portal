@@ -1,5 +1,7 @@
 """Sales Order stage timestamps + order detail."""
 
+import builtins
+
 import frappe
 from frappe.utils import now_datetime
 
@@ -1567,7 +1569,9 @@ def _urgent_col():
 @frappe.whitelist()
 def list(scope="floor", picker=None, limit=60):  # noqa: A001 — public RPC name.
     # WARNING: this shadows the builtin `list` for the WHOLE module. Never call
-    # list(...) as a constructor anywhere in this file — use [*iterable].
+    # list(...) as a constructor anywhere in this file — use [*iterable] —
+    # and never `isinstance(x, list)` either: use builtins.list, because the
+    # bare name is this function and isinstance refuses a non-type.
     """Recent orders in the SPA's ORDERS shape (Pipeline + Picker queue).
     scope='queue' narrows to pick-ready stages; `picker` filters to that user's
     assigned pick lists (in SQL, BEFORE the limit — the old post-LIMIT filter
@@ -2319,7 +2323,13 @@ def _uncoverable(order, rows):
         if isinstance(r, dict):
             pairs.append((str(r.get("item_code") or r.get("code") or "").strip(),
                           _num(r.get("qty"))))
-        elif isinstance(r, (list, tuple)) and len(r) >= 2:
+        # builtins.list, NOT list: `def list(...)` in this module shadows the
+        # builtin, so the bare name here is a FUNCTION and isinstance raises
+        # "arg 2 must be a type". It only fires on the tuple/plain-code
+        # callers, which is why it hid — and why "Send a replacement" threw on
+        # every use since it was written, matching the 0 replacement sends
+        # measured over 90 days.
+        elif isinstance(r, (builtins.list, tuple)) and len(r) >= 2:
             pairs.append((str(r[0] or "").strip(), _num(r[1])))
         else:
             pairs.append((str(r or "").strip(), 1.0))
