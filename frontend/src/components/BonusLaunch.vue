@@ -44,7 +44,7 @@
             <p v-if="hello" class="bl-hi text-stone-500">
               {{ hello }} <span class="bl-wave">👋</span>
             </p>
-            <h2 id="bl-title" class="text-stone-900">{{ t("an.title") }}</h2>
+            <h2 id="bl-title" class="text-stone-900">{{ t(variant === "cc" ? "an.title_cc" : "an.title") }}</h2>
             <p class="bl-lead text-stone-600">{{ t("an.lead_" + variant) }}</p>
 
             <ul class="bl-list">
@@ -65,7 +65,7 @@
             </div>
 
             <div class="bl-notes" :style="{ '--i': items.length + 1 }">
-              <p><Icon name="info" :size="13" class="bl-ni" />{{ t("an.trial") }}</p>
+              <p><Icon name="info" :size="13" class="bl-ni" />{{ t(variant === "cc" ? "an.trialPaid" : "an.trial") }}</p>
               <p v-if="variant === 'floor'"><Icon name="clock" :size="13" class="bl-ni" />{{ t("an.amounts") }}</p>
               <p v-if="ackedAt" class="bl-seen"><Icon name="check" :size="13" class="bl-ni" />{{ t("an.seenOn") }} {{ ackedAt.slice(0, 10) }}</p>
             </div>
@@ -114,9 +114,13 @@ const { success, warn } = useToast();
 const { isLoggedIn, isInitialized, role, viewAs } = useAuth();
 const { reopen } = useBonusLaunch();
 
-// Which team is reading decides what counts. Managers read the floor's
-// version on /logistics and the desk's on /confirmation or /tracking.
-const variant = computed(() => (SURFACE === "cc" ? "cc" : SURFACE === "ship" ? "ship" : "floor"));
+// Which BOARD the reader is paid on decides what the notice says — the server
+// sends it from the same map the money uses. Not the portal: CS agents sit on
+// /confirmation yet are paid on the ship board, and only the contact centre is
+// paid for September. A manager has no board, so theirs follows the portal.
+const group = ref(null);
+const variant = computed(() => group.value
+  || (SURFACE === "cc" ? "cc" : SURFACE === "ship" ? "ship" : "floor"));
 
 const ITEMS = {
   floor: [
@@ -228,6 +232,7 @@ async function check(force = false) {
     const r = await api("announcements.pending");
     if (!r || !r.key) return;
     firstName.value = r.firstName || "";
+    group.value = ["cc", "floor", "ship"].includes(r.group) ? r.group : null;
     ackedAt.value = r.acked ? r.ackedAt : null;
     if (force || !r.acked) {
       show();

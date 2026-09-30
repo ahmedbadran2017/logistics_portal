@@ -1,8 +1,9 @@
 """Announcements the team must read — and a record that they did.
 
-The first one is the bonus launch (Ahmed, 2026-09-30): measuring starts on
-1 October and October is the first PAID month; September was a trial and is
-not paid. A popup that closes on any click is forgotten by lunch, and at the
+The first one is the bonus launch (Ahmed, 2026-09-30): from 1 October the
+whole team is measured and paid. For the floor and the ship lane September
+was a trial and is not paid; the contact centre IS paid for September (see
+contact_center.PAY_START). A popup that closes on any click is forgotten by lunch, and at the
 end of the month "nobody told me" is the one objection a manager cannot
 answer. So an announcement here is acknowledged, not dismissed: pressing the
 button records who read it and when, and a manager can see who has not.
@@ -50,8 +51,16 @@ def pending():
         return {"key": None}
     at = _acked_at(user, LIVE["key"])
     full = frappe.db.get_value("User", user, "full_name") or ""
+    # The bonus board this person is paid on — the SAME map the money uses,
+    # so what the notice says about September cannot disagree with the page.
+    # A portal is not a board: CS agents sit on /confirmation but are paid on
+    # the ship board. A manager has no board of their own; the frontend reads
+    # the portal they are standing in instead.
+    from logistics_portal.api.contact_center import _ROLE_GROUP
+    role = _role()
+    group = None if role == "manager" else (_ROLE_GROUP.get(role) or "floor")
     return {"key": LIVE["key"], "acked": bool(at), "ackedAt": at or None,
-            "firstName": (full.split() or [""])[0]}
+            "firstName": (full.split() or [""])[0], "group": group}
 
 
 @frappe.whitelist(methods=["POST"])

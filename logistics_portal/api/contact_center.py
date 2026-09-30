@@ -64,13 +64,13 @@ _BONUS_KEY = "lp_bonus_settings"
 # playing by these rules; showing them would put unearned zeros and unearned
 # heroes on the same board. Every month FROM here on stays browsable forever.
 SCHEME_START = "2026-09"
-# Money starts a month after the board does (Ahmed 2026-09-30): September was
-# the trial — points are shown so people can see how the scheme reads them,
-# but nothing is paid for it. October is the first paid month, announced on
-# the eve of it (api/announcements.py). Without this the board priced
-# September the moment money.on was flipped, and an agent opening the Bonus
-# page read an amount they were never going to receive.
-PAY_START = "2026-10"
+# The first PAID month, per board (Ahmed 2026-09-30). The contact centre was
+# measured AND priced from the scheme's start and is paid for September. The
+# floor and the ship lane are paid from October: September was their trial —
+# points stay visible so people can see how the scheme reads their work, but
+# nothing before this month is priced. A single site-wide date first erased
+# September's money from the one team that is owed it.
+PAY_START = {"cc": "2026-09", "floor": "2026-10", "ship": "2026-10"}
 GROUPS = ("cc", "floor", "ship")
 # The rescue lane had no board at all: bonus_group_for("tracking") returned
 # None, so the two agents who made 89% of its decisions opened the Bonus page
@@ -936,7 +936,7 @@ def bonus(month=None, group=None):
     money = s["money"]
     sameday = pool = None
     kicker_on = False
-    trial = month < PAY_START
+    trial = month < PAY_START.get(group, "2026-10")
     if money["on"] and not trial:
         if money["kickerOn"]:
             sameday = _floor_sameday_pct(month)
@@ -973,7 +973,7 @@ def bonus(month=None, group=None):
             "groups": list(GROUPS) if role == "manager" else [my_group],
             "cols": cols, "target": s["targets"][group], "agents": agents,
             "me": me, "meUser": frappe.session.user,
-            "trial": trial, "payStart": PAY_START,
+            "trial": trial, "payStart": PAY_START.get(group, "2026-10"),
             "money": {"on": money["on"] and not trial, "currency": money["currency"],
                       "pool": round(pool) if pool is not None else None,
                       "kickerOn": money["kickerOn"], "kickerHit": kicker_on,
