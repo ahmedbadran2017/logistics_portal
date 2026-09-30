@@ -222,9 +222,25 @@ export const ROLE_CONFIG = {
         ],
       },
       {
+        // The packer is the floor's hybrid: receiving, put-away and restock
+        // are packer work too (Reda: 327 receipts + 418 moves in September;
+        // Asmaa: 113 moves). The API has always allowed the role on these
+        // screens — only the menu hid them. After the operations section on
+        // purpose: the PDA bottom bar shows the first five items, unchanged.
+        section: "nav.inventoryGrp",
+        items: [
+          { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
+          { to: "CrossdockIn", label: "nav.crossdockIn", icon: "truck" },
+          { to: "MoveStock", label: "nav.move", icon: "route" },
+        ],
+      },
+      {
         section: "nav.me",
         items: [
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
+          // Every other role could reach it; the packer could not — and the
+          // launch notice tells everyone the rules live on this page.
+          { to: "Bonus", label: "nav.bonus", icon: "wallet" },
           { href: "/hrms", label: "nav.attendance", icon: "clock" },
         ],
       },
