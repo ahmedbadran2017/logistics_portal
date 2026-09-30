@@ -66,7 +66,7 @@
 
             <div class="bl-notes" :style="{ '--i': items.length + 1 }">
               <p><Icon name="info" :size="13" class="bl-ni" />{{ t(variant === "cc" ? "an.trialPaid" : "an.trial") }}</p>
-              <p v-if="variant === 'floor'"><Icon name="clock" :size="13" class="bl-ni" />{{ t("an.amounts") }}</p>
+              <p v-if="variant !== 'cc'"><Icon name="clock" :size="13" class="bl-ni" />{{ t(variant === "ship" ? "an.amounts_ship" : "an.amounts") }}</p>
               <p v-if="ackedAt" class="bl-seen"><Icon name="check" :size="13" class="bl-ni" />{{ t("an.seenOn") }} {{ ackedAt.slice(0, 10) }}</p>
             </div>
           </div>

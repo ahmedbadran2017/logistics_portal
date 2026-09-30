@@ -959,7 +959,12 @@ def bonus(month=None, group=None):
     sameday = pool = None
     kicker_on = False
     trial = month < PAY_START.get(group, "2026-10")
-    if money["on"] and not trial:
+    # A board with no price is not "paying zero" — it is not priced yet. The
+    # ship lane is measured from October at 0 MAD a point, and pricing it
+    # anyway handed every CS agent a pay card reading "0 MAD" under a notice
+    # that told them the month is paid on results.
+    priced = float((money.get("perPoint") or {}).get(group) or 0) > 0
+    if money["on"] and not trial and priced:
         if money["kickerOn"]:
             sameday = _floor_sameday_pct(month)
             kicker_on = sameday >= float(money["kickerTargetPct"])
@@ -996,7 +1001,8 @@ def bonus(month=None, group=None):
             "cols": cols, "target": s["targets"][group], "agents": agents,
             "me": me, "meUser": frappe.session.user,
             "trial": trial, "payStart": PAY_START.get(group, "2026-10"),
-            "money": {"on": money["on"] and not trial, "currency": money["currency"],
+            "money": {"on": money["on"] and not trial and priced,
+                      "currency": money["currency"],
                       "pool": round(pool) if pool is not None else None,
                       "kickerOn": money["kickerOn"], "kickerHit": kicker_on,
                       "kickerAmount": money["kickerAmount"],
