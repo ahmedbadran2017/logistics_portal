@@ -564,7 +564,7 @@ def me(user=None):
     if data["kind"] == "agent":
         try:
             from logistics_portal.api.contact_center import (
-                _board, _bonus_settings, delivery_rate)
+                _board_raw, _bonus_settings, delivery_rate)
             # The month figure must MATCH the bonus page — it is the same
             # question, and the quality gate now answers it from the board's
             # basis (parcels from orders this agent confirmed). delivery_rate
@@ -574,7 +574,11 @@ def me(user=None):
             # approximation: no confirmed-by-me set exists back through the
             # desk era, and there allocated ≈ actor anyway.
             month_rate = None
-            for a in _board("cc", nowdate()[:7], _bonus_settings()["points"]):
+            # RAW board: this is a person's own delivery rate, not their pay.
+            # The paid board lists confirmation agents only, and anyone else
+            # who confirms (CS, tracking) would silently fall back to the
+            # looser approximation below.
+            for a in _board_raw("cc", nowdate()[:7], _bonus_settings()["points"]):
                 if a["user"] == target_user:
                     _d = int(a.get("delivered") or 0)
                     _f = int(a.get("returned") or 0)

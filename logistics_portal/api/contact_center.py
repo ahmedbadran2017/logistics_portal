@@ -336,7 +336,29 @@ def save_bonus_settings(settings=None):
     return {"ok": True, **out}
 
 
+# Boards that list only the people whose ROLE belongs to them (Ahmed
+# 2026-09-30). A board is built from the action trail, and the trail does not
+# care who you are: September's contact-centre board carried two tracking
+# agents, four CS agents and two managers alongside the three confirmation
+# agents, all priced. Those people are paid on another board — or none — and
+# their own Bonus page says so, so the manager paying from this one must not
+# see an amount beside their name. The floor is not locked yet: two of its
+# busiest pickers hold the manager role, and that is still Ahmed's call.
+_ROLE_LOCKED = {"cc"}
+
+
 def _board(group, month, pts):
+    """The board for `group`, limited to its own role where that is the rule.
+    The filter runs AFTER the cache, so a role change shows at once instead of
+    after the cached board expires — and costs one role lookup per row."""
+    rows = _board_raw(group, month, pts)
+    if group not in _ROLE_LOCKED:
+        return rows
+    from logistics_portal.api.auth import resolve_role
+    return [r for r in rows if _ROLE_GROUP.get(resolve_role(r.get("user"))) == group]
+
+
+def _board_raw(group, month, pts):
     """Cached board. The uncached board is 3 full-month tabComment GROUP BYs
     plus a month-wide SO/DNI/DN join, and it is recomputed by the confirmation
     board and My Performance on EVERY load just to read one agent's row. The
@@ -1475,7 +1497,7 @@ def warm_cc_caches():
         month = str(now_datetime())[:7]
         pts = _bonus_settings()["points"]
         for g in GROUPS:
-            _board(g, month, pts)
+            _board_raw(g, month, pts)   # the cache holds the raw board
     except Exception:
         frappe.log_error(frappe.get_traceback(), "warm_cc_caches")
     try:
