@@ -25,7 +25,7 @@ import frappe
 # for consignment stock.
 _FAMILY = ["Defective%", "Container%", "Air Freight%", "%Old%", "CORRECTING%",
            "Goods In Transit%", "Work In Progress%", "Cathedis%",
-           "Consignment Receiving%"]
+           "Consignment Receiving%", "Cross-dock Return%"]
 
 # Configurable zones excluded by default (returned goods, per ops' new policy).
 DEFAULT_EXCLUDED = ["Return Zone - JM", "Returns Adjustment - JM"]

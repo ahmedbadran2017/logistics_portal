@@ -151,12 +151,17 @@ def _waiting_for(item_codes):
             ) t ORDER BY creation""", {"c": starving}, as_dict=True)
 
 
+# A Cross-dock piece whose order was cancelled is received — it is in the
+# building, so it belongs on the books — but into Cross-dock Return - JM, not
+# Receiving: Receiving is pickable, and #262830's Digitronics piece sat there
+# as free stock after the customer cancelled (09-29). That bin is off picking
+# and holds nothing else, so it is purchasing's list of pieces to return
+# (crossdock_in.CROSSDOCK_RETURN_WH, created on first use).
+from logistics_portal.api.crossdock_in import CROSSDOCK_RETURN_WH as RETURN_WH
+
+
 def _cancelled(po):
-    """The order's name when this is a Cross-dock PO for a cancelled order.
-    Goods In received #262830's Digitronics piece into Receiving as our stock
-    on 2026-09-29 — the customer had cancelled at 04:38 and purchasing
-    submitted the PO anyway. A Cross-dock supplier is paid per order; with no
-    order the piece goes back, and purchasing closes the PO."""
+    """The order's name when this is a Cross-dock PO for a cancelled order."""
     if not _crossdock_ready():
         return None
     r = frappe.db.sql(
@@ -337,18 +342,19 @@ def open_po(po):
         return {"ok": False, "reason": "crossdock", "po": po,
                 "so": frappe.db.get_value("Purchase Order", po, "custom_sales_order") or ""}
     dead = _cancelled(po)
-    if dead and not _is_manager():
-        return {"ok": False, "reason": "cancelled", "po": po, "so": dead}
-    pw = _paperwork(po)
+    pw = None if dead else _paperwork(po)
     lines = _po_lines(po)
     codes = [l.item_code for l in lines]
     waiting = _waiting_for(codes) if pw else None
     return {
+        # Present => the order was cancelled: every piece goes to Return Zone
+        # to go back to the supplier, and only with the piece in hand.
+        "cancelled": ({"so": dead, "bin": RETURN_WH} if dead else None),
         # Present => the order already left: post only with the piece in hand.
         "paperwork": ({"so": pw["so"], "status": pw["status"],
                        "owedTo": _owed_to(codes, waiting)} if pw else None),
         # Items whose bin the server fixes, whatever the target says.
-        "routes": _routes(codes, waiting),
+        "routes": ({c: RETURN_WH for c in codes} if dead else _routes(codes, waiting)),
         "ok": True, "po": po, "supplier": h.supplier or "",
         "currency": h.currency or "MAD",
         "pending": int(round(sum(float(l.pending) for l in lines))),
@@ -430,9 +436,12 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
             "would starve with its stock already in the building.")
 
     dead = _cancelled(po)
-    if dead and not _is_manager():
-        frappe.throw(f"Order {dead} was cancelled — this Cross-dock piece is not ours to "
-                     "receive. Hand it back to the supplier; purchasing closes the PO.")
+    if dead and not frappe.utils.cint(piece_in_hand):
+        frappe.throw(f"Order {dead} was cancelled. Receive this only with the piece in front "
+                     f"of you — it goes to {RETURN_WH} to be returned to the supplier.")
+    if dead:
+        from logistics_portal.api.crossdock_in import ensure_return_warehouse
+        ensure_return_warehouse()
 
     if isinstance(items, str):
         items = json.loads(items)
@@ -442,7 +451,7 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
     if len(items) > 300:
         frappe.throw("Too many lines for one receipt — post and start a new one.")
 
-    pw = _paperwork(po)
+    pw = None if dead else _paperwork(po)
     if pw and not frappe.utils.cint(piece_in_hand):
         frappe.throw(
             f"Order {pw['so']} has already left ({pw['status']}). Its parcel shipped with "
@@ -461,7 +470,8 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
         frappe.throw("Scan at least one item.")
 
     waiting = _waiting_for(list(wanted)) if pw else None
-    routes = _routes(list(wanted), waiting)
+    routes = ({c: RETURN_WH for c in wanted} if dead
+              else _routes(list(wanted), waiting))
     target = (target or "").strip() or RECEIVING_WH
     if any(c not in routes for c in wanted):
         cond, args = _movable_condition("name")
@@ -526,6 +536,8 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
         "remarks": f"Portal goods-in by {frappe.session.user} — PO {po}"
                    + (f" — late piece: order {pw['so']} had already left ({pw['status']}); "
                       "piece confirmed in hand" if pw else "")
+                   + (f" — order {dead} cancelled: held in {RETURN_WH} for return "
+                      "to the supplier" if dead else "")
                    + (f" — {note}" if note else "")
                    + (f" — over-receipt: {len(extras)} lines" if extras else ""),
         "items": rows,
@@ -533,6 +545,10 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
     pr.flags.ignore_permissions = True
     pr.insert(ignore_permissions=True)
     pr.submit()
+    if dead:
+        frappe.get_doc("Purchase Order", po).add_comment(
+            "Comment", f"Order {dead} was cancelled. Piece received into {RETURN_WH} "
+                       f"({pr.name}) — purchasing: post the purchase return to the supplier.")
     reserved_for = []
     if pw and waiting:
         try:
@@ -551,7 +567,7 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
     extra_units = sum(e["qty"] for e in extras)
     return {"ok": True, "receipt": pr.name, "receipts": [pr.name], "units": total,
             "matched": total - extra_units, "extras": extra_units,
-            "target": ", ".join(bins), "latePiece": bool(pw),
+            "target": ", ".join(bins), "latePiece": bool(pw), "forReturn": bool(dead),
             "reservedFor": list(dict.fromkeys(reserved_for))}
 
 

@@ -35,6 +35,11 @@ from frappe.utils import cint, flt, now_datetime
 
 COMPANY = "Justyol Morocco"
 CROSSDOCK_WH = "Cross-dock - JM"
+# Pieces a Cross-dock supplier delivered for an order that was cancelled: on
+# the books (they are in the building) but off picking, waiting to go back.
+# Its own bin, not Return Zone, because Return Zone also holds customer
+# returns — this one is exactly the list purchasing owes back to suppliers.
+CROSSDOCK_RETURN_WH = "Cross-dock Return - JM"
 PARENT_WH = "Soft Warehouse - JM"
 COMMENT_TAG = "Cross-dock in"
 PROBLEMS = ("missing", "damaged", "wrong_item", "other")
@@ -67,6 +72,20 @@ def ensure_warehouse():
         wh.insert()
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "crossdock_in.ensure_warehouse")
+
+
+def ensure_return_warehouse():
+    """Create Cross-dock Return - JM on first use (idempotent). Ticked
+    is_rejected_warehouse so ee's pick controller vetoes it too, and in
+    warehouses._FAMILY so the portal never counts it as pickable."""
+    if frappe.db.exists("Warehouse", CROSSDOCK_RETURN_WH):
+        return CROSSDOCK_RETURN_WH
+    wh = frappe.get_doc({"doctype": "Warehouse", "warehouse_name": "Cross-dock Return",
+                         "company": COMPANY, "is_group": 0, "is_rejected_warehouse": 1,
+                         "parent_warehouse": PARENT_WH if frappe.db.exists("Warehouse", PARENT_WH) else None})
+    wh.flags.ignore_permissions = True
+    wh.insert()
+    return wh.name
 
 
 def _gate():

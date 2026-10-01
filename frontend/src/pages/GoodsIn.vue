@@ -67,6 +67,21 @@
         <!-- The order already left. Its parcel took a piece that was already on
              the books (no negative stock on this site), so receiving this PO
              creates stock: only with the piece physically here. -->
+        <!-- The order was cancelled: the piece is received (it is in the
+             building) but into Return Zone, off picking, to go back. -->
+        <div v-if="cancelled" class="rounded-xl px-3.5 py-3 bg-rose-50 ring-1 ring-rose-200/70 space-y-2">
+          <div class="flex items-start gap-2">
+            <Icon name="alert-triangle" :size="15" class="text-rose-600 mt-0.5 flex-shrink-0" />
+            <div class="text-[12.5px] text-rose-900 leading-relaxed">
+              <div class="font-semibold">{{ t('gi.cxTitle').replace('{so}', cancelled.so) }}</div>
+              <div>{{ t('gi.cxBody').replace('{bin}', cancelled.bin) }}</div>
+            </div>
+          </div>
+          <label class="flex items-center gap-2 text-[12.5px] font-semibold text-rose-900 cursor-pointer select-none">
+            <input v-model="pieceHere" type="checkbox" class="w-4 h-4 accent-rose-600" />
+            {{ t('gi.pwHere') }}
+          </label>
+        </div>
         <div v-if="paperwork" class="rounded-xl px-3.5 py-3 bg-amber-50 ring-1 ring-amber-200/70 space-y-2">
           <div class="flex items-start gap-2">
             <Icon name="alert-triangle" :size="15" class="text-amber-600 mt-0.5 flex-shrink-0" />
@@ -128,7 +143,7 @@
               <div class="text-[12.5px] font-medium text-stone-900 truncate">{{ l.name }}</div>
               <div class="font-mono text-[10.5px] text-stone-400 truncate">{{ l.sku || l.itemCode }}</div>
               <div v-if="routes[l.itemCode]" class="text-[10.5px] font-semibold text-violet-700 truncate">
-                → {{ routes[l.itemCode] }} · {{ routes[l.itemCode] === CROSSDOCK ? t('gi.routeOwed') : t('gi.routeCn') }}
+                → {{ routes[l.itemCode] }} · {{ cancelled ? t('gi.routeReturn') : routes[l.itemCode] === CROSSDOCK ? t('gi.routeOwed') : t('gi.routeCn') }}
               </div>
             </div>
             <span class="text-[10.5px] font-semibold rounded px-1.5 py-0.5 tabular-nums whitespace-nowrap flex-shrink-0"
@@ -153,7 +168,7 @@
           <button
             class="w-full h-11 rounded-xl text-[13.5px] font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-50 transition-colors"
             :class="armed ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'"
-            :disabled="busy || !filledCount || !targetOk || (extraUnits > 0 && !isManager) || (paperwork && !pieceHere)" @click="post">
+            :disabled="busy || !filledCount || !targetOk || (extraUnits > 0 && !isManager) || ((paperwork || cancelled) && !pieceHere)" @click="post">
             <Icon name="package-check" :size="16" />
             <template v-if="busy">{{ t('gi.posting') }}</template>
             <template v-else-if="armed">{{ t('gi.confirmPost') }} — {{ totalUnits }} {{ t('recv.units') }}<span v-if="extraUnits"> · {{ extraUnits }} {{ t('gi.noPoShort') }}</span></template>
@@ -217,6 +232,7 @@ const totalUnits = computed(() => poLines.value.reduce((s, l) => s + (l.qty || 0
 const extraUnits = computed(() =>
   poLines.value.reduce((s, l) => s + Math.max(0, (l.qty || 0) - (l.extra ? 0 : l.pending || 0)), 0));
 const paperwork = ref(null);
+const cancelled = ref(null);   // { so, bin } — a cancelled order's Cross-dock PO
 const pieceHere = ref(false);
 const owedList = computed(() =>
   [...new Set(Object.values(paperwork.value?.owedTo || {}).flat())]);
@@ -272,6 +288,7 @@ async function selectPo(name, bump = null) {
       return;
     }
     paperwork.value = o.paperwork || null;
+    cancelled.value = o.cancelled || null;
     routes.value = o.routes || {};
     pieceHere.value = false;
     po.value = { po: o.po, supplier: o.supplier, currency: o.currency, ordered: o.ordered,
@@ -287,7 +304,7 @@ async function selectPo(name, bump = null) {
   }
 }
 
-function closePo() { paperwork.value = null; routes.value = {}; pieceHere.value = false; po.value = null; poLines.value = []; note.value = ""; lineSearch.value = ""; setTimeout(() => scanner.value?.refocus(), 50); }
+function closePo() { paperwork.value = null; cancelled.value = null; routes.value = {}; pieceHere.value = false; po.value = null; poLines.value = []; note.value = ""; lineSearch.value = ""; setTimeout(() => scanner.value?.refocus(), 50); }
 
 function chooseFromPiece(p) {
   const c = chooser.value;
@@ -346,7 +363,9 @@ async function scanIntoPo(code) {
 
 async function post() {
   if (!po.value || !filledCount.value || busy.value || !targetOk.value) return;
-  if (paperwork.value && !pieceHere.value) { warn(t("gi.pwNeedHere"), paperwork.value.so); return; }
+  if ((paperwork.value || cancelled.value) && !pieceHere.value) {
+    warn(t("gi.pwNeedHere"), (paperwork.value || cancelled.value).so); return;
+  }
   if (!armed.value) { armed.value = true; setTimeout(() => { armed.value = false; }, 4000); return; }
   armed.value = false;
   busy.value = true;
