@@ -45,6 +45,14 @@ before_request = [
 #     time-in-stage and SLA are precise instead of scraped from the Version log.
 #   - Packer capture on Delivery Note.
 # ---------------------------------------------------------------------------
+# A bundle order is picked as it was SOLD (its Packed Items), not as the
+# bundle reads today. Subclasses ecommerce_integrations' CustomPickList and
+# changes only those two readings; the last override wins and this app is
+# installed after that one. See overrides/pick_list.py.
+override_doctype_class = {
+    "Pick List": "logistics_portal.overrides.pick_list.PickList",
+}
+
 doc_events = {
     # A counted shelf answers the question a picker raised by hand. Clearing it
     # here rather than waiting out the cool-down means the fix takes effect the
