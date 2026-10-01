@@ -85,7 +85,12 @@
         </div>
         <div class="flex items-start gap-3 flex-wrap">
           <span class="text-[12.5px] font-medium text-stone-600 w-16 mt-2">{{ t('gi.into') }}</span>
-          <div class="flex-1 min-w-[180px]">
+          <!-- Consignment and owed late pieces have a bin of their own; the
+               server fixes it, so a PO made only of those needs no target. -->
+          <div v-if="allRouted" class="flex-1 min-w-[180px] h-10 flex items-center text-[12.5px] text-stone-600">
+            {{ t('gi.allRouted') }}
+          </div>
+          <div v-else class="flex-1 min-w-[180px]">
             <input v-model="target" list="lp-gi-targets"
                    class="w-full h-10 ps-3 pe-3 rounded-lg bg-white ring-1 text-[13px] text-stone-800 focus:outline-none focus:ring-2"
                    :class="target && !targetValid ? 'ring-rose-300' : 'ring-stone-200'"
@@ -122,6 +127,9 @@
             <div class="min-w-0 flex-1">
               <div class="text-[12.5px] font-medium text-stone-900 truncate">{{ l.name }}</div>
               <div class="font-mono text-[10.5px] text-stone-400 truncate">{{ l.sku || l.itemCode }}</div>
+              <div v-if="routes[l.itemCode]" class="text-[10.5px] font-semibold text-violet-700 truncate">
+                → {{ routes[l.itemCode] }} · {{ routes[l.itemCode] === CROSSDOCK ? t('gi.routeOwed') : t('gi.routeCn') }}
+              </div>
             </div>
             <span class="text-[10.5px] font-semibold rounded px-1.5 py-0.5 tabular-nums whitespace-nowrap flex-shrink-0"
                   :class="l.extra ? 'text-amber-700 bg-amber-100 ring-1 ring-amber-200' : 'text-stone-600 bg-stone-100'">
@@ -145,7 +153,7 @@
           <button
             class="w-full h-11 rounded-xl text-[13.5px] font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-50 transition-colors"
             :class="armed ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'"
-            :disabled="busy || !filledCount || !targetValid || (extraUnits > 0 && !isManager) || (paperwork && !pieceHere)" @click="post">
+            :disabled="busy || !filledCount || !targetOk || (extraUnits > 0 && !isManager) || (paperwork && !pieceHere)" @click="post">
             <Icon name="package-check" :size="16" />
             <template v-if="busy">{{ t('gi.posting') }}</template>
             <template v-else-if="armed">{{ t('gi.confirmPost') }} — {{ totalUnits }} {{ t('recv.units') }}<span v-if="extraUnits"> · {{ extraUnits }} {{ t('gi.noPoShort') }}</span></template>
@@ -213,6 +221,13 @@ const pieceHere = ref(false);
 const owedList = computed(() =>
   [...new Set(Object.values(paperwork.value?.owedTo || {}).flat())]);
 const targetValid = computed(() => !!target.value && (boot.value?.warehouses || []).includes(target.value));
+const CROSSDOCK = "Cross-dock - JM";
+const routes = ref({});        // { itemCode: warehouse } the server fixes
+const allRouted = computed(() =>
+  poLines.value.length > 0 && poLines.value.every((l) => !l.extra && routes.value[l.itemCode]));
+// The typed target only matters for pieces without a fixed bin.
+const targetOk = computed(() =>
+  targetValid.value || poLines.value.every((l) => !(l.qty > 0) || (!l.extra && routes.value[l.itemCode])));
 const displayPos = computed(() =>
   poSearch.value.trim().length >= 2 ? poSearchRows.value : (boot.value?.openPos || []));
 const shownLines = computed(() => {
@@ -256,6 +271,7 @@ async function selectPo(name, bump = null) {
       return;
     }
     paperwork.value = o.paperwork || null;
+    routes.value = o.routes || {};
     pieceHere.value = false;
     po.value = { po: o.po, supplier: o.supplier, currency: o.currency, ordered: o.ordered,
                  received: o.received != null ? o.received : (o.ordered - o.pending) };
@@ -270,7 +286,7 @@ async function selectPo(name, bump = null) {
   }
 }
 
-function closePo() { paperwork.value = null; pieceHere.value = false; po.value = null; poLines.value = []; note.value = ""; lineSearch.value = ""; setTimeout(() => scanner.value?.refocus(), 50); }
+function closePo() { paperwork.value = null; routes.value = {}; pieceHere.value = false; po.value = null; poLines.value = []; note.value = ""; lineSearch.value = ""; setTimeout(() => scanner.value?.refocus(), 50); }
 
 function chooseFromPiece(p) {
   const c = chooser.value;
@@ -328,7 +344,7 @@ async function scanIntoPo(code) {
 }
 
 async function post() {
-  if (!po.value || !filledCount.value || busy.value || !targetValid.value) return;
+  if (!po.value || !filledCount.value || busy.value || !targetOk.value) return;
   if (paperwork.value && !pieceHere.value) { warn(t("gi.pwNeedHere"), paperwork.value.so); return; }
   if (!armed.value) { armed.value = true; setTimeout(() => { armed.value = false; }, 4000); return; }
   armed.value = false;
@@ -343,6 +359,7 @@ async function post() {
     });
     let detail = `${res.receipt} · ${res.units} ${t('recv.units')} → ${short(res.target)}`;
     if (res.extras) detail += ` · ${res.extras} ${t('gi.noPoShort')}`;
+    if (res.reservedFor?.length) detail += ` · ${t('gi.reservedFor')} ${res.reservedFor.join(', ')}`;
     success(t("gi.posted"), detail);
     closePo();
     const r = await api("purchasing.recent_purchase_receipts");

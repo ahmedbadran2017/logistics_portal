@@ -115,38 +115,108 @@ def _paperwork(po):
     return {"so": r.so, "status": r.status}
 
 
-def _owed_to(item_codes):
-    """{item_code: [waiting orders, oldest first]} for items nothing on the
-    floor can currently cover — the orders a late piece should serve."""
+def _waiting_for(item_codes):
+    """Waiting-order lines for the items nothing on the floor can currently
+    cover, oldest order first: [{code, so, soi, pending}]. `soi` is set for a
+    plain Sales Order line (reservable) and None for a bundle component —
+    ERPNext reserves Sales Order lines, not Packed Items."""
     codes = [c for c in set(item_codes or []) if c]
     if not codes:
-        return {}
+        return []
     from logistics_portal.api.picking import availability
     free = (availability(codes) or [{}])[0] or {}
     starving = tuple(c for c in codes if float(free.get(c) or 0) <= 0)
     if not starving:
-        return {}
+        return []
     # Two indexed lookups (plain lines, then bundle components) instead of one
     # COALESCE over a join: same rows, 1 ms against 305 ms on prod.
     waiting = """so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
                  AND IFNULL(so.custom_logistics_status, '') IN ('', 'Pending')
                  AND so.status NOT IN ('Closed', 'Completed', 'Cancelled')"""
+    return frappe.db.sql(
+        f"""SELECT code, so, soi, pending FROM (
+              SELECT soi.item_code AS code, so.name AS so, soi.name AS soi,
+                     soi.stock_qty - IFNULL(soi.delivered_qty, 0) * IFNULL(soi.conversion_factor, 1)
+                       AS pending, so.creation
+              FROM `tabSales Order Item` soi JOIN `tabSales Order` so ON so.name = soi.parent
+              WHERE soi.item_code IN %(c)s AND soi.qty > IFNULL(soi.delivered_qty, 0)
+                AND {waiting}
+              UNION ALL
+              SELECT pk.item_code, so.name, NULL,
+                     pk.qty * (soi.qty - IFNULL(soi.delivered_qty, 0)) / soi.qty, so.creation
+              FROM `tabPacked Item` pk JOIN `tabSales Order` so ON so.name = pk.parent
+              JOIN `tabSales Order Item` soi ON soi.name = pk.parent_detail_docname
+              WHERE pk.item_code IN %(c)s AND pk.parenttype = 'Sales Order'
+                AND soi.qty > IFNULL(soi.delivered_qty, 0) AND {waiting}
+            ) t ORDER BY creation""", {"c": starving}, as_dict=True)
+
+
+def _owed_to(item_codes, waiting=None):
+    """{item_code: [waiting orders, oldest first]} for items nothing on the
+    floor can currently cover — the orders a late piece should serve."""
     out = {}
-    for r in frappe.db.sql(
-            f"""SELECT code, name, creation FROM (
-                  SELECT soi.item_code AS code, so.name, so.creation
-                  FROM `tabSales Order Item` soi JOIN `tabSales Order` so ON so.name = soi.parent
-                  WHERE soi.item_code IN %(c)s AND soi.qty > IFNULL(soi.delivered_qty, 0)
-                    AND {waiting}
-                  UNION
-                  SELECT pk.item_code, so.name, so.creation
-                  FROM `tabPacked Item` pk JOIN `tabSales Order` so ON so.name = pk.parent
-                  JOIN `tabSales Order Item` soi ON soi.name = pk.parent_detail_docname
-                  WHERE pk.item_code IN %(c)s AND pk.parenttype = 'Sales Order'
-                    AND soi.qty > IFNULL(soi.delivered_qty, 0) AND {waiting}
-                ) t ORDER BY creation""", {"c": starving}, as_dict=True):
-        out.setdefault(r.code, []).append(r.name)
+    for r in (_waiting_for(item_codes) if waiting is None else waiting):
+        lst = out.setdefault(r.code, [])
+        if r.so not in lst:
+            lst.append(r.so)
     return {k: v[:5] for k, v in out.items()}
+
+
+# --- Where a piece lands ----------------------------------------------------
+# The screen's target is a default for OUR stock. Two kinds of piece have a
+# home of their own, and the server decides it — a typed target cannot.
+#
+# Consignment: the supplier's goods, kept on the supplier's own section
+# (`CN - <supplier> - JM`, api/consignment.py). Goods In knew nothing of it, so
+# from 2026-08-01 to 2026-10-01 1,271u were received into Receiving Zone and
+# 989u straight onto our own shelves (D3C, D2C, C4C, H12B) — mixed with our
+# stock, where no one can say whose piece sold at settlement. Owner = the
+# ITEM's default_supplier, the same rule Move Stock enforces (it matched the
+# PO's supplier on every one of those rows), so the two screens cannot
+# disagree about where a piece belongs.
+#
+# A late cross-dock piece that a waiting order is owed: received into
+# Cross-dock - JM and reserved for the oldest waiting order, exactly as the
+# Cross-dock in lane does. In Receiving it was free stock, and the next order
+# to come along took it — which is how #261946 lost its board the first time.
+
+
+def _routes(item_codes, waiting=None):
+    """{item_code: warehouse} for every item with a fixed home."""
+    from logistics_portal.api.consignment import sections_for
+    out = dict(sections_for(item_codes))
+    if waiting:
+        from logistics_portal.api.crossdock_in import CROSSDOCK_WH
+        if frappe.db.exists("Warehouse", CROSSDOCK_WH):
+            for r in waiting:
+                if r.soi and r.code not in out:
+                    out[r.code] = CROSSDOCK_WH
+    return out
+
+
+def _reserve_late(pr, waiting):
+    """Hold a late piece received into Cross-dock - JM for the orders it is
+    owed to, oldest first. A bundle component on the way consumes its unit
+    unreserved (Packed Items cannot be reserved) rather than letting a younger
+    order jump the queue. Returns the orders reserved for."""
+    from logistics_portal.api.crossdock_in import CROSSDOCK_WH, _reserve
+    left, first_row = {}, {}
+    for it in pr.items:
+        if it.warehouse == CROSSDOCK_WH:
+            left[it.item_code] = left.get(it.item_code, 0) + float(it.stock_qty or it.qty or 0)
+            first_row.setdefault(it.item_code, it.name)
+    rows, orders = [], []
+    for r in waiting:
+        n = min(left.get(r.code, 0), float(r.pending or 0))
+        if n <= 0:
+            continue
+        left[r.code] -= n
+        if r.soi:
+            rows.append({"sales_order_item": r.soi, "qty": n, "pr_item": first_row[r.code]})
+            orders.append(r.so)
+    if rows:
+        _reserve(pr, rows)
+    return orders
 
 
 def _gate():
@@ -250,10 +320,14 @@ def open_po(po):
                 "so": frappe.db.get_value("Purchase Order", po, "custom_sales_order") or ""}
     pw = _paperwork(po)
     lines = _po_lines(po)
+    codes = [l.item_code for l in lines]
+    waiting = _waiting_for(codes) if pw else None
     return {
-        # Present => the screen locks each item to the bin its parcel left from.
+        # Present => the order already left: post only with the piece in hand.
         "paperwork": ({"so": pw["so"], "status": pw["status"],
-                       "owedTo": _owed_to([l.item_code for l in lines])} if pw else None),
+                       "owedTo": _owed_to(codes, waiting)} if pw else None),
+        # Items whose bin the server fixes, whatever the target says.
+        "routes": _routes(codes, waiting),
         "ok": True, "po": po, "supplier": h.supplier or "",
         "currency": h.currency or "MAD",
         "pending": int(round(sum(float(l.pending) for l in lines))),
@@ -350,13 +424,6 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
             "Post it only with the piece physically in front of you — if it isn't, the "
             "supplier delivered fewer pieces than orders, and purchasing should close "
             "this PO.")
-    target = (target or "").strip() or RECEIVING_WH
-    cond, args = _movable_condition("name")
-    if not frappe.db.sql(
-            f"""SELECT 1 FROM `tabWarehouse` WHERE name = %s
-                AND is_group = 0 AND disabled = 0 AND {cond}""", tuple([target, *args])):
-        frappe.throw(f"{target} is not a valid receiving bin.")
-
     wanted = {}
     for it in items:
         code = (it.get("item_code") or "").strip()
@@ -366,6 +433,21 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
         wanted[code] = wanted.get(code, 0) + qty
     if not wanted:
         frappe.throw("Scan at least one item.")
+
+    waiting = _waiting_for(list(wanted)) if pw else None
+    routes = _routes(list(wanted), waiting)
+    target = (target or "").strip() or RECEIVING_WH
+    if any(c not in routes for c in wanted):
+        cond, args = _movable_condition("name")
+        if not frappe.db.sql(
+                f"""SELECT 1 FROM `tabWarehouse` WHERE name = %s
+                    AND is_group = 0 AND disabled = 0 AND {cond}""", tuple([target, *args])):
+            frappe.throw(f"{target} is not a valid receiving bin.")
+        # A supplier's section holds that supplier's goods and nothing else.
+        from logistics_portal.api.consignment import is_consignment_warehouse
+        if is_consignment_warehouse(target):
+            frappe.throw(f"{target} holds one consignment supplier's goods only — "
+                         "receive our own stock into one of our bins.")
 
     # This PO's open lines, per item (a piece can span two lines of the same PO).
     by_item = {}
@@ -381,7 +463,7 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
             take = min(remaining, int(l.pending))
             if take <= 0:
                 continue
-            row = {"item_code": code, "qty": take, "warehouse": target,
+            row = {"item_code": code, "qty": take, "warehouse": routes.get(code, target),
                    "rate": float(l.rate or 0), "uom": l.uom,
                    "conversion_factor": float(l.cf or 1),
                    "purchase_order": po, "purchase_order_item": l.po_item}
@@ -399,7 +481,8 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
     is_mad = (h.currency or "MAD") == "MAD"
     for e in extras:
         rate = float(frappe.db.get_value("Item", e["item_code"], "valuation_rate") or 0) if is_mad else 0
-        row = {"item_code": e["item_code"], "qty": e["qty"], "warehouse": target, "rate": rate}
+        row = {"item_code": e["item_code"], "qty": e["qty"],
+               "warehouse": routes.get(e["item_code"], target), "rate": rate}
         if not rate:
             row["allow_zero_valuation_rate"] = 1  # foreign-currency PO: value later
         rows.append(row)
@@ -407,10 +490,13 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
         frappe.throw("Nothing to receive.")
 
     note = (note or "").strip()
+    bins = sorted({r["warehouse"] for r in rows})
     pr = frappe.get_doc({
         "doctype": "Purchase Receipt", "supplier": h.supplier, "company": COMPANY,
         "currency": h.currency or "MAD", "conversion_rate": float(h.conversion_rate or 1),
-        "set_warehouse": target,
+        # Only when every row agrees: a header warehouse must not suggest one
+        # bin for a receipt that was split across several.
+        "set_warehouse": bins[0] if len(bins) == 1 else None,
         "remarks": f"Portal goods-in by {frappe.session.user} — PO {po}"
                    + (f" — late piece: order {pw['so']} had already left ({pw['status']}); "
                       "piece confirmed in hand" if pw else "")
@@ -421,6 +507,16 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
     pr.flags.ignore_permissions = True
     pr.insert(ignore_permissions=True)
     pr.submit()
+    reserved_for = []
+    if pw and waiting:
+        try:
+            reserved_for = _reserve_late(pr, waiting)
+        except Exception:
+            # The receipt stands; a missed hold is a radar item, not a lost piece.
+            frappe.log_error(frappe.get_traceback()[:2000], f"purchasing.reserve_late {pr.name}")
+        if reserved_for:
+            pr.add_comment("Comment", "Late cross-dock piece reserved for "
+                           + ", ".join(dict.fromkeys(reserved_for)))
     frappe.db.commit()
     for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
         frappe.cache().delete_value(k)
@@ -429,7 +525,8 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
     extra_units = sum(e["qty"] for e in extras)
     return {"ok": True, "receipt": pr.name, "receipts": [pr.name], "units": total,
             "matched": total - extra_units, "extras": extra_units,
-            "target": target, "latePiece": bool(pw)}
+            "target": ", ".join(bins), "latePiece": bool(pw),
+            "reservedFor": list(dict.fromkeys(reserved_for))}
 
 
 def _recent_prs(limit=10):
