@@ -249,6 +249,7 @@ async function onScan(raw) {
     const msg = res.reason === "order_left"
         ? `${res.so} — ${t("cdi.orderLeft").replace("{status}", res.status)}`
           + ((res.owedTo || []).length ? ` · ${t("cdi.owedTo")} ${res.owedTo.join(", ")}` : "")
+      : res.reason === "po_draft" ? `${res.so} — ${t("cdi.poDraft").replace("{po}", res.po)}`
       : res.reason === "order_not_expected" ? `${res.so} — ${t("cdi.orderNotExpected")}`
       : res.reason === "not_expected" ? `${res.name} — ${t("cdi.notExpected")}` : t("cdi.unknown");
     scanner.value?.showError(msg);

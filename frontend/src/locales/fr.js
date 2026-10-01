@@ -728,6 +728,7 @@ export default {
     change: "Changer de fournisseur",
     scanPh: "Scannez une pièce ou un numéro de commande…",
     scanHint: "Scannez la fiche de remise du fournisseur (HO-…) pour ouvrir ses commandes, une étiquette de colis pour aller à sa commande, ou une pièce — elle remplit la commande la plus ancienne qui en a besoin.",
+    poDraft: "son bon de commande {po} est encore en brouillon — les achats doivent le valider, puis rescannez",
     orderNotExpected: "Cette commande n'attend pas de fournisseur",
     orderLeft: "déjà partie ({status}) — si la pièce est là, réceptionnez-la dans Réception",
     owedTo: "due à",

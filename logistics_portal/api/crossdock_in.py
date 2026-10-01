@@ -191,6 +191,36 @@ def _left_with_open_po(so):
     return {"so": so, "status": pw["status"], "po": po[0][0], "owedTo": owed[:5]}
 
 
+# The order-to-PO automation creates every Cross-dock PO as a DRAFT and
+# purchasing submits it from the Desk. Until then the lane cannot receive
+# against it (a draft has no received_qty to move), and the counter was told
+# "not waiting" with the piece in hand — #263168, 2026-10-01: 5 waiting orders
+# sat on draft POs. Same order test as _EXPECTED, draft instead of submitted,
+# so the answer names the PO and who has to act.
+_DRAFT = _EXPECTED.replace("po.docstatus = 1", "po.docstatus = 0")
+
+
+def _draft_po(so=None, item_code=None):
+    """{so, po} for a waiting order whose Cross-dock PO is still a draft."""
+    if not _ready():
+        return None
+    cond, args = _DRAFT, {"company": COMPANY}
+    if so:
+        cond += " AND po.custom_sales_order = %(so)s"
+        args["so"] = so
+    if item_code:
+        cond += " AND poi.item_code = %(item)s"
+        args["item"] = item_code
+    r = frappe.db.sql(
+        f"""SELECT po.custom_sales_order AS so, po.name AS po
+            FROM `tabPurchase Order` po
+            JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
+            JOIN `tabSupplier` s ON s.name = po.supplier
+            JOIN `tabSales Order` so ON so.name = po.custom_sales_order
+            WHERE {cond} ORDER BY po.creation LIMIT 1""", args, as_dict=True)
+    return {"so": r[0].so, "po": r[0].po} if r else None
+
+
 @frappe.whitelist()
 def resolve(code, supplier=None):
     """A scan: an order number (or its PO) → that order; otherwise a piece →
@@ -222,6 +252,9 @@ def resolve(code, supplier=None):
             left = _left_with_open_po(so)
             if left:
                 return {"ok": False, "reason": "order_left", **left}
+            draft = _draft_po(so=so)
+            if draft:
+                return {"ok": False, "reason": "po_draft", **draft}
             return {"ok": False, "reason": "order_not_expected", "so": so}
         return {"ok": True, "kind": "order", "supplier": lines[0].supplier, "so": so,
                 "po": lines[0].po}
@@ -232,6 +265,9 @@ def resolve(code, supplier=None):
         return {"ok": False, "reason": "unknown", "code": code}
     cands = [l for l in _expected_lines(supplier=supplier or None) if l.item_code == item_code]
     if not cands:
+        draft = _draft_po(item_code=item_code)
+        if draft:
+            return {"ok": False, "reason": "po_draft", **draft}
         return {"ok": False, "reason": "not_expected", "itemCode": item_code,
                 "name": r.get("name") or item_code}
     return {"ok": True, "kind": "piece", "itemCode": item_code, "name": r.get("name") or item_code,

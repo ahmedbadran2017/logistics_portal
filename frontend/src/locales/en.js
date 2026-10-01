@@ -728,6 +728,7 @@ export default {
     change: "Change supplier",
     scanPh: "Scan a piece or an order number…",
     scanHint: "Scan the supplier's handover sheet (HO-…) to open its orders, a parcel label to jump to that order, or a piece — it fills the oldest order that still needs it.",
+    poDraft: "its PO {po} is still a draft — purchasing must submit it, then scan again",
     orderNotExpected: "This order is not waiting for a supplier",
     orderLeft: "already left ({status}) — if the piece is here, receive it in Goods In",
     owedTo: "owed to",
