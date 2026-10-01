@@ -191,34 +191,93 @@ def _left_with_open_po(so):
     return {"so": so, "status": pw["status"], "po": po[0][0], "owedTo": owed[:5]}
 
 
-# The order-to-PO automation creates every Cross-dock PO as a DRAFT and
-# purchasing submits it from the Desk. Until then the lane cannot receive
-# against it (a draft has no received_qty to move), and the counter was told
-# "not waiting" with the piece in hand — #263168, 2026-10-01: 5 waiting orders
-# sat on draft POs. Same order test as _EXPECTED, draft instead of submitted,
-# so the answer names the PO and who has to act.
-_DRAFT = _EXPECTED.replace("po.docstatus = 1", "po.docstatus = 0")
+# A waiting order whose supplier never confirmed in the supplier portal has no
+# submitted PO, so this lane cannot receive it — and the counter was told
+# "not waiting" with the piece in hand (#263168, Awani, 2026-10-01). By the
+# agreed cycle the PO follows the supplier's "I have it"; in practice 117 of
+# 140 queued lines since 09-15 Expired unanswered, and the suppliers deliver
+# anyway. A piece physically at the counter is the strongest "I have it"
+# there is, so the screen offers to record it as the supplier's answer and
+# settle the PO through supplier_portal's own path. Confirmed lines are
+# included: a supplier "yes" whose submit failed leaves the same hole.
 
 
-def _draft_po(so=None, item_code=None):
-    """{so, po} for a waiting order whose Cross-dock PO is still a draft."""
-    if not _ready():
+def _unconfirmed(so=None, item_code=None):
+    """{so, supplier, po} for the oldest waiting order with a Cross-dock line
+    that has no submitted PO for its supplier; None otherwise."""
+    if not _ready() or not frappe.db.has_column("Sales Order Item", "custom_vendor_confirm_status"):
         return None
-    cond, args = _DRAFT, {"company": COMPANY}
+    cond, args = "", {}
     if so:
-        cond += " AND po.custom_sales_order = %(so)s"
+        cond += " AND soi.parent = %(so)s"
         args["so"] = so
     if item_code:
-        cond += " AND poi.item_code = %(item)s"
+        cond += " AND soi.item_code = %(item)s"
         args["item"] = item_code
     r = frappe.db.sql(
-        f"""SELECT po.custom_sales_order AS so, po.name AS po
-            FROM `tabPurchase Order` po
-            JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
-            JOIN `tabSupplier` s ON s.name = po.supplier
-            JOIN `tabSales Order` so ON so.name = po.custom_sales_order
-            WHERE {cond} ORDER BY po.creation LIMIT 1""", args, as_dict=True)
-    return {"so": r[0].so, "po": r[0].po} if r else None
+        f"""SELECT soi.parent AS so, soi.supplier,
+                   (SELECT po.name FROM `tabPurchase Order` po
+                    WHERE po.custom_sales_order = soi.parent AND po.supplier = soi.supplier
+                      AND po.docstatus = 0 LIMIT 1) AS po
+            FROM `tabSales Order Item` soi
+            JOIN `tabSales Order` so ON so.name = soi.parent
+            JOIN `tabSupplier` s ON s.name = soi.supplier
+            WHERE s.custom_fulfillment_model = 'Cross-dock'
+              AND soi.custom_vendor_confirm_status IN ('Awaiting', 'Expired', 'Confirmed')
+              AND soi.qty > IFNULL(soi.delivered_qty, 0)
+              AND so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
+              AND so.status NOT IN ('Closed', 'Completed', 'Cancelled')
+              AND IFNULL(so.custom_logistics_status, 'Pending') IN ('', 'Pending')
+              AND NOT EXISTS (SELECT 1 FROM `tabPurchase Order` p
+                              WHERE p.custom_sales_order = soi.parent AND p.supplier = soi.supplier
+                                AND p.docstatus = 1){cond}
+            ORDER BY so.creation LIMIT 1""", args, as_dict=True)
+    if not r:
+        return None
+    return {"so": r[0].so, "supplier": r[0].supplier, "po": r[0].po or "",
+            # Settling submits a PO, and ecommerce_integrations then re-saves
+            # the Sales Order — offer it only to someone who may do both.
+            "canConfirm": bool(frappe.has_permission("Purchase Order", "submit")
+                               and frappe.has_permission("Sales Order", "write"))}
+
+
+@frappe.whitelist(methods=["POST"])
+def confirm_by_delivery(so, supplier):
+    """The supplier's piece is at the counter: record it as their answer on
+    this order and let supplier_portal settle (create/submit) the PO."""
+    _gate()
+    so, supplier = (so or "").strip(), (supplier or "").strip()
+    u = _unconfirmed(so=so)
+    if not u or u["supplier"] != supplier:
+        frappe.throw("This order has nothing waiting on a supplier's answer.")
+    if not u["canConfirm"]:
+        frappe.throw("Submitting this PO needs purchasing rights — ask purchasing to submit "
+                     f"{u['po'] or 'the PO'}.", frappe.PermissionError)
+    try:
+        settle = frappe.get_attr("supplier_portal.api.crossdock._settle_purchase_order")
+    except Exception:
+        frappe.throw("The supplier portal is not available on this site.")
+    lines = frappe.get_all("Sales Order Item", pluck="name", filters={
+        "parent": so, "supplier": supplier,
+        "custom_vendor_confirm_status": ["in", ["Awaiting", "Expired"]]})
+    now = now_datetime()
+    for name in lines:
+        frappe.db.set_value("Sales Order Item", name, {
+            "custom_vendor_confirm_status": "Confirmed",
+            "custom_vendor_confirmed_at": now,
+        }, update_modified=False)
+    if lines:
+        _comment("Sales Order", so,
+                 f"{COMMENT_TAG}: {supplier} delivered without answering in the supplier portal — "
+                 f"{len(lines)} line(s) confirmed by delivery by {frappe.session.user}")
+    frappe.db.commit()
+    res = settle(so, supplier) or {}
+    try:
+        frappe.get_attr("supplier_portal.api.supplier_stage.refresh_safely")({so})
+    except Exception:
+        pass
+    ok = bool(_expected_lines(so=so))
+    return {"ok": ok, "action": res.get("action"), "po": res.get("po") or u["po"]}
 
 
 @frappe.whitelist()
@@ -252,9 +311,9 @@ def resolve(code, supplier=None):
             left = _left_with_open_po(so)
             if left:
                 return {"ok": False, "reason": "order_left", **left}
-            draft = _draft_po(so=so)
-            if draft:
-                return {"ok": False, "reason": "po_draft", **draft}
+            waiting = _unconfirmed(so=so)
+            if waiting:
+                return {"ok": False, "reason": "unconfirmed", **waiting}
             return {"ok": False, "reason": "order_not_expected", "so": so}
         return {"ok": True, "kind": "order", "supplier": lines[0].supplier, "so": so,
                 "po": lines[0].po}
@@ -265,9 +324,9 @@ def resolve(code, supplier=None):
         return {"ok": False, "reason": "unknown", "code": code}
     cands = [l for l in _expected_lines(supplier=supplier or None) if l.item_code == item_code]
     if not cands:
-        draft = _draft_po(item_code=item_code)
-        if draft:
-            return {"ok": False, "reason": "po_draft", **draft}
+        waiting = _unconfirmed(item_code=item_code)
+        if waiting:
+            return {"ok": False, "reason": "unconfirmed", **waiting}
         return {"ok": False, "reason": "not_expected", "itemCode": item_code,
                 "name": r.get("name") or item_code}
     return {"ok": True, "kind": "piece", "itemCode": item_code, "name": r.get("name") or item_code,

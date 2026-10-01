@@ -22,6 +22,23 @@
     <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-4 sticky top-2 z-10 shadow-sm">
       <ScanInput ref="scanner" :placeholder="t('cdi.scanPh')" @scan="onScan" />
       <div class="mt-1.5 text-[11px] text-stone-400">{{ t('cdi.scanHint') }}</div>
+      <!-- The supplier never answered in their portal, so the order has no
+           submitted PO and cannot be received. The piece at the counter is
+           their answer: record it and let the PO settle. -->
+      <div v-if="unconfirmed" class="mt-3 rounded-xl px-3.5 py-3 bg-amber-50 ring-1 ring-amber-200/70 space-y-2">
+        <div class="text-[12.5px] text-amber-900 leading-relaxed">
+          <b>{{ unconfirmed.so }}</b> — {{ t('cdi.unconfirmed').replace('{supplier}', unconfirmed.supplier) }}
+          <span v-if="unconfirmed.po" class="font-mono text-[11.5px]">({{ unconfirmed.po }})</span>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button v-if="unconfirmed.canConfirm" :disabled="confirming"
+                  class="h-9 px-3 rounded-lg text-[12.5px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
+                  @click="confirmByDelivery">{{ t('cdi.confirmByDelivery') }}</button>
+          <span v-else class="text-[12px] text-amber-800">{{ t('cdi.askPurchasing') }}</span>
+          <button class="h-9 px-3 rounded-lg text-[12px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200"
+                  @click="unconfirmed = null">{{ t('common.cancel') }}</button>
+        </div>
+      </div>
     </div>
 
     <!-- No supplier yet: who is at the door -->
@@ -169,6 +186,8 @@ const { success, warn } = useToast();
 const PROBLEM_KINDS = ["missing", "damaged", "wrong_item", "other"];
 
 const scanner = ref(null);
+const unconfirmed = ref(null);  // { so, supplier, po, canConfirm }
+const confirming = ref(false);
 const boot = ref(null);
 const loading = ref(true);
 const supplier = ref("");
@@ -233,6 +252,22 @@ function clearOrder(o) { o.lines.forEach((l) => { l.qty = 0; }); }
 function clampLine(l) { l.qty = Math.max(0, Math.min(l.pending, Number(l.qty) || 0)); }
 function toggleProblem(o) { o.problem = o.problem ? null : { kind: "missing", note: "" }; }
 
+async function confirmByDelivery() {
+  const u = unconfirmed.value;
+  if (!u || confirming.value) return;
+  confirming.value = true;
+  try {
+    const r = await apiPost("crossdock_in.confirm_by_delivery", { so: u.so, supplier: u.supplier });
+    if (!r.ok) { warn(t("cdi.confirmFailed"), r.po || u.so); return; }
+    unconfirmed.value = null;
+    await onScan(u.so);
+  } catch (e) {
+    warn(t("cdi.confirmFailed"), String(e.message || e));
+  } finally {
+    confirming.value = false;
+  }
+}
+
 function highlight(po) {
   flash.value = po;
   nextTick(() => document.getElementById("cdi-" + po)?.scrollIntoView({ behavior: "smooth", block: "center" }));
@@ -245,11 +280,16 @@ async function onScan(raw) {
   let res;
   try { res = await apiPost("crossdock_in.resolve", { code, supplier: supplier.value || "" }); }
   catch (e) { scanner.value?.showError(String(e.message || e)); return; }
+  unconfirmed.value = null;
+  if (!res.ok && res.reason === "unconfirmed") {
+    unconfirmed.value = res;
+    scanner.value?.showError(`${res.so} — ${t("cdi.unconfirmed").replace("{supplier}", res.supplier)}`);
+    return;
+  }
   if (!res.ok) {
     const msg = res.reason === "order_left"
         ? `${res.so} — ${t("cdi.orderLeft").replace("{status}", res.status)}`
           + ((res.owedTo || []).length ? ` · ${t("cdi.owedTo")} ${res.owedTo.join(", ")}` : "")
-      : res.reason === "po_draft" ? `${res.so} — ${t("cdi.poDraft").replace("{po}", res.po)}`
       : res.reason === "order_not_expected" ? `${res.so} — ${t("cdi.orderNotExpected")}`
       : res.reason === "not_expected" ? `${res.name} — ${t("cdi.notExpected")}` : t("cdi.unknown");
     scanner.value?.showError(msg);
