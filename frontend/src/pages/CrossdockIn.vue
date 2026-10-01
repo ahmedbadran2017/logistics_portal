@@ -292,7 +292,13 @@ async function onScan(raw) {
       : res.reason === "order_left"
         ? `${res.so} — ${t("cdi.orderLeft").replace("{status}", res.status)}`
           + ((res.owedTo || []).length ? ` · ${t("cdi.owedTo")} ${res.owedTo.join(", ")}` : "")
-      : res.reason === "order_not_expected" ? `${res.so} — ${t("cdi.orderNotExpected")}`
+      : res.reason === "order_received"
+        ? `${res.so} — ${t("cdi.orderReceived").replace("{receipt}", res.receipt).replace("{date}", res.date)}`
+          + (res.status ? ` (${res.status})` : "")
+      : res.reason === "order_not_expected"
+        ? `${res.so} — ${res.why === "no_crossdock" ? t("cdi.noCrossdock")
+            : res.why === "not_confirmed" ? t("cdi.notConfirmed").replace("{status}", res.salesStatus || "—")
+            : t("cdi.orderNotExpected")}`
       : res.reason === "not_expected" ? `${res.name} — ${t("cdi.notExpected")}` : t("cdi.unknown");
     scanner.value?.showError(msg);
     return;

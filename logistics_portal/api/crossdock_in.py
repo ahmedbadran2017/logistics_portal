@@ -223,6 +223,42 @@ def _cancelled_with_open_po(so=None, item_code=None):
     return {"so": r[0].so, "po": r[0].po} if r else None
 
 
+def _already_received(so):
+    """{so, receipt, date, status} when this order's Cross-dock piece was
+    already received. #262144 (keyza) was received here on 09-26, shipped the
+    same day and delivered on 09-27 — scanned again on 10-01 it said only
+    "not waiting", which reads as the screen refusing a piece."""
+    r = frappe.db.sql(
+        """SELECT pr.name, pr.posting_date
+           FROM `tabPurchase Receipt Item` pri
+           JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
+           JOIN `tabPurchase Order` po ON po.name = pri.purchase_order
+           JOIN `tabSupplier` s ON s.name = po.supplier
+           WHERE po.custom_sales_order = %s AND pr.docstatus = 1 AND pr.is_return = 0
+             AND s.custom_fulfillment_model = 'Cross-dock'
+           ORDER BY pr.creation DESC LIMIT 1""", (so,), as_dict=True)
+    if not r:
+        return None
+    o = frappe.db.get_value("Sales Order", so, ["custom_logistics_status",
+                                                 "custom_track_shipment_status"], as_dict=True) or {}
+    return {"so": so, "receipt": r[0].name, "date": str(r[0].posting_date),
+            "status": o.get("custom_track_shipment_status") or o.get("custom_logistics_status") or ""}
+
+
+def _not_expected_why(so):
+    """Why a scanned order is not in the lane, in the order's own words."""
+    o = frappe.db.get_value("Sales Order", so, ["docstatus", "custom_sales_status",
+                                                 "custom_logistics_status"], as_dict=True) or {}
+    has_cd = frappe.db.sql(
+        """SELECT 1 FROM `tabSales Order Item` soi JOIN `tabSupplier` s ON s.name = soi.supplier
+           WHERE soi.parent = %s AND s.custom_fulfillment_model = 'Cross-dock' LIMIT 1""", (so,))
+    if not has_cd:
+        return "no_crossdock"
+    if (o.get("custom_sales_status") or "") != "Confirmed":
+        return "not_confirmed"
+    return ""
+
+
 def _left_with_open_po(so):
     """{so, status, po, owedTo} when this order already left but its
     Cross-dock PO is still open; None otherwise."""
@@ -368,10 +404,17 @@ def resolve(code, supplier=None):
             left = _left_with_open_po(so)
             if left:
                 return {"ok": False, "reason": "order_left", **left}
+            got = _already_received(so)
+            if got:
+                return {"ok": False, "reason": "order_received", **got}
             waiting = _unconfirmed(so=so)
             if waiting:
                 return {"ok": False, "reason": "unconfirmed", **waiting}
-            return {"ok": False, "reason": "order_not_expected", "so": so}
+            o = frappe.db.get_value("Sales Order", so, ["custom_sales_status",
+                                                        "custom_logistics_status"], as_dict=True) or {}
+            return {"ok": False, "reason": "order_not_expected", "so": so, "why": _not_expected_why(so),
+                    "salesStatus": o.get("custom_sales_status") or "",
+                    "logisticsStatus": o.get("custom_logistics_status") or ""}
         return {"ok": True, "kind": "order", "supplier": lines[0].supplier, "so": so,
                 "po": lines[0].po}
     from logistics_portal.api.picking import resolve_scan
