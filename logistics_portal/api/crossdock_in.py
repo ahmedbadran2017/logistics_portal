@@ -169,6 +169,28 @@ def _norm_order(code):
     return po_so or None
 
 
+def _left_with_open_po(so):
+    """{so, status, po, owedTo} when this order already left but its
+    Cross-dock PO is still open; None otherwise."""
+    po = frappe.db.sql(
+        """SELECT po.name FROM `tabPurchase Order` po
+           JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
+           WHERE po.custom_sales_order = %s AND po.docstatus = 1
+             AND po.status NOT IN ('Closed', 'Completed', 'Cancelled')
+             AND poi.qty > poi.received_qty
+           LIMIT 1""", (so,))
+    if not po:
+        return None
+    from logistics_portal.api.purchasing import _owed_to, _paperwork
+    pw = _paperwork(po[0][0])
+    if not pw:
+        return None
+    items = frappe.db.sql_list(
+        "SELECT item_code FROM `tabPurchase Order Item` WHERE parent = %s", (po[0][0],))
+    owed = sorted({o for v in _owed_to(items).values() for o in v})
+    return {"so": so, "status": pw["status"], "po": po[0][0], "owedTo": owed[:5]}
+
+
 @frappe.whitelist()
 def resolve(code, supplier=None):
     """A scan: an order number (or its PO) → that order; otherwise a piece →
@@ -190,6 +212,16 @@ def resolve(code, supplier=None):
     if so:
         lines = _expected_lines(so=so)
         if not lines:
+            # "Not waiting" was all this said, and the counter read it as the
+            # portal refusing a piece in someone's hand. When the order has
+            # simply LEFT with its PO still open, say so, say where the piece
+            # goes (Goods In), and say who it is owed to now: on this site a
+            # parcel never ships without a booked piece, so a late one almost
+            # always belongs to a waiting order whose own piece went out with
+            # this one (#262762 took #262269's, which took #261946's).
+            left = _left_with_open_po(so)
+            if left:
+                return {"ok": False, "reason": "order_left", **left}
             return {"ok": False, "reason": "order_not_expected", "so": so}
         return {"ok": True, "kind": "order", "supplier": lines[0].supplier, "so": so,
                 "po": lines[0].po}

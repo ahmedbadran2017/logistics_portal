@@ -550,6 +550,10 @@ def _tell_raiser(name, resolution):
             "document_type": "Sales Order",
             "document_name": r.get("so") or "",
         }).insert(ignore_permissions=True)
+        # Pushed for the day a socket client exists; nothing in the SPA
+        # listens to it today, so the Notification Log row above IS the
+        # delivery and the menu badge is what makes it noticed. Said plainly
+        # here so the next person does not assume a toast appears.
         frappe.publish_realtime("logistics_alert", {
             "severity": "info", "title": subject, "detail": resolution[:200],
         }, user=who)

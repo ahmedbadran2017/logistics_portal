@@ -246,7 +246,10 @@ async function onScan(raw) {
   try { res = await apiPost("crossdock_in.resolve", { code, supplier: supplier.value || "" }); }
   catch (e) { scanner.value?.showError(String(e.message || e)); return; }
   if (!res.ok) {
-    const msg = res.reason === "order_not_expected" ? `${res.so} — ${t("cdi.orderNotExpected")}`
+    const msg = res.reason === "order_left"
+        ? `${res.so} — ${t("cdi.orderLeft").replace("{status}", res.status)}`
+          + ((res.owedTo || []).length ? ` · ${t("cdi.owedTo")} ${res.owedTo.join(", ")}` : "")
+      : res.reason === "order_not_expected" ? `${res.so} — ${t("cdi.orderNotExpected")}`
       : res.reason === "not_expected" ? `${res.name} — ${t("cdi.notExpected")}` : t("cdi.unknown");
     scanner.value?.showError(msg);
     return;

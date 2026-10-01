@@ -75,6 +75,14 @@
                       class="text-[10px] font-bold tabular-nums text-violet-700 bg-violet-100 ring-1 ring-violet-200/70 rounded-full px-1.5 py-px animate-pulse">
                   {{ consolCount }}
                 </span>
+                <!-- "CS closed the thing you handed over." Without a count on
+                     the menu the answer sits on a page nobody has a reason to
+                     open, which is the same hole the handover had before the
+                     server started writing the reply at all. -->
+                <span v-if="item.to === 'Alerts' && alertCount"
+                      class="text-[10px] font-bold tabular-nums text-rose-700 bg-rose-100 ring-1 ring-rose-200/70 rounded-full px-1.5 py-px">
+                  {{ alertCount > 99 ? '99+' : alertCount }}
+                </span>
               </a>
             </router-link>
             </template>
@@ -270,6 +278,18 @@ function sectionHasActive(group) {
 
 // Consolidation badge — the agent must SEE that a cluster of their own
 // customers appeared without having to visit the page.
+const alertCount = ref(0);
+async function loadAlertCount() {
+  if (!nav.value.some((g) => g.items.some((i) => i.to === "Alerts"))) {
+    alertCount.value = 0;
+    return;
+  }
+  try {
+    const r = await api("audit.unread_count");
+    alertCount.value = Number(r?.message ?? r) || 0;
+  } catch (_) { /* the badge is a bonus, never an error */ }
+}
+
 const consolCount = ref(0);
 async function loadConsolCount() {
   if (!IS_CC) return;
@@ -281,6 +301,12 @@ async function loadConsolCount() {
   } catch (_) { /* the badge is a bonus, never an error */ }
 }
 onMounted(loadConsolCount);
+onMounted(loadAlertCount);
+// The reply can land while the agent is mid-call on another card, so the
+// count is re-read rather than frozen at load. Two minutes: cheap, and the
+// answer is never urgent to the minute.
+const alertTimer = setInterval(loadAlertCount, 120000);
+onUnmounted(() => clearInterval(alertTimer));
 const consolTimer = setInterval(() => {
   if (document.visibilityState === "visible") loadConsolCount();
 }, 120000);

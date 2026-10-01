@@ -261,6 +261,11 @@ export const ROLE_CONFIG = {
           { to: "Workspace", label: "nav.workspace", icon: "sparkles" },
           { to: "Confirmation", label: "nav.confirmation", icon: "phone" },
           { to: "Consolidation", label: "nav.consolidation", icon: "git-merge" },
+          // The lane that hands the most over, and the only one that had no
+          // way to hear back. The notification has been written to this
+          // agent since the loop was closed on the server; there was simply
+          // no screen in their menu that reads it.
+          { to: "Alerts", label: "nav.alerts", icon: "bell" },
         ],
       },
       {
@@ -287,6 +292,10 @@ export const ROLE_CONFIG = {
         items: [
           { to: "CsDesk", label: "nav.csDesk", icon: "message-circle" },
           { to: "CsLookup", label: "nav.csLookup", icon: "search" },
+          // Where "CS closed your handover" lands. CS raises too — from the
+          // lookup and from any order screen — and resolving someone else's
+          // request writes a notification to THEM, not to the desk.
+          { to: "Alerts", label: "nav.alerts", icon: "bell" },
           // "Do you have it?" is a question CS is asked on every other call,
           // and the only answer they had was to ring the warehouse. The page
           // is read-only and the API has always allowed any portal user —
