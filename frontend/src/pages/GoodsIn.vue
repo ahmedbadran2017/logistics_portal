@@ -64,9 +64,27 @@
           </div>
           <button class="h-8 px-3 rounded-lg text-[12px] font-semibold text-stone-600 bg-stone-100 hover:bg-stone-200" @click="closePo">{{ t('gi.changePo') }}</button>
         </div>
+        <!-- Paperwork: the order already left. Each item goes back to the bin its
+             Delivery Note took it from, so the ledger nets to zero — the server
+             decides, the screen only shows it. -->
+        <div v-if="paperwork" class="rounded-xl px-3.5 py-3 bg-amber-50 ring-1 ring-amber-200/70 space-y-2">
+          <div class="flex items-start gap-2">
+            <Icon name="info" :size="15" class="text-amber-600 mt-0.5 flex-shrink-0" />
+            <div class="text-[12.5px] text-amber-900 leading-relaxed">
+              <div class="font-semibold">{{ t('gi.pwTitle').replace('{so}', paperwork.so).replace('{status}', paperwork.status) }}</div>
+              <div>{{ t('gi.pwBody') }}</div>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            <span v-for="(wh, code) in paperwork.targets" :key="code"
+                  class="text-[11.5px] rounded-md px-2 py-1 bg-white ring-1 ring-amber-200 text-stone-700 tabular-nums">
+              {{ skuOf(code) }} → <b>{{ short(wh) }}</b>
+            </span>
+          </div>
+        </div>
         <div class="flex items-start gap-3 flex-wrap">
-          <span class="text-[12.5px] font-medium text-stone-600 w-16 mt-2">{{ t('gi.into') }}</span>
-          <div class="flex-1 min-w-[180px]">
+          <span v-if="!paperwork" class="text-[12.5px] font-medium text-stone-600 w-16 mt-2">{{ t('gi.into') }}</span>
+          <div v-if="!paperwork" class="flex-1 min-w-[180px]">
             <input v-model="target" list="lp-gi-targets"
                    class="w-full h-10 ps-3 pe-3 rounded-lg bg-white ring-1 text-[13px] text-stone-800 focus:outline-none focus:ring-2"
                    :class="target && !targetValid ? 'ring-rose-300' : 'ring-stone-200'"
@@ -189,7 +207,14 @@ const filledCount = computed(() => poLines.value.filter((l) => (l.qty || 0) > 0)
 const totalUnits = computed(() => poLines.value.reduce((s, l) => s + (l.qty || 0), 0));
 const extraUnits = computed(() =>
   poLines.value.reduce((s, l) => s + Math.max(0, (l.qty || 0) - (l.extra ? 0 : l.pending || 0)), 0));
-const targetValid = computed(() => !!target.value && (boot.value?.warehouses || []).includes(target.value));
+const paperwork = ref(null);
+// Paperwork bins are the server's call, so there is nothing for the user to get wrong.
+const targetValid = computed(() => !!paperwork.value
+  || (!!target.value && (boot.value?.warehouses || []).includes(target.value)));
+function skuOf(code) {
+  const l = poLines.value.find((x) => x.itemCode === code);
+  return (l && (l.sku || l.name)) || code;
+}
 const displayPos = computed(() =>
   poSearch.value.trim().length >= 2 ? poSearchRows.value : (boot.value?.openPos || []));
 const shownLines = computed(() => {
@@ -229,9 +254,13 @@ async function selectPo(name, bump = null) {
       // posted here its goods land in a zone picking vetoes. Say which order,
       // so the counter knows what it is holding.
       if (o.reason === "crossdock") warn(t("gi.crossdockPo"), o.so || name);
+      else if (String(o.reason || "").startsWith("paperwork_"))
+        // The order already left and there is no single bin to put it back in.
+        warn(t("gi.pw_" + o.reason.slice(10)), `${o.so} · ${o.status}`);
       else warn(t("gi.poNotOpen"), name);
       return;
     }
+    paperwork.value = o.paperwork || null;
     po.value = { po: o.po, supplier: o.supplier, currency: o.currency, ordered: o.ordered,
                  received: o.received != null ? o.received : (o.ordered - o.pending) };
     poLines.value = (o.lines || []).map((l) => ({ ...l, qty: 0 }));
@@ -245,7 +274,7 @@ async function selectPo(name, bump = null) {
   }
 }
 
-function closePo() { po.value = null; poLines.value = []; note.value = ""; lineSearch.value = ""; setTimeout(() => scanner.value?.refocus(), 50); }
+function closePo() { paperwork.value = null; po.value = null; poLines.value = []; note.value = ""; lineSearch.value = ""; setTimeout(() => scanner.value?.refocus(), 50); }
 
 function chooseFromPiece(p) {
   const c = chooser.value;
@@ -287,6 +316,7 @@ async function scanToOpen(code) {
     const o = await apiPost("purchasing.open_po", { po: code });
     if (o.ok) return selectPo(code);
     if (o.reason === "crossdock") { scanner.value?.showError(t("gi.crossdockPo")); return; }
+    if (String(o.reason || "").startsWith("paperwork_")) { scanner.value?.showError(t("gi.pw_" + o.reason.slice(10))); return; }
   }
   catch (e) { /* fall through */ }
   scanner.value?.showError(t("pickm.unknown"));

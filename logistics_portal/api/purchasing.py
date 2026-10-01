@@ -72,6 +72,75 @@ def _lane_owns(po):
     return any(l.po == po for l in _expected_lines(so=so))
 
 
+# --- Paperwork: a cross-dock order that has already left -------------------
+# The Cross-dock in lane receives goods for orders still waiting. But the PR
+# used to trail the parcel by about nine days, so most of this lane's history
+# is the other way round: the order shipped (often delivered, often returned)
+# and its PO was never received. Measured 2026-10-01: 922 such POs open.
+#
+# Receiving one of those is paperwork, not stock arriving — the parcel already
+# left, and its Delivery Note already took a piece from some bin. Goods In used
+# to send it to its default, Receiving Zone: right by luck for 829 of those
+# lines (their DN shipped from Receiving), and wrong for ~200 that shipped from
+# STOCK ZONE, SLOW or a shelf — each one a phantom piece in Receiving, where
+# pickers are sent, and an unhealed hole in the bin that really gave it.
+#
+# So the receipt goes back where the Delivery Note took it from, per item, and
+# the ledger nets to zero. When there is no single answer — the order shipped
+# with no Delivery Note (23 POs), the item left from several bins (2), or the
+# DN never carried it (1) — the portal refuses rather than guess where a piece
+# that is with the customer should appear.
+_PAPERWORK_PROBLEMS = {
+    "no_dn": "this order left without a Delivery Note, so nothing says which bin "
+             "gave the piece",
+    "not_on_dn": "the Delivery Note for this order never carried this item",
+    "ambiguous": "this item left from more than one bin, so there is no single "
+                 "place to put it back",
+}
+
+
+def _paperwork(po):
+    """None for an ordinary PO. For a Cross-dock PO whose order has already left
+    the floor: {so, status, targets: {item_code: bin the DN shipped it from},
+    problem: None | no_dn | not_on_dn | ambiguous}."""
+    if not _crossdock_ready():
+        return None
+    r = frappe.db.sql(
+        """SELECT po.custom_sales_order AS so, s.custom_fulfillment_model AS model,
+                  IFNULL(so.custom_logistics_status, '') AS status
+           FROM `tabPurchase Order` po
+           JOIN `tabSupplier` s ON s.name = po.supplier
+           LEFT JOIN `tabSales Order` so ON so.name = po.custom_sales_order
+           WHERE po.name = %s""", (po,), as_dict=True)
+    if not r:
+        return None
+    r = r[0]
+    # Still waiting = the Cross-dock in lane's business, not paperwork.
+    if not r.so or r.model != "Cross-dock" or r.status in ("", "Pending"):
+        return None
+    shipped = {}
+    for d in frappe.db.sql(
+            """SELECT dni.item_code, dni.warehouse
+               FROM `tabDelivery Note Item` dni
+               JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+               WHERE dn.docstatus = 1 AND dn.is_return = 0
+                 AND dni.against_sales_order = %s""", (r.so,), as_dict=True):
+        shipped.setdefault(d.item_code, set()).add(d.warehouse)
+    targets, problem = {}, None
+    if not shipped:
+        problem = "no_dn"
+    else:
+        for line in _po_lines(po):
+            whs = shipped.get(line.item_code)
+            if not whs:
+                problem = problem or "not_on_dn"
+            elif len(whs) > 1:
+                problem = problem or "ambiguous"
+            else:
+                targets[line.item_code] = sorted(whs)[0]
+    return {"so": r.so, "status": r.status, "targets": targets, "problem": problem}
+
+
 def _gate():
     from logistics_portal.api.auth import resolve_role
     if resolve_role(frappe.session.user) not in ("manager", "dispatcher", "returns", "packer"):
@@ -171,8 +240,15 @@ def open_po(po):
     if _lane_owns(po):
         return {"ok": False, "reason": "crossdock", "po": po,
                 "so": frappe.db.get_value("Purchase Order", po, "custom_sales_order") or ""}
+    pw = _paperwork(po)
+    if pw and pw["problem"]:
+        return {"ok": False, "reason": "paperwork_" + pw["problem"], "po": po,
+                "so": pw["so"], "status": pw["status"]}
     lines = _po_lines(po)
     return {
+        # Present => the screen locks each item to the bin its parcel left from.
+        "paperwork": ({"so": pw["so"], "status": pw["status"], "targets": pw["targets"]}
+                      if pw else None),
         "ok": True, "po": po, "supplier": h.supplier or "",
         "currency": h.currency or "MAD",
         "pending": int(round(sum(float(l.pending) for l in lines))),
@@ -261,12 +337,23 @@ def post_purchase_receipt(po, items=None, target=None, note=None):
     if len(items) > 300:
         frappe.throw("Too many lines for one receipt — post and start a new one.")
 
+    pw = _paperwork(po)
+    if pw and pw["problem"]:
+        frappe.throw(
+            f"Order {pw['so']} has already left ({pw['status'] or 'not pending'}), so this "
+            f"receipt is paperwork — and {_PAPERWORK_PROBLEMS[pw['problem']]}. Received "
+            "here it would make a piece appear that is not on the floor. Leave it to "
+            "the purchasing team.")
     target = (target or "").strip() or RECEIVING_WH
-    cond, args = _movable_condition("name")
-    if not frappe.db.sql(
-            f"""SELECT 1 FROM `tabWarehouse` WHERE name = %s
-                AND is_group = 0 AND disabled = 0 AND {cond}""", tuple([target, *args])):
-        frappe.throw(f"{target} is not a valid receiving bin.")
+    if not pw:
+        cond, args = _movable_condition("name")
+        if not frappe.db.sql(
+                f"""SELECT 1 FROM `tabWarehouse` WHERE name = %s
+                    AND is_group = 0 AND disabled = 0 AND {cond}""", tuple([target, *args])):
+            frappe.throw(f"{target} is not a valid receiving bin.")
+    # Paperwork bins come from the Delivery Note, not the screen — whatever the
+    # client sent. They may be bins the put-away list never offers (a shelf,
+    # STOCK ZONE): that is the point, the piece must go back where it left.
 
     wanted = {}
     for it in items:
@@ -292,7 +379,8 @@ def post_purchase_receipt(po, items=None, target=None, note=None):
             take = min(remaining, int(l.pending))
             if take <= 0:
                 continue
-            row = {"item_code": code, "qty": take, "warehouse": target,
+            row = {"item_code": code, "qty": take,
+                   "warehouse": pw["targets"][code] if pw else target,
                    "rate": float(l.rate or 0), "uom": l.uom,
                    "conversion_factor": float(l.cf or 1),
                    "purchase_order": po, "purchase_order_item": l.po_item}
@@ -303,6 +391,9 @@ def post_purchase_receipt(po, items=None, target=None, note=None):
         if remaining > 0:
             extras.append({"item_code": code, "qty": remaining})
 
+    if extras and pw:
+        frappe.throw("This receipt is paperwork for an order that already left — "
+                     "only what the PO itemises can be received, not extra pieces.")
     if extras and not _is_manager():
         detail = ", ".join(f"{e['item_code']} ×{e['qty']}" for e in extras[:5])
         frappe.throw("These pieces are not on this PO (or beyond its pending) — "
@@ -321,8 +412,10 @@ def post_purchase_receipt(po, items=None, target=None, note=None):
     pr = frappe.get_doc({
         "doctype": "Purchase Receipt", "supplier": h.supplier, "company": COMPANY,
         "currency": h.currency or "MAD", "conversion_rate": float(h.conversion_rate or 1),
-        "set_warehouse": target,
+        "set_warehouse": (None if pw else target),
         "remarks": f"Portal goods-in by {frappe.session.user} — PO {po}"
+                   + (f" — paperwork: order {pw['so']} already {pw['status']}; received "
+                      "into the bins its Delivery Note shipped from" if pw else "")
                    + (f" — {note}" if note else "")
                    + (f" — over-receipt: {len(extras)} lines" if extras else ""),
         "items": rows,
@@ -337,7 +430,9 @@ def post_purchase_receipt(po, items=None, target=None, note=None):
     total = sum(int(r["qty"]) for r in rows)
     extra_units = sum(e["qty"] for e in extras)
     return {"ok": True, "receipt": pr.name, "receipts": [pr.name], "units": total,
-            "matched": total - extra_units, "extras": extra_units, "target": target}
+            "matched": total - extra_units, "extras": extra_units,
+            "target": (", ".join(sorted({r["warehouse"] for r in rows})) if pw else target),
+            "paperwork": bool(pw)}
 
 
 def _recent_prs(limit=10):
