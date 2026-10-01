@@ -169,6 +169,41 @@ def _norm_order(code):
     return po_so or None
 
 
+# A cancelled order's Cross-dock PO can still be open — purchasing submits
+# them by hand from the Desk, and #262830-Awani-JM was submitted 7 hours after
+# the customer cancelled (8 such POs open on 2026-10-01). The supplier then
+# delivers. "Not waiting" was true but sent the counter looking for a bug; the
+# answer is that the piece is not ours to take.
+_CANCELLED_PO = """
+    po.docstatus = 1 AND po.status NOT IN ('Closed', 'Completed', 'Cancelled')
+    AND s.custom_fulfillment_model = 'Cross-dock'
+    AND (so.custom_sales_status = 'Cancelled' OR so.docstatus = 2
+         OR so.status IN ('Closed', 'Cancelled'))
+    AND poi.qty > poi.received_qty
+"""
+
+
+def _cancelled_with_open_po(so=None, item_code=None):
+    """{so, po} when a cancelled order still has an open Cross-dock PO."""
+    if not _ready():
+        return None
+    cond, args = _CANCELLED_PO, {}
+    if so:
+        cond += " AND po.custom_sales_order = %(so)s"
+        args["so"] = so
+    if item_code:
+        cond += " AND poi.item_code = %(item)s"
+        args["item"] = item_code
+    r = frappe.db.sql(
+        f"""SELECT po.custom_sales_order AS so, po.name AS po
+            FROM `tabPurchase Order` po
+            JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
+            JOIN `tabSupplier` s ON s.name = po.supplier
+            JOIN `tabSales Order` so ON so.name = po.custom_sales_order
+            WHERE {cond} ORDER BY po.creation DESC LIMIT 1""", args, as_dict=True)
+    return {"so": r[0].so, "po": r[0].po} if r else None
+
+
 def _left_with_open_po(so):
     """{so, status, po, owedTo} when this order already left but its
     Cross-dock PO is still open; None otherwise."""
@@ -308,6 +343,9 @@ def resolve(code, supplier=None):
             # parcel never ships without a booked piece, so a late one almost
             # always belongs to a waiting order whose own piece went out with
             # this one (#262762 took #262269's, which took #261946's).
+            dead = _cancelled_with_open_po(so=so)
+            if dead:
+                return {"ok": False, "reason": "order_cancelled", **dead}
             left = _left_with_open_po(so)
             if left:
                 return {"ok": False, "reason": "order_left", **left}
@@ -327,6 +365,9 @@ def resolve(code, supplier=None):
         waiting = _unconfirmed(item_code=item_code)
         if waiting:
             return {"ok": False, "reason": "unconfirmed", **waiting}
+        dead = _cancelled_with_open_po(item_code=item_code)
+        if dead:
+            return {"ok": False, "reason": "order_cancelled", **dead}
         return {"ok": False, "reason": "not_expected", "itemCode": item_code,
                 "name": r.get("name") or item_code}
     return {"ok": True, "kind": "piece", "itemCode": item_code, "name": r.get("name") or item_code,

@@ -151,6 +151,24 @@ def _waiting_for(item_codes):
             ) t ORDER BY creation""", {"c": starving}, as_dict=True)
 
 
+def _cancelled(po):
+    """The order's name when this is a Cross-dock PO for a cancelled order.
+    Goods In received #262830's Digitronics piece into Receiving as our stock
+    on 2026-09-29 — the customer had cancelled at 04:38 and purchasing
+    submitted the PO anyway. A Cross-dock supplier is paid per order; with no
+    order the piece goes back, and purchasing closes the PO."""
+    if not _crossdock_ready():
+        return None
+    r = frappe.db.sql(
+        """SELECT so.name FROM `tabPurchase Order` po
+           JOIN `tabSupplier` s ON s.name = po.supplier
+           JOIN `tabSales Order` so ON so.name = po.custom_sales_order
+           WHERE po.name = %s AND s.custom_fulfillment_model = 'Cross-dock'
+             AND (so.custom_sales_status = 'Cancelled' OR so.docstatus = 2
+                  OR so.status IN ('Closed', 'Cancelled'))""", (po,))
+    return r[0][0] if r else None
+
+
 def _owed_to(item_codes, waiting=None):
     """{item_code: [waiting orders, oldest first]} for items nothing on the
     floor can currently cover — the orders a late piece should serve."""
@@ -318,6 +336,9 @@ def open_po(po):
     if _lane_owns(po):
         return {"ok": False, "reason": "crossdock", "po": po,
                 "so": frappe.db.get_value("Purchase Order", po, "custom_sales_order") or ""}
+    dead = _cancelled(po)
+    if dead and not _is_manager():
+        return {"ok": False, "reason": "cancelled", "po": po, "so": dead}
     pw = _paperwork(po)
     lines = _po_lines(po)
     codes = [l.item_code for l in lines]
@@ -407,6 +428,11 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
             "Posted here the goods land in Receiving Zone, which picking vetoes, "
             f"and order {frappe.db.get_value('Purchase Order', po, 'custom_sales_order')} "
             "would starve with its stock already in the building.")
+
+    dead = _cancelled(po)
+    if dead and not _is_manager():
+        frappe.throw(f"Order {dead} was cancelled — this Cross-dock piece is not ours to "
+                     "receive. Hand it back to the supplier; purchasing closes the PO.")
 
     if isinstance(items, str):
         items = json.loads(items)

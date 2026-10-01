@@ -267,6 +267,7 @@ async function selectPo(name, bump = null) {
       // posted here its goods land in a zone picking vetoes. Say which order,
       // so the counter knows what it is holding.
       if (o.reason === "crossdock") warn(t("gi.crossdockPo"), o.so || name);
+      else if (o.reason === "cancelled") warn(t("gi.cancelledPo"), o.so || name);
       else warn(t("gi.poNotOpen"), name);
       return;
     }

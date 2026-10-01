@@ -287,7 +287,9 @@ async function onScan(raw) {
     return;
   }
   if (!res.ok) {
-    const msg = res.reason === "order_left"
+    const msg = res.reason === "order_cancelled"
+        ? `${res.so} — ${t("cdi.orderCancelled").replace("{po}", res.po)}`
+      : res.reason === "order_left"
         ? `${res.so} — ${t("cdi.orderLeft").replace("{status}", res.status)}`
           + ((res.owedTo || []).length ? ` · ${t("cdi.owedTo")} ${res.owedTo.join(", ")}` : "")
       : res.reason === "order_not_expected" ? `${res.so} — ${t("cdi.orderNotExpected")}`
