@@ -1132,6 +1132,8 @@ export default {
   },
   sku: {
     pickable: "pickable",
+    offFace: "in a closed zone",
+    offFaceHint: "Ours and sellable, but sitting where no picker may go (SLOW ZONE and the like). Promise it to the customer; it needs a transfer before it can be picked.",
     pickableHint: "What the pick engine can actually allocate right now: pickable bins ∩ engine policy, minus draft claims and every live stock reservation — the exact number the Orders board uses.",
     sreHeld: "reserved",
     sreHeldHint: "Units held by live Stock Reservation Entries. If their orders are cancelled, release them in Batch Repair.",

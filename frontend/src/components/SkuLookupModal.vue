@@ -58,6 +58,8 @@
                       :title="t('sku.pickableHint')">
                   {{ t('sku.pickable') }} {{ it.pickable }}
                 </span>
+                <span v-if="it.offFace" class="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-50 ring-1 ring-amber-300 rounded px-1.5 py-0.5"
+                      :title="t('sku.offFaceHint')">+{{ it.offFace }} {{ t('sku.offFace') }}</span>
                 <span v-if="it.sreHeld" class="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200/70 rounded px-1.5 py-0.5"
                       :title="t('sku.sreHeldHint')">
                   {{ t('sku.sreHeld') }} {{ it.sreHeld }}

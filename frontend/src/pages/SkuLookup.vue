@@ -71,6 +71,14 @@
                     :title="t('sku.pickableHint')">
                 {{ t('sku.pickable') }} {{ it.pickable }}
               </span>
+              <!-- Only ever shown when it is true: stock that is ours and
+                   sellable, sitting where no picker may go. Without it the
+                   finder answers the warehouse's question to someone who was
+                   asked the customer's one. -->
+              <span v-if="it.offFace" class="inline-flex items-center gap-1 text-[10.5px] font-bold text-amber-800 bg-amber-50 ring-1 ring-amber-300 rounded px-2 py-0.5"
+                    :title="t('sku.offFaceHint')">
+                <Icon name="package-check" :size="10" />+{{ it.offFace }} {{ t('sku.offFace') }}
+              </span>
               <span v-if="it.sreHeld" class="inline-flex items-center gap-1 text-[10.5px] font-bold text-rose-700 bg-rose-50 ring-1 ring-rose-200/70 rounded px-2 py-0.5"
                     :title="t('sku.sreHeldHint')">
                 {{ t('sku.sreHeld') }} {{ it.sreHeld }}

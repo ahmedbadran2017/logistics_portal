@@ -283,6 +283,7 @@ def sku_lookup(query, limit=80):
         codes = [it.code for it in items]
         binmap = {}
         pickable = {}
+        sellable = {}
         sre_held = {}
         short_rpt = {}
         if codes:
@@ -308,6 +309,14 @@ def sku_lookup(query, limit=80):
             # active Stock Reservation Entry — the exact math the Orders board
             # runs, so this card can never contradict it again.
             pickable = _available_totals(codes)
+            # The OTHER question, and the one the CS team is actually asked:
+            # "do you have it", not "can a picker reach it today". Same
+            # contract the confirmation card uses, so the finder, the card and
+            # the batching modal can never quote three different numbers for
+            # one shelf. Measured 2026-10-01: all five SKUs with SLOW ZONE
+            # stock read 10x lower on the pick number — MCH09139 is 244 on the
+            # face and 2,380 in the building.
+            sellable = _available_totals(codes, "sell")
             # A picker's "not found on the shelf" report is one of the three
             # things that zero `pickable` — and the only invisible one. Name
             # it, with the shelf, so "in stock but pickable 0" stops being a
@@ -338,9 +347,16 @@ def sku_lookup(query, limit=80):
             if avail > 0:
                 g["anyStock"] = True
             free = max(0, round(pickable.get(it.code, 0) - sre_held.get(it.code, 0)))
+            sell = max(0, round(sellable.get(it.code, 0) - sre_held.get(it.code, 0)))
             g["items"].append({
                 "code": it.code, "name": it.name or it.code, "avail": avail,
                 "pickable": free,
+                "sellable": sell,
+                # What a transfer would release. Zero on nearly every item —
+                # it is only ever non-zero where real stock sits in a zone
+                # closed to picking, which is exactly the fact a CS agent on
+                # the phone needs and a dispatcher needs to act on.
+                "offFace": max(0, sell - free),
                 "sreHeld": round(sre_held.get(it.code, 0)),
                 "shortRpt": short_rpt.get(it.code, []),
                 "ordered": it.code in ordered_codes, "bins": bins[:4],

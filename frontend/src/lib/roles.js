@@ -287,6 +287,11 @@ export const ROLE_CONFIG = {
         items: [
           { to: "CsDesk", label: "nav.csDesk", icon: "message-circle" },
           { to: "CsLookup", label: "nav.csLookup", icon: "search" },
+          // "Do you have it?" is a question CS is asked on every other call,
+          // and the only answer they had was to ring the warehouse. The page
+          // is read-only and the API has always allowed any portal user —
+          // only this menu did not.
+          { to: "SkuLookup", label: "nav.skuLookup", icon: "scan-barcode" },
           { to: "Exchanges", label: "nav.exchanges", icon: "refresh-cw" },
           { to: "Tickets", label: "nav.tickets", icon: "ticket" },
         ],

@@ -1132,6 +1132,8 @@ export default {
   },
   sku: {
     pickable: "prélevable",
+    offFace: "en zone fermée",
+    offFaceHint: "À nous et vendable, mais rangé là où aucun préparateur ne va (SLOW ZONE et similaires). Promettez-le au client ; il faut un transfert avant le prélèvement.",
     pickableHint: "Ce que le moteur peut réellement allouer maintenant : bacs prélevables ∩ politique moteur, moins les brouillons et chaque réservation de stock vivante — le chiffre exact du tableau Commandes.",
     sreHeld: "réservé",
     sreHeldHint: "Unités tenues par des réservations de stock vivantes. Si leurs commandes sont annulées, libérez-les dans Batch Repair.",
