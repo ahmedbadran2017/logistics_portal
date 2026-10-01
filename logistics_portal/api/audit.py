@@ -295,6 +295,101 @@ def unread_count():
         return 0
 
 
+# The portal's own alerts, and only those. Everything else in the table
+# belongs to HR, email, workflow and the apps around us; pruning site-wide
+# would be their policy decision, not ours.
+_MINE = ("Delivery Note", "Sales Order", "Pick List")
+
+# How long one of our alerts is worth reading — two windows, because the
+# alerts are not alike. A short pick says "a picker could not find this on
+# the shelf right now"; by next week the order has been repooled, repicked
+# or cancelled and the message is archaeology. Everything else here is a
+# standing condition worth a longer look.
+#
+# One window at 21 days was tried first and measured: it cleared 2,204 rows
+# and left three floor accounts still showing 1,500+ unread, which is not a
+# badge anyone would ever empty. Splitting it clears 6,465 and takes the
+# worst account from 2,691 to 354.
+_ALERT_KEEP_D = 21
+_SHORT_PICK_KEEP_D = 7
+_SHORT_PICK_LIKE = "Short pick%"
+
+
+def _expired_sql():
+    """(where, args) for "one of ours, and past its own window"."""
+    now = frappe.utils.now_datetime()
+    return ("""type = 'Alert' AND document_type IN %(dt)s
+               AND ((subject LIKE %(sp)s AND creation < %(cs)s)
+                 OR (subject NOT LIKE %(sp)s AND creation < %(co)s))""",
+            {"dt": _MINE, "sp": _SHORT_PICK_LIKE,
+             "cs": frappe.utils.add_to_date(now, days=-_SHORT_PICK_KEEP_D),
+             "co": frappe.utils.add_to_date(now, days=-_ALERT_KEEP_D)})
+
+
+@frappe.whitelist()
+def prune_alerts(days=None, apply=0):
+    """Delete the portal's expired alerts. Dry run unless apply=1.
+
+    Why this exists. Nothing prunes Notification Log on this site — Log
+    Settings is empty and Frappe does not clear this doctype by default — so
+    every alert the portal has ever written is still there. Measured
+    2026-10-01: 6,535 short-pick rows since 24 August, 6,274 of them unread.
+
+    The duplicate flood behind most of that was fixed on 19 September, and
+    the fix works: before it, one order produced 10-17 rows a day per
+    recipient (#259117 reached 186); since it, exactly one row per order per
+    recipient. 5,628 of the unread rows are from before that fix and 646
+    after. So this is not a second attempt at the dedup — it is clearing the
+    debris the dedup left behind, and making sure a bell that nobody empties
+    cannot silently grow forever again.
+
+    It matters more now than it did last week: the Alerts page just gained an
+    unread badge in the confirmation and CS menus. A badge counting a
+    three-week-old short pick is a badge people learn to ignore."""
+    from logistics_portal.api.permissions import require_portal_admin
+    require_portal_admin()
+    where, args = _expired_sql()
+    rows = frappe.db.sql(
+        f"""SELECT COUNT(*) n, SUM(CASE WHEN `read` = 0 THEN 1 ELSE 0 END) unread
+            FROM `tabNotification Log` WHERE {where}""", args, as_dict=True)[0]
+    out = {"keepDays": _ALERT_KEEP_D, "keepShortPickDays": _SHORT_PICK_KEEP_D,
+           "found": int(rows.n or 0), "unread": int(rows.unread or 0),
+           "applied": False}
+    if not int(apply or 0):
+        return out
+    # Chunked: the backlog is small today, but a delete that can time out on
+    # a bad day is a delete that leaves the table half-pruned and the number
+    # on the badge wrong in a new way.
+    out["applied"] = True
+    out["deleted"] = _delete_expired()
+    return out
+
+
+def _delete_expired(cap=50000):
+    """Chunked delete. The backlog is small today, but a statement that can
+    time out on a bad day leaves the table half-pruned and the badge wrong in
+    a new way."""
+    where, args = _expired_sql()
+    deleted = 0
+    while deleted < cap:
+        names = [r[0] for r in frappe.db.sql(
+            f"SELECT name FROM `tabNotification Log` WHERE {where} LIMIT 500", args)]
+        if not names:
+            break
+        frappe.db.delete("Notification Log", {"name": ("in", names)})
+        frappe.db.commit()
+        deleted += len(names)
+    return deleted
+
+
+def prune_alerts_daily():
+    """Scheduled: keep the bell inside its own window, every day, quietly."""
+    try:
+        _delete_expired()
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "logistics_portal.prune_alerts_daily")
+
+
 @frappe.whitelist()
 def mark_read(names=None):
     """Mark alerts read — a list of ids, or everything for this user."""

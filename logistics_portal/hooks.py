@@ -228,6 +228,11 @@ scheduler_events = {
         # rows out of the pool, so the Orders board quietly has less to offer.
         # Today's picture always looks fine; only the trend tells you.
         "logistics_portal.api.picking.snapshot_draft_holds",
+        # Nothing on this site prunes Notification Log — Log Settings is empty
+        # and Frappe does not clear this doctype by default — so every alert
+        # the portal ever wrote is still in it. Ours only; the rest of the
+        # table belongs to other apps.
+        "logistics_portal.api.audit.prune_alerts_daily",
     ],
     "daily_long": [
         # End-of-day narrative digest written by the LLM reviewer.
