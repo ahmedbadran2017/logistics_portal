@@ -87,20 +87,37 @@ def board(days=14):
             "serverNow": str(now_datetime())[:19]}
 
 
+# When a parcel ENTERED the printed-not-shipped stage. Measured from the
+# order's creation, an order that waited a week for stock and was printed
+# yesterday showed up as "printed 6 days ago" (J-008924, 2026-10-02). The sort
+# wall turns an order Label Printed with frappe.db.set_value, so the
+# custom_labeled_at stamp is empty on 413 of 430 such orders — the scan that
+# finished it (sort, or the pack seal after it) is the witness; then the
+# stamp, then the delivery note that carries the label.
+_LABEL_SINCE = """COALESCE(
+    (SELECT MAX(e.creation) FROM `tabLP Scan Event` e
+      WHERE e.sales_order = so.name AND e.station IN ('sort', 'pack')),
+    so.custom_labeled_at,
+    (SELECT MAX(dn_s.creation) FROM `tabDelivery Note Item` dni_s
+       JOIN `tabDelivery Note` dn_s ON dn_s.name = dni_s.parent
+      WHERE dni_s.against_sales_order = so.name AND dn_s.docstatus = 1),
+    so.creation)"""
+
+
 def _stuck():
     """The tails: parcels past the age their stage should take. Each is a
     different owner's fix, so they're separate buckets."""
-    def _rows(where, thresh_h, extra_join=""):
+    def _rows(where, thresh_h, extra_join="", since="so.creation"):
         # All params NAMED: %s and %(now)s cannot be mixed in one query.
         return frappe.db.sql(
             f"""SELECT so.name, so.customer_name customer,
-                       ROUND(TIMESTAMPDIFF(HOUR, so.creation, %(now)s) / 24) age_d
+                       ROUND(TIMESTAMPDIFF(HOUR, {since}, %(now)s) / 24) age_d
                 FROM `tabSales Order` so {extra_join}
                 WHERE so.docstatus = 1 AND so.company = %(co)s
                   AND so.custom_sales_status = 'Confirmed'
                   AND {where}
-                  AND TIMESTAMPDIFF(HOUR, so.creation, %(now)s) > %(thresh)s
-                GROUP BY so.name ORDER BY so.creation LIMIT 40""",
+                  AND TIMESTAMPDIFF(HOUR, {since}, %(now)s) > %(thresh)s
+                GROUP BY so.name ORDER BY age_d DESC LIMIT 40""",
             {"co": _CO, "thresh": thresh_h, "now": _site_now()}, as_dict=True)
 
     # Has a submitted DN but no AWB on EITHER the order or the DN, still Pending
@@ -124,7 +141,7 @@ def _stuck():
     # Picked / AWB-ready but never sorted+printed, > 3 days.
     picked = _rows("so.custom_logistics_status IN ('Picked', 'Label Generated')", 24 * 3)
     # Printed/sorted but not handed to the carrier, > 5 days.
-    labelled = _rows("so.custom_logistics_status = 'Label Printed'", 24 * 5)
+    labelled = _rows("so.custom_logistics_status = 'Label Printed'", 24 * 5, since=_LABEL_SINCE)
 
     def pack(rows, key, route):
         return {
@@ -158,6 +175,8 @@ _STUCK_DEFS = {
     "pickedStale": ("so.custom_logistics_status IN ('Picked', 'Label Generated')", 24 * 3),
     "labelledStale": ("so.custom_logistics_status = 'Label Printed'", 24 * 5),
 }
+# Where each bucket's clock starts (default: the order's creation).
+_STUCK_SINCE = {"labelledStale": _LABEL_SINCE}
 
 
 @frappe.whitelist()
@@ -167,6 +186,7 @@ def stuck_list(key=None, limit=300):
     require_portal_user()
     key = key if key in _STUCK_DEFS else "labelledStale"
     where, thresh = _STUCK_DEFS[key]
+    since = _STUCK_SINCE.get(key, "so.creation")
     limit = min(max(int(limit or 300), 1), 1000)
     awb_join = ""
     if key == "noAwb":
@@ -180,7 +200,7 @@ def stuck_list(key=None, limit=300):
                      AND (dnj.custom_awb IS NULL OR dnj.custom_awb = '')"""
     rows = frappe.db.sql(
         f"""SELECT so.name, so.customer_name AS customer, so.grand_total AS value,
-                   ROUND(TIMESTAMPDIFF(HOUR, so.creation, %(now)s) / 24) AS age_d,
+                   ROUND(TIMESTAMPDIFF(HOUR, {since}, %(now)s) / 24) AS age_d,
                    COALESCE(NULLIF(so.custom_shipping_city, ''), addr.city) AS city,
                    COALESCE(NULLIF(so.custom_awb, ''), '') AS so_awb,
                    (SELECT COUNT(*) FROM `tabDelivery Note Item` dni
@@ -200,8 +220,8 @@ def stuck_list(key=None, limit=300):
             WHERE so.docstatus = 1 AND so.company = %(co)s
               AND so.custom_sales_status = 'Confirmed'
               AND {where}
-              AND TIMESTAMPDIFF(HOUR, so.creation, %(now)s) > %(thresh)s
-            GROUP BY so.name ORDER BY so.creation LIMIT %(limit)s""",
+              AND TIMESTAMPDIFF(HOUR, {since}, %(now)s) > %(thresh)s
+            GROUP BY so.name ORDER BY age_d DESC LIMIT %(limit)s""",
         {"co": _CO, "now": _site_now(), "thresh": thresh, "limit": limit},
         as_dict=True)
 

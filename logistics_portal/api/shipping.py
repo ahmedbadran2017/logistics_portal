@@ -1003,6 +1003,19 @@ def handover_gaps(days=14):
             "short": sum(1 for g in gaps if g["short"]), "lastClose": last}
 
 
+def on_manifest_submit(doc, method=None):
+    """Shipment on_submit (hooks): record the shortfall for a Cathedis
+    manifest submitted from anywhere. Never blocks the submit; the comment
+    marker and the alert dedupe make a second call from close_manifest a
+    no-op."""
+    if (doc.get("delivery_customer") or "") != "CATHEDIS":
+        return
+    try:
+        _record_shortfall(doc.name)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "shipping.on_manifest_submit")
+
+
 def _record_shortfall(shipment):
     """Right after a manifest submits: every list that finished sorting before
     the door shut and still has printed parcels off every Shipment is short.

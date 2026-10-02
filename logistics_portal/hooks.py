@@ -54,6 +54,14 @@ override_doctype_class = {
 }
 
 doc_events = {
+    # Every Cathedis manifest, however it is submitted: the shortfall check
+    # (printed parcels whose list finished sorting but are on no Shipment)
+    # used to run only from the portal's close_manifest, which can submit
+    # today's draft only. Most manifests are submitted from the Desk the next
+    # noon, so it ran on 1 of 7 closes in late September.
+    "Shipment": {
+        "on_submit": "logistics_portal.api.shipping.on_manifest_submit",
+    },
     # A counted shelf answers the question a picker raised by hand. Clearing it
     # here rather than waiting out the cool-down means the fix takes effect the
     # moment somebody does the work, which is the whole point of doing it.

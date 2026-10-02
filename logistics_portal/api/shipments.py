@@ -1136,7 +1136,17 @@ def _emit(kind, params, severity="warning", cooldown_h=4, order=None, audience="
     packed = json.dumps({"lp": i18n, "sev": severity, "kind": kind}, ensure_ascii=False)
     body = detail + "\n<!--lp-i18n " + packed.replace("--", "- -") + " -->"
     try:
-        if frappe.db.exists("Notification Log", {"subject": title, "read": 0}):
+        # An unread row means the problem is still on someone's screen — but
+        # only while it is fresh. Checked with no age limit, ONE unread row
+        # silenced its kind for good: measured 2026-10-02, every floor alert
+        # had paged exactly once ("manifest closed with parcels left behind"
+        # on 09-15, "sorting is holding lists" on 09-19, …) and never again,
+        # because someone never opened the first. Four parcels then sat six
+        # days after the sort wall with the shortfall found and nobody told.
+        # A day-old unread alert is not being looked at; page again.
+        if frappe.db.exists("Notification Log", {
+                "subject": title, "read": 0,
+                "creation": (">=", frappe.utils.add_to_date(now_datetime(), hours=-24))}):
             return
         if frappe.db.exists("Notification Log", {
                 "subject": title,
