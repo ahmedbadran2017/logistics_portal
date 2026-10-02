@@ -2088,6 +2088,9 @@ def detail(name):
         "labeled_at": so.get("custom_labeled_at"),
         "shipped_at": so.get("custom_shipped_at"),
         "delivered_at": so.get("custom_delivered_at"),
+        # The one answer to "would a replacement be free?" — computed here and
+        # nowhere else, so the panel and the server cannot disagree.
+        "wasDelivered": _was_delivered(so),
     }
 
 
@@ -2433,21 +2436,23 @@ def reship(order, items=None, free=0, reason=None):
     if isinstance(items, str):
         items = _json_rs.loads(items or "[]")
     items = [str(i).strip() for i in (items or []) if str(i).strip()]
-    free = bool(int(free or 0))
     reason = (reason or "").strip()
-    # Free only when the customer has already paid — and on cash on delivery
-    # "paid" means "delivered". An order that never arrived never had its
-    # cash collected, so sending it again for nothing is not a gesture, it is
-    # the goods given away. Reported 2026-10-02: replacements for undelivered
-    # COD parcels were going out at zero, because the panel's free box was
-    # ticked by default and nothing here asked where the original had got to.
+    partial = bool(items)
+    # Whether a send is free is not a choice anyone makes here — it is a fact
+    # about the original parcel, and on cash on delivery it is one fact:
     #
-    # The legitimate free send is the other case entirely — the customer HAS
-    # the parcel, paid for it on the doorstep, and one piece was broken or
-    # wrong. That stays free.
-    if free and not _was_delivered(so):
-        frappe.throw("lp:freeNeedsDelivered")
-    partial = bool(items) or free
+    #   delivered      the customer paid on the doorstep; a piece that came
+    #                  broken or wrong is replaced FREE, they paid for it once
+    #   not delivered  nothing was ever collected; it goes at its PRICE and
+    #                  is collected when it lands
+    #
+    # There is no legitimate third case. A free resend of a parcel that never
+    # arrived gives the goods away, and a priced resend of one that did
+    # charges the customer twice. This used to be a tick box, ticked by
+    # default, and on 2026-10-02 replacements for undelivered COD parcels
+    # were found going out at zero. The `free` argument is kept so older
+    # callers do not break, and deliberately ignored.
+    free = partial and _was_delivered(so)
     if partial and not reason:
         frappe.throw("Say why this is being sent — it is the one thing nobody "
                      "can reconstruct later.")

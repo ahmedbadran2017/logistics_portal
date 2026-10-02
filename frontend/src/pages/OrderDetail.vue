@@ -198,10 +198,11 @@
                   <option value="">{{ t("snd.why") }}</option>
                   <option v-for="r in SEND_REASONS" :key="r" :value="r">{{ t("snd.r_" + r) }}</option>
                 </select>
-                <label v-if="sendMode === 'same' && wasDelivered" class="inline-flex items-center gap-1.5 text-[11.5px] text-stone-600">
-                  <input v-model="sendFree" type="checkbox" class="accent-violet-600" />{{ t("snd.free") }}
-                </label>
-                <span v-else-if="sendMode === 'same'" class="text-[10.5px] text-stone-500">{{ t("snd.paidOnDelivery") }}</span>
+                <span class="text-[10.5px] font-medium"
+                      :class="sendFree ? 'text-emerald-700' : 'text-stone-600'">
+                  {{ t(sendMode === 'other' ? 'snd.pricedInstead'
+                       : sendFree ? 'snd.freeBecausePaid' : 'snd.paidOnDelivery') }}
+                </span>
                 <button class="ms-auto h-8 px-3.5 rounded-lg text-[12px] font-bold text-white bg-violet-700 hover:bg-violet-800 disabled:opacity-40"
                         :disabled="sendMode === 'same' ? (!sendPick.length || !sendReason || sendBusy)
                                                        : (!otherLines.length || !sendReason || sendBusy)"
@@ -862,21 +863,29 @@ async function doCancel() {
 // this panel has. Offering "damaged" here would quietly send a replacement
 // and leave the broken one with the customer, contradicting the rule on the
 // very screen that is supposed to enforce it.
-const SEND_REASONS = ["Missing piece", "Goodwill"];
+// One vocabulary per situation, because the words only make sense in one.
+// "Damaged on arrival" said of a parcel that never arrived is how a report
+// ends up meaning nothing.
+const REASONS_FREE = ["Missing piece", "Damaged on arrival", "Wrong item sent", "Goodwill"];
+const REASONS_RESEND = ["Carrier lost it", "Delivery failed", "Came back"];
+const REASONS_INSTEAD = ["Customer chose another item", "Original out of stock"];
 const sending = ref(false);
 const sendPick = ref([]);
 const sendReason = ref("");
-// Off by default. A free send is the exception — the customer already has
-// the parcel and paid for it — so it should be something an agent chooses,
-// not something they forget to untick on an order that was never delivered.
-const sendFree = ref(false);
-// On cash on delivery, "delivered" and "paid" are the same event. Until the
-// parcel arrived, nobody collected anything, and a free resend gives the
-// goods away; the server refuses it, and the screen does not offer it.
+// Free or priced is not a choice, so there is no box to tick. It is a fact
+// about the original parcel, decided on the server (orders._was_delivered)
+// and only READ here: delivered means the customer paid on the doorstep and a
+// broken piece is replaced free; not delivered means nothing was collected
+// and it goes at its price.
 const wasDelivered = computed(() => {
   const o = (isLive.value && liveOrder.value) ? liveOrder.value : (order.value || {});
-  return o.stage === "Delivered" || o.tracking_status === "Delivered" || !!o.delivered_at;
+  return !!o.wasDelivered;
 });
+const sendFree = computed(() => sendMode.value === "same" && wasDelivered.value);
+const SEND_REASONS = computed(() =>
+  sendMode.value === "other" ? REASONS_INSTEAD
+    : wasDelivered.value ? REASONS_FREE : REASONS_RESEND);
+
 const sendBusy = ref(false);
 // "same" = replace a line they already bought. "other" = a different article
 // entirely, which is a sale and never free.
@@ -963,7 +972,7 @@ async function sendReplacement() {
     const res = await apiPost("orders.reship", {
       order: liveOrder.value?.name || order.value.no,
       items: JSON.stringify(sendPick.value),
-      free: (sendFree.value && wasDelivered.value) ? 1 : 0,
+
       reason: sendReason.value,
     });
     sending.value = false;
@@ -1295,6 +1304,13 @@ const slaBadge = computed(() => {
 // ── Line items (deterministic, mirrors genLineItems) ──────────────────
 const liveItems = ref([]);
 const isLive = computed(() => !!liveOrder.value);
+
+// A reason picked from one list must not ride into a send from another.
+// HERE and not beside SEND_REASONS: watch() evaluates its source at setup to
+// collect dependencies, and that source reads sendMode, liveOrder and isLive,
+// which are declared further down — up there it threw on load and took the
+// whole order page with it.
+watch(SEND_REASONS, () => { sendReason.value = ""; });
 const items = computed(() => {
   if (liveItems.value.length) return liveItems.value;
   const o = order.value;
