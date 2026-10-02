@@ -198,9 +198,10 @@
                   <option value="">{{ t("snd.why") }}</option>
                   <option v-for="r in SEND_REASONS" :key="r" :value="r">{{ t("snd.r_" + r) }}</option>
                 </select>
-                <label v-if="sendMode === 'same'" class="inline-flex items-center gap-1.5 text-[11.5px] text-stone-600">
+                <label v-if="sendMode === 'same' && wasDelivered" class="inline-flex items-center gap-1.5 text-[11.5px] text-stone-600">
                   <input v-model="sendFree" type="checkbox" class="accent-violet-600" />{{ t("snd.free") }}
                 </label>
+                <span v-else-if="sendMode === 'same'" class="text-[10.5px] text-stone-500">{{ t("snd.paidOnDelivery") }}</span>
                 <button class="ms-auto h-8 px-3.5 rounded-lg text-[12px] font-bold text-white bg-violet-700 hover:bg-violet-800 disabled:opacity-40"
                         :disabled="sendMode === 'same' ? (!sendPick.length || !sendReason || sendBusy)
                                                        : (!otherLines.length || !sendReason || sendBusy)"
@@ -865,7 +866,17 @@ const SEND_REASONS = ["Missing piece", "Goodwill"];
 const sending = ref(false);
 const sendPick = ref([]);
 const sendReason = ref("");
-const sendFree = ref(true);
+// Off by default. A free send is the exception — the customer already has
+// the parcel and paid for it — so it should be something an agent chooses,
+// not something they forget to untick on an order that was never delivered.
+const sendFree = ref(false);
+// On cash on delivery, "delivered" and "paid" are the same event. Until the
+// parcel arrived, nobody collected anything, and a free resend gives the
+// goods away; the server refuses it, and the screen does not offer it.
+const wasDelivered = computed(() => {
+  const o = (isLive.value && liveOrder.value) ? liveOrder.value : (order.value || {});
+  return o.stage === "Delivered" || o.tracking_status === "Delivered" || !!o.delivered_at;
+});
 const sendBusy = ref(false);
 // "same" = replace a line they already bought. "other" = a different article
 // entirely, which is a sale and never free.
@@ -952,7 +963,7 @@ async function sendReplacement() {
     const res = await apiPost("orders.reship", {
       order: liveOrder.value?.name || order.value.no,
       items: JSON.stringify(sendPick.value),
-      free: sendFree.value ? 1 : 0,
+      free: (sendFree.value && wasDelivered.value) ? 1 : 0,
       reason: sendReason.value,
     });
     sending.value = false;

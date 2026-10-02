@@ -2118,6 +2118,18 @@ def merge_orders(orders, force=0):
         return _do_merge(names, force=frappe.utils.cint(force))
 
 
+def _was_delivered(so):
+    """Did this parcel reach the customer? On COD that is also whether its
+    cash was ever collected — the two are the same event.
+
+    Three witnesses, because none of them is complete on its own: the stage
+    stamp, the carrier's status, and the delivered timestamp. Any one of them
+    is enough."""
+    return bool((so.get("custom_logistics_status") or "") == "Delivered"
+                or (so.get("custom_track_shipment_status") or "") == "Delivered"
+                or so.get("custom_delivered_at"))
+
+
 def _reset_fulfilment_state(doc):
     """Strip the SOURCE order's fulfilment history off a fresh copy.
 
@@ -2423,6 +2435,18 @@ def reship(order, items=None, free=0, reason=None):
     items = [str(i).strip() for i in (items or []) if str(i).strip()]
     free = bool(int(free or 0))
     reason = (reason or "").strip()
+    # Free only when the customer has already paid — and on cash on delivery
+    # "paid" means "delivered". An order that never arrived never had its
+    # cash collected, so sending it again for nothing is not a gesture, it is
+    # the goods given away. Reported 2026-10-02: replacements for undelivered
+    # COD parcels were going out at zero, because the panel's free box was
+    # ticked by default and nothing here asked where the original had got to.
+    #
+    # The legitimate free send is the other case entirely — the customer HAS
+    # the parcel, paid for it on the doorstep, and one piece was broken or
+    # wrong. That stays free.
+    if free and not _was_delivered(so):
+        frappe.throw("lp:freeNeedsDelivered")
     partial = bool(items) or free
     if partial and not reason:
         frappe.throw("Say why this is being sent — it is the one thing nobody "
