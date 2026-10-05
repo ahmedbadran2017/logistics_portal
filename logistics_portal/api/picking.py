@@ -3174,6 +3174,7 @@ def relabel_order(pick_list, order, city=None):
     from frappe.utils import now_datetime
     started = str(now_datetime())[:19]
     try:
+        import logistics_portal.overrides.cathedis  # noqa: F401 — prepaid AWBs at 0
         from ecommerce_integrations.shipping.cathedis import CathedisShipping
         doc = frappe.get_doc("Delivery Note", dn[0][0])
         CathedisShipping().create_delivery_note_shipment(doc)
