@@ -74,6 +74,23 @@ def _bundle_map_for_order(sales_order):
 
 
 class PickList(_Base):
+    def validate(self):
+        # A bank-transfer order is not prepared before accounting posts the
+        # transfer (picking._TRANSFER_HELD). The portal's pool and gate
+        # already keep it out; this is the Desk's door. Dropped, not refused:
+        # one unpaid order must not block the rest of a list.
+        if self.docstatus == 0 and self.get("locations"):
+            from logistics_portal.api.picking import transfer_held_orders
+            held = transfer_held_orders({l.sales_order for l in self.locations if l.sales_order})
+            if held:
+                self.set("locations", [l for l in self.locations if l.sales_order not in held])
+                for i, l in enumerate(self.locations, start=1):
+                    l.idx = i
+                frappe.msgprint(
+                    "Removed — bank transfer not confirmed by accounting yet: "
+                    + ", ".join(sorted(held)), indicator="orange", alert=True)
+        super().validate()
+
     def _get_required_qty_for_sales_order(self, sales_order, bundle_cache):
         packed = _packed_by_line(sales_order)
         if not packed or not hasattr(_Base, "_get_required_qty_for_sales_order"):

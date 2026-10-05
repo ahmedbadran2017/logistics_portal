@@ -860,10 +860,21 @@ _BAD_CITY = (f"({_EFF_CITY} IS NULL "
              f"OR {_EFF_CITY} REGEXP '{_ARABIC_CLASS}' "
              f"OR {_EFF_CITY} REGEXP '[0-9]')")
 
+# A bank-transfer order waits for accounting (Ahmed, 2026-10-05). The AWB
+# amount is grand_total - advance_paid, and the transfer is only on the books
+# once accounting posts it as a Payment Entry on the order — which they did
+# AFTER the parcel had left, so the courier collected the price again
+# (#246427, #247117). Held out of the pick pool until the transfer is posted;
+# then the order joins the pool by itself and its label says 0. The 1 MAD
+# slack is rounding: transfers are posted in whole dirhams (186 for 186.10).
+TRANSFER_PAYMENT = "Virement bancaire"
+_TRANSFER_HELD = (f"(COALESCE(so.payment_type, '') = '{TRANSFER_PAYMENT}' "
+                  "AND COALESCE(so.advance_paid, 0) + 1 < so.grand_total)")
+
 # The to-pick pool predicate, identical to suggest_batches: submitted Confirmed
 # Morocco orders in Pending logistics state, not already on any open pick list,
-# and with a city Cathedis can actually label.
-_POOL_WHERE = f"""so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
+# with a city Cathedis can actually label, and paid if paid-before-shipping.
+_POOL_BASE = f"""so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
                  AND so.company = 'Justyol Morocco'
                  AND so.custom_logistics_status = 'Pending'
                  AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
@@ -872,6 +883,38 @@ _POOL_WHERE = f"""so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
                                  JOIN `tabPick List` p ON p.name = pli.parent
                                  WHERE pli.sales_order = so.name AND p.docstatus < 2)
                  AND COALESCE(so.per_picked, 0) < 100"""
+_POOL_WHERE = f"""{_POOL_BASE}
+                 AND NOT {_TRANSFER_HELD}"""
+
+
+def transfer_held_orders(names):
+    """Which of these orders are bank transfers accounting has not posted yet."""
+    names = [n for n in (names or []) if n]
+    if not names:
+        return set()
+    return {r[0] for r in frappe.db.sql(
+        f"SELECT so.name FROM `tabSales Order` so WHERE so.name IN %(n)s AND {_TRANSFER_HELD}",
+        {"n": tuple(names)})}
+
+
+@frappe.whitelist()
+def transfer_held(limit=80):
+    """The board's "waiting for the transfer" chip, and accounting's worklist:
+    pickable-in-every-other-way orders whose bank transfer is not posted."""
+    from frappe.utils import now_datetime
+    rows = frappe.db.sql(
+        f"""SELECT so.name, so.customer_name customer, so.grand_total total,
+                   COALESCE(so.advance_paid, 0) paid, so.custom_customer_phone phone,
+                   TIMESTAMPDIFF(HOUR, so.creation, %(now)s) age_h
+            FROM `tabSales Order` so
+            WHERE {_POOL_BASE} AND {_TRANSFER_HELD}
+            ORDER BY so.creation LIMIT %(limit)s""",
+        {"now": str(now_datetime())[:19], "limit": min(max(int(limit or 80), 1), 200)},
+        as_dict=True)
+    return {"n": len(rows),
+            "rows": [{"so": r.name, "customer": r.customer or "", "phone": r.phone or "",
+                      "total": float(r.total or 0), "paid": float(r.paid or 0),
+                      "ageH": int(r.age_h or 0)} for r in rows]}
 
 # The city FENCE (2026-09-11, Ahmed's call): an order whose city Cathedis
 # has refused — or that our AWB history has never successfully labeled —
@@ -1150,6 +1193,8 @@ def _pick_gate(name):
          "per_picked"], as_dict=True)
     if so.docstatus != 1 or so.custom_sales_status != "Confirmed":
         return "not a submitted Confirmed order"
+    if transfer_held_orders([name]):
+        return "bank transfer not confirmed by accounting yet"
     if so.custom_logistics_status not in (None, "", "Pending"):
         return f"already in the flow ({so.custom_logistics_status})"
     if frappe.db.exists("Pick List Item", {"sales_order": name, "docstatus": ["<", 2]}):
@@ -2436,6 +2481,7 @@ def suggest_batches(cap_orders=40, cap_units=None, min_mono=8, max_batches=40):
                  AND so.custom_logistics_status = 'Pending'
                  AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
                  AND NOT {_BAD_CITY}{_city_known_clause()}
+                 AND NOT {_TRANSFER_HELD}
                  AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
                                  JOIN `tabPick List` p ON p.name = pli.parent
                                  WHERE pli.sales_order = so.name AND p.docstatus < 2)

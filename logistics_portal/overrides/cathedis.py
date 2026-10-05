@@ -30,8 +30,10 @@ portal's own relabel paths import this module explicitly.
 import frappe
 
 # How the customer paid, as Shopify writes it on Sales Order.payment_type.
-# Bank transfer ("Virement bancaire") is NOT here: whether the money is in
-# before the parcel leaves is not established — it stays cash on delivery.
+# Bank transfer ("Virement bancaire") is NOT here: accounting must see the
+# money first. Those orders are held out of picking until the transfer is
+# posted on the order (picking._TRANSFER_HELD); advance_paid then covers the
+# price and the label reads 0 by the integration's own arithmetic.
 PREPAID = ("Payzone Maroc",)
 ZERO = "0.0"  # the exact string the original returns for nothing to collect
 
@@ -49,7 +51,7 @@ def _note(so_name, amount):
         frappe.get_doc({
             "doctype": "Comment", "comment_type": "Comment",
             "reference_doctype": "Sales Order", "reference_name": so_name,
-            "content": f"Cathedis AWB amount set to 0 (was {amount}): paid by card — "
+            "content": f"Cathedis AWB amount set to 0 (was {amount}): already paid — "
                        "nothing to collect at the door.",
         }).insert(ignore_permissions=True)
     except Exception:
@@ -66,21 +68,29 @@ def apply():
     orig_dn = C.get_delivery_note_cash_on_delivery_amount
     orig_so = C.get_cash_on_delivery_amount
 
+    def _settle(amount, so_name, prepaid):
+        # Prepaid: nothing to collect. Otherwise a remainder under 1 MAD is the
+        # rounding of a payment posted in whole dirhams (a 186.10 order paid
+        # 186) — collecting 0.10 at the door would print it as cash on
+        # delivery; it is paid.
+        try:
+            dust = 0 < float(amount) < 1
+        except (TypeError, ValueError):
+            dust = False
+        if (prepaid or dust) and str(amount) != ZERO:
+            _note(so_name, amount)
+            return ZERO
+        return amount
+
     def get_delivery_note_cash_on_delivery_amount(self, delivery_note):
         amount = orig_dn(self, delivery_note)
         so = next((i.against_sales_order for i in (delivery_note.get("items") or [])
                    if i.get("against_sales_order")), None)
-        if so and _is_prepaid(so) and str(amount) != ZERO:
-            _note(so, amount)
-            return ZERO
-        return amount
+        return _settle(amount, so, _is_prepaid(so)) if so else amount
 
     def get_cash_on_delivery_amount(self, sales_order):
         amount = orig_so(self, sales_order)
-        if _is_prepaid(sales_order) and str(amount) != ZERO:
-            _note(sales_order.name, amount)
-            return ZERO
-        return amount
+        return _settle(amount, sales_order.name, _is_prepaid(sales_order))
 
     C.get_delivery_note_cash_on_delivery_amount = get_delivery_note_cash_on_delivery_amount
     C.get_cash_on_delivery_amount = get_cash_on_delivery_amount

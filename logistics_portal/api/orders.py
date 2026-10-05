@@ -224,10 +224,16 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
             # City fence: orders held out of the pool until a dispatcher fixes
             # the city — their own chip, so they stop hiding inside "Ready".
             from logistics_portal.api.picking import city_held as _city_held
+            from logistics_portal.api.picking import transfer_held as _transfer_held
             city_hold = _city_held(80)
             pick_buckets["city"] = city_hold["n"]
+            # Bank transfers accounting has not posted: out of Ready, on a chip.
+            transfer_hold = _transfer_held(80)
+            pick_buckets["transfer"] = transfer_hold["n"]
             if pick in ("ready", "partial", "oos", "local"):
                 pick_names = pick_avail.get(pick) or []
+            elif pick == "transfer":
+                pick_names = [r["so"] for r in transfer_hold["rows"]]
             elif pick == "city":
                 pick_names = [r["so"] for r in city_hold["rows"]]
                 # Who owes us the blocked item. The row already names WHAT is
@@ -265,6 +271,7 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
         if pick_buckets is not None:
             resp["pickBuckets"] = pick_buckets
             resp["cityHeld"] = city_hold
+            resp["transferHeld"] = transfer_hold
             if pick_names is not None and sup_facet is not None:
                 resp["suppliers"] = sup_facet
                 resp["pickSuppliers"] = {r["no"]: sup_by_order.get(r["no"], [])
@@ -681,6 +688,11 @@ _EMPTY_AVAIL = {"ready": [], "partial": [], "oos": [], "local": [],
                 "blocking": [], "localSupply": {}, "stuck": {"oos": 0, "partial": 0, "local": 0}}
 
 
+def _th_sql():
+    from logistics_portal.api.picking import _TRANSFER_HELD
+    return _TRANSFER_HELD
+
+
 def _pick_availability():
     """Stock split of the current To-Pick pool, cached 120s. Also aggregates the
     SKUs blocking the most orders (a restock worklist) and the MAD stuck out of
@@ -708,8 +720,8 @@ def _pick_availability():
                        WHERE p.docstatus < 2 GROUP BY pli.sales_order) pl ON pl.sales_order = so.name
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Pending' AND pl.sales_order IS NULL
-              AND so.creation >= %s
-            GROUP BY so.name, code, item_name, val, created""",
+              AND so.creation >= %s AND NOT {_TRANSFER_HELD}
+            GROUP BY so.name, code, item_name, val, created""".format(_TRANSFER_HELD=_th_sql()),
             (w,), as_dict=True)
         # The SAME availability the create runs — audited 2026-08-27, when raw
         # Bin math called 50 orders ready and only 12 could be picked, and again
