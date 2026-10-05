@@ -867,8 +867,10 @@ _BAD_CITY = (f"({_EFF_CITY} IS NULL "
 # (#246427, #247117). Held out of the pick pool until the transfer is posted;
 # then the order joins the pool by itself and its label says 0. The 1 MAD
 # slack is rounding: transfers are posted in whole dirhams (186 for 186.10).
-TRANSFER_PAYMENT = "Virement bancaire"
-_TRANSFER_HELD = (f"(COALESCE(so.payment_type, '') = '{TRANSFER_PAYMENT}' "
+# Both spellings, the same pair accounting_portal.api.transfers lists — the
+# hold and accounting's worklist must cover exactly the same orders.
+TRANSFER_PAYMENTS = ("Virement bancaire", "Bank Transfer")
+_TRANSFER_HELD = ("(COALESCE(so.payment_type, '') IN ('Virement bancaire', 'Bank Transfer') "
                   "AND COALESCE(so.advance_paid, 0) + 1 < so.grand_total)")
 
 # The to-pick pool predicate, identical to suggest_batches: submitted Confirmed
