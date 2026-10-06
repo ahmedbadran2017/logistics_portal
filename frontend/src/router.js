@@ -165,6 +165,7 @@ const routes = [
       { path: "slotting", name: "Slotting", component: () => import("@/pages/Slotting.vue") },
       { path: "catalog", name: "CatalogHub", component: () => import("@/pages/CatalogHub.vue") },
       { path: "batch-repair", name: "BatchRepair", component: () => import("@/pages/BatchRepair.vue") },
+      { path: "return-zone-repair", name: "ReturnZoneRepair", component: () => import("@/pages/ReturnZoneRepair.vue") },
 
       // Team
 

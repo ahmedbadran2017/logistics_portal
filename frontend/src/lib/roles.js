@@ -87,6 +87,7 @@ export const ROLE_CONFIG = {
           { to: "Weights", label: "nav.weights", icon: "scale" },
           { to: "CatalogHub", label: "nav.catalogHub", icon: "refresh-cw" },
           { to: "BatchRepair", label: "nav.batchRepair", icon: "unlock" },
+          { to: "ReturnZoneRepair", label: "nav.returnZoneRepair", icon: "undo-2" },
         ],
       },
       {
