@@ -29,13 +29,26 @@
               <div class="text-[12.5px] text-stone-600 mt-1">{{ detailSubtitle }}</div>
             </div>
           </div>
-          <button
-            class="inline-flex items-center gap-1.5 px-3 h-9 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300 disabled:opacity-50"
-            :disabled="printingSheet"
-            @click="printDetailSheet"
-          >
-            <Icon name="printer" :size="13" /> {{ t("shp.printSheet") }}
-          </button>
+          <div class="flex items-center gap-2">
+            <!-- Submitting a draft manifest, including a past day's, without
+                 the Desk. Two taps: the first arms it, the second submits. -->
+            <button v-if="openSh.status === 'Draft' && canSubmit"
+              class="inline-flex items-center gap-1.5 px-3 h-9 text-[12.5px] font-semibold rounded-lg text-white disabled:opacity-50"
+              :class="submitArmed ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'"
+              :disabled="submitting"
+              @click="submitDraft"
+            >
+              <Icon name="send" :size="13" />
+              {{ submitting ? t("shp.submitting") : submitArmed ? t("shp.submitConfirm") : t("shp.submit") }}
+            </button>
+            <button
+              class="inline-flex items-center gap-1.5 px-3 h-9 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300 disabled:opacity-50"
+              :disabled="printingSheet"
+              @click="printDetailSheet"
+            >
+              <Icon name="printer" :size="13" /> {{ t("shp.printSheet") }}
+            </button>
+          </div>
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
@@ -289,12 +302,36 @@ import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { CARRIER, WAREHOUSE, fmtMAD } from "@/lib/handoffData";
-import { api, liveOr } from "@/lib/resource";
+import { api, apiPost, liveOr } from "@/lib/resource";
+import { useAuth } from "@/composables/useAuth";
 import { printManifestSheet } from "@/lib/manifestPrint";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
 
 const { t } = useI18n();
+const { success: toastOk, warn: toastWarn } = useToast();
+const { role } = useAuth();
+const canSubmit = computed(() => ["dispatcher", "manager"].includes(role.value));
+const submitArmed = ref(false);
+const submitting = ref(false);
+async function submitDraft() {
+  const s = openSh.value;
+  if (!s || submitting.value) return;
+  if (!submitArmed.value) { submitArmed.value = true; setTimeout(() => { submitArmed.value = false; }, 4000); return; }
+  submitArmed.value = false;
+  submitting.value = true;
+  try {
+    const r = await apiPost("shipping.submit_manifest", { name: s.no });
+    toastOk(t("shp.submitted"), `${r.shipment} · ${r.parcels} ${t("shp.parcelsShort")}`
+      + (r.dropped ? ` · ${r.dropped} ${t("shp.droppedShort")}` : ""));
+    const live = await liveOr(null, () => api("shipping.shipments", { limit: 30 }));
+    if (Array.isArray(live) && live.length) shipments.value = live;
+  } catch (e) {
+    toastWarn(t("shp.submitFail"), String(e.message || e));
+  } finally {
+    submitting.value = false;
+  }
+}
 
 const q = ref("");
 const filter = ref("all");

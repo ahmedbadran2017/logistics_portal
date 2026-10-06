@@ -3,7 +3,7 @@
 import json
 
 import frappe
-from frappe.utils import getdate, nowdate
+from frappe.utils import add_days, getdate, now_datetime, nowdate
 
 
 def capture_packer(doc, method=None):
@@ -754,10 +754,15 @@ def _open_or_new_manifest():
         return sh
 
 
-def _prune_manifest_rows(sh):
+def _prune_manifest_rows(sh, keep_departed=False):
     """Drop parcels that can no longer ship (DN cancelled, already delivered /
     returned, or already on a SUBMITTED Shipment) and recompute the value.
-    Returns the number of rows dropped."""
+    Returns the number of rows dropped.
+
+    keep_departed: closing a PAST day's manifest. Its delivered and returned
+    parcels did leave on it — dropping them would leave the handover record
+    short and their invoices never drafted. Only cancelled notes and parcels
+    already on another submitted manifest go."""
     rows = sh.get("shipment_delivery_note") or []
     keep = []
     for r in rows:
@@ -766,7 +771,8 @@ def _prune_manifest_rows(sh):
             ["docstatus", "custom_track_shipment_status"], as_dict=True)
         if not dn or dn.docstatus != 1:
             continue
-        if (dn.custom_track_shipment_status or "") in ("Delivered", "Returned", "Received"):
+        if not keep_departed and \
+                (dn.custom_track_shipment_status or "") in ("Delivered", "Returned", "Received"):
             continue
         dup = frappe.db.sql(
             """SELECT 1 FROM `tabShipment Delivery Note` sdn
@@ -1011,9 +1017,101 @@ def on_manifest_submit(doc, method=None):
     if (doc.get("delivery_customer") or "") != "CATHEDIS":
         return
     try:
+        _snapshot_departed(doc)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "shipping.snapshot_departed")
+    try:
         _record_shortfall(doc.name)
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "shipping.on_manifest_submit")
+
+
+# ── A manifest submit must not rewind parcels that already arrived ──────────
+#
+# codx_erp's Shipment on_submit enqueues update_shipment_documents, which sets
+# custom_logistics_status = 'Shipped' on EVERY delivery note and order on the
+# manifest, whatever they say now. A manifest submitted the same evening finds
+# them all still in the building, so that is right. One submitted days late —
+# the Desk habit of closing yesterday's at noon — finds most of them Delivered
+# or Returned already and rewinds them: 276 orders since mid-August read
+# Shipped while the carrier says Delivered, and the hourly carrier sync never
+# repairs it (the carrier and our tracking field agree; only the logistics
+# field is wrong). SH-000289 alone would have rewound 228.
+#
+# So the submit photographs every parcel past Shipped, and the restore puts
+# those back once the background update has run. The photograph is kept for
+# two days and the restore is idempotent: it only touches a document that the
+# rewind left at 'Shipped'.
+_DEPARTED = ("Delivered", "Returned")
+_SNAP_PREFIX = "lp_departed:"
+
+
+def _snapshot_departed(sh):
+    dns = [r.delivery_note for r in (sh.get("shipment_delivery_note") or []) if r.delivery_note]
+    if not dns:
+        return
+    dn_st = {r[0]: r[1] for r in frappe.db.sql(
+        """SELECT name, custom_logistics_status FROM `tabDelivery Note`
+           WHERE name IN %s AND custom_logistics_status IN %s""", (tuple(dns), _DEPARTED))}
+    so_st = {r[0]: r[1] for r in frappe.db.sql(
+        """SELECT DISTINCT so.name, so.custom_logistics_status
+           FROM `tabDelivery Note Item` di JOIN `tabSales Order` so ON so.name = di.against_sales_order
+           WHERE di.parent IN %s AND so.custom_logistics_status IN %s""", (tuple(dns), _DEPARTED))}
+    if dn_st or so_st:
+        frappe.db.set_default(_SNAP_PREFIX + sh.name, json.dumps(
+            {"at": str(now_datetime())[:19], "dn": dn_st, "so": so_st}))
+    frappe.enqueue("logistics_portal.api.shipping.restore_departed", queue="long",
+                   enqueue_after_commit=True, job_name=f"lp_restore_departed_{sh.name}")
+
+
+def restore_departed():
+    """Put back the statuses a manifest submit rewound. Runs right after a
+    submit and with every hourly carrier sync (the background rewind may land
+    after the first try). Two passes:
+
+      * every photographed parcel still at 'Shipped' goes back to what it was;
+      * any order or note left at 'Shipped' while its carrier status is
+        Delivered goes to Delivered — the rewinds from before the photograph
+        existed. Returned is never inferred: it is set by the return flow and
+        a carrier status cannot say it.
+    Returns how many documents were put back."""
+    fixed = 0
+    rows = frappe.db.sql(
+        "SELECT defkey, defvalue FROM `tabDefaultValue` WHERE parent = '__default' AND defkey LIKE %s",
+        (_SNAP_PREFIX + "%",))
+    for key, val in rows:
+        try:
+            snap = json.loads(val or "{}")
+        except Exception:
+            snap = {}
+        for dt, field in (("Delivery Note", "dn"), ("Sales Order", "so")):
+            for name, st in (snap.get(field) or {}).items():
+                if st not in _DEPARTED:
+                    continue
+                frappe.db.sql(
+                    f"""UPDATE `tab{dt}` SET custom_logistics_status = %s
+                        WHERE name = %s AND docstatus = 1 AND custom_logistics_status = 'Shipped'""",
+                    (st, name))
+                fixed += _affected()
+        if (snap.get("at") or "") < str(add_days(now_datetime(), -2))[:19]:
+            frappe.db.sql("DELETE FROM `tabDefaultValue` WHERE parent = '__default' AND defkey = %s",
+                          (key,))
+    for dt in ("Sales Order", "Delivery Note"):
+        frappe.db.sql(
+            f"""UPDATE `tab{dt}` SET custom_logistics_status = 'Delivered'
+                WHERE docstatus = 1 AND custom_logistics_status = 'Shipped'
+                  AND custom_track_shipment_status = 'Delivered'
+                  AND creation >= %s""", (add_days(nowdate(), -90),))
+        fixed += _affected()
+    frappe.db.commit()
+    return fixed
+
+
+def _affected():
+    try:
+        return int(frappe.db._cursor.rowcount or 0)
+    except Exception:
+        return 0
 
 
 def _record_shortfall(shipment):
@@ -1196,6 +1294,43 @@ def manifest_remove(dn):
         frappe.db.commit()
         return {"ok": True, "count": len(rows),
                 "manifestValue": float(sh.value_of_goods or 0)}
+
+
+@frappe.whitelist(methods=["POST"])
+def submit_manifest(name):
+    """Submit a DRAFT Cathedis manifest from the portal — including a past
+    day's, which close_manifest deliberately refuses (it only closes today's
+    so a scan can never resurrect an old draft by accident). This is the
+    explicit act on one named manifest, the one the Desk was used for.
+    Dispatcher/manager only.
+
+    A past day's manifest keeps its delivered and returned parcels (they left
+    on it), and the submit photographs their statuses so the codx rewind to
+    'Shipped' is undone (restore_departed)."""
+    from logistics_portal.api.auth import resolve_role
+    from logistics_portal.api.locks import named_lock
+
+    if resolve_role(frappe.session.user) not in ("dispatcher", "manager"):
+        frappe.throw("Only a dispatcher or manager can submit a manifest.", frappe.PermissionError)
+    name = (name or "").strip()
+    with named_lock("manifest", timeout=30):
+        sh = frappe.get_doc("Shipment", name)
+        if sh.docstatus != 0:
+            frappe.throw(f"{name} is not a draft.")
+        if (sh.get("delivery_customer") or "") != "CATHEDIS":
+            frappe.throw(f"{name} is not a Cathedis manifest.")
+        past = bool(sh.pickup_date) and str(sh.pickup_date) < nowdate()
+        dropped = _prune_manifest_rows(sh, keep_departed=past)
+        if not sh.get("shipment_delivery_note"):
+            frappe.throw("This manifest has no shippable parcels left.")
+        if dropped:
+            sh.save(ignore_permissions=True)
+        sh.submit()
+        frappe.db.commit()
+        _save_manifest_template(sh)
+        _bust_ship_caches()
+    return {"ok": True, "shipment": sh.name, "parcels": len(sh.shipment_delivery_note),
+            "dropped": dropped, "value": round(float(sh.value_of_goods or 0), 2)}
 
 
 def _bust_ship_caches():

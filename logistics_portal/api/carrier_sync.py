@@ -463,6 +463,15 @@ def run(force=False):
         except Exception:
             frappe.db.rollback()
             frappe.log_error(frappe.get_traceback()[-2500:], "carrier_sync.reconcile")
+        # A manifest submitted late rewinds its parcels to 'Shipped'
+        # (shipping.restore_departed); this is the pass that always runs
+        # after that background rewind has landed.
+        try:
+            from logistics_portal.api.shipping import restore_departed
+            out["restored"] = restore_departed()
+        except Exception:
+            frappe.db.rollback()
+            frappe.log_error(frappe.get_traceback()[-2000:], "carrier_sync.restore_departed")
         out["seconds"] = int((now_datetime() - started).total_seconds())
     except Exception as e:
         frappe.db.rollback()
