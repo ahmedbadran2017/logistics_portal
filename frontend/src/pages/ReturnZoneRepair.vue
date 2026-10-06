@@ -172,7 +172,7 @@ async function act(r, kind) {
     // The same item can sit on several sheet lines: refresh the numbers so the
     // next button offers only what is still missing.
     const again = await apiPost("return_zone_repair.check", {
-      lines: JSON.stringify(rows.value.filter((x) => !x.done).map((x) => ({ sku: x.sku, order: x.orderRaw, qty: x.qty }))),
+      lines: JSON.stringify(rows.value.filter((x) => !x.done).map((x) => ({ sku: x.sku, order: x.orderRaw, qty: x.qty, item: x.item }))),
     });
     const fresh = again.rows || [];
     let i = 0;

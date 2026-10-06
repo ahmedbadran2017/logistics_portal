@@ -56,7 +56,8 @@ def _gate():
 
 def _parse(lines):
     """[{sku, order, qty}] from a list or from text pasted out of a sheet
-    (SKU, order, qty per line; tab, '|', ';' or ','). A cell holding
+    (SKU, order, qty per line; tab, '|', ';' or ','; an order alone is
+    expanded to its items by _expand). A cell holding
     several SKUs ('600024333 /600009368') becomes one line per SKU."""
     if isinstance(lines, str):
         try:
@@ -80,7 +81,8 @@ def _parse(lines):
         qty = max(int(l.get("qty") or 1), 1)
         per = qty // len(skus) if qty % len(skus) == 0 else qty
         for s in skus:
-            out.append({"sku": s, "order": str(l.get("order") or "").strip(), "qty": per})
+            out.append({"sku": s, "order": str(l.get("order") or "").strip(), "qty": per,
+                        "item": str(l.get("item") or "").strip()})
     return out[:500]
 
 
@@ -189,8 +191,24 @@ def _line(code, so):
             "came": came, "collected": collected}
 
 
+def _expand(l):
+    """A line that names an order and no SKU (a bare '#241854' pasted alone)
+    becomes one line per item of that order, at the quantity it shipped."""
+    if l["order"] or _items_for(l["sku"]):
+        return [l]
+    so = _resolve_order(l["sku"], None)
+    if not so:
+        return [l]
+    items = frappe.db.sql(
+        """SELECT soi.item_code, IFNULL(NULLIF(i.custom_sku, ''), soi.item_code), SUM(soi.qty)
+           FROM `tabSales Order Item` soi LEFT JOIN `tabItem` i ON i.name = soi.item_code
+           WHERE soi.parent = %s GROUP BY soi.item_code ORDER BY MIN(soi.idx)""", (so,))
+    return [{"sku": sku, "item": code, "order": so, "qty": max(int(flt(q)), 1)}
+            for code, sku, q in items] or [l]
+
+
 def _row(l):
-    codes = _items_for(l["sku"])
+    codes = [l["item"]] if l.get("item") and frappe.db.exists("Item", l["item"]) else _items_for(l["sku"])
     out = {"sku": l["sku"], "orderRaw": l["order"], "qty": l["qty"], "order": "", "item": "",
            "name": "", "supplier": "", "crossdock": False}
     if not codes:
@@ -229,7 +247,7 @@ def _row(l):
 def check(lines):
     """Every sheet line with what the books say about it and what can be done."""
     _gate()
-    rows = [_row(l) for l in _parse(lines)]
+    rows = [_row(x) for l in _parse(lines) for x in _expand(l)][:500]
     tally = {}
     for r in rows:
         tally[r["status"]] = tally.get(r["status"], 0) + r["qty"]

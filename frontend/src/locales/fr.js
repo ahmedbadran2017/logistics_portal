@@ -3171,7 +3171,7 @@ export default {
     title: "Réparation zone retour",
     intro: "Retours destinés aux fournisseurs, présents en Return Zone mais absents du stock. Collez les lignes de la feuille, vérifiez, puis remettez chaque pièce : un inventaire l'a mise à 0, ou son retour n'a jamais été enregistré. La remise au fournisseur reste sur Reprise fournisseur.",
     pastePh: "SKU ⇥ Commande ⇥ Qté — collez directement depuis la feuille, une ligne par pièce",
-    pasteHint: "Colonnes : SKU, commande (#263168, SAL-ORD-2026-01747…), qté. Plusieurs SKU dans une cellule sont séparés.",
+    pasteHint: "Colonnes : SKU, commande (#263168, SAL-ORD-2026-01747…), qté. Plusieurs SKU dans une cellule sont séparés. Un numéro de commande seul vérifie tous ses articles.",
     check: "Vérifier",
     checking: "Vérification…",
     all: "Tout",

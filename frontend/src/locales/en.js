@@ -3178,7 +3178,7 @@ export default {
     title: "Return Zone repair",
     intro: "Supplier-bound returns that are in Return Zone but not on the books. Paste the sheet lines, check, then put each piece back: a count zeroed it, or its return was never booked. Handing it to the supplier stays on Supplier pickup.",
     pastePh: "SKU ⇥ Order ⇥ Qty — paste straight from the sheet, one line per piece",
-    pasteHint: "Columns: SKU, order (#263168, SAL-ORD-2026-01747…), qty. Several SKUs in one cell are split.",
+    pasteHint: "Columns: SKU, order (#263168, SAL-ORD-2026-01747…), qty. Several SKUs in one cell are split. An order number alone checks every item of that order.",
     check: "Check",
     checking: "Checking…",
     all: "All",
