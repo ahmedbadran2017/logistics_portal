@@ -89,7 +89,41 @@ class PickList(_Base):
                 frappe.msgprint(
                     "Removed — bank transfer not confirmed by accounting yet: "
                     + ", ".join(sorted(held)), indicator="orange", alert=True)
+        # An order cancelled while its list was being picked must leave the
+        # list at the submit: the submit is what creates every order's
+        # Delivery Note and books its carrier label. Stop told the floor to
+        # pull the piece but left the row on the list, so the submit cut a
+        # label for it anyway — #264068 cancelled 11:29, labelled 11:56 with
+        # its list (PL-56599), five times since 2026-09-22, one of them now
+        # In Transit. The sort wall already sends the piece to the stop bin;
+        # the row goes with it.
+        if getattr(self, "_action", "") == "submit" and self.get("locations"):
+            from logistics_portal.api.stop import stopped_set
+            stopped = stopped_set({l.sales_order for l in self.locations if l.sales_order})
+            if stopped:
+                keep = [l for l in self.locations if l.sales_order not in stopped]
+                if not keep:
+                    frappe.throw("Every order on this list is cancelled — cancel the list "
+                                 "and put the pieces back instead of submitting it.")
+                self.set("locations", keep)
+                for i, l in enumerate(self.locations, start=1):
+                    l.idx = i
+                self.flags.lp_stopped_dropped = sorted(stopped)
+                frappe.msgprint(
+                    "Removed — cancelled while picking, no label will be made: "
+                    + ", ".join(sorted(stopped)), indicator="orange", alert=True)
         super().validate()
+
+    def on_submit(self):
+        super().on_submit()
+        for so in self.flags.get("lp_stopped_dropped") or []:
+            try:
+                frappe.get_doc("Sales Order", so).add_comment(
+                    "Comment", f"Removed from {self.name} at its submit — the order was cancelled "
+                               "while picking, so no Delivery Note or label was made. Its piece "
+                               "goes back to the shelf.")
+            except Exception:
+                frappe.log_error(frappe.get_traceback()[:2000], "pick_list stopped comment")
 
     def _get_required_qty_for_sales_order(self, sales_order, bundle_cache):
         packed = _packed_by_line(sales_order)

@@ -245,8 +245,10 @@ def board(hours=None, stage="", who="", stuck=0, q="", internal=False):
            WHERE ref_doctype = 'Pick List' AND docname IN %s AND data LIKE '%%"docstatus",0,1%%'
            GROUP BY docname""", (names,), as_dict=True)}
     # Orders of each list → labels (DN with AWB), packed (status), manifest, carrier.
+    from logistics_portal.api.stop import stopped_sql
     so_rows = frappe.db.sql(
         """SELECT pli.parent AS pl, pli.sales_order AS so, so.custom_logistics_status AS lstat,
+                  """ + stopped_sql("so") + """ AS stopped,
                   dn.name AS dn, dn.creation AS dn_at, NULLIF(dn.custom_awb, '') AS awb,
                   dn.custom_track_shipment_status AS track, dn.custom_assigned_packer AS packer,
                   sh.creation AS man_at, sh.name AS shipment
@@ -266,9 +268,18 @@ def board(hours=None, stage="", who="", stuck=0, q="", internal=False):
     for r in so_rows:
         p = per.setdefault(r.pl, {"orders": 0, "labels": 0, "label_first": None, "label_last": None,
                                   "packed": 0, "manifested": 0, "man_first": None, "man_last": None,
-                                  "shipped": 0, "packers": set(), "shipments": set(), "sos": []})
-        p["orders"] += 1
+                                  "shipped": 0, "packers": set(), "shipments": set(), "sos": [],
+                                  "cancelled": []})
         p["sos"].append(r.so)
+        # A cancelled order that never left is not work this list owes: it
+        # will never be packed or manifested, and counting it kept PL-56599
+        # and PL-56601 "stuck at Packed" forever (2026-10-06, one cancelled
+        # order each). It is shown on its own instead — its piece has to go
+        # back to the shelf. One that did leave stays counted: it is real.
+        if int(r.stopped or 0) and not r.man_at:
+            p["cancelled"].append(r.so)
+            continue
+        p["orders"] += 1
         if r.awb:
             p["labels"] += 1
             p["label_first"] = min(p["label_first"] or r.dn_at, r.dn_at)
@@ -291,18 +302,24 @@ def board(hours=None, stage="", who="", stuck=0, q="", internal=False):
         s = scans.get(h.name) or frappe._dict()
         p = per.get(h.name) or {"orders": int(h.orders or 0), "labels": 0, "label_first": None, "label_last": None,
                                 "packed": 0, "manifested": 0, "man_first": None, "man_last": None,
-                                "shipped": 0, "packers": set(), "shipments": set(), "sos": []}
-        orders = max(int(h.orders or 0), 1)
+                                "shipped": 0, "packers": set(), "shipments": set(), "sos": [], "cancelled": []}
+        # The doors after the submit count the orders still owed; the units
+        # (picking, sorting) still count everything that was on the list.
+        live = int(h.orders or 0) - len(p["cancelled"])
+        orders = max(live, 1)
         qty = float(h.qty or 0)
         scanned = min(float(h.scanned or 0), qty)
         sorted_qty = min(float(h.sorted_qty or 0), qty)
         submitted = submits.get(h.name) or (h.modified if h.docstatus == 1 else None)
-        needs_sort = orders > 1
+        needs_sort = int(h.orders or 0) > 1
         # Which door is open, and since when.
         if h.docstatus == 0 and not s.get("pick_first") and scanned == 0:
             stage, since = "to_pick", h.creation
         elif h.docstatus == 0:
             stage, since = "picking", s.get("pick_first") or h.creation
+        elif live <= 0:
+            # Every order on it was cancelled: nothing left to send.
+            stage, since = "shipped", submitted or h.modified
         elif needs_sort and sorted_qty < qty and p["labels"] < orders:
             stage, since = "sorting", submitted or h.modified
         elif p["labels"] < orders:
@@ -358,6 +375,7 @@ def board(hours=None, stage="", who="", stuck=0, q="", internal=False):
                 "shipped": {"at": "", "done": p["shipped"] >= orders, "n": p["shipped"], "of": orders},
             },
             "orderNames": p["sos"][:12],
+            "cancelled": p["cancelled"],
         })
 
     names_map = {}
@@ -422,6 +440,85 @@ def board(hours=None, stage="", who="", stuck=0, q="", internal=False):
     return {"rows": out[:250], "total": len(rows), "stages": strip, "pickers": picker_opts,
             "people": sorted(ppl.values(), key=lambda d: (d["idleMin"] if d["idleMin"] is not None else 9999)),
             "now": _f(now), "settings": cfg}
+
+
+_PACKED = ("Label Printed", "Shipped", "In Transit", "Delivered", "Returned")
+# The door each order is held at, in the order a list walks through them.
+_HOLD = ("cancelled", "not_picked", "not_sorted", "no_label", "not_packed", "not_manifested", "done")
+
+
+@frappe.whitelist()
+def list_orders(pick_list):
+    """One list opened up: every order on it, the door it is held at and why.
+    The board says "41/42 packed"; this names the one, with the evidence
+    (its scans, its DN and label, its manifest) read the same way board() does."""
+    _gate()
+    pick_list = (pick_list or "").strip()
+    head = frappe.db.get_value("Pick List", pick_list, ["name", "docstatus"], as_dict=True)
+    if not head:
+        frappe.throw("Unknown pick list.")
+    from logistics_portal.api.stop import stopped_sql
+    lines = frappe.db.sql(
+        """SELECT pli.sales_order AS so, SUM(pli.qty) AS qty,
+                  SUM(COALESCE(pli.custom_scanned_qty, 0)) AS scanned,
+                  SUM(COALESCE(pli.custom_sorted_qty, 0)) AS sorted_qty,
+                  GROUP_CONCAT(DISTINCT pli.warehouse) AS shelves,
+                  MAX(so.customer_name) AS customer, MAX(so.custom_logistics_status) AS lstat,
+                  MAX(so.custom_sales_status) AS sales,
+                  MAX(""" + stopped_sql("so") + """) AS stopped
+           FROM `tabPick List Item` pli
+           LEFT JOIN `tabSales Order` so ON so.name = pli.sales_order
+           WHERE pli.parent = %s GROUP BY pli.sales_order""", (pick_list,), as_dict=True)
+    sos = tuple(l.so for l in lines if l.so) or ("",)
+    dns = {}
+    for r in frappe.db.sql(
+            """SELECT dni.against_sales_order AS so, d.name, d.docstatus, NULLIF(d.custom_awb, '') AS awb,
+                      d.custom_assigned_packer AS packer, d.creation
+               FROM `tabDelivery Note Item` dni JOIN `tabDelivery Note` d ON d.name = dni.parent
+               WHERE d.is_return = 0 AND d.docstatus < 2 AND dni.against_sales_order IN %s
+               GROUP BY dni.against_sales_order, d.name ORDER BY d.creation""", (sos,), as_dict=True):
+        dns.setdefault(r.so, r)
+    man = {}
+    names = tuple(d.name for d in dns.values()) or ("",)
+    for r in frappe.db.sql(
+            """SELECT sdn.delivery_note AS dn, s.name, s.docstatus FROM `tabShipment Delivery Note` sdn
+               JOIN `tabShipment` s ON s.name = sdn.parent
+               WHERE sdn.delivery_note IN %s AND s.docstatus < 2 ORDER BY s.docstatus DESC""",
+            (names,), as_dict=True):
+        man.setdefault(r.dn, r)
+    needs_sort = len(lines) > 1
+    out = []
+    for l in lines:
+        dn = dns.get(l.so) or frappe._dict()
+        sh = man.get(dn.name) if dn.name else None
+        manifested = bool(sh and sh.docstatus == 1)
+        qty, scanned, srt = float(l.qty or 0), float(l.scanned or 0), float(l.sorted_qty or 0)
+        if int(l.stopped or 0) and not manifested:
+            hold = "cancelled"
+        elif head.docstatus == 0:
+            hold = "not_picked" if scanned < qty else "done"
+        elif needs_sort and srt < qty and not dn.awb:
+            hold = "not_sorted"
+        elif not dn.awb:
+            hold = "no_label"
+        elif (l.lstat or "") not in _PACKED and not manifested:
+            hold = "not_packed"
+        elif not manifested:
+            hold = "not_manifested"
+        else:
+            hold = "done"
+        out.append({"order": l.so, "customer": l.customer or "", "hold": hold,
+                    "qty": int(qty), "scanned": int(min(scanned, qty)), "sorted": int(min(srt, qty)),
+                    "shelves": (l.shelves or "").split(",")[:3], "status": l.lstat or "",
+                    "sales": l.sales or "", "dn": dn.name or "", "dnDraft": dn.docstatus == 0 if dn.name else False,
+                    "awb": dn.awb or "", "packer": dn.packer or "",
+                    "shipment": sh.name if sh else "", "shipmentDraft": bool(sh and sh.docstatus == 0)})
+    rank = {k: i for i, k in enumerate(_HOLD)}
+    out.sort(key=lambda o: (rank[o["hold"]], o["order"]))
+    tally = {}
+    for o in out:
+        tally[o["hold"]] = tally.get(o["hold"], 0) + 1
+    return {"pickList": pick_list, "docstatus": head.docstatus, "orders": out, "tally": tally}
 
 
 # ---------------------------------------------------------------------------

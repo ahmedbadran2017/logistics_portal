@@ -867,6 +867,7 @@ async function doSubmit() {
   try {
     const res = await apiPost("picking.submit_pick_list", { name: detail.value.no });
     success(t("pl.submitOk").replace("{awb}", res.awb || "—"));
+    if (res.stopped?.length) warn(t("pl.stoppedOff"), res.stopped.join(" · "));
     detail.value = null;      // back to the list; it's off to shipping now
     load();
   } catch (e) { warn("Couldn't submit the pick list", String(e.message || e)); }

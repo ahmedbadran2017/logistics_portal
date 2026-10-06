@@ -132,6 +132,7 @@
               <span v-if="r.pickerName" class="inline-flex items-center gap-1 text-[10.5px] font-semibold rounded-full px-2 py-0.5 bg-amber-50 text-amber-800 ring-1 ring-amber-200" :title="t('pulse.picker')"><Icon name="user" :size="10" />{{ r.pickerName }}</span>
               <span v-if="r.sorterName" class="inline-flex items-center gap-1 text-[10.5px] font-semibold rounded-full px-2 py-0.5 bg-sky-50 text-sky-800 ring-1 ring-sky-200" :title="t('pulse.sorter')"><Icon name="layout-grid" :size="10" />{{ r.sorterName }}</span>
               <span v-if="r.packerName" class="inline-flex items-center gap-1 text-[10.5px] font-semibold rounded-full px-2 py-0.5 bg-violet-50 text-violet-800 ring-1 ring-violet-200" :title="t('pulse.packer')"><Icon name="package-check" :size="10" />{{ r.packerName }}</span>
+              <span v-if="r.cancelled && r.cancelled.length" class="inline-flex items-center gap-1 text-[10.5px] font-semibold rounded-full px-2 py-0.5 bg-rose-50 text-rose-700 ring-1 ring-rose-200" :title="r.cancelled.join(' · ')"><Icon name="circle-x" :size="10" />{{ r.cancelled.length }} {{ t('pulse.cancelledShort') }}</span>
             </div>
           </div>
 
@@ -186,10 +187,48 @@
               <button v-if="r.reason" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50 inline-flex items-center gap-1 disabled:opacity-50" :disabled="busy === r.name" :title="t('pulse.snoozeHint')" @click="doSnooze(r)"><Icon name="circle-pause" :size="11" />{{ t('pulse.snooze') }}</button>
               <RouterLink v-if="r.stage === 'manifest'" :to="{ name: 'Manifest' }" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-sky-700 bg-sky-50 ring-1 ring-sky-200 hover:bg-sky-100 inline-flex items-center gap-1"><Icon name="send" :size="11" />{{ t('pulse.st_manifest') }}</RouterLink>
               <RouterLink v-else-if="r.stage === 'packed' || r.stage === 'label'" :to="{ name: 'PackStation' }" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-violet-700 bg-violet-50 ring-1 ring-violet-200 hover:bg-violet-100 inline-flex items-center gap-1"><Icon name="tag" :size="11" />{{ t('pulse.packStation') }}</RouterLink>
+              <button class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 ring-1" :class="openRow === r.name ? 'bg-stone-900 text-white ring-stone-900' : 'text-stone-700 bg-white ring-stone-200 hover:bg-stone-50'" :aria-expanded="openRow === r.name" @click="toggleOrders(r)"><Icon name="list" :size="11" />{{ t('pulse.ordersBtn') }}</button>
               <RouterLink :to="{ name: 'PickLists', query: { q: r.name } }" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-stone-700 bg-white ring-1 ring-stone-200 hover:bg-stone-50 inline-flex items-center gap-1"><Icon name="package" :size="11" />{{ t('pulse.openList') }}</RouterLink>
               <a v-if="r.doors.manifest.shipments && r.doors.manifest.shipments.length" :href="'/app/shipment/' + encodeURIComponent(r.doors.manifest.shipments[0])" target="_blank" rel="noopener" class="lp-tap h-8 px-2.5 rounded-lg text-[11px] font-semibold text-sky-700 bg-sky-50 ring-1 ring-sky-200 hover:bg-sky-100 inline-flex items-center gap-1"><Icon name="send" :size="11" />{{ r.doors.manifest.shipments[0] }}</a>
             </div>
           </div>
+        </div>
+        <!-- the list opened up: which order is held where, and why -->
+        <div v-if="openRow === r.name" class="mt-3 pt-3 border-t border-stone-100">
+          <div v-if="ordersLoading" class="text-[12px] text-stone-400 py-2">{{ t('common.loading') }}</div>
+          <template v-else-if="rowOrders">
+            <div class="flex items-center gap-1.5 flex-wrap mb-2">
+              <span v-for="k in HOLDS.filter((h) => rowOrders.tally[h])" :key="k" class="text-[10.5px] font-bold rounded-full px-2 py-0.5 ring-1 tabular-nums" :class="HOLD_CLS[k]">{{ t('pulse.h_' + k) }} · {{ rowOrders.tally[k] }}</span>
+              <button v-if="rowOrders.tally.done" class="ms-auto text-[11px] font-semibold text-stone-500 hover:text-stone-800" @click="showDone = !showDone">{{ showDone ? t('pulse.hideDone') : t('pulse.showDone') }}</button>
+            </div>
+            <div v-if="!heldOrders.length" class="text-[12px] text-emerald-700 py-1">{{ t('pulse.allMoving') }}</div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-[12px]">
+                <tbody>
+                  <tr v-for="o in heldOrders" :key="o.order" class="border-b border-stone-100 last:border-0 align-top">
+                    <td class="py-1.5 pe-3 whitespace-nowrap"><span class="text-[10.5px] font-bold rounded-full px-2 py-0.5 ring-1" :class="HOLD_CLS[o.hold]">{{ t('pulse.h_' + o.hold) }}</span></td>
+                    <td class="py-1.5 pe-3 whitespace-nowrap">
+                      <a :href="'/app/sales-order/' + encodeURIComponent(o.order)" target="_blank" rel="noopener" class="font-mono font-semibold text-stone-800 hover:underline" dir="ltr">{{ o.order }}</a>
+                      <div class="text-[11px] text-stone-400 truncate max-w-[180px]">{{ o.customer }}</div>
+                    </td>
+                    <td class="py-1.5 pe-3 text-[11px] text-stone-600 tabular-nums whitespace-nowrap" dir="ltr">
+                      {{ t('pulse.st_picking') }} {{ o.scanned }}/{{ o.qty }} · {{ t('pulse.st_sorting') }} {{ o.sorted }}/{{ o.qty }}
+                      <div class="text-stone-400">{{ o.shelves.join(', ') }}</div>
+                    </td>
+                    <td class="py-1.5 pe-3 text-[11px] text-stone-600 whitespace-nowrap" dir="ltr">
+                      <a v-if="o.dn" :href="'/app/delivery-note/' + encodeURIComponent(o.dn)" target="_blank" rel="noopener" class="font-mono hover:underline">{{ o.dn }}</a><span v-else>—</span>
+                      <div v-if="o.awb" class="font-mono text-stone-500">{{ o.awb }}</div>
+                    </td>
+                    <td class="py-1.5 pe-3 text-[11px] text-stone-600 whitespace-nowrap">
+                      <span v-if="o.shipment" class="font-mono" dir="ltr">{{ o.shipment }}<span v-if="o.shipmentDraft" class="text-amber-700"> · {{ t('pulse.draft') }}</span></span>
+                      <div class="text-stone-400">{{ o.status }}</div>
+                    </td>
+                    <td class="py-1.5 text-[11px] text-stone-500 min-w-[200px]">{{ t('pulse.hh_' + o.hold) }}<span v-if="o.hold === 'cancelled' && o.awb" class="text-rose-700 font-semibold"> {{ t('pulse.cancelledLabelled') }}</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
         </div>
       </article>
     </section>
@@ -246,6 +285,28 @@ function useAll(pk) {
   for (const k of CFG_KEYS) { const v = meas.value.keys[k]; if (v && v.n && v[pk]) cfg.value[k] = v[pk]; }
 }
 const reassignFor = ref("");
+// One list opened at a time: its orders, each with the door it is held at.
+const HOLDS = ["cancelled", "not_picked", "not_sorted", "no_label", "not_packed", "not_manifested", "done"];
+const HOLD_CLS = {
+  cancelled: "bg-rose-50 text-rose-700 ring-rose-200", not_picked: "bg-amber-50 text-amber-800 ring-amber-200",
+  not_sorted: "bg-sky-50 text-sky-800 ring-sky-200", no_label: "bg-orange-50 text-orange-800 ring-orange-200",
+  not_packed: "bg-violet-50 text-violet-800 ring-violet-200", not_manifested: "bg-indigo-50 text-indigo-800 ring-indigo-200",
+  done: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+};
+const openRow = ref("");
+const rowOrders = ref(null);
+const ordersLoading = ref(false);
+const showDone = ref(false);
+const heldOrders = computed(() => (rowOrders.value?.orders || []).filter((o) => showDone.value || o.hold !== "done"));
+async function toggleOrders(r) {
+  if (openRow.value === r.name) { openRow.value = ""; rowOrders.value = null; return; }
+  openRow.value = r.name; rowOrders.value = null; showDone.value = false; ordersLoading.value = true;
+  try {
+    const res = await api("pulse.list_orders", { pick_list: r.name });
+    if (openRow.value === r.name) rowOrders.value = res;
+  } catch (e) { warn(t("mv.loadFail"), String(e.message || e)); openRow.value = ""; }
+  finally { ordersLoading.value = false; }
+}
 // Who answers for the door a list stands at.
 function responsible(r) {
   if (r.stage === "to_pick" || r.stage === "picking") return r.picker;

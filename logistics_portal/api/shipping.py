@@ -181,6 +181,11 @@ def retry_awb(order):
             break
     if not name:
         frappe.throw("Unknown order.")
+    # The re-run creates Delivery Notes for the whole list; a cancelled order
+    # wants no label at all (same rule as picking.relabel_order).
+    from logistics_portal.api.picking import is_stopped
+    if is_stopped(name):
+        frappe.throw("This order is cancelled — it gets no label.")
     if frappe.db.get_value("Sales Order", name, "custom_awb"):
         return {"ok": True, "already": True,
                 "awb": frappe.db.get_value("Sales Order", name, "custom_awb")}

@@ -1769,7 +1769,7 @@ def submit_pick_list(name):
         (name,))[0][0]
     awb = frappe.db.get_value("Delivery Note", dn, "custom_awb") if dn else None
     return {"ok": True, "pl": name, "dn": dn or "", "awb": awb or "",
-            "dropped": dropped}
+            "dropped": dropped, "stopped": pl.flags.get("lp_stopped_dropped") or []}
 
 
 @frappe.whitelist()

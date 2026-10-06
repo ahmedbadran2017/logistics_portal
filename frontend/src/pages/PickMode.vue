@@ -258,6 +258,7 @@ async function finish() {
   try {
     const res = await apiPost("picking.submit_pick_list", { name: props.id });
     success(t("pickm.done"), res?.awb ? `AWB ${res.awb}` : props.id);
+    if (res?.stopped?.length) warn(t("pl.stoppedOff"), res.stopped.join(" · "));
     router.push({ name: "Queue" });
   } catch (e) {
     warn(t("pickm.submitFail"), String(e.message || e));

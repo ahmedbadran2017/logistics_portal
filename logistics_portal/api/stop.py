@@ -154,6 +154,16 @@ def stopped_sql(so_col):
     return "(" + cond + ")"
 
 
+def stopped_set(orders):
+    """Which of these order names must not move (stopped_sql, in one query)."""
+    orders = tuple({o for o in (orders or ()) if o})
+    if not orders:
+        return set()
+    return set(frappe.db.sql_list(
+        f"SELECT s.name FROM `tabSales Order` s WHERE s.name IN %s AND {stopped_sql('s')}",
+        (orders,)))
+
+
 def open_orders(orders):
     """Which of these order names have a live stop request."""
     if not orders or not have_table():
