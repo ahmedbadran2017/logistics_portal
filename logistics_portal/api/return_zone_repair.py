@@ -155,7 +155,10 @@ def _zone(code):
            FROM `tabStock Reconciliation Item` sri
            JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent
            WHERE sr.docstatus = 1 AND sri.warehouse = %s AND sri.item_code = %s
-             AND sri.qty > sri.current_qty AND IFNULL(sr.remarks, '') LIKE %s""",
+             AND sri.qty > sri.current_qty
+             AND EXISTS (SELECT 1 FROM `tabComment` c
+                         WHERE c.reference_doctype = 'Stock Reconciliation'
+                           AND c.reference_name = sr.name AND c.content LIKE %s)""",
         (RZ, code, TAG + "%"))[0][0])
     zeroed = flt(z[0])
     missing = max(expected - current, 0)
@@ -283,17 +286,20 @@ def restore(item_code, qty, order=""):
             frappe.throw(f"{order} has no returned, not-handed-back piece of {item_code}.")
     rate = z["rate"] or flt(frappe.db.get_value("Bin", {"warehouse": RZ, "item_code": item_code}, "valuation_rate")) \
         or flt(frappe.db.get_value("Item", item_code, "valuation_rate"))
+    # Stock Reconciliation has no remarks column here: the tag that _zone()
+    # counts as "already put back" is a comment on the document.
+    why = (f"{TAG}: put back {qty:g} wrongly zeroed by {z['count'] or 'a count'}"
+           + (f" — order {order}" if order else "") + f" — {frappe.session.user}")
     sr = frappe.get_doc({
         "doctype": "Stock Reconciliation", "company": COMPANY, "purpose": "Stock Reconciliation",
         "posting_date": nowdate(), "set_posting_time": 0,
-        "remarks": f"{TAG}: put back {qty:g} wrongly zeroed by {z['count'] or 'a count'}"
-                   + (f" — order {order}" if order else "") + f" — {frappe.session.user}",
         "items": [{"item_code": item_code, "warehouse": RZ, "qty": z["current"] + qty,
                    "valuation_rate": rate, "allow_zero_valuation_rate": 0 if rate else 1}],
     })
     sr.flags.ignore_permissions = True
     sr.insert()
     sr.submit()
+    sr.add_comment("Comment", why)
     _note(order, f"{qty:g} × {item_code} put back in {RZ} ({sr.name}) — zeroed by {z['count'] or 'a count'}")
     frappe.db.commit()
     return {"ok": True, "doc": sr.name, "qty": qty, "rate": rate}
@@ -323,10 +329,10 @@ def register_return(order, item_code, qty):
     doc.set_warehouse = RZ
     doc.posting_date = nowdate()
     doc.set_posting_time = 0
-    doc.remarks = f"{TAG}: customer return booked late — {frappe.session.user}"
     doc.flags.ignore_permissions = True
     doc.insert(ignore_permissions=True)
     doc.submit()
+    doc.add_comment("Comment", f"{TAG}: customer return booked late — {frappe.session.user}")
     _note(order, f"{qty:g} × {item_code} booked as returned into {RZ} ({doc.name})")
     frappe.db.commit()
     return {"ok": True, "doc": doc.name, "qty": qty}
