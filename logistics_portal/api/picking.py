@@ -540,6 +540,28 @@ _PICKER_ID = {
 }
 
 
+def _picker_roster():
+    """{email: short id} — everyone who can be handed a pick list.
+
+    It used to be _PICKER_ID alone, a list typed into the code: a picker added
+    on the Team page (Chaimaa, 2026-10-06) never reached the assignment
+    dropdown, and Zineb — a picker since February — never had. Now: the
+    people on that list (they pick whatever their portal role says), plus
+    anyone whose role is picker or packer, by the field or the seed map. A
+    disabled account, or one whose role was set to none, is left out."""
+    from logistics_portal.api.auth import SEED_ROLES, resolve_role
+    cands = dict(_PICKER_ID)
+    for u in frappe.get_all("User", pluck="name", filters={
+            "enabled": 1, "custom_logistics_role": ["in", ["picker", "packer"]]}):
+        cands.setdefault(u, u.split("@")[0].lower())
+    for u, r in SEED_ROLES.items():
+        if r in ("picker", "packer"):
+            cands.setdefault(u, u.split("@")[0].lower())
+    enabled = set(frappe.get_all("User", pluck="name", filters={
+        "enabled": 1, "name": ["in", list(cands)]}))
+    return {u: pid for u, pid in cands.items() if u in enabled and resolve_role(u)}
+
+
 @frappe.whitelist()
 def pick_lists(status="", q="", days=7, limit=30, offset=0):
     """Windowed, paginated pick-list board (39k PLs in production — the window
@@ -2067,7 +2089,7 @@ def pickers():
         ):
             loads[r.email] = int(r.cnt or 0)
         out = []
-        for email, pid in _PICKER_ID.items():
+        for email, pid in _picker_roster().items():
             out.append({
                 "id": pid,
                 "email": email,
