@@ -193,9 +193,20 @@ def board(hours=None, stage="", who="", stuck=0, q="", internal=False):
     """Every pick list of the window with its doors, stage, age and stall."""
     if not internal:
         _gate()
+    # The loop below computes each list's `stage`; the FILTER the caller asked
+    # for must not share that name. It did: after the loop `stage` held the
+    # last list's door, the filter kept only lists at that door, and the six
+    # stuck lists of 2026-10-06 vanished from the board (and from "Stuck
+    # only") while the strip above still counted them.
+    want_stage = stage
     cfg = settings()
     hours = min(max(int(hours or cfg["hours"]), 1), 24 * 7)
     now = now_datetime()
+    # The site clock, bound as a param: the DB server's NOW() is UTC while
+    # every stored timestamp is site time (UTC+3), so a "12 hours" window
+    # written with NOW() reached back 15 — a scan from last night showed its
+    # owner "on the floor" 14 hours later.
+    site_now = str(now)[:19]
     heads = frappe.db.sql(
         """SELECT pl.name, pl.creation, pl.modified, pl.owner, pl.docstatus, pl.status,
                   pl.custom_assigned_picker AS picker,
@@ -205,10 +216,10 @@ def board(hours=None, stage="", who="", stuck=0, q="", internal=False):
                   COALESCE(SUM(pli.custom_sorted_qty), 0) AS sorted_qty
            FROM `tabPick List` pl JOIN `tabPick List Item` pli ON pli.parent = pl.name
            WHERE pl.docstatus < 2 AND COALESCE(pl.status, '') != 'Cancelled'
-             AND (pl.creation >= DATE_SUB(NOW(), INTERVAL %(h)s HOUR)
-                  OR (pl.docstatus = 0 AND pl.creation >= DATE_SUB(NOW(), INTERVAL 7 DAY)))
+             AND (pl.creation >= DATE_SUB(%(now)s, INTERVAL %(h)s HOUR)
+                  OR (pl.docstatus = 0 AND pl.creation >= DATE_SUB(%(now)s, INTERVAL 7 DAY)))
            GROUP BY pl.name ORDER BY pl.creation DESC LIMIT 400""",
-        {"h": hours}, as_dict=True)
+        {"h": hours, "now": site_now}, as_dict=True)
     if not heads:
         return {"rows": [], "stages": {s: {"n": 0, "stuck": 0, "oldestMin": 0} for s in STAGES},
                 "people": [], "now": _f(now), "settings": cfg}
@@ -371,8 +382,13 @@ def board(hours=None, stage="", who="", stuck=0, q="", internal=False):
     # People on the floor right now: last scan, current list.
     people = frappe.db.sql(
         """SELECT owner, station, MAX(creation) AS last_at, COUNT(*) AS n_today
-           FROM `tabLP Scan Event` WHERE creation >= DATE_SUB(NOW(), INTERVAL 12 HOUR)
-           GROUP BY owner, station ORDER BY last_at DESC""", as_dict=True)
+           FROM `tabLP Scan Event` WHERE creation >= DATE_SUB(%s, INTERVAL 12 HOUR)
+           GROUP BY owner, station ORDER BY last_at DESC""", (site_now,), as_dict=True)
+    # Their names too: the lookup above only knew the people on the lists.
+    missing = tuple({x.owner for x in people if x.owner and x.owner not in names_map})
+    if missing:
+        names_map.update(dict(frappe.db.sql(
+            "SELECT name, full_name FROM `tabUser` WHERE name IN %s", (missing,))))
     ppl = {}
     for x in people:
         d = ppl.setdefault(x.owner, {"user": x.owner, "name": short(x.owner) or (x.owner or "").split("@")[0],
@@ -387,8 +403,8 @@ def board(hours=None, stage="", who="", stuck=0, q="", internal=False):
 
     # Filters are applied last so the strip always shows the whole floor.
     out = rows
-    if stage in STAGES:
-        out = [r for r in out if r["stage"] == stage]
+    if want_stage in STAGES:
+        out = [r for r in out if r["stage"] == want_stage]
     if who:
         out = [r for r in out if who in (r["picker"], r["sorter"], r["packer"], r["createdBy"])]
     if int(stuck or 0):
