@@ -62,10 +62,19 @@
             <div class="text-[15px] font-bold text-stone-900 truncate">{{ supplierName }}</div>
             <div class="text-[12px] text-stone-500 tabular-nums">{{ lines.length }} {{ t('spk.lines') }}</div>
           </div>
-          <button class="h-8 px-2.5 rounded-lg text-[11.5px] font-semibold text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 hover:bg-emerald-100" @click="tickAll">{{ t('spk.tickAll') }}</button>
+          <button v-if="canClose" class="h-8 px-2.5 rounded-lg text-[11.5px] font-semibold ring-1"
+                  :class="closeMode ? 'bg-stone-900 text-white ring-stone-900' : 'text-stone-700 bg-white ring-stone-200 hover:bg-stone-50'"
+                  @click="toggleCloseMode">{{ t('spk.alreadyBack') }}</button>
+          <button v-if="!closeMode" class="h-8 px-2.5 rounded-lg text-[11.5px] font-semibold text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 hover:bg-emerald-100" @click="tickAll">{{ t('spk.tickAll') }}</button>
           <button class="h-8 px-3 rounded-lg text-[12px] font-semibold text-stone-600 bg-stone-100 hover:bg-stone-200" @click="closeSupplier">{{ t('cdi.change') }}</button>
         </div>
-        <div class="grid sm:grid-cols-3 gap-2">
+        <div v-if="closeMode" class="rounded-xl bg-stone-50 ring-1 ring-stone-200 p-3 space-y-2">
+          <p class="text-[12px] text-stone-600">{{ t('spk.closeIntro') }}</p>
+          <input v-model="closeNote" :placeholder="t('spk.closeNotePh')" maxlength="200"
+                 class="w-full h-10 ps-3 pe-3 rounded-lg bg-white ring-1 text-[13px] focus:outline-none focus:ring-2 focus:ring-[var(--accent-400)]"
+                 :class="closeNote.trim() ? 'ring-stone-200' : 'ring-amber-300'" />
+        </div>
+        <div v-else class="grid sm:grid-cols-3 gap-2">
           <input v-model="collector" :placeholder="t('spk.collectorPh')" maxlength="80"
                  class="h-10 ps-3 pe-3 rounded-lg bg-white ring-1 text-[13px] focus:outline-none focus:ring-2 focus:ring-[var(--accent-400)]"
                  :class="collector.trim() ? 'ring-stone-200' : 'ring-amber-300'" />
@@ -79,8 +88,9 @@
       <div class="bg-white rounded-2xl ring-1 ring-stone-200/70 shadow-sm overflow-hidden">
         <div class="divide-y divide-stone-50">
           <div v-for="l in lines" :key="l.key" :id="'spk-' + l.key" class="px-4 py-2.5 flex items-center gap-3"
-               :class="[!l.bookable ? 'bg-stone-50/80' : l.ticked ? 'bg-emerald-50/50' : '', flash === l.key ? 'ring-2 ring-inset ring-[var(--accent-400)]' : '']">
-            <input type="checkbox" class="w-4 h-4 rounded" :disabled="!l.bookable" v-model="l.ticked" />
+               :class="[closeMode ? (l.closing ? 'bg-stone-100' : '') : !l.bookable ? 'bg-stone-50/80' : l.ticked ? 'bg-emerald-50/50' : '', flash === l.key ? 'ring-2 ring-inset ring-[var(--accent-400)]' : '']">
+            <input v-if="closeMode" type="checkbox" class="w-4 h-4 rounded accent-stone-900" v-model="l.closing" />
+            <input v-else type="checkbox" class="w-4 h-4 rounded" :disabled="!l.bookable" v-model="l.ticked" />
             <img v-if="l.image" :src="l.image" alt="" loading="lazy" @error="hideImg"
                  class="w-10 h-10 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
             <span v-else class="w-10 h-10 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center flex-shrink-0 text-stone-400"><Icon name="package" :size="14" /></span>
@@ -98,7 +108,18 @@
         </div>
       </div>
 
-      <div v-if="lines.length" class="sticky bottom-3 z-10">
+      <div v-if="lines.length && closeMode" class="sticky bottom-3 z-10">
+        <button class="w-full h-12 rounded-xl text-[14px] font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg transition-colors"
+                :class="closeArmed ? 'bg-amber-600 hover:bg-amber-700' : 'bg-stone-900 hover:bg-stone-800'"
+                :disabled="busy || !closingUnits || !closeNote.trim()" @click="postClose">
+          <Icon name="check-circle" :size="17" />
+          <template v-if="busy">{{ t('cdi.posting') }}</template>
+          <template v-else-if="!closeNote.trim()">{{ t('spk.closeNeedNote') }}</template>
+          <template v-else-if="closeArmed">{{ t('cdi.confirm') }} — {{ closingUnits }} {{ t('cdi.units') }}</template>
+          <template v-else>{{ t('spk.closeBtn') }} · {{ closingUnits }} {{ t('cdi.units') }}</template>
+        </button>
+      </div>
+      <div v-else-if="lines.length" class="sticky bottom-3 z-10">
         <button class="w-full h-12 rounded-xl text-[14px] font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg transition-colors"
                 :class="armed ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'"
                 :disabled="busy || !tickedUnits || !collector.trim()" @click="post">
@@ -108,6 +129,33 @@
           <template v-else-if="!collector.trim()">{{ t('spk.needCollector') }}</template>
           <template v-else>{{ t('spk.handOver') }} · {{ tickedUnits }} {{ t('cdi.units') }}</template>
         </button>
+      </div>
+
+      <!-- What this supplier already got back without this screen: a return
+           booked on another order's receipt, or a manager's close. -->
+      <div class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
+        <button class="w-full px-4 py-2.5 flex items-center gap-2 text-start" @click="toggleBack">
+          <span class="text-[12px] font-semibold text-stone-900 flex-1">{{ t('spk.backTitle') }}</span>
+          <span v-if="back" class="text-[11px] text-stone-400 tabular-nums">{{ back.length }}</span>
+          <Icon :name="showBack ? 'chevron-up' : 'chevron-down'" :size="14" class="text-stone-400" />
+        </button>
+        <div v-if="showBack" class="border-t border-stone-100 divide-y divide-stone-50 max-h-[360px] overflow-y-auto">
+          <p v-if="!back" class="px-4 py-4 text-[12px] text-stone-400">{{ t('common.loading') }}</p>
+          <p v-else-if="!back.length" class="px-4 py-4 text-[12px] text-stone-400">{{ t('spk.backEmpty') }}</p>
+          <div v-for="b in back || []" :key="b.so + b.itemCode" class="px-4 py-2 flex items-start gap-3 text-[12px]">
+            <div class="min-w-0 flex-1">
+              <div class="text-stone-800 truncate">{{ b.name }} <span class="text-stone-400 tabular-nums">×{{ b.qty }}</span></div>
+              <div class="text-[10.5px] text-stone-400"><span class="font-mono">{{ b.sku || b.itemCode }}</span> · {{ b.so }} · {{ t('spk.back') }} {{ b.returnedOn }}</div>
+              <div v-for="x in b.by" :key="(x.manual || x.doc) + x.so" class="text-[11px] text-stone-500">
+                <template v-if="x.manual">{{ t('spk.byHand') }} · {{ t('spk.act_' + x.action) }}<span v-if="x.doc && x.doc !== x.manual" class="font-mono"> {{ x.doc }}</span> · {{ x.note }} · {{ x.date }}</template>
+                <template v-else><span class="font-mono">{{ x.doc }}</span> {{ x.date }}<span v-if="x.so !== b.so"> · {{ t('spk.onOther') }} {{ x.so }}</span></template>
+              </div>
+            </div>
+            <button v-for="x in b.by.filter((y) => y.manual && !['returned', 'issued'].includes(y.action))" :key="'u' + x.manual" v-show="canClose"
+                    class="h-7 px-2 rounded-lg text-[11px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200 hover:bg-stone-50 disabled:opacity-50"
+                    :disabled="busy" @click="doReopen(x.manual)">{{ t('spk.reopen') }}</button>
+          </div>
+        </div>
       </div>
     </template>
 
@@ -154,6 +202,60 @@ const result = ref(null);
 
 const tickedUnits = computed(() => lines.value.filter((l) => l.ticked).reduce((s, l) => s + l.qty, 0));
 
+// Managers close lines that already went back with no document at all.
+const canClose = ref(false);
+const closeMode = ref(false);
+const closeNote = ref("");
+const closeArmed = ref(false);
+const closingUnits = computed(() => lines.value.filter((l) => l.closing).reduce((s, l) => s + l.qty, 0));
+const back = ref(null);
+const showBack = ref(false);
+function toggleCloseMode() {
+  closeMode.value = !closeMode.value;
+  closeArmed.value = false;
+  lines.value.forEach((l) => { l.closing = false; });
+}
+async function loadBack() {
+  try { back.value = (await api("crossdock_pickup.handed_back", { supplier: supplier.value })).lines || []; }
+  catch (e) { back.value = []; warn(t("mv.loadFail"), String(e.message || e)); }
+}
+function toggleBack() {
+  showBack.value = !showBack.value;
+  if (showBack.value && back.value === null) loadBack();
+}
+async function postClose() {
+  if (!closingUnits.value || !closeNote.value.trim() || busy.value) return;
+  if (!closeArmed.value) { closeArmed.value = true; setTimeout(() => { closeArmed.value = false; }, 4000); return; }
+  closeArmed.value = false;
+  busy.value = true;
+  try {
+    const picked = lines.value.filter((l) => l.closing).map((l) => ({ so: l.so, item_code: l.itemCode, qty: l.qty }));
+    const res = await apiPost("crossdock_pickup.close_lines", { supplier: supplier.value, lines: JSON.stringify(picked), note: closeNote.value });
+    if (res.done?.length) success(t("spk.closedOk"), res.done.map((d) => `${d.so} · ${t("spk.act_" + d.action)}${d.doc ? " " + d.doc : ""}`).join(" · "));
+    if (res.skipped?.length) warn(t("spk.notClosed"), res.skipped.map((s) => `${s.so}: ${t("spk.cr_" + s.reason)}${s.bin ? " " + short(s.bin) : ""}${s.error ? " — " + s.error : ""}`).join(" · "));
+    const cur = supplier.value;
+    closeNote.value = "";
+    await loadBoot();
+    await openSupplier(cur);
+    back.value = null;
+    if (showBack.value) loadBack();
+  } catch (e) {
+    warn(t("spk.notClosed"), String(e.message || e));
+  } finally {
+    busy.value = false;
+  }
+}
+async function doReopen(name) {
+  busy.value = true;
+  try {
+    await apiPost("crossdock_pickup.reopen", { name });
+    const cur = supplier.value;
+    await openSupplier(cur);
+    await loadBack();
+  } catch (e) { warn(t("spk.notClosed"), String(e.message || e)); }
+  finally { busy.value = false; }
+}
+
 async function loadBoot() {
   try { boot.value = await api("crossdock_pickup.boot"); }
   catch (e) { warn(t("mv.loadFail"), String(e.message || e)); }
@@ -165,10 +267,12 @@ async function openSupplier(name) {
   loading.value = true;
   try {
     const r = await api("crossdock_pickup.supplier_lines", { supplier: name });
+    if (name !== supplier.value) { back.value = null; showBack.value = false; closeMode.value = false; }
     supplier.value = name;
     supplierName.value = r.supplierName || name;
+    canClose.value = !!r.canClose;
     lines.value = (r.lines || []).map((l) => ({ ...l, key: `${l.so}|${l.itemCode}`,
-      bookable: l.returnable && !!l.source, ticked: false }));
+      bookable: l.returnable && !!l.source, ticked: false, closing: false }));
   } catch (e) {
     warn(t("mv.loadFail"), String(e.message || e));
   } finally {
@@ -177,6 +281,7 @@ async function openSupplier(name) {
   }
 }
 function closeSupplier() {
+  closeMode.value = false; back.value = null; showBack.value = false;
   supplier.value = ""; lines.value = []; collector.value = ""; collectorId.value = ""; note.value = "";
   setTimeout(() => scanner.value?.refocus(), 50);
 }
