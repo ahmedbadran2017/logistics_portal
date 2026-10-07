@@ -1,0 +1,12 @@
+---
+name: bundle-composition-override
+description: ecommerce_integrations' CustomPickList judges bundle orders against the CURRENT Product Bundle, stranding orders after any bundle edit; logistics_portal subclasses it (override_doctype_class) to use the order's Packed Items
+metadata:
+  type: project
+---
+
+**Root cause (found 2026-10-01 by running the controller in memory on prod):** the Pick List controller is `ecommerce_integrations.overrides.pick_list.CustomPickList` (class override, a custom fork — NOT the upstream copy in ~/Downloads/ecommerce_integrations-develop, which has no `overrides/`). `validate → remove_incomplete_orders → _get_required_qty_for_sales_order(self, sales_order, bundle_cache) → _get_bundle_component_qty_map(self, bundle_item_code, bundle_cache)` reads the CURRENT Product Bundle; `bundle_cache` is shared across all orders on the list, keyed by bundle item code. The DN path (`_create_delivery_note_for_sales_order → _get_pick_list_scope_for_sales_order`, a `frappe._dict` scope with lambda attrs `_get_product_bundles` / `_get_product_bundle_qty_map` / `_compute_picked_qty_for_bundle`) uses ERPNext's `_get_product_bundle_qty_map` = `get_last_doc("Product Bundle")` → a fully picked old-composition box counts as ZERO boxes.
+
+**Trigger:** "JUSTYOL Top 5 Box" (`9486746779902`) edited 2026-09-26 15:39: MCH09045 (`45820014362878`) → MCH09176 (`45779741180158`) because MCH09045 ran out. Old-box orders: 686 picked before, 1 after; 13 stranded a week (#261869 … #262361, J-008924) with all stock present. Ahmed did NOT want Update Items (that would swap the customer's item); orders must ship as sold.
+
+**Fix (commit `8e4d0c8`):** `logistics_portal/overrides/pick_list.py` `PickList(CustomPickList)` registered via `override_doctype_class` in hooks.py (Frappe uses the LAST override; logistics_portal installs after ecommerce_integrations). Overrides only `_get_required_qty_for_sales_order` (bundle lines → the order's Packed Items) and `_get_pick_list_scope_for_sales_order` (scope's qty map → that order's composition). Falls back to ERPNext's PickList if the ee import fails. Verified: 800-order regression (663 identical, 137 differ = all old-box), mixed old/new/plain list keeps all 3, DN boxes 0→1. After deploy, check `frappe.get_hooks("override_doctype_class")["Pick List"][-1]` is ours. The sandbox can introspect a class via `cls.__dict__[m].__code__` (`co_varnames`, `co_names`, `co_consts`) when source is unreadable.

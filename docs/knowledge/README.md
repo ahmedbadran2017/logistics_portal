@@ -1,0 +1,52 @@
+# Knowledge base — measured on prod
+
+- [Logistics Portal Project](logistics-portal-project.md) — building Justyol logistics-team portal; goal, existing dashboard, real cycle, team
+- [Logistics ERPNext Fields](logistics-erpnext-fields.md) — custom fields/doctypes for Pick List, Sales Order, Delivery Note, Shipment, Return Shipment
+- [Desk-Elimination Progress](desk-elimination-progress.md) — portal replacing the desk; 2026-08-27 wave: one availability truth (create=preview=buckets), Batch Repair, supplier multi-select, PDA variant chips, image backfill, mojibake fix
+- [SKU vs item_code duplication](sku-item-code-duplication.md) — custom_sku=real SKU, item_code=Shopify variant; duplicate items cause false-OOS; sku_lookup built
+- [Catalog Hub Project](catalog-hub-project.md) — Shopify⇄ERPNext reconciliation hub (root fix); Phase 0 status-sync + stranded-stock dashboard built
+- [Confirmation & Tracking Modules](confirmation-tracking-modules.md) — 3-lane Contact Center (confirmation/rescue/CS tickets) built; PROD cycle facts (WhatsApp automation first-line, agent list) + section-admin pattern
+- [Stranded confirmed orders](stranded-confirmed-orders.md) — biggest audit find: confirmed orders with no pick list die silently; 3-bucket queue built
+- [Backdated admin recos](backdated-admin-recos.md) — 854 Administrator Stock Recos posted 23:59/backdated Apr–Jul from console; proven stock duplication (TKT-2608-3629783); who runs it = open
+- [Stale On Hold pile](stale-onhold-pile.md) — 1,757 legacy On Hold drowned the confirmation dashboard; split fixed in-code; prod data cleanup (181 moved + 1,576 abandoned) still pending
+- [_assign vs custom_allocated_to](assign-vs-allocated-to.md) — two parallel order-ownership fields diverge (1/19 agree); portal now scopes agents by _assign; match the quoted email in the JSON array
+- [Receiving Zone is pickable](receiving-zone-pickable.md) — BY DESIGN (dropship); not in lp_excluded_zones; stale parked stock = ghost picks; 3-day radar added
+- [Arabic city breaks AWB](arabic-city-breaks-awb.md) — shipping city in Arabic makes Cathedis label generation fail (79% vs 4%); sort_scan guard added; real cure lives in codx_erp
+- [DN Item fan-out trap](dn-item-fanout-trap.md) — joining Delivery Note Item + SUM/COUNT(*) multiplies money and bonus pay by basket size
+- [Measure, don't trust audits](measure-dont-trust-audits.md) — audit findings AND my own grep/regex/CSS tooling lied; verify on prod before acting
+- [Zebra PDA wedge sends no key events](zebra-pda-wedge-no-key-events.md) — DataWedge commits text, not keydown; never build scan handling on Enter; ?scandebug=1
+- [Portal PWA install](portal-pwa-install.md) — installable on the PDAs (manifest only, no SW); scope/start_url rules; coarse-pointer 44px layer
+- [Slotting project](slotting-project.md) — velocity(ABC) re-org; Phase 2 BUILT: E+G=fast wall(A), H+J+F=B, ABCDI=C, AG/BAB=reserve; move worklist deep-links Move Stock; Phase 3 pick-path pending
+- [Product Weights tool](product-weights-tool.md) — /logistics/weights scan→grams→save; ENTER grams but STORE kg (catalog is Kg; mixing corrupts landed cost)
+- [Batch ledger corruption](batch-ledger-corruption.md) — ROOT CAUSE: PL batch holds never released after DN ships; ~9.2k stale holds; Batch Repair tool built (validate limit=1 first)
+- [picked_qty vs custom_scanned_qty](picked-qty-vs-scanned-qty.md) — ERPNext validates picked_qty on submit (scan_mode default 1); scan must write it
+- [Stale SRE holds](stale-sre-holds.md) — cancelled orders keep live stock reservations (497/539u/212 items); SRE repair in Batch Repair; reserve-chip on restock worklist
+- [Return credit loop aborts](return-credit-loop-aborts.md) — Return Shipment marks rows received but posts only a prefix; stock invisible; Return Repair tool built
+- [Slotting audit findings](slotting-audit-findings.md) — pre-execution audit: velocity was cross-company (161 SKUs miscl.); 111/317 A-movers have no shelf face; evacuate+no-face worklists built
+- [Shelf label barcode limits](shelf-label-barcode-limits.md) — long SKUs printed unscannable bars; paper-derived module + subset C + item_code payload; 9 collision items excluded
+- [Pick list batch shattering](picklist-batch-shattering.md) — batch → one list per order; the poisoned ERPNext-JM row is the dominant cause (77/292); desk drops incomplete orders and keeps ONE list
+- [Silent parcel drop](silent-parcel-drop.md) — PL-55740: sort wall hid unshipped parcels; carrier reads Address.city (SO field empty on 57%); 4 distinct causes, not just the city
+- [Attendance lives in HRMS](attendance-lives-in-hrms.md) — floor clocks in at /hrms with GPS; portal only reads; never a second writer to Employee Checkin
+- [Ready double-promise](ready-double-promise.md) — board called 81 orders Ready without spending the pool; 28 unpickable, 9 with no bin; fixed by one spent ceiling
+- [Availability: one definition](availability-one-definition.md) — picking.availability() is the single contract; layers, what does NOT double-count, and the uncapped-SRE bug class
+- [Cycle count needs a batch bundle](cycle-count-batch-bundle.md) — 27% of stocked bins are batch-tracked; reconcile_all_serial_batch silently overwrites the counted qty; two rival get_available_batches
+- [Desk decisions leave no portal fields](desk-decisions-leave-no-portal-fields.md) — portal/Desk trails are disjoint; anything keyed on next_call_at or call_attempts sees ~12% of the work; starved Workspace
+- [Site clock is Istanbul](site-clock-is-istanbul.md) — stored timestamps are UTC+3, floor is Morocco UTC+1 (subtract 2h); DB NOW() is UTC — 128 SQL windows 3h off
+- [Deploy protocol](deploy-protocol.md) — Ahmed runs prod deploys himself; never trigger /usr/bin/update
+- [SLE chain vs SUM invalid](sle-chain-vs-sum-invalid.md) — Stock Recos break the additive test legally; broken = chain≠Bin only
+- [Reco: count vs revaluation](reco-count-vs-revaluation.md) — 99% of Stock Recos are cost revaluations; ledger can't tell — test qty<>current_qty
+- [Portal base routes](portal-base-routes.md) — /logistics, /confirmation, /tracking; ERPNext customer portal owns /shipments, /orders, etc. — never use as a base; restart BEFORE clear-cache after hooks changes
+- [Orders without Delivery Notes](orders-without-delivery-notes.md) — -ex and J- orders ship with NO DN; carrier events are Comments on the SO; draft DNs carry labels; derive stages from SO stamps + comments + docs, never DN-only
+- [Exchange money is the reason](exchange-money-is-the-reason.md) — Sales Exchange arithmetic; tax table is the only lever; rate 0 = false full refund; last-sold price covers 96.9%; no GL
+- [Cancelled orders resurrect](cancelled-orders-resurrect.md) — automation reopens cancels as Administrator; guard never fired (get_doc_before_save unreliable); 174 already shipped
+- [Cross-dock lane state](crossdock-lane-state.md) — lane BUILT + working (5 post-launch leaks); real holes = 13 unclassified suppliers/1,698 POs, unguarded Goods In, 2,307 pre-lane orders stranded in vetoed Receiving
+- [Consignment shelves](consignment-shelves.md) — 3rd supplier model; CN - <supplier> - JM shelves; owner = Item.default_supplier; Goods In now routes to the section; 3,734 open per-order consignment POs unexamined
+- [Short pick radar](short-pick-radar.md) — 152/628 short-picked orders later shipped the same item; /short-picks radar on the Comment trail; ruling = "Short pick check:" comment
+- [Bonus system state](bonus-system-state.md) — money ON on prod (older scheme than repo); floor pays picking only, sort/manifest unpaid via scan log; no floor quality gate; 2 pickers hold manager role that edits it
+- [Bundle composition override](bundle-composition-override.md) — CustomPickList judged bundle orders by the CURRENT bundle; portal subclass reads Packed Items; 13 Top-5-Box orders unstuck
+- [Alerts silenced by unread](alerts-silenced-by-unread.md) — every floor alert paged once then went silent (unread-dedupe at any age); shortfall now on Shipment submit; printed-age from sort scan
+- [Prepaid AWB double collect](prepaid-awb-double-collect.md) — Cathedis AWB amount ignores payment_type; Payzone zeroed (1d383f7); bank transfers held from picking until accounting posts them (ab9e7cf)
+- [Manifest submit rewinds status](manifest-submit-rewinds-status.md) — codx Shipment submit sets every parcel Shipped; late submits rewound 286 delivered; snapshot+restore + portal submit button (a429715)
+- [Return Zone repair tool](return-zone-repair-tool.md) — Feuille 10 returns off the books: zeroed by RZ counts / return never booked; restore+register tool (43142f3)
+- [Shopify sync ignores pending orders](shopify-sync-ignores-pending-orders.md) — OOS root cause: Shopify available = shelf qty, SO reservations on unmapped Morocco - JM; MCH09045 = 37/81 lines
+- [Stop left row on pick list](stop-left-row-on-picklist.md) — cancelled-while-picking orders got labels at PL submit; drop-at-submit + Pulse Orders panel (9182c3a); 4 DN/AWB cleanups pending OK
