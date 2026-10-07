@@ -40,7 +40,7 @@ number. The sandbox blocks imports, file access, `any`/`next`/`repr`, and return
 variable (wrap work in a function and `del` it).
 
 ## Where the deeper knowledge is
-Ahmed keeps a set of notes — one measured fact per topic: batch ledger holds, stale SREs,
-return credit aborts, slotting, label barcodes, short-pick radar, bonus scheme, exchanges,
-cancelled-order resurrection, manifest rewinds, PDA scanner behaviour, etc. Ask him for them
-(`docs/knowledge/` if he adds them to the repo) before touching those areas.
+`docs/knowledge/` — one measured fact per file (batch ledger holds, stale SREs, return credit
+aborts, slotting, label barcodes, short-pick radar, bonus scheme, exchanges, cancelled-order
+resurrection, manifest rewinds, PDA scanner behaviour, …). Start at `docs/knowledge/README.md`
+and read the notes for the area you are about to change before changing it.

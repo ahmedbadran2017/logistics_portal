@@ -4,6 +4,7 @@ Frappe v15 app (`app_name = logistics_portal`) + Vue 3 SPA for the Justyol Moroc
 warehouse and contact-centre floor. Production site: **admin.justyol.com**
 (company "Justyol Morocco", warehouses `… - JM`). Repo: `ahmedbadran2017/logistics_portal`, branch `main`.
 Read `docs/HANDOFF.md` next: current state, what is waiting for deploy, open decisions.
+Before changing an area, read its notes in `docs/knowledge/` (index: `docs/knowledge/README.md`).
 
 ## Layout
 - `logistics_portal/api/*.py` — whitelisted endpoints, one module per area (picking, orders,
