@@ -809,6 +809,13 @@ def _prune_manifest_rows(sh, keep_departed=False):
 # shortfall the moment the door shuts, not 24 hours later.
 
 _HANDED_STATUSES = ("Shipped", "Delivered", "Not Delivered", "Returned")
+# The carrier's own word that it has (or had) the parcel. A parcel can leave
+# with no manifest at all — #263123 on 2026-10-07: its Delivery Note had failed,
+# the label was cut from the order, Cathedis picked it up at 17:10 and it was
+# Out For Delivery next morning — and the sort wall kept telling the floor to
+# "find the box and scan it at the door". The box was in Casablanca.
+_CARRIER_HAS = ("Picked up", "In Transit", "Out For Delivery", "Delivered",
+                "Delivery Exception", "Failed Attempt", "Return", "Returned")
 
 
 _HANDOVER_TTL = 60
@@ -887,7 +894,7 @@ def _handover_compute(days, pick_lists):
         SELECT pl.name AS pick_list, pli.sales_order AS so,
                so.custom_logistics_status AS lstatus, so.customer_name AS customer,
                so.custom_awb AS awb, so.custom_label_url AS label_url,
-               so.grand_total AS total
+               so.grand_total AS total, so.custom_track_shipment_status AS track
         FROM `tabPick List` pl
         JOIN `tabPick List Item` pli ON pli.parent = pl.name
         JOIN `tabSales Order` so ON so.name = pli.sales_order
@@ -918,7 +925,7 @@ def _handover_compute(days, pick_lists):
                                          "pending": 0})
         o["orders"] += 1
         st = r.lstatus or ""
-        if st in _HANDED_STATUSES:
+        if st in _HANDED_STATUSES or (r.track or "") in _CARRIER_HAS:
             o["handed"] += 1
             continue
         if st != "Label Printed":

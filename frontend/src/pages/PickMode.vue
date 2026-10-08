@@ -236,6 +236,7 @@ async function onScan(code) {
   if (!res.ok) {
     scanner.value?.showError(
       res.reason === "done" ? t("pickm.lineDone")
+        : res.reason === "removed" ? t("pickm.removedLine").replace("{order}", res.order || "")
         : res.reason === "not_on_list" ? t("pickm.notOnList")
           : t("pickm.unknown"));
     return;
@@ -259,6 +260,7 @@ async function finish() {
     const res = await apiPost("picking.submit_pick_list", { name: props.id });
     success(t("pickm.done"), res?.awb ? `AWB ${res.awb}` : props.id);
     if (res?.stopped?.length) warn(t("pl.stoppedOff"), res.stopped.join(" · "));
+    if (res?.removedLines?.length) warn(t("pl.removedOff"), res.removedLines.map((d) => `${d.so}${d.picked ? " · " + String(d.shelf).replace(" - JM", "") : ""}`).join(" · "));
     router.push({ name: "Queue" });
   } catch (e) {
     warn(t("pickm.submitFail"), String(e.message || e));

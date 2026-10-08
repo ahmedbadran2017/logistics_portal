@@ -314,6 +314,39 @@ def resolve_scan(code, warehouse=None):
     return out
 
 
+# A pick list row whose order line no longer exists: the item was dropped from
+# the order (the customer agreed to go without it) after the list was made.
+# #263123, 2026-10-05: on PL-56588 at 12:05, the bag dropped at 12:23, picked
+# from E3B at 13:50 and sorted into the order's slot anyway; the Delivery Note
+# then failed on "Sales Order Item q9adku2gv5 not found" and the parcel left
+# with no DN. 59 such rows since July. Bundle components point at their
+# bundle's line through product_bundle_item, so that is the line they need.
+_ROW_LINE = "COALESCE(NULLIF({t}.product_bundle_item, ''), NULLIF({t}.sales_order_item, ''))"
+
+
+def _row_gone(t="pli"):
+    """SQL boolean for that, on Pick List Item alias `t`."""
+    line = _ROW_LINE.format(t=t)
+    return (f"({line} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM `tabSales Order Item` _g "
+            f"WHERE _g.parent = {t}.sales_order AND _g.name = {line}))")
+
+
+def dropped_lines(rows):
+    """The rows of a pick list (docs or dicts) whose order line is gone."""
+    keys = {}
+    for l in rows:
+        line = l.get("product_bundle_item") or l.get("sales_order_item")
+        if l.get("sales_order") and line:
+            keys.setdefault(l.get("sales_order"), set()).add(line)
+    if not keys:
+        return []
+    live = set(frappe.db.sql_list(
+        "SELECT name FROM `tabSales Order Item` WHERE parent IN %s", (tuple(keys),)))
+    return [l for l in rows
+            if l.get("sales_order") and (l.get("product_bundle_item") or l.get("sales_order_item"))
+            and (l.get("product_bundle_item") or l.get("sales_order_item")) not in live]
+
+
 @frappe.whitelist()
 def scan_pick(pick_list, code):
     """Record one unit of a scanned item as picked on a draft pick list. The scan
@@ -365,8 +398,16 @@ def scan_pick(pick_list, code):
            WHERE parent=%s AND item_code=%s
              AND COALESCE(custom_scanned_qty,0) < qty
              AND COALESCE(picked_qty,0) < stock_qty
+             AND NOT """ + _row_gone("`tabPick List Item`") + """
            ORDER BY idx LIMIT 1""", (pick_list, item_code))
     if not frappe.db.sql("SELECT ROW_COUNT()")[0][0]:
+        gone = frappe.db.sql(
+            "SELECT sales_order FROM `tabPick List Item` pli WHERE parent=%s AND item_code=%s AND "
+            + _row_gone(), (pick_list, item_code))
+        if gone:
+            # Dropped from the order: it stays on the shelf.
+            return {"ok": False, "reason": "removed", "order": gone[0][0],
+                    "itemCode": item_code, "name": r.get("name")}
         on = frappe.db.exists("Pick List Item", {"parent": pick_list, "item_code": item_code})
         return {"ok": False, "reason": "done" if on else "not_on_list",
                 "itemCode": item_code, "name": r.get("name")}
@@ -1769,7 +1810,8 @@ def submit_pick_list(name):
         (name,))[0][0]
     awb = frappe.db.get_value("Delivery Note", dn, "custom_awb") if dn else None
     return {"ok": True, "pl": name, "dn": dn or "", "awb": awb or "",
-            "dropped": dropped, "stopped": pl.flags.get("lp_stopped_dropped") or []}
+            "dropped": dropped, "stopped": pl.flags.get("lp_stopped_dropped") or [],
+            "removedLines": pl.flags.get("lp_lines_dropped") or []}
 
 
 @frappe.whitelist()
@@ -3433,8 +3475,8 @@ def sort_scan(pick_list, code, prefer=None):
         f"""SELECT pli.name, pli.sales_order AS so, pli.qty, pli.idx,
                    COALESCE(pli.custom_sorted_qty,0) AS sorted_qty,
                    (COALESCE(s.custom_awb,'') <> '' OR COALESCE(s.custom_label_url,'') <> '') AS labelled,
-                   {stopped_sql('s')} AS stopped,
-                   s.customer_name AS customer
+                   {stopped_sql('s')} AS stopped, {_row_gone()} AS removed,
+                   pli.warehouse, s.customer_name AS customer
             FROM `tabPick List Item` pli
             LEFT JOIN `tabSales Order` s ON s.name = pli.sales_order
             WHERE pli.parent = %s AND pli.item_code = %s
@@ -3454,7 +3496,12 @@ def sort_scan(pick_list, code, prefer=None):
     # was finished while the scan kept feeding it, closed the box and printed
     # its label. Thirteen September orders were cancelled before their parcel
     # was cut and shipped regardless.
-    live = [x for x in rows if not int(x.stopped or 0)]
+    live = [x for x in rows if not int(x.stopped or 0) and not int(x.removed or 0)]
+    if not live and any(int(x.removed or 0) for x in rows):
+        # Dropped from the order after it was picked: back to its shelf.
+        gone = next(x for x in rows if int(x.removed or 0))
+        return {"ok": False, "reason": "removed", "order": gone.so, "shelf": gone.warehouse or "",
+                "itemCode": item_code, "name": r.get("name"), "sku": r.get("sku")}
     if not live:
         dead = rows[0]
         return {"ok": False, "reason": "stopped", "order": dead.so,

@@ -112,10 +112,43 @@ class PickList(_Base):
                 frappe.msgprint(
                     "Removed — cancelled while picking, no label will be made: "
                     + ", ".join(sorted(stopped)), indicator="orange", alert=True)
+        # A row whose order line is gone (picking.dropped_lines): the item was
+        # dropped from the order after the list was made. Left on the list it
+        # breaks the order's Delivery Note at the submit, and the parcel goes
+        # out with none (#263123). The piece, if already picked, goes back to
+        # its shelf.
+        if getattr(self, "_action", "") == "submit" and self.get("locations"):
+            from logistics_portal.api.picking import dropped_lines
+            gone = dropped_lines(self.locations)
+            if gone:
+                names = {l.name for l in gone}
+                keep = [l for l in self.locations if l.name not in names]
+                if not keep:
+                    frappe.throw("Every line on this list was removed from its order — cancel the "
+                                 "list and put the pieces back instead of submitting it.")
+                self.set("locations", keep)
+                for i, l in enumerate(self.locations, start=1):
+                    l.idx = i
+                self.flags.lp_lines_dropped = [
+                    {"so": l.sales_order, "item_code": l.item_code, "shelf": l.warehouse or "",
+                     "picked": int(l.get("custom_scanned_qty") or 0)} for l in gone]
+                back = [f"{l.item_code} → {l.warehouse}" for l in gone if int(l.get("custom_scanned_qty") or 0)]
+                frappe.msgprint("Removed — no longer on the order: "
+                                + ", ".join(sorted({l.sales_order for l in gone}))
+                                + (" · put back: " + ", ".join(back) if back else ""),
+                                indicator="orange", alert=True)
         super().validate()
 
     def on_submit(self):
         super().on_submit()
+        for d in self.flags.get("lp_lines_dropped") or []:
+            try:
+                frappe.get_doc("Sales Order", d["so"]).add_comment(
+                    "Comment", f"{d['item_code']} removed from {self.name} at its submit — it is no longer "
+                               "on this order" + (f"; the picked piece goes back to {d['shelf']}" if d["picked"] else "")
+                               + ".")
+            except Exception:
+                frappe.log_error(frappe.get_traceback()[:2000], "pick_list dropped-line comment")
         for so in self.flags.get("lp_stopped_dropped") or []:
             try:
                 frappe.get_doc("Sales Order", so).add_comment(

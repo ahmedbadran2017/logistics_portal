@@ -299,6 +299,7 @@ export default {
     Returned: "Retourné",
   },
   sort: {
+    removedLine: "Retiré de la commande {order} — pas pour ce colis. Remettez-le en {shelf}.",
     lateTitle: "Étiquettes en attente d'impression",
     lateHint: "L'étiquette est arrivée après le tri (correction de ville / relance transporteur) — imprimez et collez-la, alors le colis sera vraiment prêt.",
     latePrint: "Imprimer",
@@ -483,6 +484,7 @@ export default {
     st_disputed: "désaccord",
   },
   pickm: {
+    removedLine: "Retiré de la commande {order} — laissez-le en rayon.",
     urgent: "Urgent",
     urgentHead: "Commande prioritaire sur cette liste",
     printLbl: "Imprimer l'étiquette SKU",
@@ -1614,6 +1616,7 @@ export default {
     failed: "Impossible de créer la liste",
   },
   pl: {
+    removedOff: "Lignes retirées de leurs commandes, enlevées de la liste — remettez les pièces prélevées en rayon :",
     stoppedOff: "Annulée pendant le picking — retirée de la liste, pas d'étiquette. Remettez la pièce en rayon :",
     stopHeld: "Certaines de ces commandes ont déjà des pièces prélevées",
     stopPieces: "pièce(s) dans le bac",

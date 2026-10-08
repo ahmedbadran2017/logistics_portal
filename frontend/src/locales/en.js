@@ -299,6 +299,7 @@ export default {
     Returned: "Returned",
   },
   sort: {
+    removedLine: "Dropped from order {order} — not for this box. Put it back on {shelf}.",
     lateTitle: "Labels waiting to be printed",
     lateHint: "The label arrived after sorting (city fix / carrier retry) — print and stick it, then the parcel is truly ready.",
     latePrint: "Print",
@@ -483,6 +484,7 @@ export default {
     st_disputed: "disagreement",
   },
   pickm: {
+    removedLine: "Dropped from order {order} — leave it on the shelf.",
     urgent: "Urgent",
     urgentHead: "Priority order on this list",
     printLbl: "Print SKU label",
@@ -1615,6 +1617,7 @@ export default {
     failed: "Couldn't create the list",
   },
   pl: {
+    removedOff: "Lines dropped from their orders were taken off — put any picked piece back on its shelf:",
     stoppedOff: "Cancelled while picking — taken off the list, no label. Put the piece back on the shelf:",
     stopHeld: "Some of these orders already have pieces picked",
     stopPieces: "piece(s) in the tote",

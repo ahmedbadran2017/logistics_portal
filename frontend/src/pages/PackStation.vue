@@ -527,6 +527,11 @@ async function onScanItem(raw) {
       if (so) { so.stopped = true; so.done = true; }
       return;
     }
+    if (res.reason === "removed") {
+      scanner.value?.showError(t("sort.removedLine").replace("{order}", res.order || "")
+        .replace("{shelf}", String(res.shelf || "").replace(" - JM", "")));
+      return;
+    }
     scanner.value?.showError(
       res.reason === "not_on_list" ? t("sort.notOnList")
         : res.reason === "done" ? t("sort.itemDone")
