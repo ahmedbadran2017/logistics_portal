@@ -108,6 +108,66 @@ _PARKED = ("so.custom_sales_status = 'On Hold' AND "
            "COALESCE(so.custom_call_attempts, 0) = 0 AND "
            "so.custom_next_call_at IS NULL")
 
+# Supplier out of stock (2026-10-08, Khadija): a Cross-dock supplier answered
+# "don't have it" on a line through the supplier portal. The product will not
+# come, the customer does not know, and until now nobody in THIS lane did
+# either — the answer flagged the line (Sales Order Item
+# custom_vendor_confirm_status = 'Unavailable'), paused the product on the
+# store and dropped a note in the supplier-portal admin inbox, a screen no
+# agent opens. The order itself stayed Confirmed, so every tab here was
+# blind to it.
+#
+# One tab, fed by the line flag, scoped like the live queues. An order leaves
+# it when the agent records the customer's answer ("keep" — wait or swap,
+# written as a 'Supplier OOS: keep' comment dated after the supplier's
+# answer), when the order is cancelled, or when the parcel moves. A later
+# "don't have it" on the same order re-surfaces it: the comment must be
+# newer than the answer.
+#
+# Cost: the candidate set is the in-hand live orders of the last 60 days
+# (indexed), and the line check is an EXISTS on the parent index — not a
+# scan of Sales Order Item for the flag (which carries no index).
+_OOS_LINE = ("soi.parent = so.name AND soi.custom_vendor_confirm_status = 'Unavailable'")
+_OOS_HANDLED = ("""EXISTS (SELECT 1 FROM `tabComment` c
+                      WHERE c.reference_doctype = 'Sales Order'
+                        AND c.reference_name = so.name
+                        AND c.comment_type = 'Comment'
+                        AND c.content LIKE 'Supplier OOS: keep%%'
+                        AND c.creation >= COALESCE(soi.custom_vendor_confirmed_at, '2000-01-01'))""")
+_OOS_COND = (f"""so.custom_sales_status NOT IN ('Cancelled', 'Duplicated')
+    AND so.creation >= DATE_SUB(NOW(), INTERVAL 60 DAY)
+    AND EXISTS (SELECT 1 FROM `tabSales Order Item` soi
+                WHERE {_OOS_LINE} AND NOT {_OOS_HANDLED})""")
+
+
+def _oos_ready():
+    return frappe.db.has_column("Sales Order Item", "custom_vendor_confirm_status")
+
+
+def _oos_lines(names):
+    """The supplier's answer, per order: which product, who said no, why,
+    when. One batched read for a page of rows."""
+    if not names or not _oos_ready():
+        return {}
+    has_reason = frappe.db.has_column("Sales Order Item", "custom_unavailable_reason")
+    reason_col = "soi.custom_unavailable_reason" if has_reason else "NULL"
+    out = {}
+    for r in frappe.db.sql(
+            f"""SELECT soi.parent, soi.item_name, soi.qty, soi.supplier,
+                       {reason_col} AS reason, soi.custom_vendor_confirmed_at AS at
+                FROM `tabSales Order Item` soi
+                WHERE soi.parent IN %(n)s AND soi.custom_vendor_confirm_status = 'Unavailable'
+                ORDER BY soi.idx""", {"n": tuple(names)}, as_dict=True):
+        out.setdefault(r.parent, []).append({
+            "item": r.item_name or "", "qty": int(r.qty or 0),
+            "supplier": r.supplier or "",
+            "reason": "discontinued" if (r.reason or "") == "Discontinued" else "oos",
+            "at": str(r.at)[:16] if r.at else "",
+            "ageH": (int((now_datetime() - r.at).total_seconds() // 3600)
+                     if r.at else 0),
+        })
+    return out
+
 # When is a retry order due? ONE definition, because next_up draws the plan
 # and next_order hands out the work, and a queue pane that disagrees with the
 # queue is worse than no pane.
@@ -354,7 +414,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     the manager sees exactly the queue the agent sees, read-only fidelity."""
     role = _gate()
     if tab not in QUEUES and tab not in DONE_QUEUES and tab not in (
-            "monitor", "notdelivered", "citycheck"):
+            "monitor", "notdelivered", "citycheck", "supplieroos"):
         tab = "pending"
     days = min(max(int(days or 30), 1), 365)
     limit = min(max(int(limit or 30), 1), 100)
@@ -614,6 +674,26 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
         if not q_txt:
             frappe.cache().set_value(_cck, counts["citycheck"], expires_in_sec=900)
 
+    # Supplier out of stock: see _OOS_COND. Cached per scope like the two
+    # above; opening the tab always recomputes. 300 s, not 900: this chip is
+    # how the lane LEARNS a supplier said no, and a quarter-hour-old chip
+    # defeats the point.
+    _ock = "lp_cf_oos_" + (me if mine_only else "all")
+    _oc = frappe.cache().get_value(_ock)
+    if not _oos_ready():
+        counts["supplieroos"] = 0
+    elif _oc is not None and tab != "supplieroos" and not q_txt:
+        counts["supplieroos"] = int(_oc)
+    else:
+        counts["supplieroos"] = int(frappe.db.sql(
+            f"""SELECT COUNT(*) FROM `tabSales Order` so
+                WHERE so.docstatus = 1 AND so.company = %(co)s
+                  AND {_IN_HAND} AND {_OOS_COND}{me_so}{q_cnt_so}""",
+            {"co": _CO, **_q_vals,
+             **({"me_like": f'%"{me}"%'} if mine_only else {})})[0][0])
+        if not q_txt:
+            frappe.cache().set_value(_ock, counts["supplieroos"], expires_in_sec=300)
+
     # Not Delivered: shipped-then-failed parcels the confirmation team calls
     # back to arrange a redelivery/reship or to cancel. Post-shipment work
     # shared with the Rescue lane — the SAME rescue.act engine runs the
@@ -664,6 +744,9 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
                  f"""({_BAD_CITY}
                      OR LOWER(TRIM(COALESCE({_EFF_CITY}, ''))) NOT IN %(acc)s)"""]
         vals["acc"] = accepted_set()
+    elif tab == "supplieroos":
+        conds = ["so.docstatus = 1", "so.company = %(co)s", _IN_HAND,
+                 _OOS_COND if _oos_ready() else "1 = 0"]
     elif tab == "notdelivered":
         conds = ["so.docstatus = 1", "so.company = %(co)s",
                  "so.custom_sales_status = 'Not Delivered'",
@@ -735,6 +818,11 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
         order_by = "so.creation DESC"             # newest duplicate first
     elif tab in ("pending", "monitor"):
         order_by = "so.creation"
+    elif tab == "supplieroos":
+        # The customer who has waited longest on a product that will not come.
+        order_by = ("""(SELECT MIN(soi.custom_vendor_confirmed_at) FROM `tabSales Order Item` soi
+                        WHERE soi.parent = so.name
+                          AND soi.custom_vendor_confirm_status = 'Unavailable'), so.creation""")
     else:
         order_by = "COALESCE(so.custom_next_call_at, so.creation), so.creation"
     # custom_cancellation_reason is the desk's field — absent on sites that
@@ -785,6 +873,8 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
                    FROM `tabSales Order Item` WHERE parent IN %s
                    GROUP BY parent""", (tuple(r.name for r in rows),)):
             items_text[parent] = (txt or "")[:240]
+
+    oos = _oos_lines([r.name for r in rows]) if tab == "supplieroos" and rows else {}
 
     # Who is this customer? One batched lookup for the page — the agent sees
     # the verdict BEFORE the call, not after the parcel comes back.
@@ -875,6 +965,8 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
             "phoneSale": (r.src or "") == _PHONE_SOURCE,
             "soldBy": _seller_from_tags(r.tags),
             "cust": hist.get(digits(r.phone)) if r.phone else None,
+            # Supplier out of stock: the answer the agent is calling about.
+            "oos": oos.get(r.name, []),
             # How hard the automation already chased this one.
             "chased": int(r.r2 or 0) and 2 or (int(r.r1 or 0) and 1 or 0),
             # First-call SLA: never touched and older than the target. Only
@@ -890,6 +982,99 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
         "reasons": effective_reasons(),
         "serverNow": str(now_datetime())[:19],
     }
+
+
+@frappe.whitelist(methods=["POST"])
+def supplier_oos_act(order, action, note=None):
+    """The agent's answer on a supplier-out-of-stock order.
+
+    keep   — the customer waits for the product or agreed to a swap; the
+             order stays Confirmed and leaves the tab (comment dated after
+             the supplier's answer is the record).
+    retry  — the customer could not be reached: attempt counted, a call-back
+             timer set, the order stays in the tab.
+    cancel — hands over to act('cancel'), which already knows what a cancel
+             means from wherever the goods are.
+
+    Not act(): that engine moves custom_sales_status, and a Confirmed order
+    the customer still wants must stay Confirmed."""
+    action = (action or "").strip()
+    order = (order or "").strip()
+    note = (note or "").strip()
+    if action == "cancel":
+        return act(order, "cancel", note)
+    if action not in ("keep", "retry"):
+        frappe.throw("Unknown action.")
+    role = _gate()
+    _own_guard(role, order)
+    so = frappe.db.get_value(
+        "Sales Order", order,
+        ["docstatus", "company", "custom_call_attempts", "custom_allocated_to"],
+        as_dict=True)
+    if not so or so.docstatus != 1 or so.company != _CO:
+        frappe.throw("Unknown order.")
+    if not frappe.db.sql(
+            f"""SELECT 1 FROM `tabSales Order` so
+                WHERE so.name = %(o)s AND {_IN_HAND} AND {_OOS_COND} LIMIT 1""",
+            {"o": order}):
+        frappe.throw("This order is no longer waiting on a supplier answer. "
+                     "Refresh the queue.")
+    now = now_datetime()
+    attempts = int(so.custom_call_attempts or 0) + 1
+    updates = {"custom_last_call_at": now, "custom_call_attempts": attempts}
+    if not (so.custom_allocated_to or ""):
+        updates["custom_allocated_to"] = frappe.session.user
+    if action == "retry":
+        updates["custom_next_call_at"] = add_to_date(
+            now, hours=_cf_settings()["retryDna"])
+    else:
+        updates["custom_next_call_at"] = None
+    frappe.db.set_value("Sales Order", order, updates, update_modified=True)
+    _first_touch(order)
+    frappe.get_doc("Sales Order", order).add_comment(
+        "Comment",
+        f"Supplier OOS: {action}"
+        + (f" (attempt {attempts})" if action == "retry" else "")
+        + (f" — {note}" if note else "")
+        + f" · by {frappe.session.user}")
+    frappe.db.commit()
+    frappe.cache().delete_keys("lp_cf_oos_")
+    return {"ok": True, "order": order, "action": action, "attempts": attempts}
+
+
+def notify_supplier_oos(order, item_name, supplier, reason="Out of stock"):
+    """Called by the supplier portal the moment a supplier answers "don't have
+    it". The chip on the board is the durable signal; this is the immediate
+    one — a Notification Log row (the bell) for the order's assignee, or for
+    every confirmation agent when it has none, plus the realtime toast the
+    rule engine already uses. Never raises: the supplier's answer must be
+    recorded whatever happens here."""
+    try:
+        import json as _j
+        from logistics_portal.api.auth import SEED_ROLES
+        assign = frappe.db.get_value("Sales Order", order, "_assign") or "[]"
+        try:
+            users = [u for u in _j.loads(assign) if u]
+        except Exception:
+            users = []
+        if not users:
+            users = [u for u, r in SEED_ROLES.items() if r == "confirmation"]
+        title = f"Supplier out of stock · {order}"
+        body = (f"{supplier} does not have '{item_name}' ({reason.lower()}). "
+                f"Call the customer: wait, swap or cancel.")
+        for user in users:
+            frappe.get_doc({
+                "doctype": "Notification Log", "subject": title,
+                "email_content": body, "type": "Alert",
+                "document_type": "Sales Order", "document_name": order,
+                "for_user": user,
+            }).insert(ignore_permissions=True)
+        frappe.cache().delete_keys("lp_cf_oos_")
+        frappe.publish_realtime("logistics_alert", {
+            "title": title, "detail": body, "sev": "critical", "kind": "supplier_oos",
+            "order": order})
+    except Exception:
+        frappe.log_error(title="notify_supplier_oos", message=frappe.get_traceback())
 
 
 def _free_card(order):

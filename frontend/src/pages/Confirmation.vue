@@ -224,7 +224,7 @@
            @click="rowsOpenWs && openWs(r)">
         <div class="flex items-center gap-3.5 flex-wrap">
           <!-- customer identity -->
-          <input v-if="!isNd && canBulk" type="checkbox" class="w-4 h-4 shrink-0"
+          <input v-if="!isNd && !isOos && canBulk" type="checkbox" class="w-4 h-4 shrink-0"
                  style="accent-color: var(--accent-600)"
                  :checked="selected.has(r.order)" @change="toggleOne(r.order)" />
           <span class="cf-avatar" :class="r.due ? 'cf-avatar-due' : ''">{{ initial(r.customer) }}</span>
@@ -274,6 +274,17 @@
               <Icon :name="detailFor === r.order ? 'chevron-up' : 'chevron-down'" :size="11"
                     class="shrink-0 text-[var(--accent-500)] opacity-60 group-hover/it:opacity-100" />
             </button>
+            <!-- supplier out of stock: which product, who said no, how long ago -->
+            <div v-if="isOos && r.oos && r.oos.length" class="mt-1.5 space-y-1">
+              <div v-for="(l, i) in r.oos" :key="i"
+                   class="inline-flex items-center gap-1.5 text-[11.5px] rounded-lg px-2 py-1 bg-rose-50 ring-1 ring-rose-200/70 text-rose-800 max-w-full">
+                <Icon name="package-x" :size="12" class="shrink-0" />
+                <span class="font-semibold truncate" dir="auto">{{ l.qty }}× {{ l.item }}</span>
+                <span class="text-rose-500 shrink-0">· {{ l.supplier }}</span>
+                <span class="text-rose-500 shrink-0">· {{ t('cf.oosReason_' + l.reason) }}</span>
+                <span class="text-rose-400 tabular-nums shrink-0" :title="l.at">· {{ ageLabel(l.ageH) }}</span>
+              </div>
+            </div>
             <!-- the decision that closed it -->
             <div v-if="isDone && r.reason" class="text-[11.5px] text-stone-500 mt-1 truncate max-w-[560px]" dir="auto">
               <Icon name="corner-down-left" :size="11" class="inline -mt-px me-1 text-stone-300" />{{ r.reason }}
@@ -317,6 +328,18 @@
             <button :title="t('rs.actCancel')" class="cf-act cf-act-soft text-rose-600" :disabled="busy === r.order"
                     :class="cancelFor === r.order ? 'ring-2' : ''"
                     @click="cancelFor = cancelFor === r.order ? '' : r.order"><Icon name="circle-x" :size="15" /></button>
+          </div>
+          <!-- Supplier out of stock: the customer's answer. Keep = waits or
+               swapped (order stays Confirmed, leaves the tab); retry = not
+               reached; cancel = the shared cancel panel. -->
+          <div v-else-if="isOos" class="flex items-center gap-1.5 flex-wrap">
+            <button class="cf-act cf-act-confirm" :disabled="busy === r.order" :title="t('cf.oosKeepHint')" @click.stop="oosAct(r, 'keep')">
+              <Icon name="check" :size="14" class="inline -mt-px me-1" />{{ t('cf.oosKeep') }}
+            </button>
+            <button class="cf-act cf-act-soft text-amber-700" :disabled="busy === r.order" :title="t('cf.actDna')" @click.stop="oosAct(r, 'retry')"><Icon name="phone-off" :size="15" /></button>
+            <button :title="t('common.close')" class="cf-act cf-act-soft text-rose-600" :disabled="busy === r.order"
+                    :class="cancelFor === r.order ? 'ring-2' : ''"
+                    @click.stop="cancelFor = cancelFor === r.order ? '' : r.order"><Icon name="circle-x" :size="15" /></button>
           </div>
           <!-- decisions: agents decide in the Workspace (customer grade,
                blocked banner, caps, activity — none of it exists here);
@@ -534,6 +557,9 @@ const TABS = [
   { key: "confirmed", label: "cf.tabConfirmed", icon: "check-circle", onColor: "bg-emerald-100 text-emerald-700" },
   { key: "dna", label: "cf.tabDna", icon: "phone-off", onColor: "bg-amber-100 text-amber-700" },
   { key: "followup", label: "cf.tabFollowup", icon: "clock", onColor: "bg-sky-100 text-sky-700" },
+  // A Cross-dock supplier said "don't have it" after the order was confirmed.
+  // The customer does not know yet — this lane calls them (Khadija, 2026-10-08).
+  { key: "supplieroos", label: "cf.tabSupplierOos", icon: "package-x", onColor: "bg-rose-100 text-rose-700" },
   { key: "monitor", label: "cf.tabMonitor", icon: "shield-alert", onColor: "bg-rose-100 text-rose-700" },
   { key: "notdelivered", label: "cf.tabNotDelivered", icon: "package-x", onColor: "bg-orange-100 text-orange-700" },
   // Same pool as the floor's City Check — whoever fixes the city first wins.
@@ -574,7 +600,7 @@ async function togglePin(r) {
 
 const route = useRoute();
 const TAB_KEYS = ["pending", "dna", "followup", "monitor",
-  "notdelivered", "confirmed", "cancelled", "duplicated", "citycheck"];
+  "notdelivered", "confirmed", "cancelled", "duplicated", "citycheck", "supplieroos"];
 // Where was I? The router remounts this page on every visit (no keep-alive,
 // by design), so all working state died on navigation: open the Workspace,
 // come back, and the search you typed, the tab you were on and the page you
@@ -637,7 +663,7 @@ const WORK_TABS = new Set(["pending", "dna", "followup", "monitor"]);
 const WS_LIST_TABS = new Set([...WORK_TABS, "notdelivered", "duplicated"]);
 // Agent live rows: the whole card opens the Workspace.
 const rowsOpenWs = computed(() =>
-  !canBulk.value && !isDone.value && !isNd.value && tab.value !== "citycheck");
+  !canBulk.value && !isDone.value && !isNd.value && !isOos.value && tab.value !== "citycheck");
 function openWs(r) {
   // Carry the tab too: the Workspace then walks THIS queue after each
   // decision instead of bouncing the agent back here.
@@ -781,6 +807,10 @@ const isDone = computed(() => DONE.includes(tab.value));
 // decisions (redeliver / reship / DNA / cancel) are Rescue's, run through the
 // same rescue.act engine rather than the confirmation actions.
 const isNd = computed(() => tab.value === "notdelivered");
+// Supplier out of stock: a Confirmed order whose product will not come. The
+// decisions are the customer's answer, recorded through supplier_oos_act —
+// act() would move the status, and a customer who waits stays Confirmed.
+const isOos = computed(() => tab.value === "supplieroos");
 const dayPct = computed(() => {
   const d = data.value;
   if (!d?.myTarget) return 0;
@@ -985,8 +1015,38 @@ async function ndAct(r, action, note) {
   }
 }
 
+// Supplier out of stock decisions. Keep and cancel leave the tab; retry
+// keeps the row with its fresh attempt count, like DNA on its own tab.
+async function oosAct(r, action, note) {
+  busy.value = r.order;
+  try {
+    const res = await apiPost("confirmation.supplier_oos_act", { order: r.order, action, note });
+    if (action === "retry") {
+      r.attempts = res.attempts || (r.attempts || 0) + 1;
+    } else {
+      rows.value = rows.value.filter((x) => x.order !== r.order);
+      total.value = Math.max(0, total.value - 1);
+      if (data.value?.counts) {
+        data.value.counts.supplieroos = Math.max(0, (data.value.counts.supplieroos || 1) - 1);
+        if (action === "cancel") data.value.counts.cancelled++;
+      }
+      if (detailFor.value === r.order) detailFor.value = "";
+      if (custFor.value === r.order) custFor.value = "";
+    }
+    cancelFor.value = "";
+    cancelReason.value = "";
+    success(t(action === "cancel" ? "cf.done_cancel" : `cf.done_oos_${action}`),
+            r.order + (res.attempts ? ` · ${t('cf.attempts')} ${res.attempts}` : ""));
+  } catch (e) {
+    warn(t("cf.actFail"), String(e.message || e));
+  } finally {
+    busy.value = "";
+  }
+}
+
 // The cancel panel is shared; route it to the right engine for the tab.
 function submitCancel(r) {
+  if (isOos.value) return oosAct(r, "cancel", cancelReason.value);
   return isNd.value
     ? ndAct(r, "cancel", cancelReason.value)
     : act(r, "cancel", cancelReason.value);
