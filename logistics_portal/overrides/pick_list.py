@@ -137,16 +137,74 @@ class PickList(_Base):
                                 + ", ".join(sorted({l.sales_order for l in gone}))
                                 + (" · put back: " + ", ".join(back) if back else ""),
                                 indicator="orange", alert=True)
+        # The same edit, smaller: the order's quantity went DOWN after the list
+        # was made. J-010973 on 2026-10-09: on PL-56650 at 19:17 for 2, cut to
+        # 1 at 19:20, both pieces scanned — and ERPNext refused every submit
+        # with "Total Picked Quantity 2.0 is more than ordered qty 1.0", which
+        # the floor never saw (the toast showed a progress note). Each row is
+        # trimmed to what the order still allows (its quantity, less what
+        # other submitted lists picked for the same line); the extra piece
+        # goes back to its shelf.
+        if getattr(self, "_action", "") == "submit" and self.get("locations"):
+            self._trim_to_order()
         super().validate()
+
+    def _trim_to_order(self):
+        rows = [l for l in self.locations if l.get("sales_order_item") and not l.get("product_bundle_item")]
+        names = tuple({l.sales_order_item for l in rows})
+        if not names:
+            return
+        ordered = {r[0]: flt(r[1]) for r in frappe.db.sql(
+            "SELECT name, stock_qty FROM `tabSales Order Item` WHERE name IN %s", (names,))}
+        elsewhere = {r[0]: flt(r[1]) for r in frappe.db.sql(
+            """SELECT pli.sales_order_item, SUM(pli.picked_qty) FROM `tabPick List Item` pli
+               JOIN `tabPick List` p ON p.name = pli.parent
+               WHERE p.docstatus = 1 AND p.name != %s AND pli.sales_order_item IN %s
+               GROUP BY pli.sales_order_item""", (self.name or "", names))}
+        left = {n: ordered[n] - elsewhere.get(n, 0) for n in names if n in ordered}
+        drop, trimmed = set(), []
+        for l in sorted(rows, key=lambda x: x.idx):
+            if l.sales_order_item not in left:
+                continue          # line gone: dropped_lines' business
+            cf = flt(l.get("conversion_factor") or 1) or 1
+            want = flt(l.stock_qty or l.qty * cf)
+            room = max(left[l.sales_order_item], 0)
+            if want <= room + 1e-9:
+                left[l.sales_order_item] = room - want
+                continue
+            extra = want - room
+            trimmed.append({"so": l.sales_order, "item_code": l.item_code, "shelf": l.warehouse or "",
+                            "picked": int(min(flt(l.get("custom_scanned_qty") or 0), extra)), "extra": extra})
+            left[l.sales_order_item] = 0
+            if room <= 0:
+                drop.add(l.name)
+                continue
+            l.qty = room / cf
+            l.stock_qty = room
+            l.picked_qty = min(flt(l.picked_qty), room)
+        if not trimmed:
+            return
+        keep = [l for l in self.locations if l.name not in drop]
+        if not keep:
+            frappe.throw("Nothing on this list is still owed by its orders — cancel the list and put the pieces back.")
+        if drop:
+            self.set("locations", keep)
+            for i, l in enumerate(self.locations, start=1):
+                l.idx = i
+        self.flags.lp_lines_dropped = (self.flags.get("lp_lines_dropped") or []) + trimmed
+        frappe.msgprint("Trimmed to the order's quantity: "
+                        + ", ".join(f"{t['so']} −{t['extra']:g}" for t in trimmed)
+                        + " · put the extra back on its shelf", indicator="orange", alert=True)
 
     def on_submit(self):
         super().on_submit()
         for d in self.flags.get("lp_lines_dropped") or []:
             try:
+                what = (f"{d['item_code']} trimmed by {d['extra']:g} on {self.name} at its submit — the order "
+                        "now asks for less" if d.get("extra") else
+                        f"{d['item_code']} removed from {self.name} at its submit — it is no longer on this order")
                 frappe.get_doc("Sales Order", d["so"]).add_comment(
-                    "Comment", f"{d['item_code']} removed from {self.name} at its submit — it is no longer "
-                               "on this order" + (f"; the picked piece goes back to {d['shelf']}" if d["picked"] else "")
-                               + ".")
+                    "Comment", what + (f"; the extra piece goes back to {d['shelf']}" if d["picked"] else "") + ".")
             except Exception:
                 frappe.log_error(frappe.get_traceback()[:2000], "pick_list dropped-line comment")
         for so in self.flags.get("lp_stopped_dropped") or []:
