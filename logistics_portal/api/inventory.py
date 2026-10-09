@@ -240,11 +240,24 @@ def sku_lookup(query, limit=80):
             return {"query": "", "groups": []}
         ordered_codes, skus, so_name = set(), [], None
 
+        # What the query IS decides the order of the checks. A bare number is
+        # far more often a SKU than an order: "42411" (6 VERRE CONIQUE, on
+        # #264289) answered with order #42411's dino t-shirt, 2026-10-09,
+        # because the order test ran first and added the '#'. So: an order
+        # typed as an order (#…, or a full order name) first; then an exact
+        # item code or SKU; then the bare number as an order; then a search.
         oname = q.lstrip("#").strip()
-        for cand in (q, oname, "#" + oname):
-            if frappe.db.exists("Sales Order", cand):
-                so_name = cand
-                break
+
+        def _order(cands):
+            for cand in cands:
+                if frappe.db.exists("Sales Order", cand):
+                    return cand
+            return None
+
+        so_name = _order((q, "#" + oname)) if q.startswith("#") else _order((q,))
+        if not so_name and not frappe.db.exists("Item", q) \
+                and not frappe.db.exists("Item", {"custom_sku": q}):
+            so_name = _order((oname, "#" + oname))
         if so_name:
             for r in frappe.db.sql(
                 """SELECT soi.item_code AS code, it.custom_sku AS sku
