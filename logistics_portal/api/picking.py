@@ -1425,7 +1425,7 @@ def _insert_one(sos, picker=None):
 
 def _short_err(e):
     msg = frappe.utils.strip_html(str(getattr(e, "message", None) or e) or "")
-    return (msg.split("\n")[0][:90]).strip() or "stock unavailable"
+    return (msg.split("\n")[0][:160]).strip() or type(e).__name__
 
 
 def _build_pick_list(orders, picker=None):
@@ -1794,6 +1794,19 @@ def submit_pick_list(name):
     try:
         pl.submit()
     except Exception as e:
+        # The toast shows the FIRST server message, and the controller's first
+        # message is always its progress note ("Cancelling stock reservation
+        # for associated Sales Orders...") — so PL-56650 on 2026-10-09 failed
+        # with that note as its only explanation, and nothing was logged. Keep
+        # the real error: drop the queued notes, record the trace (after the
+        # rollback, or the log row is rolled back with the submit).
+        frappe.local.message_log = []
+        frappe.db.rollback()
+        frappe.log_error(frappe.get_traceback()[:6000], f"submit_pick_list {name}")
+        frappe.db.commit()
+        if isinstance(e, frappe.TimestampMismatchError):
+            frappe.throw("Someone saved this list at the same moment (a scan or another tab). "
+                         "Reload it and submit again.")
         # Say what actually went wrong. The controller msgprints "Cancelling
         # stock reservation for associated Sales Orders..." on the way past, and
         # the toast was showing THAT as the reason the submit failed — a
