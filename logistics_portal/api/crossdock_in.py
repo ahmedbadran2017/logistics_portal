@@ -516,10 +516,28 @@ def _comment(doctype, name, text):
         pass
 
 
+def _price_list_for(h):
+    """An enabled buying price list for this receipt: the PO's, else the
+    supplier's default, else the supplier's newest enabled list, else any
+    enabled buying list. Never a disabled one."""
+    def ok(name):
+        return bool(name) and frappe.db.get_value("Price List", name, "enabled")
+    if ok(h.get("buying_price_list")):
+        return h.buying_price_list
+    default = frappe.db.get_value("Supplier", h.supplier, "default_price_list")
+    if ok(default):
+        return default
+    own = frappe.db.get_value("Price List", {"enabled": 1, "buying": 1, "name": ["like", f"{h.supplier}%"]},
+                              "name", order_by="creation desc")
+    if own:
+        return own
+    return frappe.db.get_value("Price List", {"enabled": 1, "buying": 1}, "name", order_by="creation desc")
+
+
 def _receive_one(po, items, problem, note):
     h = frappe.db.get_value("Purchase Order", po,
                             ["name", "supplier", "currency", "conversion_rate", "docstatus",
-                             "status", "company", "custom_sales_order"], as_dict=True)
+                             "status", "company", "custom_sales_order", "buying_price_list"], as_dict=True)
     if not h or h.docstatus != 1 or h.company != COMPANY \
             or h.status in ("Closed", "Completed", "Cancelled"):
         frappe.throw(f"{po}: not open.")
@@ -553,6 +571,13 @@ def _receive_one(po, items, problem, note):
         pr = frappe.get_doc({
             "doctype": "Purchase Receipt", "supplier": h.supplier, "company": COMPANY,
             "currency": h.currency or "MAD", "conversion_rate": flt(h.conversion_rate or 1),
+            # The receipt's price list is the PO's, not whatever Buying Settings
+            # holds as the site default: on 2026-10-09 that default was a
+            # disabled list ("VP - Awani") and every receipt for every other
+            # supplier failed with "price list does not exist or is disabled".
+            # Rates come from the PO rows anyway; the list only has to be valid.
+            "buying_price_list": _price_list_for(h),
+            "ignore_pricing_rule": 1,
             "set_warehouse": CROSSDOCK_WH,
             "remarks": f"{COMMENT_TAG} by {frappe.session.user} — PO {po} — order {h.custom_sales_order}"
                        + (f" — {note}" if note else ""),
