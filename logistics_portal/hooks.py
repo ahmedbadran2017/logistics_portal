@@ -53,6 +53,16 @@ override_doctype_class = {
     "Pick List": "logistics_portal.overrides.pick_list.PickList",
 }
 
+# "Update Items" on a confirmed order follows where its goods are: the pick
+# list follows the edit, the picker is told what to put back, and an order
+# already labelled refuses it. Wraps ecommerce_integrations' own override of
+# the same method (this app installs after it, so this one is called).
+# See overrides/so_items.py. Restart BEFORE clear-cache after this change.
+override_whitelisted_methods = {
+    "erpnext.controllers.accounts_controller.update_child_qty_rate":
+        "logistics_portal.overrides.so_items.update_child_qty_rate",
+}
+
 doc_events = {
     # Every Cathedis manifest, however it is submitted: the shortfall check
     # (printed parcels whose list finished sorting but are on no Shipment)
