@@ -288,6 +288,18 @@ def apply_city(order, city):
           or frappe.db.get_value("Sales Order", order, "customer_address"))
     if an:
         frappe.db.set_value("Address", an, "city", city)
+    # The label is cut from the Delivery Note, and a Delivery Note keeps the
+    # address it was made with — which is not always the order's. #265040,
+    # 2026-10-13/14: the order pointed at Shipping-114 (fixed six times to
+    # OULAD TAIMA), its DN at Shipping-99, still 'اولاد تايمة' — and every
+    # retry sent Cathedis the Arabic name and was refused. Every address an
+    # open note of this order points at gets the city too.
+    for dn_addr in frappe.db.sql_list(
+            """SELECT DISTINCT COALESCE(NULLIF(d.shipping_address_name, ''), d.customer_address)
+               FROM `tabDelivery Note` d JOIN `tabDelivery Note Item` dni ON dni.parent = d.name
+               WHERE dni.against_sales_order = %s AND d.docstatus < 2 AND d.is_return = 0""", (order,)):
+        if dn_addr and dn_addr != an:
+            frappe.db.set_value("Address", dn_addr, "city", city)
     frappe.get_doc("Sales Order", order).add_comment(
         "Comment", f"Shipping city set to '{city}' for the carrier · by "
                    f"{frappe.session.user}")
