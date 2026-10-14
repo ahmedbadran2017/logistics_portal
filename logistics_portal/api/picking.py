@@ -940,6 +940,7 @@ _TRANSFER_HELD = ("(COALESCE(so.payment_type, '') IN ('Virement bancaire', 'Bank
 # Morocco orders in Pending logistics state, not already on any open pick list,
 # with a city Cathedis can actually label, and paid if paid-before-shipping.
 _POOL_BASE = f"""so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
+                 AND so.status NOT IN ('Closed', 'On Hold')
                  AND so.company = 'Justyol Morocco'
                  AND so.custom_logistics_status = 'Pending'
                  AND so.creation >= DATE_SUB(NOW(), INTERVAL 90 DAY)
@@ -1255,9 +1256,16 @@ def _pick_gate(name):
     so = frappe.db.get_value(
         "Sales Order", name,
         ["docstatus", "custom_sales_status", "custom_logistics_status",
-         "per_picked"], as_dict=True)
+         "per_picked", "status"], as_dict=True)
     if so.docstatus != 1 or so.custom_sales_status != "Confirmed":
         return "not a submitted Confirmed order"
+    # ERPNext refuses a Delivery Note against a Closed (or On Hold) order, so
+    # picking one only strands the parcel at the sort wall: J-010359,
+    # J-011159 and #264430 on 2026-10-14 — closed from the Desk after a
+    # cancel, later re-confirmed in the portal, picked, sorted, and every
+    # label retry failed on "Sales Order … is Closed".
+    if so.status in ("Closed", "On Hold"):
+        return f"the order is {so.status} in ERPNext — reopen it first"
     if transfer_held_orders([name]):
         return "bank transfer not confirmed by accounting yet"
     if so.custom_logistics_status not in (None, "", "Pending"):

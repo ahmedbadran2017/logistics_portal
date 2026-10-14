@@ -1326,6 +1326,17 @@ def act(order, action, note=None, _bulk=False):
         # existing dashboard group portal cancels alongside desk ones.
         updates["custom_cancellation_reason"] = note
     frappe.db.set_value("Sales Order", order, updates, update_modified=True)
+    # A cancel is often followed by "Close" on the Desk, and reopening here
+    # only moved OUR status: the order went back to Confirmed, was picked and
+    # sorted, and its Delivery Note was refused — "Sales Order J-010359 is
+    # Closed" (3 parcels stranded at the sort wall on 2026-10-14). Bringing
+    # the order back into the lane brings it back in ERPNext too.
+    if action in ("reopen", "confirm", "followup", "dna") and \
+            frappe.db.get_value("Sales Order", order, "status") in ("Closed", "On Hold"):
+        try:
+            frappe.get_doc("Sales Order", order).update_status("Draft")
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:2000], f"confirmation reopen ERPNext status {order}")
     _first_touch(order)
 
     doc = frappe.get_doc("Sales Order", order)
