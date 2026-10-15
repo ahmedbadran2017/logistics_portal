@@ -160,6 +160,9 @@ const routes = [
       { path: "count-control", name: "CountControl", component: () => import("@/pages/CountControl.vue") },
       { path: "inventory", name: "Inventory", component: () => import("@/pages/Inventory.vue") },
       { path: "sku", name: "SkuLookup", component: () => import("@/pages/SkuLookup.vue") },
+      // Customer service's lane for "the supplier hasn't got it" — the engine
+      // lives in api.confirmation, the work does not.
+      { path: "supplier-oos", name: "CsSupplierOos", component: () => import("@/pages/CsSupplierOos.vue") },
       { path: "shelf-labels", name: "ShelfLabels", component: () => import("@/pages/ShelfLabels.vue") },
       { path: "weights", name: "Weights", component: () => import("@/pages/Weights.vue") },
       { path: "slotting", name: "Slotting", component: () => import("@/pages/Slotting.vue") },

@@ -648,7 +648,14 @@ const router = useRouter();
 const DONE_TABS = ["cancelled", "duplicated"];   // the History fold (confirmed is first-class)
 const showHistory = ref(DONE_TABS.includes(tab.value));
 const visibleTabs = computed(() =>
-  TABS.filter((tb) => showHistory.value || tb.group !== "done"));
+  TABS.filter((tb) => (showHistory.value || tb.group !== "done")
+    // The supplier lane moved to customer service (Ahmed, 2026-10-15): the
+    // order is already confirmed and the customer already said yes, so what
+    // is left — telling them their product is not coming — is not a
+    // confirmation decision. The API refuses this tab to a confirmation
+    // agent too, so hiding it here is tidiness, not the lock. A manager
+    // still sees it, because a manager sees every lane.
+    && (tb.key !== "supplieroos" || authRole.value === "manager")));
 function toggleHistory() {
   showHistory.value = !showHistory.value;
   if (!showHistory.value && DONE_TABS.includes(tab.value)) {

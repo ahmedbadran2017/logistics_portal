@@ -302,6 +302,7 @@ export const ROLE_CONFIG = {
           // is read-only and the API has always allowed any portal user —
           // only this menu did not.
           { to: "SkuLookup", label: "nav.skuLookup", icon: "scan-barcode" },
+          { to: "CsSupplierOos", label: "nav.supplierOos", icon: "package-x" },
           { to: "Exchanges", label: "nav.exchanges", icon: "refresh-cw" },
           { to: "Tickets", label: "nav.tickets", icon: "ticket" },
         ],

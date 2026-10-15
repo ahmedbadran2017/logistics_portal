@@ -372,6 +372,29 @@ def _gate():
     return role
 
 
+def _is_cs():
+    from logistics_portal.api.auth import resolve_role
+    return resolve_role(frappe.session.user) == "cs"
+
+
+def _oos_gate():
+    """The supplier-out-of-stock lane belongs to customer service.
+
+    It was built here on 2026-10-08 because this is where the blindness was
+    found, but the work is not a confirmation decision: the order was already
+    confirmed and the customer already said yes. What is left is telling
+    somebody their product is not coming and agreeing what to do instead,
+    which is customer service's job (Ahmed, 2026-10-15).
+
+    The ENGINE stays here — one definition of "the supplier said no", one set
+    of actions — and only the door moves."""
+    from logistics_portal.api.auth import resolve_role
+    role = resolve_role(frappe.session.user)
+    if role not in ("cs", "manager"):
+        frappe.throw("lp:csOnly", frappe.PermissionError)
+    return role
+
+
 # The customer key, identical to customers.py: digits only, last 9.
 _CUST_KEY = ("RIGHT(REGEXP_REPLACE(COALESCE(NULLIF(so.custom_customer_phone, ''),"
              " so.custom_shipping_phone), '[^0-9]', ''), 9)")
@@ -412,7 +435,11 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     """The queues + counts + my day so far, one call. `as_user` (manager /
     section admin only) scopes the board to that agent — the view-as feature:
     the manager sees exactly the queue the agent sees, read-only fidelity."""
-    role = _gate()
+    # The supplier lane is customer service's now. Gated on the DATA, not
+    # just hidden from the menu — a tab a confirmation agent can still reach
+    # by typing the request has not moved anywhere. CS gets this lane and no
+    # other; everyone else gets this workspace without it.
+    role = _oos_gate() if tab == "supplieroos" else _gate()
     if tab not in QUEUES and tab not in DONE_QUEUES and tab not in (
             "monitor", "notdelivered", "citycheck", "supplieroos"):
         tab = "pending"
@@ -1001,12 +1028,26 @@ def supplier_oos_act(order, action, note=None):
     action = (action or "").strip()
     order = (order or "").strip()
     note = (note or "").strip()
+    cs_actor = _is_cs()
     if action == "cancel":
+        _oos_gate()
+        if cs_actor:
+            # act() is the confirmation engine and refuses a CS caller — and
+            # should: by now the order is Confirmed and may already be on a
+            # pick list, which act() has no answer for. api.stop does, at any
+            # stage, and CS is allowed to call it.
+            from logistics_portal.api.stop import request_stop
+            return request_stop(order, reason="Out of stock", note=note)
         return act(order, "cancel", note)
     if action not in ("keep", "retry"):
         frappe.throw("Unknown action.")
-    role = _gate()
-    _own_guard(role, order)
+    role = _oos_gate()
+    # CS owns no orders by allocation, so the confirmation lane's per-agent
+    # scope cannot apply to them — it would hand them a lane they can see and
+    # cannot work: 6 of the 11 open today are allocated to confirmation
+    # agents who no longer have the tab. A manager passes _own_guard anyway.
+    if not cs_actor:
+        _own_guard(role, order)
     so = frappe.db.get_value(
         "Sales Order", order,
         ["docstatus", "company", "custom_call_attempts", "custom_allocated_to"],
@@ -1022,7 +1063,11 @@ def supplier_oos_act(order, action, note=None):
     now = now_datetime()
     attempts = int(so.custom_call_attempts or 0) + 1
     updates = {"custom_last_call_at": now, "custom_call_attempts": attempts}
-    if not (so.custom_allocated_to or ""):
+    # custom_allocated_to is the CONFIRMATION lane's attribution — it feeds
+    # that team's numbers and their bonus. A CS agent answering the customer
+    # about a supplier's "no" has not confirmed anything, so stamping them
+    # here would pay and credit the wrong team for the wrong act.
+    if not cs_actor and not (so.custom_allocated_to or ""):
         updates["custom_allocated_to"] = frappe.session.user
     if action == "retry":
         updates["custom_next_call_at"] = add_to_date(
@@ -1030,7 +1075,12 @@ def supplier_oos_act(order, action, note=None):
     else:
         updates["custom_next_call_at"] = None
     frappe.db.set_value("Sales Order", order, updates, update_modified=True)
-    _first_touch(order)
+    # Same reason as the allocation above: first touch measures how fast the
+    # CONFIRMATION lane first answered an order. A Confirmed order has been
+    # touched long ago so the write-once guard almost always holds anyway —
+    # but "almost always" is not a thing to leave in a metric.
+    if not cs_actor:
+        _first_touch(order)
     frappe.get_doc("Sales Order", order).add_comment(
         "Comment",
         f"Supplier OOS: {action}"
