@@ -1500,6 +1500,90 @@ def _sre_by_order(item_codes):
     return m
 
 
+_CROSSDOCK_WH = "Cross-dock - JM"
+
+
+def _crossdock_claims(item_codes):
+    """(sales_order, item_code) -> units in Cross-dock that are that order's
+    by its own documents: received there on the order's PO, less what the
+    order already shipped, less what already rides a pick list for it.
+
+    Why not the Stock Reservation Entry alone: the reservation is cancelled
+    the moment the order enters picking (_release_order_reservations — ERPNext
+    cannot pick reserved batch stock even for its owner) and nothing puts it
+    back when the order leaves the list again. From then on the piece was
+    free stock, and the next order wanting the item took it — an order whose
+    own PO was still "To Receive". Measured 2026-10-15: 14 lines since 10-01
+    shipped on another order's piece; six confirmed orders (#264893,
+    #264265, #263791, #265153, #264876, #264817) were left "received" with
+    their piece gone, and the takers' own pieces, arriving later, matched
+    nobody at Cross-dock in. The documents cannot be released by accident.
+
+    Only live orders hold a claim (confirmed, not closed): a cancelled order's
+    piece is unowned and serves whoever needs it. Claims are capped by what
+    the bin really holds, oldest receipt first."""
+    codes = tuple({c for c in (item_codes or []) if c})
+    if not codes:
+        return {}
+    since = str(frappe.utils.add_days(frappe.utils.nowdate(), -60))
+    rec = frappe.db.sql(
+        """SELECT poi.sales_order AS so, pri.item_code AS code, SUM(pri.stock_qty) AS q,
+                  MIN(pr.creation) AS at
+           FROM `tabPurchase Receipt Item` pri
+           JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
+           JOIN `tabPurchase Order Item` poi ON poi.name = pri.purchase_order_item
+           JOIN `tabSales Order` so ON so.name = poi.sales_order
+           WHERE pr.docstatus = 1 AND pr.is_return = 0 AND pri.warehouse = %s
+             AND pri.item_code IN %s AND pr.posting_date >= %s
+             AND so.docstatus = 1 AND so.custom_sales_status = 'Confirmed'
+             AND so.status NOT IN ('Closed', 'Completed', 'Cancelled', 'On Hold')
+           GROUP BY poi.sales_order, pri.item_code""", (_CROSSDOCK_WH, codes, since), as_dict=True)
+    if not rec:
+        return {}
+    sos = tuple({r.so for r in rec})
+    gone = {}
+    for r in frappe.db.sql(
+            """SELECT dni.against_sales_order AS so, dni.item_code AS code, SUM(dni.stock_qty) AS q
+               FROM `tabDelivery Note Item` dni JOIN `tabDelivery Note` d ON d.name = dni.parent
+               WHERE d.docstatus = 1 AND d.is_return = 0
+                 AND dni.against_sales_order IN %s AND dni.item_code IN %s
+               GROUP BY dni.against_sales_order, dni.item_code""", (sos, codes), as_dict=True):
+        gone[(r.so, r.code)] = gone.get((r.so, r.code), 0) + flt(r.q)
+    for r in frappe.db.sql(
+            """SELECT pli.sales_order AS so, pli.item_code AS code, SUM(pli.stock_qty) AS q
+               FROM `tabPick List Item` pli JOIN `tabPick List` p ON p.name = pli.parent
+               WHERE p.docstatus = 0 AND pli.sales_order IN %s AND pli.item_code IN %s
+               GROUP BY pli.sales_order, pli.item_code""", (sos, codes), as_dict=True):
+        gone[(r.so, r.code)] = gone.get((r.so, r.code), 0) + flt(r.q)
+    # What the bin holds that a draft list has not already taken.
+    room = {r[0]: flt(r[1]) for r in frappe.db.sql(
+        "SELECT item_code, actual_qty FROM `tabBin` WHERE warehouse = %s AND item_code IN %s",
+        (_CROSSDOCK_WH, codes))}
+    for r in frappe.db.sql(
+            """SELECT pli.item_code, SUM(pli.stock_qty) FROM `tabPick List Item` pli
+               JOIN `tabPick List` p ON p.name = pli.parent
+               WHERE p.docstatus = 0 AND pli.warehouse = %s AND pli.item_code IN %s
+               GROUP BY pli.item_code""", (_CROSSDOCK_WH, codes)):
+        room[r[0]] = room.get(r[0], 0) - flt(r[1])
+    claims = {}
+    for r in sorted(rec, key=lambda x: str(x.at)):
+        owed = flt(r.q) - gone.get((r.so, r.code), 0)
+        take = min(owed, max(room.get(r.code, 0), 0))
+        if take > 0:
+            claims[(r.so, r.code)] = take
+            room[r.code] = room.get(r.code, 0) - take
+    return claims
+
+
+def _with_claims(sre, item_codes):
+    """Reservations plus Cross-dock claims: one unit is one hold, so an order's
+    hold on an item is the larger of its reservation and its claim."""
+    for k, q in _crossdock_claims(item_codes).items():
+        if q > sre.get(k, 0):
+            sre[k] = q
+    return sre
+
+
 def _release_order_reservations(sos):
     """A pick list is the PHYSICAL claim; the paper reservation hands over.
 
@@ -1573,7 +1657,9 @@ def _allocate_and_insert(sos, skipped, picker):
     # Measured 2026-09-09 on the live pool: 31 of 126 orders were told they
     # could be picked on stock that is not there. Reservations decide WHO gets
     # a unit, never how many exist.
-    sre = _sre_by_order(item_codes)
+    # The orders' own Cross-dock pieces stay theirs after the release above:
+    # the claim is read from the receipts, not from the reservation.
+    sre = _with_claims(_sre_by_order(item_codes), item_codes)
     ceiling, shared = {}, {}
     for code in item_codes:
         ceiling[code] = max(0.0, float(totals.get(code, 0)))
@@ -2498,7 +2584,7 @@ def availability(item_codes, scope="pick"):
     Returns (totals, sre, free) where free(order, code) -> qty.
     """
     totals = _available_totals(item_codes, scope)
-    sre = _sre_by_order(item_codes)
+    sre = _with_claims(_sre_by_order(item_codes), item_codes)
     shared = {}
     for code in set(item_codes) | set(totals):
         shared[code] = max(0.0, float(totals.get(code, 0)))
