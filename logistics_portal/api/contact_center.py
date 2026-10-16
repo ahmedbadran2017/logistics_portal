@@ -182,6 +182,10 @@ _BONUS_DEFAULTS = {
         "rs.failed_again": -0.2,   # it broke: the carrier failed a second time
         "rs.recovered": 0.15,      # a requested return reached our shelves
         "rs.never_came_back": 0.0, # the carrier lost it — not the agent's fault
+        # The customer cancelled after we promised a redelivery. It ends the
+        # promise, so it must leave the Watching list, but it is neither a
+        # failure of the call nor a win: zero, on purpose, not by omission.
+        "rs.cancelled": 0.0,
         # The corrections that stop a delivery failing in the first place.
         # 761 city fixes and 1,003 address fixes in three weeks scored
         # nothing at all, on either board — including 1,002 made by

@@ -953,7 +953,7 @@ def board(tab="todo", days=30, q="", limit=30, offset=0, reason="", surface="",
                              and str(getattr(r, "held_at", "") or "")[:19] >= _claim_cutoff()),
             "waitUntil": str(getattr(r, "wait_until", "") or "")[:16],
             "verdict": _verdict(getattr(r, "last_event", "") or ""),
-            "again": bool(getattr(r, "prior_action", None)),
+            "again": _failed_again(r),
             "priorAt": str(getattr(r, "prior_at", "") or "")[:16],
             "nextCall": str(r.next_call)[:16] if r.next_call else "",
             "due": bool(r.next_call and str(r.next_call) <= now),
@@ -973,6 +973,27 @@ def board(tab="todo", days=30, q="", limit=30, offset=0, reason="", surface="",
 # The carrier's status, read as an answer to "did my rescue work?".
 # Anything unlisted (including no status at all) counts as still open —
 # never as a failure the agent has to wear.
+def _failed_again(r):
+    """True only when the carrier FAILED the parcel after our decision.
+
+    This used to be `bool(prior_action)` — true for every parcel that had
+    any decision at all. On the working queue that happened to mean the
+    right thing, because a decided parcel only comes back there when it has
+    failed again. On the Watching tab every row has a decision by
+    definition, so every row was labelled "Failed again after Redeliver" —
+    including parcels the carrier had written "Package Delivered" against
+    (reported 2026-10-16). A badge that is on every row tells nobody
+    anything, and one that says "failed" over a delivery is worse.
+    """
+    if not getattr(r, "prior_action", None):
+        return False
+    at, prior = getattr(r, "last_event_at", None), getattr(r, "prior_at", None)
+    if not (at and prior and at > prior):
+        return False
+    return carrier_events.kind_of(getattr(r, "last_event", "") or "") \
+        in carrier_events.BROKE_THE_PROMISE
+
+
 _OUTCOME = {
     "Delivered": "landed",
     "Out For Delivery": "open", "In Transit": "open",
@@ -1353,6 +1374,8 @@ def settle_outcomes(limit=400):
                        dn.custom_return_shipment ret,
                        dn.custom_exception_action act,
                        {_fail_event_at_sql()} fail_at,
+                       {_last_event_sql("content")} last_ev,
+                       {_last_event_sql("creation")} last_ev_at,
                        dn.custom_exception_actioned_at act_at,
                        {_back_in_house()} AS back_in_house,
                        TIMESTAMPDIFF(DAY, dn.custom_exception_actioned_at,
@@ -1388,11 +1411,31 @@ def settle_outcomes(limit=400):
                 continue
             # A parcel physically back in the building is settled whatever
             # the tracker says — the return note is the harder evidence.
+            #
+            # And the carrier's EVENT is read, not just its status column.
+            # Reported 2026-10-16 from the Watching tab: parcels the carrier
+            # had written "Package Delivered" against sat there as open
+            # promises, because the column still read "Pending" — the carrier
+            # posts the event and does not always update the status. The
+            # same gap was found on J-003683 in September and fixed for the
+            # clock; it was never carried over to here.
+            kind = carrier_events.kind_of(r.last_ev or "")
+            after = bool(r.last_ev_at and r.act_at and r.last_ev_at > r.act_at)
             if r.ret:
                 out = "returned"
+            elif kind == "delivered" or (r.trk or "") == "Delivered":
+                out = "landed"
+            elif (r.trk or "") in ("Return", "Returned"):
+                out = "returned"
+            # The customer cancelled AFTER we promised a redelivery. That ends
+            # the promise — nobody is waiting on it — but it is not a failure
+            # of the call and not a win either. Only a cancellation that came
+            # after the decision counts: one before it was overruled by the
+            # decision itself, which is often the whole point of the call.
+            elif kind == "cancelled" and after:
+                out = "cancelled"
             else:
-                out = {"Delivered": "landed",
-                       "Return": "returned", "Returned": "returned"}.get(r.trk or "")
+                out = ""
             # The fourth ending, and until now the only one nobody wrote
             # down: the carrier tried again and failed again. The parcel
             # went back to the working queue and history kept no trace of
@@ -1646,7 +1689,7 @@ def dashboard():
             "lastEvent": _clean(getattr(r, "last_event", "") or "")[:90],
             "lastEventAt": str(getattr(r, "last_event_at", "") or "")[:16],
             "verdict": _verdict(getattr(r, "last_event", "") or ""),
-            "again": bool(getattr(r, "prior_action", None)),
+            "again": _failed_again(r),
             "priorAt": str(getattr(r, "prior_at", "") or "")[:16],
             "value": float(r.total or 0),
         } for r in oldest],
