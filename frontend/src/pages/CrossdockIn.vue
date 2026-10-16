@@ -39,6 +39,27 @@
                   @click="unconfirmed = null">{{ t('common.cancel') }}</button>
         </div>
       </div>
+      <!-- The order's received piece left the books (a count zeroed the bin):
+           the piece in hand is most likely it. A manager books it back. -->
+      <div v-if="missing" class="mt-3 rounded-xl px-3.5 py-3 bg-rose-50 ring-1 ring-rose-200/70 space-y-2">
+        <div class="text-[12.5px] text-rose-900 leading-relaxed">
+          <b>{{ missing.so }}</b> — {{ t('cdi.pieceMissing') }}
+        </div>
+        <div v-for="l in missing.lines" :key="l.so + l.itemCode" class="flex items-center gap-2 flex-wrap text-[12px] text-rose-900">
+          <span class="font-mono">{{ l.sku || l.itemCode }}</span>
+          <span class="truncate max-w-[260px]">{{ l.name }}</span>
+          <span class="tabular-nums">× {{ l.missing }}</span>
+          <span v-if="l.reco" class="text-rose-700">· {{ t('cdi.countedOut').replace('{reco}', l.reco).replace('{by}', l.recoBy).replace('{date}', l.recoAt) }}</span>
+          <button v-if="missing.canRebook" :disabled="rebooking"
+                  class="h-8 px-3 rounded-lg text-[12px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50"
+                  @click="rebook(l)">{{ t('cdi.rebook') }}</button>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <span v-if="!missing.canRebook" class="text-[12px] text-rose-800">{{ t('cdi.askManager') }}</span>
+          <button class="h-9 px-3 rounded-lg text-[12px] font-semibold text-stone-600 bg-white ring-1 ring-stone-200"
+                  @click="missing = null">{{ t('common.cancel') }}</button>
+        </div>
+      </div>
     </div>
 
     <!-- No supplier yet: who is at the door -->
@@ -188,6 +209,8 @@ const PROBLEM_KINDS = ["missing", "damaged", "wrong_item", "other"];
 const scanner = ref(null);
 const unconfirmed = ref(null);  // { so, supplier, po, canConfirm }
 const confirming = ref(false);
+const missing = ref(null);      // { so, lines: [{so, itemCode, sku, name, missing, reco, recoBy, recoAt}], canRebook }
+const rebooking = ref(false);
 const boot = ref(null);
 const loading = ref(true);
 const supplier = ref("");
@@ -268,6 +291,21 @@ async function confirmByDelivery() {
   }
 }
 
+async function rebook(l) {
+  if (rebooking.value) return;
+  rebooking.value = true;
+  try {
+    const r = await apiPost("crossdock_in.rebook", { so: l.so, item_code: l.itemCode, qty: 1 });
+    success(t("cdi.rebooked").replace("{reco}", r.reco), (r.heldFor || []).length ? `${t("cdi.heldFor")} ${r.heldFor.join(", ")}` : "");
+    missing.value = null;
+    setTimeout(() => scanner.value?.refocus(), 50);
+  } catch (e) {
+    warn(t("cdi.rebookFailed"), String(e.message || e));
+  } finally {
+    rebooking.value = false;
+  }
+}
+
 function highlight(po) {
   flash.value = po;
   nextTick(() => document.getElementById("cdi-" + po)?.scrollIntoView({ behavior: "smooth", block: "center" }));
@@ -281,6 +319,12 @@ async function onScan(raw) {
   try { res = await apiPost("crossdock_in.resolve", { code, supplier: supplier.value || "" }); }
   catch (e) { scanner.value?.showError(String(e.message || e)); return; }
   unconfirmed.value = null;
+  missing.value = null;
+  if (!res.ok && res.reason === "piece_missing") {
+    missing.value = res;
+    scanner.value?.showError(`${res.so} — ${t("cdi.pieceMissing")}`);
+    return;
+  }
   if (!res.ok && res.reason === "unconfirmed") {
     unconfirmed.value = res;
     scanner.value?.showError(`${res.so} — ${t("cdi.unconfirmed").replace("{supplier}", res.supplier)}`);

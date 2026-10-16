@@ -77,9 +77,14 @@ doc_events = {
     # moment somebody does the work, which is the whole point of doing it.
     "Stock Reconciliation": {
         "on_submit": "logistics_portal.api.short_shelf.on_stock_reconciliation",
-        # Long Shopify titles overflow this table's varchar(140) item_name
-        # and Frappe refuses the whole count — clamp the display copy.
-        "validate": "logistics_portal.api.utils.clamp_item_names",
+        "validate": [
+            # Long Shopify titles overflow this table's varchar(140) item_name
+            # and Frappe refuses the whole count — clamp the display copy.
+            "logistics_portal.api.utils.clamp_item_names",
+            # A count of Cross-dock that zeroes pieces received for waiting
+            # orders warns first (MAT-RECO-2026-22930).
+            "logistics_portal.api.crossdock_in.warn_crossdock_count",
+        ],
     },
     "Stock Entry": {
         "validate": [

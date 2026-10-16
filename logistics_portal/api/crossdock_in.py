@@ -245,6 +245,148 @@ def _already_received(so):
             "status": o.get("custom_track_shipment_status") or o.get("custom_logistics_status") or ""}
 
 
+# "Already received — hand it back" was wrong whenever the received piece had
+# since left the books. MAT-RECO-2026-22930 (Cross-dock count, 2026-10-09)
+# set mov34/mov41 to 0 while #263791 and #264265 were each owed a received
+# piece; on 10-16 one turned up at the counter, the screen called it extra and
+# told Anas to give it back to the supplier, and both orders kept waiting on
+# stock nobody could see. On 2026-10-16, 8 SKUs held fewer pieces than their
+# waiting orders had received. The piece in hand is the strongest proof there
+# is that the count was wrong: the screen says so, and a manager books it back.
+
+
+def _missing(so=None, item_code=None):
+    """[{so, itemCode, sku, name, missing, reco, recoBy, recoAt}] for waiting
+    orders whose received Cross-dock piece is no longer on the books."""
+    from logistics_portal.api.picking import crossdock_missing
+    if so:
+        codes = frappe.db.sql_list(
+            """SELECT DISTINCT pri.item_code FROM `tabPurchase Receipt Item` pri
+               JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
+               JOIN `tabPurchase Order Item` poi ON poi.name = pri.purchase_order_item
+               WHERE poi.sales_order = %s AND pri.warehouse = %s
+                 AND pr.docstatus = 1 AND pr.is_return = 0""", (so, CROSSDOCK_WH))
+    else:
+        codes = [item_code] if item_code else []
+    if not codes:
+        return []
+    out = []
+    for (o, code), q in crossdock_missing(codes).items():
+        if so and o != so:
+            continue
+        it = frappe.db.get_value("Item", code, ["custom_sku", "item_name"], as_dict=True) or {}
+        # The count that took it, when there is one: the latest Cross-dock
+        # reconciliation that lowered this item.
+        r = frappe.db.sql(
+            """SELECT sr.name, sr.modified_by, sr.posting_date FROM `tabStock Reconciliation Item` sri
+               JOIN `tabStock Reconciliation` sr ON sr.name = sri.parent
+               WHERE sr.docstatus = 1 AND sri.item_code = %s AND sri.warehouse = %s
+                 AND sri.qty < sri.current_qty
+               ORDER BY sr.posting_date DESC, sr.posting_time DESC LIMIT 1""",
+            (code, CROSSDOCK_WH), as_dict=True)
+        out.append({"so": o, "itemCode": code, "sku": (it.get("custom_sku") or "").strip(),
+                    "name": it.get("item_name") or code, "missing": int(round(q)),
+                    "reco": r[0].name if r else "", "recoBy": (r[0].modified_by or "").split("@")[0] if r else "",
+                    "recoAt": str(r[0].posting_date) if r else ""})
+    return out
+
+
+def _can_rebook():
+    from logistics_portal.api.auth import resolve_role
+    return resolve_role(frappe.session.user) == "manager"
+
+
+@frappe.whitelist(methods=["POST"])
+def rebook(so, item_code, qty=1):
+    """Book a piece found at the counter back into Cross-dock for the order
+    whose received piece went missing from the books: a one-line Stock
+    Reconciliation (bin + qty) at the receipt's rate. Manager only; never more
+    than the documents say is missing. The piece then belongs to the oldest
+    waiting receipt by picking._crossdock_claims — no reservation is made, so
+    it cannot be held twice."""
+    _gate()
+    if not _can_rebook():
+        frappe.throw("Only a manager can book a missing piece back.", frappe.PermissionError)
+    so, item_code, qty = (so or "").strip(), (item_code or "").strip(), cint(qty) or 1
+    from logistics_portal.api.picking import _crossdock_claims, crossdock_missing
+    short = crossdock_missing([item_code]).get((so, item_code), 0)
+    if short < qty - 1e-9:
+        frappe.throw(f"{so}: nothing missing for {item_code} — its received piece is still on the books.")
+    it = frappe.db.get_value("Item", item_code, ["has_batch_no", "has_serial_no"], as_dict=True) or {}
+    if it.get("has_batch_no") or it.get("has_serial_no"):
+        # A batch item's count needs its bundle; a plain reconciliation would
+        # be overwritten by reconcile_all_serial_batch (cycle-count notes).
+        frappe.throw(f"{item_code} is batch/serial tracked — book it back from the Desk with its batch.")
+    bin_qty = flt(frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": CROSSDOCK_WH},
+                                      "actual_qty"))
+    got = frappe.db.sql(
+        """SELECT pri.valuation_rate FROM `tabPurchase Receipt Item` pri
+           JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
+           JOIN `tabPurchase Order Item` poi ON poi.name = pri.purchase_order_item
+           WHERE poi.sales_order = %s AND pri.item_code = %s AND pri.warehouse = %s
+             AND pr.docstatus = 1 AND pr.is_return = 0
+           ORDER BY pr.creation DESC LIMIT 1""", (so, item_code, CROSSDOCK_WH))
+    rate = flt(got[0][0]) if got else 0
+    before = _crossdock_claims([item_code])
+    row = {"item_code": item_code, "warehouse": CROSSDOCK_WH, "qty": bin_qty + qty, "valuation_rate": rate}
+    if not rate:
+        row["allow_zero_valuation_rate"] = 1
+    reco = frappe.get_doc({"doctype": "Stock Reconciliation", "company": COMPANY,
+                           "purpose": "Stock Reconciliation", "items": [row]})
+    reco.flags.ignore_permissions = True
+    reco.flags.lp_rebook = True
+    reco.insert(ignore_permissions=True)
+    reco.submit()
+    after = _crossdock_claims([item_code])
+    held = [k[0] for k, q in after.items() if q > before.get(k, 0)]
+    gone = _missing(item_code=item_code)
+    why = next((g for g in gone if g["reco"]), None) or {}
+    txt = (f"{COMMENT_TAG}: {qty} × {item_code} found at the counter and booked back into {CROSSDOCK_WH} "
+           f"({reco.name}) by {frappe.session.user} — its received piece had left the books"
+           + (f" (last count {why['reco']})" if why.get("reco") else "")
+           + (f"; held for {', '.join(held)}" if held else ""))
+    _comment("Stock Reconciliation", reco.name, txt)
+    _comment("Sales Order", so, txt)
+    for o in held:
+        if o != so:
+            _comment("Sales Order", o, txt)
+    frappe.db.commit()
+    for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    frappe.cache().delete_keys("lp_suggest")
+    return {"ok": True, "reco": reco.name, "heldFor": held}
+
+
+def warn_crossdock_count(doc, method=None):
+    """Stock Reconciliation validate: a count of Cross-dock that leaves fewer
+    pieces than waiting orders have received there says so before it posts —
+    the count is usually right that the piece is not on the bin, but the piece
+    is in the building (MAT-RECO-2026-22930). A warning, not a refusal."""
+    if doc.flags.get("lp_rebook"):
+        return
+    rows = [r for r in (doc.get("items") or []) if r.warehouse == CROSSDOCK_WH and r.item_code]
+    if not rows:
+        return
+    from logistics_portal.api.picking import _crossdock_owed
+    owed, _ = _crossdock_owed([r.item_code for r in rows])
+    by = {}
+    for so, code, q in owed:
+        by.setdefault(code, []).append((so, q))
+    lines = []
+    for r in rows:
+        want = by.get(r.item_code) or []
+        total = sum(q for _, q in want)
+        if total and flt(r.qty) < total - 1e-9:
+            lines.append(f"{r.item_code}: counted {flt(r.qty):g}, received for waiting orders "
+                         f"{total:g} ({', '.join(so for so, _ in want)})")
+    if lines:
+        frappe.msgprint(
+            "These Cross-dock pieces were received for orders that are still waiting. Look for them "
+            "before posting — a count of 0 makes the orders unpickable:<br>" + "<br>".join(lines)
+            + "<br><br>قطع Cross-dock دي اتستلمت لأوردرات لسه مستنية — دوّر عليها قبل ما تعمل submit.",
+            title="Cross-dock pieces owed to orders", indicator="orange")
+
+
 def _not_expected_why(so):
     """Why a scanned order is not in the lane, in the order's own words."""
     o = frappe.db.get_value("Sales Order", so, ["docstatus", "custom_sales_status",
@@ -404,6 +546,10 @@ def resolve(code, supplier=None):
             left = _left_with_open_po(so)
             if left:
                 return {"ok": False, "reason": "order_left", **left}
+            lost = _missing(so=so)
+            if lost:
+                return {"ok": False, "reason": "piece_missing", "so": so, "lines": lost,
+                        "canRebook": _can_rebook()}
             got = _already_received(so)
             if got:
                 return {"ok": False, "reason": "order_received", **got}
@@ -427,6 +573,10 @@ def resolve(code, supplier=None):
         waiting = _unconfirmed(item_code=item_code)
         if waiting:
             return {"ok": False, "reason": "unconfirmed", **waiting}
+        lost = _missing(item_code=item_code)
+        if lost:
+            return {"ok": False, "reason": "piece_missing", "so": lost[0]["so"], "lines": lost[:1],
+                    "canRebook": _can_rebook()}
         dead = _cancelled_with_open_po(item_code=item_code)
         if dead:
             return {"ok": False, "reason": "order_cancelled", **dead}

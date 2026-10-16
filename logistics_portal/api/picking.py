@@ -1522,9 +1522,40 @@ def _crossdock_claims(item_codes):
     Only live orders hold a claim (confirmed, not closed): a cancelled order's
     piece is unowned and serves whoever needs it. Claims are capped by what
     the bin really holds, oldest receipt first."""
+    owed, room = _crossdock_owed(item_codes)
+    claims = {}
+    for so, code, q in owed:
+        take = min(q, max(room.get(code, 0), 0))
+        if take > 0:
+            claims[(so, code)] = take
+            room[code] = room.get(code, 0) - take
+    return claims
+
+
+def crossdock_missing(item_codes):
+    """(sales_order, item_code) -> units the order's documents say are in
+    Cross-dock but the bin no longer holds for it: received, not shipped, not
+    on a list — and gone from the books. A count that zeroed the bin does
+    this (MAT-RECO-2026-22930, 2026-10-09: mov34/mov41 counted 0 while #263791
+    and #264265 were each owed a received piece; one turned up on 10-16 and
+    Cross-dock in told the counter to hand it back to the supplier)."""
+    claims = _crossdock_claims(item_codes)
+    owed, _ = _crossdock_owed(item_codes)
+    out = {}
+    for so, code, q in owed:
+        short = q - claims.get((so, code), 0)
+        if short > 1e-9:
+            out[(so, code)] = short
+    return out
+
+
+def _crossdock_owed(item_codes):
+    """([(so, code, units owed)] oldest receipt first, {code: bin room}) — the
+    uncapped side of _crossdock_claims: what each live order's documents say
+    Cross-dock holds for it, and what the bin holds beyond draft lists."""
     codes = tuple({c for c in (item_codes or []) if c})
     if not codes:
-        return {}
+        return [], {}
     since = str(frappe.utils.add_days(frappe.utils.nowdate(), -60))
     rec = frappe.db.sql(
         """SELECT poi.sales_order AS so, pri.item_code AS code, SUM(pri.stock_qty) AS q,
@@ -1539,7 +1570,7 @@ def _crossdock_claims(item_codes):
              AND so.status NOT IN ('Closed', 'Completed', 'Cancelled', 'On Hold')
            GROUP BY poi.sales_order, pri.item_code""", (_CROSSDOCK_WH, codes, since), as_dict=True)
     if not rec:
-        return {}
+        return [], {}
     sos = tuple({r.so for r in rec})
     gone = {}
     for r in frappe.db.sql(
@@ -1565,14 +1596,12 @@ def _crossdock_claims(item_codes):
                WHERE p.docstatus = 0 AND pli.warehouse = %s AND pli.item_code IN %s
                GROUP BY pli.item_code""", (_CROSSDOCK_WH, codes)):
         room[r[0]] = room.get(r[0], 0) - flt(r[1])
-    claims = {}
+    owed = []
     for r in sorted(rec, key=lambda x: str(x.at)):
-        owed = flt(r.q) - gone.get((r.so, r.code), 0)
-        take = min(owed, max(room.get(r.code, 0), 0))
-        if take > 0:
-            claims[(r.so, r.code)] = take
-            room[r.code] = room.get(r.code, 0) - take
-    return claims
+        q = flt(r.q) - gone.get((r.so, r.code), 0)
+        if q > 0:
+            owed.append((r.so, r.code, q))
+    return owed, room
 
 
 def _with_claims(sre, item_codes):
