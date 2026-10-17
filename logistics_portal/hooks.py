@@ -86,6 +86,11 @@ doc_events = {
             "logistics_portal.api.crossdock_in.warn_crossdock_count",
         ],
     },
+    # Same overflow, built by ERPNext inside a Pick List / Delivery Note
+    # submit for batch items (PL-56752).
+    "Serial and Batch Bundle": {
+        "validate": "logistics_portal.api.utils.clamp_item_names",
+    },
     "Stock Entry": {
         "validate": [
             # Same overflow class: Stock Entry Detail is still varchar(140).

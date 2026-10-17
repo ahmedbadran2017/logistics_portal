@@ -105,8 +105,13 @@ def clamp_item_names(doc, method=None):
     document for the overflow. Runs as the validate doc-event (after the
     fetch, before the length check) and slices the display copy to fit —
     a count or a move must never be refused over a label.
+
+    Serial and Batch Bundle carries the title on the document itself, also
+    varchar(140), and ERPNext builds one inside every Pick List submit that
+    holds a batch item: PL-56752 (2026-10-17) was refused over a 157-character
+    sneaker title (47257041436926) and the whole list stood still.
     """
-    for row in doc.get("items") or []:
+    for row in [doc] + list(doc.get("items") or []):
         v = row.get("item_name")
         if not v:
             continue
