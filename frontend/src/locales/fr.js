@@ -853,6 +853,7 @@ export default {
   },
   mv: {
     parkedTitle: "Cet article a du stock — hors du réseau déplaçable",
+    parkedAtSea: "Un conteneur est encore classé sous In Transit. S'il est arrivé, un manager le déplace sous l'entrepôt marocain (ex. Soft Warehouse) dans le Desk — il pourra alors être déchargé depuis cet écran.",
     parkedHint: "Ces entrepôts sont exclus des transferts (Turquie, transit, quarantaine). Rien à déplacer d'ici.",
     parkedErr: "{n} — stock garé hors du réseau déplaçable",
     parkedOff: "désactivé",

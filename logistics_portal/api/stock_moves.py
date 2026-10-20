@@ -28,6 +28,18 @@ _BLOCK_EXACT = ["Morocco - JM"]
 # physical shipment, not a bin move, so the direction stays one-way.
 _SUPPLY_ONLY_LIKE = ["Yakuplu%"]
 
+# A container that has ARRIVED is a supply point too: it is unloaded into
+# SLOW / Receiving, never loaded. Arrival is said in the warehouse tree — a
+# container still under In Transit is at sea, one moved under the Moroccan
+# floor (e.g. Soft Warehouse - JM) is in the building. Container 24 arrived
+# in October with 2,799 units and this screen still called it "parked
+# outside the movable network", so its unload (STE-13525..27, 1,737 units
+# into SLOW) went through the Desk. The name pattern alone could not tell an
+# arrived container from one at sea, and is_rejected_warehouse is the pick
+# veto, not an arrival flag.
+_CONTAINER_LIKE = "Container%"
+_IN_TRANSIT_WH = "In Transit - JM"
+
 SLOW_WH = "SLOW ZONE - JM"
 _RECEIVING_LIKE = ["%receiv%", "%reception%"]
 
@@ -42,9 +54,14 @@ def _movable_condition(col="name", as_source=False):
     between. `as_source=True` also admits the supply-only warehouses (pull
     from them, never push into them). Params only, no interpolated names."""
     blocked = [b for b in _BLOCK_LIKE
-               if not (as_source and b in _SUPPLY_ONLY_LIKE)]
+               if not (as_source and (b in _SUPPLY_ONLY_LIKE or b == _CONTAINER_LIKE))]
     parts = [f"{col} LIKE %s"] + [f"{col} NOT LIKE %s"] * len(blocked)
     args = ["% - JM"] + list(blocked)
+    if as_source:
+        # Only an arrived container (see _CONTAINER_LIKE).
+        parts.append(f"({col} NOT LIKE %s OR {col} IN (SELECT w_c.name FROM `tabWarehouse` w_c "
+                     "WHERE w_c.name LIKE %s AND IFNULL(w_c.parent_warehouse, '') NOT IN ('', %s)))")
+        args += [_CONTAINER_LIKE, _CONTAINER_LIKE, _IN_TRANSIT_WH]
     parts.append(f"{col} NOT IN ({', '.join(['%s'] * len(_BLOCK_EXACT))})")
     args += _BLOCK_EXACT
     # A DISABLED warehouse is not a policy choice, it is a wall: ERPNext
@@ -150,7 +167,7 @@ def move_lookup(code):
         # warehouse this screen may not touch (Yakuplu, transit, quarantine).
         # Name the place — the operator can then decide, instead of guessing.
         parked = frappe.db.sql(
-            """SELECT b.warehouse, b.actual_qty qty,
+            """SELECT b.warehouse, b.actual_qty qty, w.parent_warehouse AS parent,
                       COALESCE(w.disabled, 0) AS off
                FROM `tabBin` b
                LEFT JOIN `tabWarehouse` w ON w.name = b.warehouse
@@ -164,7 +181,11 @@ def move_lookup(code):
                 # on" — two different jobs for whoever reads the answer.
                 "parked": [{"warehouse": b.warehouse.replace(" - JM", ""),
                             "qty": int(b.qty or 0),
-                            "disabled": bool(b.off)} for b in parked]}
+                            "disabled": bool(b.off),
+                            # a container still filed under In Transit: if
+                            # it is in the building, re-file it to unload.
+                            "atSea": b.warehouse.startswith("Container") and b.parent == _IN_TRANSIT_WH}
+                           for b in parked]}
     image = frappe.db.get_value("Item", item_code, "image") or ""
     from logistics_portal.api.consignment import owner as _cn_owner
     sup, shelf = _cn_owner(item_code)

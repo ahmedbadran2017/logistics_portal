@@ -853,6 +853,7 @@ export default {
   },
   mv: {
     parkedTitle: "This item has stock — outside the movable network",
+    parkedAtSea: "A container here is still filed under In Transit. If it has arrived, a manager moves it under the Moroccan floor (e.g. Soft Warehouse) in the Desk — then it can be unloaded from this screen.",
     parkedHint: "Those warehouses are excluded from bin-to-bin moves (Turkey, transit, quarantine). Nothing to move from here.",
     parkedErr: "{n} — stock is parked outside the movable network",
     parkedOff: "switched off",

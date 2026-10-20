@@ -42,6 +42,9 @@
           </span>
         </div>
         <div class="text-[11px] text-amber-700/80 mt-1.5">{{ t('mv.parkedHint') }}</div>
+        <div v-if="parked.some((b) => b.atSea)" class="text-[11px] font-semibold text-amber-800 mt-1">
+          {{ t('mv.parkedAtSea') }}
+        </div>
         <div v-if="parked.some((b) => b.disabled)" class="text-[11px] font-semibold text-rose-700 mt-1">
           {{ t('mv.parkedOffHint') }}
         </div>
