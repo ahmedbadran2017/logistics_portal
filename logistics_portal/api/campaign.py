@@ -187,10 +187,18 @@ def _build_state(doc):
     since = str(doc.started_on)
     counts = _counts_in(scope, since)
 
-    done, blocked, left = [], [], []
+    # A bin switched off after the scope froze can never be counted: ERPNext
+    # refuses every transaction on a disabled warehouse. Campaign #1 sat at
+    # 270/271 for that reason alone ("CHINA receiving zone", 36 units, off
+    # since February), unable to close. Such a bin is SKIPPED, named in the
+    # report, and does not hold the campaign open.
+    off = _disabled(scope)
+    done, blocked, left, skipped = [], [], [], []
     for wh in scope:
         c = counts.get(wh)
-        if not c:
+        if not c and wh in off:
+            skipped.append(wh)
+        elif not c:
             left.append(wh)
         elif c["pending"]:
             blocked.append(wh)
@@ -234,13 +242,14 @@ def _build_state(doc):
         running -= row["bins"]
         row["left"] = max(0, running)
 
-    pct = round(100.0 * len(done) / len(scope), 1) if scope else 0.0
+    live = len(scope) - len(skipped)
+    pct = round(100.0 * len(done) / live, 1) if live else 0.0
     return {
         "no": doc.campaign_no, "status": doc.status,
         "startedOn": str(doc.started_on)[:16],
         "closedOn": str(doc.closed_on)[:16] if doc.closed_on else "",
         "scope": len(scope), "done": len(done), "blocked": len(blocked),
-        "left": len(left), "pct": pct,
+        "left": len(left), "skipped": len(skipped), "pct": pct,
         "complete": not left and not blocked,
         "zones": sorted(zones.values(), key=lambda z: (-z["bins"], z["zone"])),
         "people": sorted(people.values(), key=lambda p: -p["bins"]),
@@ -249,7 +258,22 @@ def _build_state(doc):
                       "zone": _zone_of(w)} for w in left[:60]],
         "blockedBins": [{"bin": w.replace(" - JM", ""), "warehouse": w,
                          "reco": counts[w]["reco"]} for w in blocked[:40]],
+        "skippedBins": [{"bin": w.replace(" - JM", ""), "warehouse": w,
+                         "units": _units(w)} for w in skipped[:40]],
     }
+
+
+def _disabled(whs):
+    if not whs:
+        return set()
+    ph = ", ".join(["%s"] * len(whs))
+    return set(frappe.db.sql_list(
+        f"SELECT name FROM `tabWarehouse` WHERE disabled = 1 AND name IN ({ph})", tuple(whs)))
+
+
+def _units(wh):
+    return int(frappe.db.sql(
+        "SELECT COALESCE(SUM(actual_qty), 0) FROM `tabBin` WHERE warehouse = %s", (wh,))[0][0] or 0)
 
 
 @frappe.whitelist()
@@ -342,6 +366,10 @@ def _freeze_report(doc):
     # Bins that took stock after the scope was frozen: out of this campaign by
     # design, and the first thing the next one should carry.
     later = [w for w in _bins_with_stock() if w not in set(scope)]
+    off = _disabled(scope)
+    not_counted = [{"bin": w.replace(" - JM", ""), "units": _units(w),
+                    "reason": "disabled" if w in off else "not counted"}
+                   for w in scope if w not in counts]
     return {
         "no": doc.campaign_no,
         "startedOn": str(doc.started_on)[:16],
@@ -352,7 +380,10 @@ def _freeze_report(doc):
         "netPieces": int(plus - minus), "valueDelta": round(value),
         "zones": sorted(by_zone.values(), key=lambda z: -z["bins"]),
         "people": sorted(by_person.values(), key=lambda p: -p["bins"]),
-        "lines": lines[:500], "linesTotal": len(lines),
+        # The whole list: the CSV is the manager's record, and campaign #1
+        # alone corrected 1,041 lines — a 500 cap silently cut half of it.
+        "lines": lines[:5000], "linesTotal": len(lines),
+        "notCounted": not_counted,
         "newBinsSinceStart": sorted(w.replace(" - JM", "") for w in later)[:60],
         "newBinsCount": len(later),
         "scopeNote": "stocked bins at campaign start",
@@ -379,6 +410,33 @@ def maybe_close():
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "campaign.maybe_close")
         return None
+
+
+@frappe.whitelist(methods=["POST"])
+def close_campaign(accept_uncounted=0):
+    """Close the open campaign now and freeze its report. Refused while a
+    count is still awaiting approval (its result is not known yet); bins never
+    counted need an explicit accept and are named in the report."""
+    _gate()
+    doc = active()
+    if not doc:
+        frappe.throw("No campaign is open.")
+    st = _build_state(doc)
+    if st["blocked"]:
+        frappe.throw(f"{st['blocked']} count(s) still await approval — approve or reject them first.")
+    if st["left"] and not frappe.utils.cint(accept_uncounted):
+        frappe.throw(f"{st['left']} bin(s) were never counted — confirm to close without them.")
+    doc.status = "Closed"
+    doc.closed_on = now_datetime()
+    doc.report_json = json.dumps(_freeze_report(doc), default=str)
+    doc.flags.ignore_permissions = True
+    doc.save(ignore_permissions=True)
+    frappe.get_doc(DT, doc.name).add_comment(
+        "Comment", f"Closed by {frappe.session.user} at {st['done']}/{st['scope']} bins"
+                   + (f", {st['left']} not counted" if st["left"] else "")
+                   + (f", {st['skipped']} skipped (disabled)" if st["skipped"] else ""))
+    frappe.db.commit()
+    return {"ok": True, "no": doc.campaign_no}
 
 
 @frappe.whitelist()

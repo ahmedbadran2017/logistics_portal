@@ -50,6 +50,21 @@
         </p>
       </div>
 
+      <!-- Closing by hand: a sweep the floor considers finished can be closed
+           and frozen even if a bin was never walked; the report names it. -->
+      <div v-if="c.status === 'Open'" class="rounded-xl bg-white ring-1 ring-stone-200/70 px-4 py-3 flex items-center gap-3 flex-wrap">
+        <div class="text-[12px] text-stone-600 flex-1 min-w-[220px]">
+          <template v-if="c.blocked">{{ t('camp.closeBlocked').replace('{n}', String(c.blocked)) }}</template>
+          <template v-else-if="c.left">{{ t('camp.closeLeft').replace('{n}', String(c.left)) }}</template>
+          <template v-else>{{ t('camp.closeReady') }}</template>
+          <template v-if="c.skipped"> · {{ t('camp.skipped').replace('{n}', String(c.skipped)) }}
+            <span class="font-mono">{{ c.skippedBins.map((b) => b.bin + ' (' + b.units + ')').join(', ') }}</span>
+          </template>
+        </div>
+        <button class="h-9 px-4 rounded-lg text-[12.5px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+                :disabled="busy || !!c.blocked" @click="closeNow">{{ t('camp.closeNow') }}</button>
+      </div>
+
       <!-- The countdown, day by day: what got done and what was still left -->
       <div v-if="c.days.length" class="bg-white rounded-xl ring-1 ring-stone-200/70 overflow-hidden">
         <div class="px-4 py-2.5 border-b border-stone-100 text-[12px] font-semibold text-stone-900">
@@ -142,6 +157,13 @@
             </span>
           </div>
         </div>
+        <p v-if="(c.report.notCounted || []).length" class="px-4 py-2.5 text-[11px] text-amber-700 border-t border-stone-100">
+          {{ t('camp.notCounted') }}:
+          <span class="font-mono">{{ c.report.notCounted.map((b) => b.bin + ' (' + b.units + ', ' + b.reason + ')').join(' · ') }}</span>
+        </p>
+        <p v-if="c.report.linesTotal > c.report.lines.length" class="px-4 py-2.5 text-[11px] text-stone-500 border-t border-stone-100">
+          {{ c.report.lines.length }} / {{ c.report.linesTotal }}
+        </p>
         <p v-if="c.report.newBinsCount" class="px-4 py-2.5 text-[11px] text-stone-500 border-t border-stone-100">
           {{ t('camp.newBins').replace('{n}', String(c.report.newBinsCount)) }}
         </p>
@@ -192,6 +214,21 @@ async function start() {
   try {
     const r = await apiPost("campaign.open_campaign");
     success(t("camp.started").replace("{n}", String(r.no)), String(r.bins));
+    await load();
+  } catch (e) {
+    warn(t("cc.ctlTitle"), String(e.message || e));
+  } finally { busy.value = false; }
+}
+
+async function closeNow() {
+  const cc = c.value;
+  if (!cc || busy.value) return;
+  const msg = cc.left ? t("camp.closeConfirmLeft").replace("{n}", String(cc.left)) : t("camp.closeConfirm");
+  if (!window.confirm(msg)) return;
+  busy.value = true;
+  try {
+    await apiPost("campaign.close_campaign", { accept_uncounted: cc.left ? 1 : 0 });
+    success(t("camp.closedToast").replace("{n}", String(cc.no)), "");
     await load();
   } catch (e) {
     warn(t("cc.ctlTitle"), String(e.message || e));
