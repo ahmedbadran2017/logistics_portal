@@ -1142,7 +1142,7 @@ export default {
     thOrder: "Commande", thCustomer: "Client", thChannel: "Canal", thStage: "Étape", thSla: "SLA",
     thDocs: "Documents", thFault: "Anomalie", thCity: "Ville", thPicker: "Préparateur", thPlaced: "Créée", thValue: "Valeur",
     missedCutoff: "cut-off dépassé", item: "article", items: "articles",
-    noMatches: "Aucun résultat", noMatchesIn: "Rien dans {stage} ne correspond à « {q} ».",
+    findTitle: "Trouvé dans toutes les commandes", findHint: "Cliquez une commande pour l'ouvrir dans son étape", findNone: "Aucune commande ne correspond à « {q} », toutes étapes confondues.", findOffBoard: "hors fenêtre du tableau", findNotConfirmed: "Non confirmée", findShow: "Voir", findMore: "Les {n} plus récentes — précisez la recherche.", noMatches: "Aucun résultat", noMatchesIn: "Rien dans {stage} ne correspond à « {q} ».",
     perPage: "/ page", of: "sur",
     footnote: "L’étape est déduite des documents (Pick List → AWB → impression → manifeste → tracking) — mis à jour",
     justNow: "à l’instant", agoS: "il y a {n}s", agoM: "il y a {n}min",

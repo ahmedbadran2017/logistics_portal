@@ -287,6 +287,112 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
         return {}
 
 
+@frappe.whitelist()
+def find(q=None, limit=20):
+    """Search EVERY order (any stage, any age, any sales status) and say where
+    each one stands on the board. The board's own `q` only narrows the open
+    stage tab -- and inside To Pick only the open sub-tab -- so an order typed
+    while "Ready" was open but sitting in Partial read as "No matches"
+    (Eman, 2026-10-22). Same fields as the board search (order no / customer
+    / AWB); a full scan of Sales Order measured ~300 ms on prod, fine behind
+    the 350 ms debounce."""
+    q = (q or "").strip()
+    if len(q) < 3:
+        return []
+    like = f"%{q}%"
+    rows = frappe.db.sql(
+        """SELECT so.name, so.customer_name, so.grand_total, so.creation, so.status,
+                  so.custom_sales_status AS sales, so.custom_logistics_status AS lstatus,
+                  so.custom_track_shipment_status AS track, so.custom_awb AS awb,
+                  so.custom_shipping_city AS city
+           FROM `tabSales Order` so
+           WHERE so.docstatus < 2
+             AND (so.name LIKE %(like)s OR so.customer_name LIKE %(like)s
+                  OR so.custom_awb LIKE %(like)s)
+           ORDER BY so.creation DESC
+           LIMIT %(limit)s""",
+        {"like": like, "limit": min(max(int(limit or 20), 1), 50)}, as_dict=True)
+    if not rows:
+        return []
+    names = [r.name for r in rows]
+
+    # The board's own signals: pick-list state splits Pending into to_pick /
+    # picking, and the return scan (not the status field) makes "returned".
+    pl = {r.so: int(r.ds) for r in frappe.db.sql(
+        """SELECT pli.sales_order so, MAX(p.docstatus) ds
+           FROM `tabPick List Item` pli JOIN `tabPick List` p ON p.name = pli.parent
+           WHERE p.docstatus < 2 AND pli.sales_order IN %(n)s
+           GROUP BY pli.sales_order""", {"n": names}, as_dict=True)}
+    from logistics_portal.api.returns import back_in_house
+    back = back_in_house(names)
+
+    prepared = ("Label Generated", "Picked", "In transit", "Received")
+    w, dw = str(_win(BOARD_WINDOW_DAYS)), str(_win(DONE_WINDOW_DAYS))
+    out, pending_pick = [], []
+    for r in rows:
+        stage, stale_status = None, False
+        if r.sales != "Confirmed":
+            stage = None                       # not on the board: show the sales status
+        elif back.get(r.name):
+            stage = "returned"
+        elif r.lstatus in (None, "", "Pending"):
+            stale_status = r.lstatus != "Pending"   # the board matches 'Pending' only
+            if r.name not in pl:
+                stage = "to_pick"
+            elif pl[r.name] == 0:
+                stage = "picking"
+            elif not r.awb:
+                stage = "no_awb"               # list submitted, AWB never came back
+            else:
+                # Submitted list + AWB but the status never left Pending
+                # (#266195, 2026-10-22): physically prepared, yet no board tab
+                # lists it -- it opens on its own page (onBoard False below).
+                stage = "prepared"
+                stale_status = True
+        elif r.lstatus in prepared:
+            stage = "prepared"
+        elif r.lstatus == "Label Printed":
+            stage = "ready"
+        elif r.lstatus == "Shipped":
+            stage = "shipped"
+        elif r.lstatus == "Delivered":
+            stage = "delivered"
+        elif r.lstatus == "Returned":
+            stage = "to_return"
+        created = str(r.creation)[:19]
+        cut = dw if stage in ("delivered", "to_return", "returned", "no_awb") else w
+        row = {"no": r.name, "customer": r.customer_name or "",
+               "value": float(r.grand_total or 0), "created": created,
+               "city": r.city or "", "awb": r.awb or "",
+               "sales": r.sales or "", "lstatus": r.lstatus or "",
+               "status": r.status or "", "track": r.track or "",
+               "stage": stage, "bucket": None,
+               # Older than the board's window: it exists, but no tab lists it.
+               "onBoard": bool(stage) and not stale_status and created[:10] >= cut}
+        if stage == "to_pick":
+            pending_pick.append(row)
+        out.append(row)
+
+    if pending_pick:
+        avail = _pick_availability()
+        for row in pending_pick:
+            for k in ("ready", "partial", "local", "oos"):
+                if row["no"] in (avail.get(k) or []):
+                    row["bucket"] = k
+                    break
+        rest = [r for r in pending_pick if not r["bucket"]]
+        if rest:
+            from logistics_portal.api.picking import transfer_held_orders, city_held
+            held = transfer_held_orders([r["no"] for r in rest])
+            fenced = {c["so"] for c in city_held(200)["rows"]}
+            for row in rest:
+                if row["no"] in held:
+                    row["bucket"] = "transfer"
+                elif row["no"] in fenced:
+                    row["bucket"] = "city"
+    return out
+
+
 def _board_total(stage, track, q=None, city=None, dates=None, pick_names=None):
     """Filtered row count for the stage — powers real pagination."""
     w, dw = _win(BOARD_WINDOW_DAYS), _win(DONE_WINDOW_DAYS)

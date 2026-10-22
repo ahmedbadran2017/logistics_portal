@@ -1142,7 +1142,7 @@ export default {
     thOrder: "Order", thCustomer: "Customer", thChannel: "Channel", thStage: "Stage", thSla: "SLA",
     thDocs: "Documents", thFault: "Fault", thCity: "City", thPicker: "Picker", thPlaced: "Placed", thValue: "Value",
     missedCutoff: "missed cutoff", item: "item", items: "items",
-    noMatches: "No matches", noMatchesIn: "Nothing in {stage} matches \u201c{q}\u201d.",
+    findTitle: "Found in all orders", findHint: "Click an order to open it in its stage", findNone: "No order matches \u201c{q}\u201d in any stage.", findOffBoard: "older than the board", findNotConfirmed: "Not confirmed", findShow: "Show", findMore: "Showing the latest {n} — type more to narrow.", noMatches: "No matches", noMatchesIn: "Nothing in {stage} matches \u201c{q}\u201d.",
     perPage: "/ page", of: "of",
     footnote: "Stage is derived from documents (Pick List → AWB → print → manifest → tracking) — updated",
     justNow: "just now", agoS: "{n}s ago", agoM: "{n}m ago",

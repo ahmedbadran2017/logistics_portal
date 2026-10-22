@@ -1142,7 +1142,7 @@ export default {
     thOrder: "الطلب", thCustomer: "العميل", thChannel: "القناة", thStage: "المرحلة", thSla: "SLA",
     thDocs: "المستندات", thFault: "العطل", thCity: "المدينة", thPicker: "المجهِّز", thPlaced: "التاريخ", thValue: "القيمة",
     missedCutoff: "فات موعد الشحن", item: "صنف", items: "أصناف",
-    noMatches: "لا توجد نتائج", noMatchesIn: "لا شيء في {stage} يطابق «{q}».",
+    findTitle: "نتايج من كل الأوردرات", findHint: "دوسي على الأوردر عشان يفتح في المرحلة بتاعته", findNone: "مفيش أوردر يطابق «{q}» في أي مرحلة.", findOffBoard: "أقدم من فترة اللوحة", findNotConfirmed: "مش مؤكَّد", findShow: "عرض", findMore: "ظاهر أحدث {n} — اكتبي أكتر عشان تضيّقي.", noMatches: "لا توجد نتائج", noMatchesIn: "لا شيء في {stage} يطابق «{q}».",
     perPage: "/ صفحة", of: "من",
     footnote: "المرحلة مشتقة من المستندات (Pick List ← بوليصة ← طباعة ← مانيفست ← تتبع) — آخر تحديث",
     justNow: "الآن", agoS: "منذ {n} ث", agoM: "منذ {n} د",

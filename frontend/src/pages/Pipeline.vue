@@ -22,7 +22,7 @@
               @input="onSearch"
             />
             <button :title="t('common.close')" v-if="q" class="absolute top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600" style="inset-inline-end:.5rem"
-                    @click="q=''; onSearch()">
+                    @click="q=''; found=null; onSearch()">
               <Icon name="x" :size="13" />
             </button>
           </div>
@@ -497,6 +497,47 @@
         {{ tchip.label }}
         <span class="font-mono tabular-nums" :style="activeTrack === tchip.key ? {} : { color: tchip.hex }">{{ tchip.count }}</span>
       </button>
+    </div>
+
+    <!-- Search across ALL orders: the stage table below only searches its own
+         tab (and inside To Pick, its own sub-tab), so an order sitting in
+         Partial read as "No matches" while Ready was open. -->
+    <div v-if="found" class="bg-white rounded-2xl ring-1 ring-stone-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
+      <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+        <Icon name="search" :size="14" class="text-stone-400" />
+        <span class="text-[13px] font-semibold text-stone-900">{{ t("ordersPg.findTitle") }}</span>
+        <span class="text-[12px] text-stone-400 tabular-nums">· {{ found.length }}</span>
+        <span class="text-[11.5px] text-stone-400 ms-auto">{{ t("ordersPg.findHint") }}</span>
+      </div>
+      <div v-if="!found.length" class="px-4 py-5 text-[12.5px] text-stone-500 text-center">
+        {{ t("ordersPg.findNone").replace("{q}", q.trim()) }}
+      </div>
+      <div v-else class="divide-y divide-stone-100 max-h-[320px] overflow-y-auto">
+        <button v-for="f in found" :key="f.no"
+                class="w-full flex items-center gap-3 px-4 py-2.5 text-start hover:bg-stone-50 transition-colors"
+                @click="goToFound(f)">
+          <span class="font-mono text-[12.5px] font-semibold text-stone-900 w-[150px] flex-shrink-0 truncate">{{ f.no }}</span>
+          <span class="text-[12.5px] text-stone-600 truncate min-w-0 flex-1">{{ f.customer }}<span v-if="f.city" class="text-stone-400"> · {{ f.city }}</span></span>
+          <span class="flex items-center gap-1.5 flex-wrap justify-end">
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold whitespace-nowrap"
+                  :style="{ background: foundHex(f) + '1c', color: foundHex(f) }">
+              <span class="w-1.5 h-1.5 rounded-full" :style="{ background: foundHex(f) }" />
+              {{ foundStageLabel(f) }}
+            </span>
+            <span v-if="f.bucket" class="text-[11px] font-medium text-stone-500 whitespace-nowrap">{{ t(FOUND_BUCKET[f.bucket]) }}</span>
+            <span v-if="f.stage === 'shipped' && f.track" class="text-[11px] text-stone-500 whitespace-nowrap">{{ f.track }}</span>
+            <!-- ERPNext refuses a DN on these, so picking them strands the parcel -->
+            <span v-if="f.status === 'Closed' || f.status === 'On Hold'"
+                  class="px-1.5 py-0.5 rounded-md text-[10.5px] font-semibold text-rose-700 bg-rose-50 ring-1 ring-rose-200 whitespace-nowrap">{{ f.status }}</span>
+            <span v-if="f.stage && !f.onBoard" class="text-[10.5px] text-stone-400 whitespace-nowrap">{{ t("ordersPg.findOffBoard") }}</span>
+          </span>
+          <span class="text-[11.5px] text-stone-400 tabular-nums whitespace-nowrap w-[78px] text-end hidden sm:inline">{{ f.created.slice(0, 10) }}</span>
+          <span class="text-[12px] font-semibold text-stone-800 tabular-nums whitespace-nowrap w-[70px] text-end hidden sm:inline">{{ Math.round(f.value) }} <span class="text-[10px] text-stone-400 font-normal">MAD</span></span>
+        </button>
+      </div>
+      <div v-if="found.length >= FIND_LIMIT" class="px-4 py-2 border-t border-stone-100 text-[11.5px] text-stone-400">
+        {{ t("ordersPg.findMore").replace("{n}", FIND_LIMIT) }}
+      </div>
     </div>
 
     <!-- Rows -->
@@ -1380,7 +1421,52 @@ function missedCutoff(r) {
 }
 function onSearch() {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => load(activeStage.value, activeTrack.value), 350);
+  searchTimer = setTimeout(() => {
+    load(activeStage.value, activeTrack.value);
+    findAll();
+  }, 350);
+}
+
+// ── Search across every order, with the stage each one is in ─────────
+const FIND_LIMIT = 20;
+const found = ref(null);
+let _findSeq = 0;
+async function findAll() {
+  const term = q.value.trim();
+  const seq = ++_findSeq;
+  if (term.length < 3) { found.value = null; return; }
+  const res = await liveOr(null, () => api("orders.find", { q: term, limit: FIND_LIMIT }));
+  if (seq === _findSeq) found.value = Array.isArray(res) ? res : null;
+}
+const FOUND_BUCKET = {
+  ready: "ordersPg.pickReady", partial: "ordersPg.pickPartial", local: "ordersPg.pickLocal",
+  oos: "ordersPg.pickOos", city: "ordersPg.pickCity", transfer: "ordersPg.pickTransfer",
+};
+function foundHex(f) {
+  if (f.stage === "no_awb") return "#ea580c";
+  return stages.find((s) => s.key === f.stage)?.hex || "#78716c";
+}
+function foundStageLabel(f) {
+  if (f.stage === "no_awb") return t("ordersPg.faults.no_awb");
+  if (f.stage) return t("ordersPg.stages." + f.stage + ".label");
+  return `${t("ordersPg.findNotConfirmed")} · ${f.sales || "—"}`;
+}
+// Open the order where it lives: its stage tab (and To Pick sub-tab), with the
+// search kept so the table shows just that order. Off-board orders (not
+// confirmed, or older than the board's window) open their own page.
+function goToFound(f) {
+  if (!f.stage || !f.onBoard) { openOrder(f); return; }
+  dateRange.value = "";                       // a date filter could hide it
+  if (f.stage === "no_awb") { load("attention"); return; }
+  if (f.stage === "to_pick") {
+    activeStage.value = "to_pick";            // so load() keeps the sub-tab
+    pickTab.value = f.bucket || "ready";
+    supplierFilter.value = "";
+    cityFilter.value = "";
+    load("to_pick");
+    return;
+  }
+  load(f.stage, "");
 }
 const rowsTotal = computed(() => rows.value.reduce((a, r) => a + (r.total || 0), 0));
 function fmtK(v) {
@@ -1398,7 +1484,7 @@ const updatedAgo = computed(() => {
 let refreshTimer = null;
 onMounted(() => {
   const qStage = String(route.query.stage || "");
-  if (route.query.q) q.value = String(route.query.q);
+  if (route.query.q) { q.value = String(route.query.q); findAll(); }
   const valid = qStage === "attention" || stages.some((s) => s.key === qStage);
   load(valid ? qStage : "to_pick");
   timer = setInterval(() => { tick.value++; }, 30000);
