@@ -757,14 +757,23 @@ def _receive_one(po, items, problem, note):
         _comment("Purchase Order", po, txt)
         _comment("Sales Order", h.custom_sales_order, txt)
     return {"po": po, "so": h.custom_sales_order, "receipt": pr.name if pr else None,
-            "units": units, "left": max(0, left), "problem": (problem or {}).get("kind")}
+            "units": units, "left": max(0, left), "problem": (problem or {}).get("kind"),
+            "lines": [(r["item_code"], r["qty"]) for r in rows]}
+
+
+# A supplier's piece arrives with the supplier's own sticker, or none, and the
+# floor scans it again at the sort wall, the pickup and the door. Each received
+# piece gets OUR SKU label the moment it is booked: queued on the print station
+# (labelprint — the Zebra laptop prints it silently), one label per piece.
+LABEL_STATION = "crossdock"
 
 
 @frappe.whitelist(methods=["POST"])
-def receive(entries, note=None):
+def receive(entries, note=None, print_labels=1):
     """entries: [{po, items: [{po_item, qty}], problem?: {kind, note}}] — one
     Purchase Receipt per PO, each committed on its own so one bad order never
-    rolls back the rest of the drop."""
+    rolls back the rest of the drop. print_labels queues one SKU label per
+    received piece on the print station."""
     _gate()
     if not frappe.db.exists("Warehouse", CROSSDOCK_WH):
         ensure_warehouse()
@@ -785,12 +794,32 @@ def receive(entries, note=None):
             frappe.db.rollback()
             frappe.log_error(frappe.get_traceback()[:2000], f"crossdock_in.receive {e.get('po')}")
             failed.append({"po": e.get("po"), "error": str(ex)[:200]})
+    labels = 0
+    if cint(print_labels):
+        from logistics_portal.api.labelprint import queue_items
+        labels = queue_items([ln for d in done for ln in d.get("lines") or []], LABEL_STATION)
+        frappe.db.commit()
     for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
         frappe.cache().delete_value(k)
     frappe.cache().delete_keys("lp_suggest")
     return {"ok": not failed, "done": done, "failed": failed,
             "receipts": [d["receipt"] for d in done if d["receipt"]],
-            "units": sum(d["units"] for d in done)}
+            "units": sum(d["units"] for d in done), "labels": labels}
+
+
+@frappe.whitelist(methods=["POST"])
+def reprint(receipt):
+    """Labels for one Cross-dock receipt again — a jammed roll, a torn sticker."""
+    _gate()
+    if not frappe.db.exists("Purchase Receipt", {"name": receipt, "docstatus": 1}):
+        frappe.throw("Unknown receipt.")
+    rows = frappe.db.sql(
+        """SELECT item_code, SUM(qty) FROM `tabPurchase Receipt Item`
+           WHERE parent = %s AND warehouse = %s GROUP BY item_code""", (receipt, CROSSDOCK_WH))
+    from logistics_portal.api.labelprint import queue_items
+    n = queue_items([(r[0], r[1]) for r in rows], LABEL_STATION)
+    frappe.db.commit()
+    return {"ok": bool(n), "labels": n}
 
 
 def _recent(limit=15):

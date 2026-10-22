@@ -164,6 +164,13 @@
         </div>
       </div>
 
+      <!-- Our SKU label on every piece as it comes in: the print station
+           (Zebra laptop) prints one per received piece. -->
+      <label v-if="orders.length" class="flex items-center gap-2 text-[12px] text-stone-600 px-1 select-none">
+        <input v-model="printLabels" type="checkbox" class="w-4 h-4 accent-emerald-600" @change="savePrintPref" />
+        <Icon name="printer" :size="13" /> {{ t('cdi.printLabels') }}
+      </label>
+
       <div v-if="orders.length" class="sticky bottom-3 z-10">
         <button class="w-full h-12 rounded-xl text-[14px] font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg transition-colors"
                 :class="armed ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'"
@@ -188,6 +195,10 @@
           <span class="tabular-nums text-stone-600">{{ r.units }} {{ t('cdi.units') }}</span>
           <span class="font-mono text-[11px] text-stone-400 truncate flex-1">{{ r.receipt }}</span>
           <span class="text-[10.5px] text-stone-400">{{ r.by }}</span>
+          <button class="w-7 h-7 rounded-lg flex items-center justify-center text-stone-500 hover:text-stone-900 hover:bg-stone-100 disabled:opacity-40"
+                  :title="t('cdi.reprint')" :disabled="reprinting === r.receipt" @click="reprint(r)">
+            <Icon :name="reprinted === r.receipt ? 'check' : 'printer'" :size="13" />
+          </button>
         </div>
       </div>
     </div>
@@ -383,9 +394,11 @@ async function post() {
   armed.value = false;
   busy.value = true;
   try {
-    const res = await apiPost("crossdock_in.receive", { entries: JSON.stringify(entries.value), note: note.value });
+    const res = await apiPost("crossdock_in.receive", {
+      entries: JSON.stringify(entries.value), note: note.value, print_labels: printLabels.value ? 1 : 0 });
     if (res.done?.length) {
-      success(t("cdi.posted"), `${res.done.length} ${t("cdi.orders")} · ${res.units} ${t("cdi.units")} · ${t("cdi.reserved")}`);
+      success(t("cdi.posted"), `${res.done.length} ${t("cdi.orders")} · ${res.units} ${t("cdi.units")} · ${t("cdi.reserved")}`
+        + (res.labels ? ` · ${t("cdi.labelsSent").replace("{n}", String(res.labels))}` : ""));
     }
     if (res.failed?.length) {
       warn(t("cdi.someFailed"), res.failed.map((f) => `${f.po}: ${f.error}`).join(" · "));
@@ -403,6 +416,30 @@ async function post() {
   } finally {
     busy.value = false;
     scanner.value?.refocus();
+  }
+}
+
+// Labels on by default; a counter without a print station can switch them
+// off, and the choice stays on that device.
+const PRINT_KEY = "lp_cdi_print_labels";
+const printLabels = ref((() => { try { return localStorage.getItem(PRINT_KEY) !== "0"; } catch { return true; } })());
+function savePrintPref() { try { localStorage.setItem(PRINT_KEY, printLabels.value ? "1" : "0"); } catch {} }
+
+const reprinting = ref("");
+const reprinted = ref("");
+async function reprint(r) {
+  reprinting.value = r.receipt;
+  try {
+    const res = await apiPost("crossdock_in.reprint", { receipt: r.receipt });
+    if (res.labels) {
+      reprinted.value = r.receipt;
+      success(t("cdi.labelsSent").replace("{n}", String(res.labels)), r.so || r.receipt);
+      setTimeout(() => { if (reprinted.value === r.receipt) reprinted.value = ""; }, 1600);
+    }
+  } catch (e) {
+    warn(t("cdi.reprint"), String(e.message || e));
+  } finally {
+    reprinting.value = "";
   }
 }
 

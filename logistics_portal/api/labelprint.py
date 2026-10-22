@@ -68,7 +68,6 @@ def request(code=None, qty=1, station=""):
     shelf labels — a label printed at the bench must scan back identically."""
     _gate()
     from logistics_portal.api.picking import resolve_scan
-    from logistics_portal.api.warehouses import _label_payloads
     code = (code or "").strip()
     if not code:
         frappe.throw("Nothing to print.")
@@ -76,23 +75,46 @@ def request(code=None, qty=1, station=""):
     if not it:
         return {"ok": False, "reason": "unknown"}
     qty = min(max(int(qty or 1), 1), 50)
-    pay = _label_payloads([(it["itemCode"], it.get("sku") or "")]) \
-        .get(it["itemCode"]) or {}
-    frappe.get_doc({
-        "doctype": DT,
-        "item_code": it["itemCode"],
-        "sku": it.get("sku") or "",
-        "barcode": pay.get("barcode") or it.get("sku") or it["itemCode"],
-        "item_name": (it.get("name") or "")[:140],
-        "wide": 1 if pay.get("barcodeWide") else 0,
-        "qty": qty,
-        "station": (station or "")[:40],
-        "status": "queued",
-    }).insert(ignore_permissions=True)
+    _queue(it["itemCode"], it.get("sku") or "", it.get("name") or "", qty, station)
     frappe.db.commit()
     pending = frappe.db.count(DT, {"status": "queued"})
     return {"ok": True, "item": it["itemCode"], "sku": it.get("sku") or "",
             "name": it.get("name") or "", "pending": pending}
+
+
+def _queue(item_code, sku, name, qty, station=""):
+    """One queued job, barcode payload decided by the shelf-label rules."""
+    from logistics_portal.api.warehouses import _label_payloads
+    pay = _label_payloads([(item_code, sku or "")]).get(item_code) or {}
+    frappe.get_doc({
+        "doctype": DT,
+        "item_code": item_code,
+        "sku": sku or "",
+        "barcode": pay.get("barcode") or sku or item_code,
+        "item_name": (name or "")[:140],
+        "wide": 1 if pay.get("barcodeWide") else 0,
+        "qty": min(max(int(qty or 1), 1), 50),
+        "station": (station or "")[:40],
+        "status": "queued",
+    }).insert(ignore_permissions=True)
+
+
+def queue_items(rows, station=""):
+    """[(item_code, qty)] -> labels queued, one per piece. For lanes that know
+    the item already (a posted receipt), so no scan resolution is needed.
+    Never raises: a label is a convenience, the receipt is the record."""
+    made = 0
+    for code, qty in rows:
+        q = int(qty or 0)
+        if not code or q <= 0:
+            continue
+        try:
+            it = frappe.db.get_value("Item", code, ["custom_sku", "item_name"], as_dict=True) or {}
+            _queue(code, (it.get("custom_sku") or "").strip(), it.get("item_name") or "", q, station)
+            made += q
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:2000], f"labelprint.queue_items {code}")
+    return made
 
 
 @frappe.whitelist(methods=["POST"])
