@@ -4,7 +4,7 @@
     <template v-if="openSh">
       <button
         class="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-stone-500 hover:text-stone-900 mb-4 whitespace-nowrap"
-        @click="open = null"
+        @click="closeShipment"
       >
         <Icon name="chevron-left" :size="15" class="flip-rtl" /> {{ t("shp.back") }}
       </button>
@@ -147,7 +147,8 @@
               </tr>
             </thead>
             <tbody class="divide-y divide-stone-100">
-              <tr v-for="p in detailData.parcels" :key="p.dn">
+              <tr v-for="p in detailData.parcels" :key="p.dn"
+                  :class="hitDns.has(p.dn) ? 'bg-amber-50' : ''">
                 <td class="px-4 py-2 font-mono text-[11.5px] text-stone-600 whitespace-nowrap">{{ p.dn }}</td>
                 <td class="px-4 py-2">
                   <button v-if="p.order" class="font-mono text-[12px] font-semibold text-stone-900 hover:text-[var(--accent-700)]"
@@ -220,6 +221,7 @@
           <Icon name="search" :size="14" class="absolute start-3 top-1/2 -translate-y-1/2 text-stone-400" />
           <input
             v-model="q"
+            dir="auto"
             :placeholder="t('shp.searchPh')"
             class="w-full h-9 ps-9 pe-3 text-[13px] bg-white rounded-lg ring-1 ring-stone-200 focus:ring-stone-400 outline-none"
           />
@@ -264,9 +266,16 @@
                 v-for="s in shown"
                 :key="s.no"
                 class="cursor-pointer transition-colors hover:bg-stone-50"
-                @click="open = s.no"
+                @click="openShipment(s.no)"
               >
-                <td class="px-4 py-2.5 font-mono text-[12px] font-semibold text-stone-900">{{ s.no }}</td>
+                <td class="px-4 py-2.5">
+                  <div class="font-mono text-[12px] font-semibold text-stone-900">{{ s.no }}</div>
+                  <!-- the searched parcel(s) on this manifest -->
+                  <div v-for="h in s.hits || []" :key="h.dn"
+                       class="font-mono text-[10.5px] text-amber-700 mt-0.5 whitespace-nowrap">
+                    {{ [h.order, h.dn, h.awb].filter(Boolean).join(" · ") }}
+                  </div>
+                </td>
                 <td class="px-4 py-2.5 text-[12px] text-stone-600 whitespace-nowrap">{{ s.date }}</td>
                 <td class="px-4 py-2.5 font-mono text-[11.5px] text-stone-500 hidden lg:table-cell">{{ s.awb }}</td>
                 <td class="px-4 py-2.5 text-end text-[12.5px] font-semibold text-stone-900 tabular-nums">{{ s.parcels }}</td>
@@ -290,7 +299,7 @@
           </table>
         </div>
         <div v-if="!loading && shown.length === 0" class="text-center text-[12.5px] text-stone-400 py-12">
-          {{ t("shp.noMatch") }}
+          {{ searching ? t("shp.searching") : t("shp.noMatch") }}
         </div>
       </div>
     </template>
@@ -333,9 +342,53 @@ async function submitDraft() {
   }
 }
 
-const q = ref("");
-const filter = ref("all");
-const open = ref(null);
+// Search, filter and the open manifest live in the URL (?q=…&f=…&sh=…):
+// opening a manifest used to leave the address unchanged, so the browser's
+// Back left the page entirely and a manifest could not be linked or reopened
+// after a refresh.
+const _route = useRoute();
+const router = useRouter();
+const q = ref(String(_route.query.q || ""));
+const filter = ref(String(_route.query.f || "all"));
+const open = computed(() => (_route.query.sh ? String(_route.query.sh) : null));
+
+function openShipment(no) {
+  router.push({ query: { ..._route.query, sh: no } });
+}
+function closeShipment() {
+  // Came here from the list → real Back (keeps scroll); deep link → drop ?sh.
+  if (window.history.state?.back) { router.back(); return; }
+  const { sh, ...rest } = _route.query;
+  router.replace({ query: rest });
+}
+watch([q, filter], ([qv, fv]) => {
+  const query = { ..._route.query, q: qv || undefined, f: fv !== "all" ? fv : undefined };
+  router.replace({ query });
+});
+
+// Server search: which manifests carry this order / DN / AWB. Debounced; the
+// list's own 30 rows are still filtered by name locally while typing.
+const found = ref(null);
+const searching = ref(false);
+let _searchTimer = null;
+let _searchSeq = 0;
+watch(q, (v) => {
+  clearTimeout(_searchTimer);
+  const term = (v || "").trim();
+  if (term.length < 4) { found.value = null; searching.value = false; return; }
+  searching.value = true;
+  _searchTimer = setTimeout(async () => {
+    const seq = ++_searchSeq;
+    try {
+      const r = await api("shipping.shipments", { q: term, limit: 100 });
+      if (seq === _searchSeq) found.value = Array.isArray(r) ? r : [];
+    } catch (_) {
+      if (seq === _searchSeq) found.value = [];
+    } finally {
+      if (seq === _searchSeq) searching.value = false;
+    }
+  }, 350);
+}, { immediate: true });
 
 // Live only — skeleton while loading, honest empty state after. No demo.
 const shipments = ref([]);
@@ -344,8 +397,6 @@ const loading = ref(true);
 // Only the COUNT lives here now; the rows live on the gaps page. The
 // Cockpit's ?orphans=1 deep link redirects there instead of opening a panel.
 const gapsN = ref(0);
-const _route = useRoute();
-const router = useRouter();
 async function loadGapCount() {
   const [ob, or_] = await Promise.all([
     liveOr(null, () => api("shipping.offbook_parcels", { days: 30 })).catch(() => null),
@@ -395,13 +446,14 @@ const STATUS_DOT = {
 function statusPill(s) { return STATUS_PILL[s] || STATUS_PILL.Draft; }
 function statusDot(s) { return STATUS_DOT[s] || STATUS_DOT.Draft; }
 
-const shown = computed(() =>
-  shipments.value.filter(
-    (s) =>
-      (filter.value === "all" || s.status === filter.value) &&
-      (!q.value || s.no.toLowerCase().includes(q.value.toLowerCase()))
-  )
-);
+const shown = computed(() => {
+  const term = q.value.trim().toLowerCase();
+  const local = shipments.value.filter((s) => !term || s.no.toLowerCase().includes(term));
+  // Server hits first (they carry the matched parcels), then local name matches.
+  const rows = [...(found.value || [])];
+  for (const s of local) if (!rows.some((r) => r.no === s.no)) rows.push(s);
+  return rows.filter((s) => filter.value === "all" || s.status === filter.value);
+});
 
 // KPI strip: this-week shipments, parcels today (really today — the old code
 // showed the FIRST row's parcels whatever its date), avg value, last manifest.
@@ -439,8 +491,24 @@ const kpis = computed(() => [
       ? `· ${lastManifest.value.days} ${t("shp.daysAgo")}` : "" },
 ]);
 
-// selected shipment
-const openSh = computed(() => shipments.value.find((s) => s.no === open.value) || null);
+// selected shipment — from the list, the search results, or (a link to an
+// older manifest than the list's 30) fetched on its own.
+const extra = ref(null);
+const openSh = computed(() =>
+  shipments.value.find((s) => s.no === open.value)
+  || (found.value || []).find((s) => s.no === open.value)
+  || (extra.value?.no === open.value ? extra.value : null));
+// Parcels the search matched, highlighted inside the open manifest.
+const hitDns = computed(() => new Set(
+  ((found.value || []).find((s) => s.no === open.value)?.hits || []).map((h) => h.dn)));
+watch([open, loading], async ([v, busy]) => {
+  if (!v || busy || openSh.value) return;
+  try {
+    const r = await api("shipping.shipments", { q: v, limit: 1 });
+    const row = Array.isArray(r) ? r.find((s) => s.no === v) : null;
+    if (row && open.value === v) extra.value = row;
+  } catch (_) { /* list stays; detail shows nothing */ }
+}, { immediate: true });
 
 const { warn: warnToast } = useToast();
 const printingSheet = ref(false);
@@ -506,6 +574,7 @@ const detailData = ref(null);
 const detailLoading = ref(false);
 
 watch(open, async (v) => {
+  submitArmed.value = false;
   detailData.value = null;
   if (!v) return;
   detailLoading.value = true;
@@ -515,7 +584,7 @@ watch(open, async (v) => {
   } catch (_) { /* panel shows the empty state */ } finally {
     detailLoading.value = false;
   }
-});
+}, { immediate: true });
 
 const TRACK_PILL = {
   delivered: "text-emerald-700 bg-emerald-50 ring-emerald-200",

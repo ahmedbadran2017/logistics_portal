@@ -1591,7 +1591,7 @@ export default {
     weekCount: "Expéditions cette semaine", parcelsToday: "Colis aujourd’hui", avgValue: "Valeur moyenne", carrier: "Transporteur",
     lastManifest: "Dernier manifeste", daysAgo: "j", fCancelled: "Annulées",
     parcelsOn: "Colis de ce manifeste", pOrder: "Commande", pCustomer: "Client",
-    searchPh: "Rechercher une expédition…",
+    searchPh: "Expédition, commande, BL ou AWB…", searching: "Recherche…", hitOn: "Sur ce manifeste",
     fAll: "Tout", fDraft: "Brouillon", fSubmitted: "Validée", fBooked: "Réservée", fCompleted: "Terminée",
     thShipment: "Expédition", thDate: "Date", thAwb: "AWB principal", thParcels: "Colis",
     thValue: "Valeur", thDelivered: "Livrés", thStatus: "Statut",

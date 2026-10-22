@@ -1591,7 +1591,7 @@ export default {
     weekCount: "شحنات هذا الأسبوع", parcelsToday: "طرود اليوم", avgValue: "متوسط القيمة", carrier: "الناقل",
     lastManifest: "آخر مانيفست", daysAgo: "يوم", fCancelled: "ملغاة",
     parcelsOn: "طرود هذا المانيفست", pOrder: "الأوردر", pCustomer: "العميل",
-    searchPh: "بحث عن شحنة…",
+    searchPh: "شحنة، أوردر، DN أو بوليصة…", searching: "جاري البحث…", hitOn: "موجود في الشحنة دي",
     fAll: "الكل", fDraft: "مسودة", fSubmitted: "معتمدة", fBooked: "محجوزة", fCompleted: "مكتملة",
     thShipment: "الشحنة", thDate: "التاريخ", thAwb: "البوليصة الرئيسية", thParcels: "الطرود",
     thValue: "القيمة", thDelivered: "المسلَّم", thStatus: "الحالة",

@@ -68,13 +68,64 @@ def _fmt_window(t_from, t_to):
     return f"{a} – {b}" if a and b else ""
 
 
+def _parcel_hits(q):
+    """Which manifests carry the parcel a person typed: an order (#266221,
+    266221, J-012278), a Delivery Note (MAT-DN-2026-117621) or an AWB
+    (LD008841824, or the bare 8841824 printed under the barcode).
+    Returns {shipment: [{dn, order, awb}]}. Every lookup rides an index
+    (lp_dn_awb_idx, lp_dn_track_no_idx, lp_dni_so_idx, lp_sdn_dn_idx)."""
+    q = (q or "").strip()
+    if len(q) < 4:
+        return {}
+    bare = q.lstrip("#")
+    orders = list({q, bare, "#" + bare})
+    dns = set(frappe.db.sql_list(
+        """SELECT name FROM `tabDelivery Note`
+           WHERE name = %(q)s OR custom_awb = %(q)s OR custom_tracking_number = %(q)s""",
+        {"q": q}))
+    dns.update(frappe.db.sql_list(
+        """SELECT DISTINCT parent FROM `tabDelivery Note Item`
+           WHERE against_sales_order IN %(orders)s""",
+        {"orders": orders}))
+    if not dns:
+        return {}
+    rows = frappe.db.sql(
+        """SELECT sdn.parent AS sh, dn.name AS dn, dn.custom_awb AS awb,
+                  (SELECT dni.against_sales_order FROM `tabDelivery Note Item` dni
+                   WHERE dni.parent = dn.name AND dni.against_sales_order IS NOT NULL
+                   LIMIT 1) AS so
+           FROM `tabShipment Delivery Note` sdn
+           JOIN `tabDelivery Note` dn ON dn.name = sdn.delivery_note
+           WHERE sdn.delivery_note IN %(dns)s""",
+        {"dns": list(dns)}, as_dict=True)
+    hits = {}
+    for r in rows:
+        hits.setdefault(r.sh, []).append(
+            {"dn": r.dn, "order": r.so or "", "awb": r.awb or ""})
+    return hits
+
+
 @frappe.whitelist()
-def shipments(limit=30):
+def shipments(limit=30, q=None):
     """Daily CARRIER manifests (delivery_customer = CATHEDIS) with real
     per-manifest outcomes from the linked Delivery Notes. China import
     shipments (Justyol China → CMA CGM etc.) are a different flow and are
-    deliberately excluded — they were polluting this list."""
+    deliberately excluded — they were polluting this list.
+
+    With `q`: the manifests that carry that order / DN / AWB (any date, not
+    only the last `limit`), or the manifest of that name — "which truck did
+    this parcel leave on" was a Desk hunt through each Shipment's table.
+    Each row then carries `hits`, the matching parcels on it."""
     try:
+        hits, names = {}, None
+        if q:
+            q = q.strip()
+            hits = _parcel_hits(q)
+            names = list(hits)
+            if frappe.db.exists("Shipment", q):
+                names.append(q)
+            if not names:
+                return []
         rows = frappe.db.sql(
             """SELECT sh.name, sh.pickup_date, sh.value_of_goods, sh.status,
                       sh.pickup_company, sh.delivery_customer, sh.awb_number,
@@ -86,10 +137,12 @@ def shipments(limit=30):
                LEFT JOIN `tabShipment Delivery Note` sdn ON sdn.parent = sh.name
                LEFT JOIN `tabDelivery Note` dn ON dn.name = sdn.delivery_note
                WHERE sh.docstatus < 2 AND sh.delivery_customer = 'CATHEDIS'
+                 {only}
                GROUP BY sh.name
                ORDER BY sh.pickup_date DESC, sh.modified DESC
-               LIMIT %(limit)s""",
-            {"limit": min(max(int(limit or 30), 1), 100)}, as_dict=True)
+               LIMIT %(limit)s""".format(only="AND sh.name IN %(names)s" if names else ""),
+            {"limit": min(max(int(limit or 30), 1), 100), "names": names or [""]},
+            as_dict=True)
         return [{
             "no": r.name,
             "date": str(r.pickup_date) if r.pickup_date else "",
@@ -104,6 +157,7 @@ def shipments(limit=30):
             "delivered": int(r.delivered or 0),
             "exceptions": int(r.exceptions or 0),
             "window": _fmt_window(r.pickup_from, r.pickup_to) or "09:00 – 17:00",
+            "hits": hits.get(r.name, []),
         } for r in rows]
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.shipments")
