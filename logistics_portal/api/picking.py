@@ -527,29 +527,6 @@ def pack_scan(code):
     return {"ok": True, "scannedItem": item_code, **_pack_order(row[0].name)}
 
 
-def _parcel_gone(name, status=None):
-    """{status, shipment} when this order's parcel already left with the
-    carrier, else None. Such a parcel gets no new label: mark_packed said ok to
-    anything, so the sort wall's Print button reprinted returned boxes --
-    J-011727 went out on SH-000317 (2026-10-15), came back 10-21, and its slot
-    offered a fresh label; 832 orders on the last month's manifests are
-    Returned. A submitted manifest is the same fact whatever the status says.
-    (A reship gets a NEW AWB through orders.reship, not a reprint.)"""
-    from logistics_portal.api.shipping import _HANDED_STATUSES
-    if status is None:
-        status = frappe.db.get_value("Sales Order", name, "custom_logistics_status")
-    shipped_on = frappe.db.sql(
-        """SELECT sh.name FROM `tabDelivery Note Item` dni
-           JOIN `tabDelivery Note` dn ON dn.name = dni.parent
-                AND dn.docstatus = 1 AND dn.is_return = 0
-           JOIN `tabShipment Delivery Note` sdn ON sdn.delivery_note = dn.name
-           JOIN `tabShipment` sh ON sh.name = sdn.parent AND sh.docstatus = 1
-           WHERE dni.against_sales_order = %s LIMIT 1""", (name,))
-    if status in _HANDED_STATUSES or shipped_on:
-        return {"status": status or "", "shipment": shipped_on[0][0] if shipped_on else ""}
-    return None
-
-
 @frappe.whitelist()
 def mark_packed(order):
     """Finish an order at the pack station: Label Generated → Label Printed.
@@ -563,9 +540,6 @@ def mark_packed(order):
     if is_stopped(name):
         return {"ok": False, "reason": "stopped", "order": name}
     st = frappe.db.get_value("Sales Order", name, "custom_logistics_status")
-    gone = _parcel_gone(name, st)
-    if gone:
-        return {"ok": False, "reason": "gone", "order": name, **gone}
     if st in ("Label Generated", "Picked", "In transit", "Received"):
         frappe.get_doc("Sales Order", name).db_set("custom_logistics_status", "Label Printed")
         from logistics_portal.api.scanlog import log_scan
@@ -3795,16 +3769,6 @@ def label_pdf(order):
     order = (order or "").strip()
     if not order:
         frappe.throw("No order.")
-    # Every print path streams through here (sort wall, label queue), so the
-    # "already left" rule lives here too, not only in mark_packed.
-    _so = _resolve_order_name(order)
-    gone = _parcel_gone(_so) if _so else None
-    if gone:
-        frappe.local.response.http_status_code = 409
-        return {"ok": False, "order": order,
-                "reason": "This parcel already left with the carrier"
-                          + (f" ({gone['shipment']})" if gone["shipment"] else "")
-                          + " — no new label."}
     fname = _label_file(order)
     content = None
     if not fname:

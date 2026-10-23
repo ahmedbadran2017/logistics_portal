@@ -203,9 +203,6 @@
               <span v-if="o.stopped" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-white bg-rose-600 ring-1 ring-rose-700">
                 <Icon name="package-x" :size="10" />{{ t('sort.badgeStopped') }}
               </span>
-              <span v-else-if="o.returned" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-violet-700 bg-violet-100 ring-1 ring-violet-300">
-                <Icon name="rotate-ccw" :size="10" />{{ t('sort.badgeReturned') }}
-              </span>
               <span v-else-if="o.shipped" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300">
                 <Icon name="truck" :size="10" />{{ t('sort.badgeShipped') }}
               </span>
@@ -248,7 +245,7 @@
           </div>
           <div v-if="o.dupDn" class="mt-2 text-[11px] text-stone-500">{{ t('sort.dupDn') }}</div>
           <button
-            v-if="o.done && o.labelUrl && !o.shipped && !o.returned && !o.onDraft && !o.stopped"
+            v-if="o.done && o.labelUrl && !o.shipped && !o.onDraft && !o.stopped"
             class="mt-2.5 w-full h-9 rounded-lg text-[12.5px] font-semibold flex items-center justify-center gap-1.5 transition-colors"
             :class="o.printed ? 'bg-white text-stone-600 ring-1 ring-stone-200 hover:bg-stone-50' : 'bg-sky-600 text-white hover:bg-sky-700'"
             @click="printAndMark(o)"
@@ -444,15 +441,8 @@ function normalizeWall(w) {
     // Anything at or past the label stage is printed — parcels can leave the
     // building (Shipped / Out For Delivery / Delivered) while this screen is
     // open, and they were rendering as merely-SORTED (PL-54797).
-    // A parcel that came BACK is past the label too: "Returned" / "Not
-    // Delivered" fell through to SORTED with a live Print button, so a
-    // returned box got a second label (J-011727, out on SH-000317 on
-    // 2026-10-15, back 10-21; 832 such orders on the last month's manifests).
-    // A submitted manifest is the same fact whatever the status says.
-    o.returned = ["Returned", "Not Delivered"].includes(o.status);
-    o.shipped = !o.returned && (["Shipped", "Delivered"].includes(o.status)
-      || Boolean(o.shipment && !o.onDraft));
-    o.printed = o.status === "Label Printed" || o.shipped || o.returned;
+    o.shipped = ["Shipped", "Delivered"].includes(o.status);
+    o.printed = o.status === "Label Printed" || o.shipped;
     o.cityPick = "";
     o.cityTyped = "";
     o.citySuggests = null;
@@ -595,24 +585,12 @@ async function onScanItem(raw) {
 // so late-label orders printed from this button were staying at 'Label
 // Generated' forever (Anas, 2026-08-27). mark_packed is idempotent and only
 // upgrades eligible statuses — safe to call on every print/reprint.
-const reprintArmed = ref("");
-let reprintTimer = null;
 async function printAndMark(o) {
   // Ask the server BEFORE the paper comes out. The order of these two calls
   // used to be "print, then record" and it did not matter while the server
   // never said no; it says no now, and a label printed for a cancelled box
   // is the exact thing we are trying to stop.
   lastSlot.value = o.order;
-  // A second label for a printed box is a second parcel on the carrier's
-  // books if both get stuck on — ask once before printing it.
-  if (o.printed && reprintArmed.value !== o.order) {
-    reprintArmed.value = o.order;
-    clearTimeout(reprintTimer);
-    reprintTimer = setTimeout(() => { reprintArmed.value = ""; }, 4000);
-    warn(t("sort.reprintArm"), o.order);
-    return;
-  }
-  reprintArmed.value = "";
   let res;
   try {
     res = await apiPost("picking.mark_packed", { order: o.order });
@@ -622,13 +600,6 @@ async function printAndMark(o) {
   }
   if (res && res.ok === false) {
     if (res.reason === "stopped") { o.stopped = true; o.done = true; warn(t("sort.stoppedHint"), o.order); }
-    if (res.reason === "gone") {
-      o.status = res.status || o.status;
-      o.returned = ["Returned", "Not Delivered"].includes(o.status);
-      o.shipped = !o.returned;
-      o.printed = true;
-      warn(t("sort.goneHint"), `${o.order}${res.shipment ? " · " + res.shipment : ""}`);
-    }
     return;
   }
   printLabel(o.order, () => { o.printed = true; });

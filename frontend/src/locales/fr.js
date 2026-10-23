@@ -346,7 +346,7 @@ export default {
     badgeUrgent: "Urgent",
     stoppedHint: "Annulée — videz cet emplacement dans le bac d'arrêt. Pas d'étiquette, pas d'emballage.",
     scanStopped: "STOP — {order} a été annulée. Mettez la pièce dans le bac d'arrêt et videz cet emplacement.",
-    badgeShipped: "Expédiée", badgePrinted: "Imprimé", badgeReturned: "Retournée", goneHint: "Ce colis est déjà parti chez le transporteur — pas de nouvelle étiquette.", reprintArm: "Étiquette déjà imprimée — touchez encore pour une deuxième copie.",
+    badgeShipped: "Expédiée", badgePrinted: "Imprimé",
     handoverTitle: "En attente à la porte",
     handoverHint: "Triée et imprimée, mais tous les colis ne sont pas encore sur une expédition. Une liste quitte ce mur seulement quand elle a été scannée en entier sur le manifeste.",
     handoverEmpty: "Toutes les listes triées ont été remises aux expéditions au complet.",
