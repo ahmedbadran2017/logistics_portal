@@ -540,6 +540,12 @@ def mark_packed(order):
     if is_stopped(name):
         return {"ok": False, "reason": "stopped", "order": name}
     st = frappe.db.get_value("Sales Order", name, "custom_logistics_status")
+    # J-011727, 2026-10-23: shipped 10-15, refused at the door, returned
+    # 10-21 — and its slot on the old PL-56723 wall offered "Print label"
+    # again, which answered here with the old AWB's label. A parcel that has
+    # left (or come back) gets no outbound label from the wall.
+    if st in _GONE:
+        return {"ok": False, "reason": "gone", "order": name, "status": st}
     if st in ("Label Generated", "Picked", "In transit", "Received"):
         frappe.get_doc("Sales Order", name).db_set("custom_logistics_status", "Label Printed")
         from logistics_portal.api.scanlog import log_scan
@@ -3101,6 +3107,9 @@ def _sort_gate():
 # 'Pending' orders whose AWB never came back, which is exactly the state that
 # used to make a whole list vanish (PL-55740, 2026-09-08).
 _SORT_DONE = ("Label Printed", "Shipped", "Delivered", "Not Delivered", "Returned")
+# Past the door: the parcel left, or left and came back. Nothing on the wall
+# may sort into it, print for it or relabel it.
+_GONE = ("Shipped", "Delivered", "Not Delivered", "Returned")
 
 
 @frappe.whitelist()
@@ -3391,6 +3400,9 @@ def relabel_order(pick_list, order, city=None):
     # label, and a stopped order wants no label at all.
     if is_stopped(order):
         return {"ok": False, "reason": "stopped", "order": order}
+    st = frappe.db.get_value("Sales Order", order, "custom_logistics_status")
+    if st in _GONE:
+        return {"ok": False, "reason": "gone", "order": order, "status": st}
     awb, lbl = frappe.db.get_value(
         "Sales Order", order, ["custom_awb", "custom_label_url"]) or (None, None)
     if awb or lbl:
@@ -3617,11 +3629,25 @@ def sort_scan(pick_list, code, prefer=None):
             LEFT JOIN `tabSales Order` s ON s.name = pli.sales_order
             WHERE pli.parent = %s AND pli.item_code = %s
               AND pli.sales_order IS NOT NULL
-              AND COALESCE(s.custom_logistics_status,'') <> 'Label Printed'
+              AND COALESCE(s.custom_logistics_status,'') NOT IN %s
               AND COALESCE(pli.custom_sorted_qty,0) < pli.qty
             ORDER BY pli.idx""",
-        (pick_list, item_code), as_dict=True)
+        (pick_list, item_code, _SORT_DONE), as_dict=True)
     if not rows:
+        # A box whose parcel already left (or came back) takes no piece: an
+        # old wall reopened a week later still shows those slots, and a
+        # count that never filled would swallow a piece meant for a live
+        # order. Say which parcel it was, so the sorter is not left guessing.
+        gone = frappe.db.sql(
+            """SELECT pli.sales_order, s.custom_logistics_status FROM `tabPick List Item` pli
+               JOIN `tabSales Order` s ON s.name = pli.sales_order
+               WHERE pli.parent = %s AND pli.item_code = %s
+                 AND s.custom_logistics_status IN %s AND s.custom_logistics_status <> 'Label Printed'
+                 AND COALESCE(pli.custom_sorted_qty,0) < pli.qty LIMIT 1""",
+            (pick_list, item_code, _SORT_DONE))
+        if gone:
+            return {"ok": False, "reason": "gone", "order": gone[0][0], "status": gone[0][1],
+                    "itemCode": item_code, "name": r.get("name"), "sku": r.get("sku")}
         on_list = frappe.db.exists(
             "Pick List Item", {"parent": pick_list, "item_code": item_code})
         return {"ok": False, "reason": "done" if on_list else "not_on_list",

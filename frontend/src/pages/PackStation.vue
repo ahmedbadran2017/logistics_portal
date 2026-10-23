@@ -204,7 +204,7 @@
                 <Icon name="package-x" :size="10" />{{ t('sort.badgeStopped') }}
               </span>
               <span v-else-if="o.shipped" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300">
-                <Icon name="truck" :size="10" />{{ t('sort.badgeShipped') }}
+                <Icon name="truck" :size="10" />{{ o.cameBack ? t('sort.badgeReturned') : t('sort.badgeShipped') }}
               </span>
               <span v-else-if="o.onDraft" class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 h-5 rounded-full text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300">
                 <Icon name="truck" :size="10" />{{ t('sort.badgeOnManifest') }}
@@ -441,7 +441,10 @@ function normalizeWall(w) {
     // Anything at or past the label stage is printed — parcels can leave the
     // building (Shipped / Out For Delivery / Delivered) while this screen is
     // open, and they were rendering as merely-SORTED (PL-54797).
-    o.shipped = ["Shipped", "Delivered"].includes(o.status);
+    // Returned / Not Delivered left the building too: a returned parcel's
+    // slot on an old wall offered "Print label" again (J-011727).
+    o.shipped = ["Shipped", "Delivered", "Returned", "Not Delivered"].includes(o.status);
+    o.cameBack = ["Returned", "Not Delivered"].includes(o.status);
     o.printed = o.status === "Label Printed" || o.shipped;
     o.cityPick = "";
     o.cityTyped = "";
@@ -527,6 +530,11 @@ async function onScanItem(raw) {
       if (so) { so.stopped = true; so.done = true; }
       return;
     }
+    if (res.reason === "gone") {
+      scanner.value?.showError(t("sort.scanGone").replace("{order}", res.order || "")
+        .replace("{status}", res.status || ""));
+      return;
+    }
     if (res.reason === "removed") {
       scanner.value?.showError(t("sort.removedLine").replace("{order}", res.order || "")
         .replace("{shelf}", String(res.shelf || "").replace(" - JM", "")));
@@ -600,6 +608,7 @@ async function printAndMark(o) {
   }
   if (res && res.ok === false) {
     if (res.reason === "stopped") { o.stopped = true; o.done = true; warn(t("sort.stoppedHint"), o.order); }
+    if (res.reason === "gone") { o.status = res.status; o.shipped = true; warn(t("sort.gone").replace("{status}", res.status || ""), o.order); }
     return;
   }
   printLabel(o.order, () => { o.printed = true; });
