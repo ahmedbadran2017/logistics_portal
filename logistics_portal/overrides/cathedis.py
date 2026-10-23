@@ -72,9 +72,13 @@ def apply():
         # Prepaid: nothing to collect. Otherwise a remainder under 1 MAD is the
         # rounding of a payment posted in whole dirhams (a 186.10 order paid
         # 186) — collecting 0.10 at the door would print it as cash on
-        # delivery; it is paid.
+        # delivery; it is paid. The rounding also runs the other way: #266195
+        # (650.60, paid its rounded 651) went out as amount "-0.4" and
+        # Cathedis refused the whole import ("Un problème est survenu lors
+        # de l'import des livraisons") — no AWB, parcel stuck on the wall.
+        # Overpaid is paid: nothing to collect; a refund is accounting's.
         try:
-            dust = 0 < float(amount) < 1
+            dust = float(amount) < 1 and float(amount) != 0
         except (TypeError, ValueError):
             dust = False
         if (prepaid or dust) and str(amount) != ZERO:
