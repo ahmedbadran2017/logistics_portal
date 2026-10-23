@@ -1915,6 +1915,113 @@ def offbook_parcels(days=30, limit=80, include_exchanges=0):
     }
 
 
+# ── Labelled, never left ──────────────────────────────────────────────────
+#
+# A parcel with a label and a Delivery Note is, to every other screen, gone:
+# the stock is deducted, the sort wall shows it printed, and once a manifest
+# is submitted it reads "Shipped". Only the carrier's own scan says it really
+# left. #264900 was labelled 2026-10-15 and sat in the building until 10-22
+# with nothing but "Newly created parcel" from Cathedis; on 2026-10-23, 49
+# parcels marked Shipped (41 on submitted manifests, 14 on SH-000285 alone)
+# had no carrier event at all, 9 to 50 days on, and 59 cancelled orders still
+# held a label and a Delivery Note that took their stock off the books.
+#
+# A carrier EVENT is any Cathedis comment except the creation echo, or a
+# tracking status past Pending. Three buckets, three jobs:
+#   unmanifested  live, labelled 24h+, on no submitted manifest — find it, ship it
+#   noPickup      on a submitted manifest 24h+, carrier never scanned it —
+#                 find it in the building, or chase the carrier
+#   cancelled     cancelled with a label + Delivery Note — return note + AWB cancel
+_NL_GRACE_H = 24
+
+
+@frappe.whitelist()
+def never_left(days=60):
+    from logistics_portal.api.auth import resolve_role
+    if not resolve_role(frappe.session.user):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    days = min(max(int(days or 60), 7), 120)
+    now = str(frappe.utils.now_datetime())[:19]
+    rows = frappe.db.sql(
+        """SELECT so.name, so.custom_awb awb, so.custom_logistics_status ls,
+                  COALESCE(so.custom_track_shipment_status,'') trk,
+                  so.custom_sales_status sales, so.status so_status,
+                  so.customer_name customer,
+                  COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone) phone,
+                  COALESCE(NULLIF(a.city,''), so.custom_shipping_city, '') city,
+                  dn.name dn, dn.grand_total mad, dn.creation dn_at,
+                  TIMESTAMPDIFF(HOUR, dn.creation, %(now)s) age_h,
+                  (SELECT sh.name FROM `tabShipment Delivery Note` sdn
+                   JOIN `tabShipment` sh ON sh.name = sdn.parent
+                   WHERE sdn.delivery_note = dn.name AND sh.docstatus = 1 LIMIT 1) manifest,
+                  (SELECT TIMESTAMPDIFF(HOUR, sh.modified, %(now)s) FROM `tabShipment Delivery Note` sdn
+                   JOIN `tabShipment` sh ON sh.name = sdn.parent
+                   WHERE sdn.delivery_note = dn.name AND sh.docstatus = 1 LIMIT 1) manifest_h,
+                  (SELECT sh.name FROM `tabShipment Delivery Note` sdn
+                   JOIN `tabShipment` sh ON sh.name = sdn.parent
+                   WHERE sdn.delivery_note = dn.name AND sh.docstatus = 0 LIMIT 1) draft,
+                  (SELECT GROUP_CONCAT(DISTINCT pli.parent) FROM `tabPick List Item` pli
+                   JOIN `tabPick List` p ON p.name = pli.parent AND p.docstatus = 1
+                   WHERE pli.sales_order = so.name) pick_list
+           FROM `tabDelivery Note` dn
+           JOIN `tabSales Order` so ON so.name = (
+               SELECT dni.against_sales_order FROM `tabDelivery Note Item` dni
+               WHERE dni.parent = dn.name AND dni.against_sales_order IS NOT NULL LIMIT 1)
+           LEFT JOIN `tabAddress` a ON a.name = dn.shipping_address_name
+           WHERE dn.docstatus = 1 AND dn.is_return = 0
+             AND dn.posting_date >= DATE_SUB(%(today)s, INTERVAL %(days)s DAY)
+             AND dn.creation <= DATE_SUB(%(now)s, INTERVAL %(grace)s HOUR)
+             AND COALESCE(so.custom_awb, '') <> ''
+             AND COALESCE(so.custom_track_shipment_status, '') IN ('', 'Pending')
+             AND COALESCE(so.custom_logistics_status, '') NOT IN ('Delivered', 'Returned', 'Not Delivered')
+             AND NOT EXISTS (SELECT 1 FROM `tabDelivery Note` r
+                             WHERE r.docstatus = 1 AND r.is_return = 1 AND r.return_against = dn.name)
+             AND NOT EXISTS (SELECT 1 FROM `tabComment` c
+                             WHERE c.reference_doctype = 'Sales Order' AND c.reference_name = so.name
+                               AND c.owner = 'cathedis@justyol.com'
+                               AND c.content NOT LIKE 'Newly created%%')
+           ORDER BY dn.creation""",
+        {"now": now, "today": now[:10], "days": days, "grace": _NL_GRACE_H}, as_dict=True)
+
+    out = {"unmanifested": [], "noPickup": [], "cancelled": []}
+    seen = set()
+    for r in rows:
+        if r.name in seen:
+            continue
+        seen.add(r.name)
+        cancelled = (r.sales or "") == "Cancelled" or (r.so_status or "") in ("Closed", "Cancelled")
+        if not cancelled and r.manifest and int(r.manifest_h or 0) < _NL_GRACE_H:
+            continue            # handed over today: the carrier scan can still come
+        row = {
+            "order": r.name, "awb": r.awb or "", "dn": r.dn, "status": r.ls or "",
+            "track": r.trk or "Pending", "mad": round(float(r.mad or 0), 2),
+            "customer": r.customer or "", "phone": r.phone or "",
+            "city": (r.city or "").strip().title(), "ageH": int(r.age_h or 0),
+            "ageD": int(r.age_h or 0) // 24, "manifest": r.manifest or r.draft or "",
+            "draft": bool(r.draft and not r.manifest), "pickList": r.pick_list or "",
+        }
+        if cancelled:
+            out["cancelled"].append(row)
+        elif r.manifest:
+            out["noPickup"].append(row)
+        else:
+            out["unmanifested"].append(row)
+    for k in out:
+        out[k].sort(key=lambda x: -x["ageH"])
+    # Where the no-pickup parcels cluster: a manifest with many of them is a
+    # pickup that did not happen, not fifteen separate losses.
+    by_manifest = {}
+    for r in out["noPickup"]:
+        m = by_manifest.setdefault(r["manifest"], {"manifest": r["manifest"], "n": 0, "mad": 0.0})
+        m["n"] += 1
+        m["mad"] = round(m["mad"] + r["mad"], 2)
+    tot = lambda xs: round(sum(x["mad"] for x in xs), 2)  # noqa: E731
+    return {**out,
+            "totals": {k: {"n": len(v), "mad": tot(v)} for k, v in out.items()},
+            "manifests": sorted(by_manifest.values(), key=lambda m: -m["n"]),
+            "days": days, "graceH": _NL_GRACE_H, "serverNow": now}
+
+
 # A standing problem must not page for ever. Only rows the floor has touched
 # recently can still be settled with a driver; the older ones live on the
 # banner, where they are read on purpose rather than pushed.

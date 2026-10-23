@@ -45,6 +45,7 @@ export const ROLE_CONFIG = {
           { to: "PackDesk", label: "nav.packing", icon: "package-check" },
           { to: "Shipments", label: "nav.shipments", icon: "truck" },
           { to: "HandoverGaps", label: "nav.handoverGaps", icon: "alert-triangle" },
+          { to: "NeverLeft", label: "nav.neverLeft", icon: "package-x" },
           { to: "Carriers", label: "nav.carriers", icon: "send" },
         ],
       },
@@ -128,6 +129,7 @@ export const ROLE_CONFIG = {
           // relabel_order and the handover chase are dispatcher acts; the
           // gaps API has always allowed the role, only this menu did not.
           { to: "HandoverGaps", label: "nav.handoverGaps", icon: "alert-triangle" },
+          { to: "NeverLeft", label: "nav.neverLeft", icon: "package-x" },
         ],
       },
       {
@@ -219,6 +221,7 @@ export const ROLE_CONFIG = {
           { to: "Manifest", label: "nav.manifest", icon: "package-check" },
           { to: "Shipments", label: "nav.shipments", icon: "truck" },
           { to: "HandoverGaps", label: "nav.handoverGaps", icon: "alert-triangle" },
+          { to: "NeverLeft", label: "nav.neverLeft", icon: "package-x" },
           { to: "Carriers", label: "nav.carriers", icon: "send" },
         ],
       },

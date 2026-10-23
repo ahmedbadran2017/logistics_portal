@@ -123,6 +123,8 @@ const routes = [
       // Parcels that fell out of the handover, all four failures in one
       // place — they used to be red panels stacked on top of the board.
       { path: "handover-gaps", name: "HandoverGaps", component: () => import("@/pages/HandoverGaps.vue") },
+      // Labelled + Delivery Note, but the carrier never scanned it.
+      { path: "never-left", name: "NeverLeft", component: () => import("@/pages/NeverLeft.vue") },
       // The tracking portal's own screens (served under the /tracking base).
       { path: "board", name: "ShipBoard", component: () => import("@/pages/ShipBoard.vue") },
       { path: "ship-settings", name: "ShipSettings", component: () => import("@/pages/ShipSettings.vue") },
