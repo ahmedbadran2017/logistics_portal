@@ -346,7 +346,7 @@ export default {
     statusStuck: "Printed, but the status didn't update \u2014 try again",
     printNow: "Print label",
     badgeSorted: "Sorted",
-    badgeShipped: "Shipped", badgePrinted: "Printed",
+    badgeShipped: "Shipped", badgePrinted: "Printed", badgeReturned: "Returned", goneHint: "This parcel already left with the carrier — no new label.", reprintArm: "Label already printed — tap again to print a second copy.",
     loadFail: "Couldn't load",
     handoverTitle: "Waiting for the door",
     handoverHint: "Sorted and printed, but not every parcel is on a shipment yet. A list leaves this wall only when all of it has been scanned onto the manifest.",
