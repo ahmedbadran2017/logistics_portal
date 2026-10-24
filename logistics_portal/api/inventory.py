@@ -384,3 +384,44 @@ def sku_lookup(query, limit=80):
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.sku_lookup")
         return {"query": query, "groups": []}
+
+
+@frappe.whitelist()
+def where_is(code):
+    """Where an item physically is, split the way the floor acts on it: the
+    pick faces (what a pick list can use) and everywhere else (SLOW, PLT,
+    Receiving, returns...). Backs the French error popup: "insufficient stock"
+    on #266941 (MCH100013) was 0 on the faces with 1,051 in SLOW ZONE — the
+    fix was a move, not a supplier call, and the message never said so."""
+    from logistics_portal.api.auth import resolve_role
+    if not resolve_role(frappe.session.user):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    from logistics_portal.api.picking import _available_totals, _ee_rejected, resolve_scan
+    from logistics_portal.api.warehouses import pickable_condition
+    code = (code or "").strip()
+    item = code if frappe.db.exists("Item", code) else (resolve_scan(code) or {}).get("itemCode")
+    if not item:
+        return {"ok": False}
+    it = frappe.db.get_value("Item", item, ["item_name", "custom_sku", "image"], as_dict=True) or {}
+    cond, args = pickable_condition("b.warehouse")
+    rows = frappe.db.sql(
+        f"""SELECT b.warehouse, b.actual_qty AS qty, b.reserved_qty AS reserved,
+                   ({cond}) AS pickable
+            FROM `tabBin` b
+            WHERE b.item_code = %s AND b.actual_qty > 0 AND b.warehouse LIKE %s
+            ORDER BY b.actual_qty DESC LIMIT 12""",
+        tuple(args) + (item, "% - JM"), as_dict=True)
+    # Pickable means what _available_totals counts: the portal's policy AND
+    # not vetoed by ee's controller (SLOW ZONE passes the first, fails the
+    # second — 1,051 units there, none of them pickable).
+    rej = _ee_rejected()
+    bins = [{"bin": r.warehouse.replace(" - JM", ""), "warehouse": r.warehouse,
+             "qty": int(r.qty or 0), "reserved": int(r.reserved or 0),
+             "pickable": bool(int(r.pickable or 0)) and r.warehouse not in rej} for r in rows]
+    return {"ok": True, "itemCode": item, "sku": (it.get("custom_sku") or "").strip(),
+            "name": it.get("item_name") or item, "image": it.get("image") or "",
+            # free to pick right now: the same number the pick-list create used
+            "freeToPick": int(_available_totals([item]).get(item, 0)),
+            "onFaces": sum(b["qty"] for b in bins if b["pickable"]),
+            "elsewhere": sum(b["qty"] for b in bins if not b["pickable"]),
+            "bins": bins}

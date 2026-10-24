@@ -1,4 +1,5 @@
 import { ref } from "vue";
+import { openErrorPopup, serverMessageIn } from "@/composables/useErrorPopup";
 
 // Shared toast stack. Severity: critical (🔴) | warn (🟠) | info (🟡) | success
 const toasts = ref([]);
@@ -20,13 +21,24 @@ function dismiss(id) {
   toasts.value = toasts.value.filter((t) => t.id !== id);
 }
 
+// A server refusal in English becomes the French popup (useErrorPopup); the
+// floor read "insufficient stock (45779757236478)" and forwarded it to a
+// manager when the fix was one stock move away.
+function explained(title, detail) {
+  const raw = serverMessageIn(detail, title);
+  if (!raw) return 0;
+  openErrorPopup(raw, title);
+  return -1;
+}
+
 export function useToast() {
   return {
     toasts,
     dismiss,
     success: (title, detail) => push({ severity: "success", title, detail }),
     info: (title, detail) => push({ severity: "info", title, detail }),
-    warn: (title, detail) => push({ severity: "warn", title, detail }),
-    critical: (title, detail, action) => push({ severity: "critical", title, detail, action, timeout: 0 }),
+    warn: (title, detail) => explained(title, detail) || push({ severity: "warn", title, detail }),
+    critical: (title, detail, action) => explained(title, detail)
+      || push({ severity: "critical", title, detail, action, timeout: 0 }),
   };
 }

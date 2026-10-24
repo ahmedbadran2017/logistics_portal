@@ -13,6 +13,7 @@ function csrf() {
 }
 
 import { useI18n } from "@/composables/useI18n";
+import { recordServerError } from "@/composables/useErrorPopup";
 
 // A server that only knows "en" for every account cannot speak the portal's
 // language, so it throws a key ("lp:leadsOnly") and the key is rendered here
@@ -43,6 +44,9 @@ async function serverError(method, res) {
     }
   } catch (_) { /* keep the generic message */ }
   const err = new Error(translateServer(msg));
+  // A raw (English) server message is explained in French by the error popup;
+  // an "lp:" key is already translated and stays where the caller shows it.
+  if (!/^lp:/.test(msg || "")) recordServerError(msg, method);
   // Some server keys are a BRANCH, not a sentence: "the order is already in
   // the warehouse" should open the stop dialog, not print a line and stop.
   // The translation is for the reader; the key is for the caller.

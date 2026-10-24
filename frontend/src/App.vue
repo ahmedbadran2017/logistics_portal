@@ -1,6 +1,8 @@
 <template>
   <router-view />
   <ToastLayer />
+  <!-- Server refusals, explained in French (useToast diverts them here). -->
+  <ErrorPopup />
   <!-- Not on the PDA. The floor works this app on a Zebra, one hand on the
        device and one on a parcel, and a floating pill parked over the scan
        screen is a mis-tap waiting to happen. The people holding those
@@ -16,6 +18,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import ToastLayer from "@/components/ui/ToastLayer.vue";
+import ErrorPopup from "@/components/ui/ErrorPopup.vue";
 import TaskHubWidget from "@/components/TaskHubWidget.vue";
 import BonusLaunch from "@/components/BonusLaunch.vue";
 import { useAuth } from "@/composables/useAuth";
