@@ -112,7 +112,7 @@ watch(cur, async (c) => {
 });
 
 // The reserve bin holding the most: where a move should come from.
-const reserve = computed(() => (where.value?.bins || []).filter((b) => !b.pickable && b.qty > 0)
+const reserve = computed(() => (where.value?.bins || []).filter((b) => !b.pickable && b.movable && b.qty > 0)
   .sort((a, b) => b.qty - a.qty)[0] || null);
 
 const verdict = computed(() => {

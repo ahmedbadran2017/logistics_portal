@@ -415,9 +415,17 @@ def where_is(code):
     # not vetoed by ee's controller (SLOW ZONE passes the first, fails the
     # second — 1,051 units there, none of them pickable).
     rej = _ee_rejected()
+    # Where a "Déplacer le stock" may start from: Move Stock's own source rule
+    # (Defective, transit, a container at sea are reserve but not movable).
+    from logistics_portal.api.stock_moves import _movable_condition
+    mcond, margs = _movable_condition("name", as_source=True)
+    movable = set(frappe.db.sql_list(
+        f"SELECT name FROM `tabWarehouse` WHERE name IN %s AND is_group = 0 AND {mcond}",
+        tuple([tuple(r.warehouse for r in rows) or ("",)] + margs)))
     bins = [{"bin": r.warehouse.replace(" - JM", ""), "warehouse": r.warehouse,
              "qty": int(r.qty or 0), "reserved": int(r.reserved or 0),
-             "pickable": bool(int(r.pickable or 0)) and r.warehouse not in rej} for r in rows]
+             "pickable": bool(int(r.pickable or 0)) and r.warehouse not in rej,
+             "movable": r.warehouse in movable} for r in rows]
     return {"ok": True, "itemCode": item, "sku": (it.get("custom_sku") or "").strip(),
             "name": it.get("item_name") or item, "image": it.get("image") or "",
             # free to pick right now: the same number the pick-list create used
