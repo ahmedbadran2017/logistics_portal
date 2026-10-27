@@ -210,7 +210,13 @@ def carrier_of(so_name):
 # ── the settings screen ───────────────────────────────────────────────────
 
 def _webhook_url():
-    return frappe.utils.get_url("/api/method/logistics_portal.api.sendit.webhook")
+    # get_url() carries the bench's host_name — "admin.justyol.com:8000" on
+    # prod, an address Sendit cannot reach. The public host is the one the
+    # manager opened this screen on.
+    path = "/api/method/logistics_portal.api.sendit.webhook"
+    host = (getattr(frappe.local, "request", None) and frappe.local.request.host) or ""
+    host = host.split(":")[0]
+    return f"https://{host}{path}" if host else frappe.utils.get_url(path)
 
 
 @frappe.whitelist()
