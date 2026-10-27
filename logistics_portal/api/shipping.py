@@ -615,6 +615,9 @@ _READY_PARCEL_SQL = """
       AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
       AND so.custom_logistics_status = 'Label Printed'
       AND COALESCE(dn.custom_awb, '') != ''
+      -- a Sendit parcel leaves on a Sendit collection, never on this
+      -- Cathedis manifest (api/carriers.py)
+      AND COALESCE(so.custom_tracking_company, '') <> 'Sendit'
       AND dn.grand_total > 0
       AND dn.name NOT IN (
           SELECT sdn.delivery_note FROM `tabShipment Delivery Note` sdn
@@ -718,6 +721,11 @@ def manifest_scan(code):
                 "order": d.so, "customer": d.customer or ""}
     if d.lstatus not in ("Label Printed", "Label Generated"):
         return {"ok": False, "reason": "not_ready", "dn": d.dn, "status": d.lstatus or ""}
+    # This manifest is Cathedis's. A Sendit parcel goes with Sendit's driver,
+    # on a Sendit collection (Transporteurs → Demander le ramassage).
+    if d.so and (frappe.db.get_value("Sales Order", d.so, "custom_tracking_company") or "") == "Sendit":
+        return {"ok": False, "reason": "other_carrier", "carrier": "Sendit", "dn": d.dn,
+                "awb": d.awb or "", "order": d.so, "customer": d.customer or ""}
     sh = _open_or_new_manifest()
     if any(r.delivery_note == d.dn for r in (sh.get("shipment_delivery_note") or [])):
         return {"ok": False, "reason": "already", "dn": d.dn, "awb": d.awb or "",
@@ -1978,7 +1986,7 @@ def never_left(days=60):
                              WHERE r.docstatus = 1 AND r.is_return = 1 AND r.return_against = dn.name)
              AND NOT EXISTS (SELECT 1 FROM `tabComment` c
                              WHERE c.reference_doctype = 'Sales Order' AND c.reference_name = so.name
-                               AND c.owner = 'cathedis@justyol.com'
+                               AND c.owner IN ('cathedis@justyol.com', 'sendit@justyol.com')
                                AND c.content NOT LIKE 'Newly created%%')
            ORDER BY dn.creation""",
         {"now": now, "today": now[:10], "days": days, "grace": _NL_GRACE_H}, as_dict=True)

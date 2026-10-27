@@ -149,6 +149,8 @@ const routes = [
       { path: "tracking", name: "Tracking", component: () => import("@/pages/Tracking.vue") },
       { path: "exceptions", name: "Exceptions", component: () => import("@/pages/Exceptions.vue") },
       { path: "carriers", name: "Carriers", component: () => import("@/pages/Carriers.vue") },
+      // Which carrier each parcel goes to (Cathedis / Sendit) — manager only.
+      { path: "carrier-settings", name: "CarrierSettings", component: () => import("@/pages/CarrierSettings.vue") },
 
       // Inventory
       { path: "warehouse", name: "Warehouse", component: () => import("@/pages/Warehouse.vue") },

@@ -216,6 +216,17 @@ class PickList(_Base):
             except Exception:
                 frappe.log_error(frappe.get_traceback()[:2000], "pick_list stopped comment")
 
+    def create_delivery_note_on_submit(self, provider):
+        # The pick-list job hands every order's note to ONE provider, built
+        # for the company (Cathedis for Justyol Morocco). The router keeps
+        # that provider for every order the carrier settings leave to it and
+        # sends the rest to Sendit — the label is still made here, by the
+        # same job, at the same moment. See api/carriers.py.
+        if not hasattr(_Base, "create_delivery_note_on_submit"):
+            return None
+        from logistics_portal.api.carriers import CarrierRouter
+        return super().create_delivery_note_on_submit(CarrierRouter(provider) if provider else provider)
+
     def _get_required_qty_for_sales_order(self, sales_order, bundle_cache):
         packed = _packed_by_line(sales_order)
         if not packed or not hasattr(_Base, "_get_required_qty_for_sales_order"):

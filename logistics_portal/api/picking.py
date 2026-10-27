@@ -3434,10 +3434,11 @@ def relabel_order(pick_list, order, city=None):
     from frappe.utils import now_datetime
     started = str(now_datetime())[:19]
     try:
-        import logistics_portal.overrides.cathedis  # noqa: F401 — prepaid AWBs at 0
-        from ecommerce_integrations.shipping.cathedis import CathedisShipping
+        # The carrier settings decide here too (api/carriers.py): a retry
+        # goes to the carrier the order would get at pick-list submit.
+        from logistics_portal.api.carriers import create_awb
         doc = frappe.get_doc("Delivery Note", dn[0][0])
-        CathedisShipping().create_delivery_note_shipment(doc)
+        create_awb(doc)
     except Exception as e:
         frappe.db.rollback()
         return {"ok": False, "reason": "carrier_error", "error": _short_err(e),
@@ -3829,6 +3830,16 @@ def _fetch_carrier_label(order):
     thirty days ended up looking labelled with no label behind them
     (2026-09-17). Asking again, correctly, is all it takes.
     """
+    if (frappe.db.get_value("Sales Order", order, "custom_tracking_company") or "") == "Sendit":
+        try:
+            from logistics_portal.api import sendit
+            sendit.attach_label(order, frappe.db.get_value("Sales Order", order, "custom_awb"))
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+            return None
+        fname = _label_file(order)
+        return frappe.get_doc("File", fname).get_content() if fname else None
     try:
         trk = int(str(frappe.db.get_value(
             "Sales Order", order, "custom_tracking_number") or "").strip())

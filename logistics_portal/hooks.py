@@ -197,6 +197,12 @@ after_migrate = [
 
 scheduler_events = {
     "cron": {
+        # Sendit: the pull behind the status webhook (api/sendit.py). No-op
+        # while Sendit is off or has no keys; 150 parcels a run stays well
+        # inside Sendit's 1,000 requests an hour.
+        "*/30 * * * *": [
+            "logistics_portal.api.sendit.pull_sync",
+        ],
         # SLA engine: recompute expected dates + sla_status every 15 minutes.
         "*/15 * * * *": [
             "logistics_portal.api.sla.run_sla_engine",

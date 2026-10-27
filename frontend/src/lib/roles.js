@@ -47,6 +47,7 @@ export const ROLE_CONFIG = {
           { to: "HandoverGaps", label: "nav.handoverGaps", icon: "alert-triangle" },
           { to: "NeverLeft", label: "nav.neverLeft", icon: "package-x" },
           { to: "Carriers", label: "nav.carriers", icon: "send" },
+          { to: "CarrierSettings", label: "nav.carrierSettings", icon: "settings" },
         ],
       },
       {
