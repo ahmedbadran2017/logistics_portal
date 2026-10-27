@@ -47,7 +47,19 @@ _TIMEOUT = 30
 
 
 class SenditError(Exception):
-    pass
+    """Sendit refused, definitively (a 4xx answer, or a check before any call):
+    no parcel exists there, so another carrier may take the order."""
+
+    def __init__(self, msg, status=0):
+        super().__init__(msg)
+        self.status = status
+
+
+class SenditAmbiguous(Exception):
+    """The parcel MAY exist at Sendit (timeout, 5xx, an answer without a code).
+    Never fall back to another carrier on this: that is two labels for one
+    parcel. The order stays label-less, in sight on the wall and on
+    "Labelled, never left", until someone looks."""
 
 
 # ── keys and token ────────────────────────────────────────────────────────
@@ -122,7 +134,8 @@ def _req(method, path, payload=None, params=None, _retry=True):
         frappe.cache().delete_value(_TOKEN)
         return _req(method, path, payload, params, _retry=False)
     if r.status_code >= 400 or (isinstance(body, dict) and body.get("success") is False):
-        raise SenditError(f"Sendit {method} {path} → {r.status_code}: {_msg(body) or (r.text or '')[:300]}")
+        raise SenditError(f"Sendit {method} {path} → {r.status_code}: {_msg(body) or (r.text or '')[:300]}",
+                          status=r.status_code)
     return body if body is not None else {}
 
 
@@ -135,12 +148,16 @@ def _norm(s):
 
 def sync_districts():
     """Every destination district, all pages, stored for the mapping."""
-    out, page = [], 1
+    out, page, seen = [], 1, set()
     while page < 200:
         body = _req("GET", "districts", params={"page": page})
         data = body.get("data")
         rows = data.get("data") if isinstance(data, dict) else data
         rows = rows or []
+        # An API that ignores `page` would hand back page 1 for ever.
+        if rows and str(rows[0].get("id")) in seen:
+            break
+        seen.update(str(d.get("id")) for d in rows)
         for d in rows:
             out.append({"id": int(d.get("id")), "ville": d.get("ville") or "", "name": d.get("name") or "",
                         "ar": d.get("arabic_name") or "", "price": d.get("price"), "delay": d.get("delais") or ""})
@@ -149,13 +166,38 @@ def sync_districts():
             break
         page += 1
     if out:
-        frappe.db.set_default(_DISTRICTS, json.dumps(out, ensure_ascii=False))
-        frappe.db.commit()
+        _store_districts(out)
     return out
 
 
+# The district list is hundreds of rows: a DefaultValue is TEXT (64 KB) and
+# would truncate it. It lives in one private File, cached in redis.
+_DFILE = "lp_sendit_districts.json"
+
+
+def _store_districts(rows):
+    content = json.dumps(rows, ensure_ascii=False)
+    old = frappe.db.get_value("File", {"file_name": _DFILE, "attached_to_doctype": ["is", "not set"]}, "name")
+    if old:
+        frappe.delete_doc("File", old, ignore_permissions=True, force=True)
+    frappe.get_doc({"doctype": "File", "file_name": _DFILE, "is_private": 1,
+                    "content": content}).insert(ignore_permissions=True)
+    frappe.cache().set_value(_DISTRICTS, content)
+    frappe.db.commit()
+
+
 def districts():
-    raw = frappe.db.get_default(_DISTRICTS)
+    raw = frappe.cache().get_value(_DISTRICTS)
+    if not raw:
+        name = frappe.db.get_value("File", {"file_name": _DFILE}, "name", order_by="creation desc")
+        if name:
+            try:
+                raw = frappe.get_doc("File", name).get_content()
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8")
+                frappe.cache().set_value(_DISTRICTS, raw)
+            except Exception:
+                raw = None
     try:
         return json.loads(raw) if raw else []
     except Exception:
@@ -199,16 +241,38 @@ def _phone(p):
     return d
 
 
-def _amount(so):
+def _amount(so, dn=None):
     """What the courier collects: the same arithmetic and the same two
     exceptions as the Cathedis label (overrides/cathedis.py) — a prepaid
     order collects nothing, and a remainder under 1 MAD (positive or, as
-    on #266195, negative) is paid."""
+    on #266195, negative) is paid. The total is the Delivery Note's: after
+    an edit (a line dropped at the wall) it is what is really in the box."""
     from logistics_portal.overrides.cathedis import PREPAID
     if (so.get("payment_type") or "") in PREPAID:
         return 0
-    amt = round(float(so.grand_total or 0) - float(so.advance_paid or 0), 2)
+    total = float((dn.grand_total if dn and dn.get("grand_total") else so.grand_total) or 0)
+    amt = round(total - float(so.advance_paid or 0), 2)
     return 0 if amt < 1 else amt
+
+
+def find_existing(so_name, phone):
+    """A live Sendit parcel already carrying this order's reference. Sendit
+    searches by code, name, phone or address — not by reference — so ask by
+    phone and match the reference: the guard against a second parcel when
+    an earlier call's answer was lost."""
+    if not phone:
+        return ""
+    try:
+        body = _req("GET", "deliveries", params={"querystring": phone})
+    except Exception:
+        return ""
+    data = body.get("data")
+    rows = data.get("data") if isinstance(data, dict) else (data or [])
+    for d in rows or []:
+        if str(d.get("reference") or "").strip() == so_name and \
+                str(d.get("status") or "").upper() not in ("CANCELED",):
+            return d.get("code") or ""
+    return ""
 
 
 def _items_note(dn):
@@ -259,12 +323,26 @@ def create_for_delivery_note(dn, so_name, why=""):
         "allow_try": int(cfg.get("allow_try", 0)),
         "products_from_stock": 0,
     }
-    body = _req("POST", "deliveries", payload)
-    code = _code_of(body)
+    payload["amount"] = _amount(so, dn)
+    code = find_existing(so_name, phone)
+    reused = bool(code)
     if not code:
-        raise SenditError(f"Sendit created no parcel code: {json.dumps(body)[:300]}")
+        try:
+            body = _req("POST", "deliveries", payload)
+        except requests.RequestException as e:
+            raise SenditAmbiguous(f"No answer from Sendit ({type(e).__name__}) — the parcel may exist") from e
+        except SenditError as e:
+            if e.status >= 500:
+                raise SenditAmbiguous(str(e)) from e
+            raise
+        code = _code_of(body)
+        if not code:
+            raise SenditAmbiguous(f"Sendit answered without a parcel code: {json.dumps(body)[:300]}")
 
-    vals = {"custom_tracking_company": CARRIER, "custom_awb": code, "custom_tracking_number": code,
+    # custom_tracking_number stays EMPTY for Sendit: codx's Cathedis resync
+    # selects every order that has one, prefixes "LD00" and asks Cathedis —
+    # a Sendit code there is a "Missing in Cathedis" row on every run.
+    vals = {"custom_tracking_company": CARRIER, "custom_awb": code,
             "custom_track_shipment_status": "Pending"}
     label_url = ""
     try:
@@ -280,8 +358,8 @@ def create_for_delivery_note(dn, so_name, why=""):
     frappe.db.sql("""UPDATE `tabSales Order` SET custom_logistics_status = 'Label Generated'
                      WHERE name = %s AND COALESCE(custom_logistics_status, '') IN ('', 'Pending', 'Picked')""",
                   (so_name,))
-    _comment(so_name, f"Sendit parcel {code} created — {district_label}, COD {payload['amount']} MAD"
-                      + (f" · {why}" if why else ""), owner=None)
+    _comment(so_name, f"Sendit parcel {code} {'found again' if reused else 'created'} — {district_label}, "
+                      f"COD {payload['amount']} MAD" + (f" · {why}" if why else ""), owner=None)
     frappe.db.commit()
     return {"code": code, "district": district_label, "amount": payload["amount"], "label": bool(label_url)}
 
@@ -398,14 +476,23 @@ def apply_status(code, status, message="", at="", extra=None):
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 def webhook():
     """Sendit → us, on every status change. Verified before anything is read."""
+    import base64
     raw = frappe.request.get_data() or b""
-    sig = (frappe.request.headers.get("X-Sendit-Signature") or "").strip().lower()
+    sig = (frappe.request.headers.get("X-Sendit-Signature") or "").strip()
+    if sig.lower().startswith("sha256="):
+        sig = sig[7:]
     pub, sec = keys()
-    good = [hmac.new(k.encode(), raw, hashlib.sha256).hexdigest() for k in (sec, pub) if k]
-    if not sig or not any(hmac.compare_digest(sig, g) for g in good):
+    good = []
+    for k in (sec, pub):
+        if k:
+            mac = hmac.new(k.encode(), raw, hashlib.sha256)
+            good += [mac.hexdigest(), base64.b64encode(mac.digest()).decode()]
+    if not sig or not any(hmac.compare_digest(sig.lower() if len(sig) == 64 else sig, g) for g in good):
         frappe.log_error(f"bad signature · {len(raw)} bytes · {raw[:300]!r}", "Sendit webhook rejected")
         frappe.local.response.http_status_code = 401
         return {"ok": False}
+    # Verified: from here the request acts for the integration, not as Guest.
+    frappe.set_user("Administrator")
     try:
         p = json.loads(raw.decode("utf-8"))
     except Exception:

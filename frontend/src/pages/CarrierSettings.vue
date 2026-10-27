@@ -159,12 +159,19 @@
           <div v-for="c in cities.rows" :key="c.city" class="px-4 py-2 flex items-center gap-3 text-[12.5px]">
             <span class="font-semibold text-stone-900 w-[150px] truncate">{{ c.city || '—' }}</span>
             <span class="tabular-nums text-stone-400 w-14">{{ c.orders }}</span>
-            <select :value="override(c.city) || c.districtId || ''" class="flex-1 min-w-0 h-8 px-2 rounded-lg ring-1 text-[12px]"
-                    :class="c.districtId || override(c.city) ? 'bg-white ring-stone-200' : 'bg-rose-50 ring-rose-200 text-rose-700'"
-                    @change="setOverride(c.city, $event.target.value)">
+            <!-- One open list at a time: hundreds of districts on every row
+                 is tens of thousands of nodes and a frozen page. -->
+            <select v-if="editing === c.city" :value="override(c.city) || c.districtId || ''"
+                    class="flex-1 min-w-0 h-8 px-2 rounded-lg ring-1 ring-sky-300 bg-white text-[12px]"
+                    @change="setOverride(c.city, $event.target.value); editing = ''">
               <option value="">{{ t('crs.notServed') }}</option>
               <option v-for="d in cities.districts" :key="d.id" :value="d.id">{{ d.label }}{{ d.delay ? ' · ' + d.delay : '' }}</option>
             </select>
+            <button v-else class="flex-1 min-w-0 h-8 px-2 rounded-lg ring-1 text-[12px] text-start truncate"
+                    :class="c.districtId || override(c.city) ? 'bg-white ring-stone-200 text-stone-700' : 'bg-rose-50 ring-rose-200 text-rose-700'"
+                    @click="editing = c.city">
+              {{ labelOf(override(c.city)) || c.district || t('crs.notServed') }}
+            </button>
           </div>
         </div>
       </section>
@@ -218,6 +225,8 @@ const keys = reactive({ pub: "", sec: "" });
 const testOrdersText = ref("");
 const pv = reactive({ order: "", res: null });
 const cities = ref(null);
+const editing = ref("");
+const labelOf = (id) => (id ? ((cities.value?.districts || []).find((d) => d.id === Number(id)) || {}).label || "" : "");
 const parcels = ref([]);
 const busy = ref(false);
 

@@ -342,6 +342,7 @@ def request_stop(order, reason="", note=""):
         # refuses it, the manifest already did.
         frappe.db.set_value("Sales Order", order, _cancel_fields(reason, now),
                             update_modified=True)
+        _cancel_sendit_parcel(order)
         if mode == "cancel_now":
             # Nothing to go and fetch: the request is answered on the spot.
             frappe.db.set_value(DT, req, {
@@ -372,9 +373,10 @@ def request_stop(order, reason="", note=""):
             # Three different jobs wear the same "too late" hat, and handing
             # all three the same sentence would send someone to phone the
             # carrier about a parcel that is already on its way back.
+            carrier = frappe.db.get_value("Sales Order", order, "custom_tracking_company") or "Cathedis"
             what, kind = {
                 "gone": ("The customer cancelled — the parcel is already with the "
-                         "carrier. Call Cathedis to recall it.", "other"),
+                         f"carrier. Call {carrier} to recall it.", "other"),
                 "back": ("The customer cancelled — the parcel is already coming "
                          "back. See it lands and close the order.", "other"),
             }.get(stage, ("The customer cancelled after delivery — arrange the "
@@ -392,6 +394,22 @@ def request_stop(order, reason="", note=""):
         frappe.cache().delete_value(k)
     return {"ok": True, "request": req, "mode": mode, "stage": stage,
             "cancelled": mode in ("cancel_now", "stop")}
+
+
+def _cancel_sendit_parcel(order):
+    """A stopped order that still sits in the building: its Sendit parcel is
+    deleted at Sendit, so no driver comes for it. Best effort — the stop
+    stands either way, and the comment says which happened."""
+    so = frappe.db.get_value("Sales Order", order, ["custom_tracking_company", "custom_awb"], as_dict=True) or {}
+    if so.get("custom_tracking_company") != "Sendit" or not so.get("custom_awb"):
+        return
+    try:
+        from logistics_portal.api import sendit
+        sendit.cancel(so["custom_awb"])
+        msg = f"Sendit parcel {so['custom_awb']} cancelled at Sendit (order stopped)"
+    except Exception as e:
+        msg = f"Sendit parcel {so['custom_awb']} could NOT be cancelled at Sendit ({str(e)[:160]}) — cancel it there"
+    frappe.get_doc("Sales Order", order).add_comment("Comment", msg)
 
 
 @frappe.whitelist(methods=["POST"])

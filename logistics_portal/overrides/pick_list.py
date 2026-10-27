@@ -224,8 +224,15 @@ class PickList(_Base):
         # same job, at the same moment. See api/carriers.py.
         if not hasattr(_Base, "create_delivery_note_on_submit"):
             return None
-        from logistics_portal.api.carriers import CarrierRouter
-        return super().create_delivery_note_on_submit(CarrierRouter(provider) if provider else provider)
+        try:
+            from logistics_portal.api.carriers import CarrierRouter
+            routed = CarrierRouter(provider) if provider else provider
+        except Exception:
+            # A broken router must not cost every order its Delivery Note:
+            # the job then runs exactly as it did before carriers existed.
+            frappe.log_error(frappe.get_traceback()[:2000], "carrier router unavailable — Cathedis for all")
+            routed = provider
+        return super().create_delivery_note_on_submit(routed)
 
     def _get_required_qty_for_sales_order(self, sales_order, bundle_cache):
         packed = _packed_by_line(sales_order)

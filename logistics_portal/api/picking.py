@@ -3315,6 +3315,17 @@ def recheck_label(pick_list, order):
         return {"ok": False, "reason": "not_sorted"}
     awb, lbl = frappe.db.get_value(
         "Sales Order", order, ["custom_awb", "custom_label_url"]) or (None, None)
+    if not has_label(order) and awb and \
+            (frappe.db.get_value("Sales Order", order, "custom_tracking_company") or "") == "Sendit":
+        # A Sendit parcel whose label download failed at creation: the parcel
+        # exists, only its PDF is missing — ask Sendit for it again.
+        try:
+            from logistics_portal.api import sendit
+            lbl = sendit.attach_label(order, awb) or lbl
+            frappe.db.set_value("Sales Order", order, "custom_label_url", lbl, update_modified=False)
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
     if not has_label(order):
         return {"ok": False, "reason": "no_label_yet"}
     frappe.db.sql(

@@ -84,8 +84,12 @@ def _city(so_name, dn=None):
 
 
 def _sendit_today():
-    return frappe.db.count("Sales Order", {"custom_tracking_company": SENDIT,
-                                           "modified": [">=", nowdate()]})
+    # Parcels CREATED today: the order's `modified` moves with every Sendit
+    # webhook, so counting by it filled the cap with last week's parcels.
+    return int(frappe.db.sql(
+        """SELECT COUNT(DISTINCT reference_name) FROM `tabComment`
+           WHERE reference_doctype = 'Sales Order' AND content LIKE 'Sendit parcel %% created%%'
+             AND creation >= %s""", (nowdate(),))[0][0] or 0)
 
 
 def choose(so_name, dn=None):
@@ -149,21 +153,39 @@ class CarrierRouter:
                    if i.get("against_sales_order")), None)
         if not so or delivery_note.get("company") != "Justyol Morocco":
             return self._base.create_delivery_note_shipment(delivery_note)
-        carrier, why = choose(so, delivery_note)
+        # Already a Sendit parcel (an AWB retry, a second note for the same
+        # order): never a second parcel — the note gets the parcel's fields.
+        cur = frappe.db.get_value("Sales Order", so, ["custom_tracking_company", "custom_awb",
+                                                      "custom_label_url"], as_dict=True) or {}
+        if cur.get("custom_tracking_company") == SENDIT and cur.get("custom_awb"):
+            for k in ("custom_tracking_company", "custom_awb", "custom_label_url"):
+                if cur.get(k) and frappe.db.has_column("Delivery Note", k):
+                    frappe.db.set_value("Delivery Note", delivery_note.name, k, cur[k], update_modified=False)
+            return None
+        try:
+            carrier, why = choose(so, delivery_note)
+        except Exception:
+            # The decision itself must never cost an order its label.
+            frappe.log_error(frappe.get_traceback()[:2000], f"carrier choice failed {so} — Cathedis")
+            carrier, why = CATHEDIS, "choice failed"
         if carrier == SENDIT:
             from logistics_portal.api import sendit
             try:
                 return sendit.create_for_delivery_note(delivery_note, so, why)
             except sendit.SenditError as e:
-                # Refused before any parcel existed at Sendit: the order must
-                # not sit label-less on the wall, so Cathedis takes it.
+                # Refused, definitively, before any parcel existed at Sendit:
+                # the order must not sit label-less, so Cathedis takes it.
                 frappe.log_error(str(e)[:1500], f"Sendit refused {so} — sent to Cathedis")
                 _note(so, f"Sendit refused the parcel ({str(e)[:200]}) — created with Cathedis instead")
-            except Exception:
-                frappe.log_error(frappe.get_traceback()[:2000], f"Sendit error {so}")
-                if frappe.db.get_value("Sales Order", so, "custom_tracking_company") == SENDIT:
-                    return None   # the parcel exists at Sendit; never cut a second label
-                _note(so, "Sendit failed — created with Cathedis instead")
+            except Exception as e:
+                # A timeout, a 5xx, an answer without a code, or a bug: the
+                # parcel MAY exist at Sendit. A Cathedis label now could be
+                # the second label for one box — so none. The order stays
+                # label-less, visible on the wall and on "Labelled, never left".
+                frappe.log_error(frappe.get_traceback()[:2000], f"Sendit uncertain {so} — no label made")
+                _note(so, f"Sendit did not confirm the parcel ({str(e)[:160]}). No label was made — "
+                          "check the Sendit dashboard, then retry the label from the wall.")
+                return None
         return self._base.create_delivery_note_shipment(delivery_note)
 
 
@@ -230,7 +252,17 @@ def save_config(config):
                       "share": max(0, min(100, int(r.get("share") if r.get("share") is not None else 100))),
                       "max_per_day": max(0, int(r.get("max_per_day") or 0))})
     s["rules"] = rules
-    s["test_orders"] = [str(x).strip() for x in (c.get("test_orders") or []) if str(x).strip()][:50]
+    tests = []
+    for x in (c.get("test_orders") or [])[:50]:
+        x = str(x).strip()
+        if not x:
+            continue
+        # "266999" typed for "#266999": store the real order name, or it
+        # never matches at submit.
+        if not frappe.db.exists("Sales Order", x) and frappe.db.exists("Sales Order", "#" + x.lstrip("#")):
+            x = "#" + x.lstrip("#")
+        tests.append(x)
+    s["test_orders"] = tests
     if isinstance(c.get("city_map"), dict):
         s["city_map"] = {str(k): int(v) for k, v in c["city_map"].items() if v}
     _save(s)
