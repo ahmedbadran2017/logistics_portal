@@ -596,17 +596,31 @@ def pull_sync(limit=150):
     from logistics_portal.api import carriers
     if carriers.settings()["sendit"].get("mode", "off") == "off" or not has_keys():
         return
+    # Cancelled orders are not asked about: stopping one deletes its parcel
+    # at Sendit, which then answers 404 for ever (DH3FEEF7D5, 2026-10-28).
     rows = frappe.db.sql("""SELECT name, custom_awb FROM `tabSales Order`
                             WHERE custom_tracking_company = %s AND COALESCE(custom_awb, '') <> ''
                               AND COALESCE(custom_logistics_status, '') NOT IN ('Delivered', 'Returned', 'Not Delivered')
+                              AND COALESCE(custom_sales_status, '') <> 'Cancelled'
                               AND creation >= DATE_SUB(%s, INTERVAL 30 DAY)
                             ORDER BY modified LIMIT %s""",
                          (CARRIER, str(now_datetime())[:10], int(limit)), as_dict=True)
     for r in rows:
+        gone_key = f"lp_sendit_gone:{r.custom_awb}"
+        if frappe.cache().get_value(gone_key):
+            continue
         try:
             d = detail(r.custom_awb)
             st = d.get("status") or d.get("statut") or ""
             if st:
                 apply_status(r.custom_awb, st, d.get("last_message") or "", d.get("last_action_at") or "")
+        except SenditError as e:
+            if e.status == 404:
+                # Deleted at Sendit: say it once, then stop asking.
+                frappe.cache().set_value(gone_key, 1, expires_in_sec=30 * 86400)
+                _comment(r.name, f"Sendit no longer has parcel {r.custom_awb} (deleted there) — check the order")
+                frappe.db.commit()
+            else:
+                frappe.log_error(str(e)[:1500], f"Sendit pull {r.name}")
         except Exception:
             frappe.log_error(frappe.get_traceback()[:1500], f"Sendit pull {r.name}")
