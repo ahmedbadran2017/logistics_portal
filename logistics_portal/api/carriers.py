@@ -333,18 +333,112 @@ def city_coverage(days=30):
                                        for d in sendit.districts()]}
 
 
-@frappe.whitelist()
-def preview(order):
-    """Which carrier this order would get right now, and why."""
-    _gate()
+def _order_name(order):
     so = (order or "").strip()
-    if not frappe.db.exists("Sales Order", so):
-        so = "#" + so.lstrip("#") if frappe.db.exists("Sales Order", "#" + so.lstrip("#")) else so
+    if not frappe.db.exists("Sales Order", so) and frappe.db.exists("Sales Order", "#" + so.lstrip("#")):
+        so = "#" + so.lstrip("#")
     if not frappe.db.exists("Sales Order", so):
         frappe.throw("Unknown order.")
+    return so
+
+
+def _gone_with_carrier(so):
+    """True once the parcel is out of our hands: on a Cathedis manifest (a
+    draft one too — relabelled, it would still close as Cathedis), or a
+    carrier status past collection."""
+    st = frappe.db.get_value("Sales Order", so, ["custom_logistics_status", "custom_track_shipment_status"],
+                             as_dict=True) or {}
+    if (st.get("custom_logistics_status") or "") in ("Shipped", "Delivered", "Returned", "Not Delivered"):
+        return True
+    if (st.get("custom_track_shipment_status") or "Pending") not in ("", "Pending"):
+        return True
+    return bool(frappe.db.sql(
+        """SELECT 1 FROM `tabShipment Delivery Note` sdn JOIN `tabShipment` sh ON sh.name = sdn.parent
+           JOIN `tabDelivery Note Item` dni ON dni.parent = sdn.delivery_note
+           WHERE dni.against_sales_order = %s AND sh.docstatus < 2 LIMIT 1""", (so,)))
+
+
+@frappe.whitelist()
+def preview(order):
+    """Which carrier this order would get right now, why, and what a manager
+    can do about it from here."""
+    _gate()
+    so = _order_name(order)
     c, why = choose(so)
+    cur = frappe.db.get_value("Sales Order", so, ["custom_tracking_company", "custom_awb",
+                                                  "custom_logistics_status"], as_dict=True) or {}
+    has_dn = bool(frappe.db.sql(
+        """SELECT 1 FROM `tabDelivery Note` d JOIN `tabDelivery Note Item` i ON i.parent = d.name
+           WHERE i.against_sales_order = %s AND d.docstatus = 1 AND d.is_return = 0 LIMIT 1""", (so,)))
+    labelled = bool(cur.get("custom_awb"))
+    gone = _gone_with_carrier(so) if labelled else False
+    s = settings()
     return {"order": so, "carrier": c, "why": why, "city": _city(so),
-            "current": frappe.db.get_value("Sales Order", so, "custom_tracking_company") or ""}
+            "current": cur.get("custom_tracking_company") or "", "awb": cur.get("custom_awb") or "",
+            "status": cur.get("custom_logistics_status") or "",
+            "isTest": so in (s.get("test_orders") or []),
+            # Not labelled yet: it can join the test list.
+            "canTest": not labelled,
+            # Labelled by Cathedis, still in the building, with its Delivery
+            # Note: it can be relabelled with Sendit now.
+            "canRelabel": labelled and has_dn and not gone and cur.get("custom_tracking_company") != SENDIT}
+
+
+@frappe.whitelist(methods=["POST"])
+def add_test_order(order):
+    _gate()
+    so = _order_name(order)
+    s = settings()
+    if so not in s["test_orders"]:
+        s["test_orders"] = (s["test_orders"] + [so])[-50:]
+        _save(s)
+    return {"ok": True, "order": so, "tests": s["test_orders"]}
+
+
+@frappe.whitelist(methods=["POST"])
+def relabel_sendit(order):
+    """A parcel labelled by Cathedis but still in the building goes to Sendit
+    instead: the Sendit parcel is created from its Delivery Note and its label
+    replaces Cathedis's on the order. Cathedis's integration has no cancel
+    call, so the old AWB is named in a comment for someone to cancel there."""
+    _gate()
+    from logistics_portal.api import sendit
+    so = _order_name(order)
+    p = preview(so)
+    if not p["canRelabel"]:
+        frappe.throw("This parcel cannot be relabelled with Sendit here (already Sendit, already left, "
+                     "or no Delivery Note yet).")
+    if not sendit.has_keys() or not settings()["sendit"].get("pickup_district_id"):
+        frappe.throw("Sendit is not ready: keys and pickup city are needed in the settings.")
+    dn_name = frappe.db.sql(
+        """SELECT d.name FROM `tabDelivery Note` d JOIN `tabDelivery Note Item` i ON i.parent = d.name
+           WHERE i.against_sales_order = %s AND d.docstatus = 1 AND d.is_return = 0
+           ORDER BY d.creation DESC LIMIT 1""", (so,))[0][0]
+    old_awb = p["awb"]
+    old_trk = frappe.db.get_value("Sales Order", so, "custom_tracking_number") or ""
+    try:
+        res = sendit.create_for_delivery_note(frappe.get_doc("Delivery Note", dn_name), so,
+                                              f"relabelled from Cathedis {old_awb} by {frappe.session.user}")
+    except sendit.SenditError as e:
+        return {"ok": False, "error": str(e)[:300]}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback()[:2000], f"Sendit relabel {so}")
+        return {"ok": False, "error": f"Sendit did not confirm ({str(e)[:200]}) — check the Sendit dashboard"}
+    # The order is Sendit's now: the Cathedis tracking number goes, or the
+    # Cathedis resync keeps asking about it. The label stays printable: the
+    # Sendit PDF is the newest file on the order.
+    for doctype, name in (("Sales Order", so), ("Delivery Note", dn_name)):
+        if frappe.db.has_column(doctype, "custom_tracking_number"):
+            frappe.db.set_value(doctype, name, "custom_tracking_number", "", update_modified=False)
+        if frappe.db.has_column(doctype, "custom_tracking_url"):
+            frappe.db.set_value(doctype, name, "custom_tracking_url", "", update_modified=False)
+    frappe.get_doc("Sales Order", so).add_comment(
+        "Comment", f"Relabelled with Sendit ({res.get('code')}) — the Cathedis AWB {old_awb}"
+                   + (f" (tracking {old_trk})" if old_trk else "")
+                   + " is no longer used: cancel it at Cathedis, and print the new label from the wall.")
+    frappe.db.commit()
+    return {"ok": True, "code": res.get("code"), "district": res.get("district"),
+            "amount": res.get("amount"), "label": res.get("label"), "oldAwb": old_awb}
 
 
 @frappe.whitelist()

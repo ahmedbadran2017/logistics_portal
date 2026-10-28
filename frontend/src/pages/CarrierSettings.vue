@@ -141,10 +141,25 @@
           <input v-model="pv.order" :placeholder="t('crs.orderPh')" class="flex-1 h-10 px-3 rounded-lg bg-stone-50 ring-1 ring-stone-200 text-[12.5px] font-mono" dir="ltr" @keyup.enter="preview" />
           <button class="h-10 px-4 rounded-lg text-[12.5px] font-semibold ring-1 ring-stone-200 hover:bg-stone-50" @click="preview">{{ t('crs.check') }}</button>
         </div>
-        <div v-if="pv.res" class="text-[12.5px] rounded-lg px-3 py-2 bg-stone-50 ring-1 ring-stone-200">
-          <b class="font-mono">{{ pv.res.order }}</b> · {{ pv.res.city || '—' }} →
-          <b :class="pv.res.carrier === 'Sendit' ? 'text-sky-700' : 'text-stone-900'">{{ pv.res.carrier }}</b>
-          <span class="text-stone-500"> — {{ pv.res.why }}</span>
+        <div v-if="pv.res" class="text-[12.5px] rounded-lg px-3 py-2.5 bg-stone-50 ring-1 ring-stone-200 space-y-2">
+          <div>
+            <b class="font-mono">{{ pv.res.order }}</b> · {{ pv.res.city || '—' }} →
+            <b :class="pv.res.carrier === 'Sendit' ? 'text-sky-700' : 'text-stone-900'">{{ pv.res.carrier }}</b>
+            <span class="text-stone-500"> — {{ pv.res.why }}</span>
+          </div>
+          <div v-if="pv.res.awb" class="text-[11.5px] text-stone-500">
+            {{ t('crs.alreadyLabelled') }} <b>{{ pv.res.current || '—' }}</b>
+            <span class="font-mono">{{ pv.res.awb }}</span> · {{ pv.res.status }}
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button v-if="pv.res.canTest && !pv.res.isTest" class="h-8 px-3 rounded-lg text-[12px] font-semibold text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-50"
+                    :disabled="pv.busy" @click="addTest">{{ t('crs.addTest') }}</button>
+            <span v-if="pv.res.isTest" class="text-[11.5px] font-semibold text-sky-700">{{ t('crs.isTest') }}</span>
+            <button v-if="pv.res.canRelabel" class="h-8 px-3 rounded-lg text-[12px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
+                    :disabled="pv.busy" @click="relabel">{{ pv.busy ? t('crs.working') : t('crs.relabel') }}</button>
+          </div>
+          <div v-if="pv.res.canTest && !pv.res.isTest && cfg.settings.sendit.mode === 'off'" class="text-[11px] text-amber-700">{{ t('crs.modeOffHint') }}</div>
+          <div v-if="pv.msg" class="text-[12px] rounded-lg px-2.5 py-1.5" :class="pv.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'">{{ pv.msg }}</div>
         </div>
       </section>
 
@@ -223,7 +238,7 @@ const conn = ref(null);
 const pickupCities = ref([]);
 const keys = reactive({ pub: "", sec: "" });
 const testOrdersText = ref("");
-const pv = reactive({ order: "", res: null });
+const pv = reactive({ order: "", res: null, busy: false, msg: "", ok: true });
 const cities = ref(null);
 const editing = ref("");
 const labelOf = (id) => (id ? ((cities.value?.districts || []).find((d) => d.id === Number(id)) || {}).label || "" : "");
@@ -285,10 +300,36 @@ async function testConn() {
   finally { testing.value = false; }
 }
 
-async function preview() {
+async function preview(keepMsg) {
   if (!pv.order.trim()) return;
+  if (!keepMsg) pv.msg = "";
   try { pv.res = await api("carriers.preview", { order: pv.order.trim() }); }
   catch (e) { pv.res = null; warn(t("crs.preview"), String(e.message || e)); }
+}
+async function addTest() {
+  pv.busy = true;
+  try {
+    const r = await apiPost("carriers.add_test_order", { order: pv.res.order });
+    testOrdersText.value = (r.tests || []).join("\n");
+    cfg.value.settings.test_orders = r.tests || [];
+    pv.ok = true; pv.msg = t("crs.testAdded").replace("{o}", r.order);
+    await preview(true);
+  } catch (e) { pv.ok = false; pv.msg = String(e.message || e); }
+  finally { pv.busy = false; }
+}
+async function relabel() {
+  if (!window.confirm(t("crs.relabelConfirm").replace("{o}", pv.res.order).replace("{awb}", pv.res.awb))) return;
+  pv.busy = true;
+  try {
+    const r = await apiPost("carriers.relabel_sendit", { order: pv.res.order });
+    pv.ok = !!r.ok;
+    pv.msg = r.ok ? t("crs.relabelled").replace("{code}", r.code || "").replace("{d}", r.district || "")
+                    .replace("{amt}", String(r.amount)).replace("{awb}", r.oldAwb || "")
+                  : (r.error || "");
+    await preview(true);
+    loadParcels();
+  } catch (e) { pv.ok = false; pv.msg = String(e.message || e); }
+  finally { pv.busy = false; }
 }
 
 // Same key as sendit._norm: accents dropped, letters and digits only.
