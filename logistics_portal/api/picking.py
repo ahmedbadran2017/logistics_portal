@@ -546,6 +546,12 @@ def mark_packed(order):
     # left (or come back) gets no outbound label from the wall.
     if st in _GONE:
         return {"ok": False, "reason": "gone", "order": name, "status": st}
+    # "Printed" means a label exists. The wall's repair path called this for
+    # a parcel whose AWB existed but whose label never came (Sendit
+    # DH3FEEF7D5, #268446, 2026-10-28) and flipped it to Label Printed with
+    # nothing to stick on the box.
+    if not has_label(name):
+        return {"ok": False, "reason": "no_label", "order": name}
     if st in ("Label Generated", "Picked", "In transit", "Received"):
         frappe.get_doc("Sales Order", name).db_set("custom_logistics_status", "Label Printed")
         from logistics_portal.api.scanlog import log_scan
@@ -3416,6 +3422,17 @@ def relabel_order(pick_list, order, city=None):
         return {"ok": False, "reason": "gone", "order": order, "status": st}
     awb, lbl = frappe.db.get_value(
         "Sales Order", order, ["custom_awb", "custom_label_url"]) or (None, None)
+    if awb and not has_label(order) and \
+            (frappe.db.get_value("Sales Order", order, "custom_tracking_company") or "") == "Sendit":
+        # The parcel exists at Sendit; only its label PDF is missing.
+        try:
+            from logistics_portal.api import sendit
+            lbl = sendit.attach_label(order, awb) or lbl
+            frappe.db.set_value("Sales Order", order, "custom_label_url", lbl, update_modified=False)
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+            return {"ok": False, "reason": "carrier_error", "error": "Sendit label not available yet"}
     if awb or lbl:
         return {"ok": True, "already": True, "awb": awb or "", "labelUrl": lbl or ""}
 

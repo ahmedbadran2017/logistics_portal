@@ -609,6 +609,7 @@ async function printAndMark(o) {
   if (res && res.ok === false) {
     if (res.reason === "stopped") { o.stopped = true; o.done = true; warn(t("sort.stoppedHint"), o.order); }
     if (res.reason === "gone") { o.status = res.status; o.shipped = true; warn(t("sort.gone").replace("{status}", res.status || ""), o.order); }
+    if (res.reason === "no_label") { o.noLabel = true; warn(t("sort.noLabel"), o.order); }
     return;
   }
   printLabel(o.order, () => { o.printed = true; });
@@ -641,7 +642,9 @@ async function fixAndLabel(o) {
         // a reload showed it unprinted again.
         if (o.labelUrl) printLabel(o.order, () => { o.printed = true; printedToday.value += 1; });
         try {
-          await apiPost("picking.mark_packed", { order: o.order });
+          const mp = await apiPost("picking.mark_packed", { order: o.order });
+          // The server refuses "printed" without a real label (#268446).
+          if (mp && mp.ok === false && mp.reason === "no_label") { o.noLabel = true; warn(t("sort.noLabel"), o.order); return; }
           o.status = "Label Printed";
         } catch (e) {
           warn(t("sort.statusStuck"), String(e.message || e));

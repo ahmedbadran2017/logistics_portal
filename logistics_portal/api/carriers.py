@@ -493,7 +493,10 @@ def sendit_action(order, action):
             st = d.get("status") or d.get("statut") or ""
             return {"ok": True, "status": st, "applied": sendit.apply_status(code, st) if st else None}
         if action == "label":
-            sendit.attach_label(order, code)
+            url = sendit.attach_label(order, code)
+            # The wall shows its print button from custom_label_url.
+            if url:
+                frappe.db.set_value("Sales Order", order, "custom_label_url", url, update_modified=False)
             frappe.db.commit()
             return {"ok": True}
         if action == "cancel":

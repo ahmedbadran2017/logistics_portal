@@ -433,6 +433,12 @@ def create_for_delivery_note(dn, so_name, why=""):
         for k, v in vals.items():
             if frappe.db.has_column(doctype, k):
                 frappe.db.set_value(doctype, name, k, v, update_modified=False)
+    # The pick-list job submits this very note object AFTER the call, so a
+    # DB-only write was overwritten with its blanks (MAT-DN-2026-121076 kept
+    # no code). Cathedis sets the object; so do we.
+    for k, v in vals.items():
+        if dn.meta.has_field(k):
+            dn.set(k, v)
     frappe.db.sql("""UPDATE `tabSales Order` SET custom_logistics_status = 'Label Generated'
                      WHERE name = %s AND COALESCE(custom_logistics_status, '') IN ('', 'Pending', 'Picked')""",
                   (so_name,))
@@ -448,7 +454,9 @@ def attach_label(so_name, code):
     from logistics_portal.api import carriers
     fmt = int(carriers.settings()["sendit"].get("label_format", 1))
     body = _req("POST", "deliveries/getlabels", {"codesToPrint": code, "printFormat": fmt})
-    url = ((body.get("data") or {}).get("fileUrl")) or ""
+    # The swagger says data.fileUrl; the API answers {"filePrint": true,
+    # "fileUrl": ...} at the top (DH3FEEF7D5, 2026-10-28). Read both.
+    url = body.get("fileUrl") or ((body.get("data") or {}).get("fileUrl") if isinstance(body.get("data"), dict) else "") or ""
     if not url:
         raise SenditError(f"No label URL for {code}")
     r = requests.get(url, timeout=_TIMEOUT)
