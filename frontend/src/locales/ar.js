@@ -1359,6 +1359,7 @@ export default {
     tracking: "التتبع", returns: "المرتجعات",
   },
   od: {
+    supplierFilter: "اعرض كل الأوردرات اللي فيها منتجات من {s}",
     csTitle: "خدمة العملاء",
     urgentDo: "علّمه عاجل",
     backHere: "رجع لمخزننا", backHereSince: "اتستلم هنا يوم",

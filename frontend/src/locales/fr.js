@@ -1359,6 +1359,7 @@ export default {
     tracking: "Suivi", returns: "Retours",
   },
   od: {
+    supplierFilter: "Voir toutes les commandes avec des articles de {s}",
     csTitle: "Service client",
     urgentDo: "Marquer urgent",
     backHere: "Revenu dans notre entrepôt", backHereSince: "Reçu ici le",
