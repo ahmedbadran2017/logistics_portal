@@ -342,6 +342,11 @@ def _order_name(order):
     return so
 
 
+def _keys_ok():
+    from logistics_portal.api import sendit
+    return sendit.has_keys()
+
+
 def _gone_with_carrier(so):
     """True once the parcel is out of our hands: on a Cathedis manifest (a
     draft one too — relabelled, it would still close as Cathedis), or a
@@ -373,7 +378,23 @@ def preview(order):
     labelled = bool(cur.get("custom_awb"))
     gone = _gone_with_carrier(so) if labelled else False
     s = settings()
-    return {"order": so, "carrier": c, "why": why, "city": _city(so),
+    # Why "Relabel with Sendit" is not offered, in words the screen can show.
+    blockers = []
+    if labelled and cur.get("custom_tracking_company") != SENDIT:
+        man = frappe.db.sql(
+            """SELECT sh.name, sh.docstatus FROM `tabShipment Delivery Note` sdn
+               JOIN `tabShipment` sh ON sh.name = sdn.parent
+               JOIN `tabDelivery Note Item` dni ON dni.parent = sdn.delivery_note
+               WHERE dni.against_sales_order = %s AND sh.docstatus < 2 LIMIT 1""", (so,))
+        if man:
+            blockers.append({"code": "manifest_draft" if int(man[0][1]) == 0 else "manifest_done", "ref": man[0][0]})
+        elif gone:
+            blockers.append({"code": "collected", "ref": cur.get("custom_logistics_status") or ""})
+        if not has_dn:
+            blockers.append({"code": "no_dn", "ref": ""})
+    if labelled and not (s["sendit"].get("pickup_district_id") and _keys_ok()):
+        blockers.append({"code": "not_ready", "ref": ""})
+    return {"order": so, "carrier": c, "why": why, "city": _city(so), "blockers": blockers,
             "current": cur.get("custom_tracking_company") or "", "awb": cur.get("custom_awb") or "",
             "status": cur.get("custom_logistics_status") or "",
             "isTest": so in (s.get("test_orders") or []),

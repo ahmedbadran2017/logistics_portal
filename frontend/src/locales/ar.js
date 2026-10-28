@@ -1577,6 +1577,11 @@ export default {
     colAgeD: "أيام",
   },
   crs: {
+    block_manifest_draft: "الطرد ده على مانيفست Cathedis {ref} (لسه ما اتقفلش): شيله الأول من شاشة المانيفست، وبعدين افحص تاني.",
+    block_manifest_done: "الطرد ده خرج على مانيفست Cathedis {ref}: ما ينفعش يغيّر شركة الشحن.",
+    block_collected: "Cathedis استلمته خلاص ({ref}): ما ينفعش يغيّر شركة الشحن.",
+    block_no_dn: "لسه مالوش Delivery Note: ضيفه لأوردرات التست بدل كده.",
+    block_not_ready: "Sendit مش جاهز: محتاج المفاتيح ومدينة الاستلام اللي فوق.",
     alreadyLabelled: "عليه ليبل بالفعل:",
     addTest: "ضيفه لأوردرات التست",
     isTest: "✓ في أوردرات التست",

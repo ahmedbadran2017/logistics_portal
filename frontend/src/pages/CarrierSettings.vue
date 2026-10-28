@@ -159,6 +159,9 @@
                     :disabled="pv.busy" @click="relabel">{{ pv.busy ? t('crs.working') : t('crs.relabel') }}</button>
           </div>
           <div v-if="pv.res.canTest && !pv.res.isTest && cfg.settings.sendit.mode === 'off'" class="text-[11px] text-amber-700">{{ t('crs.modeOffHint') }}</div>
+          <div v-for="b in (pv.res.blockers || [])" :key="b.code" class="text-[11.5px] text-amber-800 bg-amber-50 rounded-lg px-2.5 py-1.5">
+            {{ t('crs.block_' + b.code).replace('{ref}', b.ref || '') }}
+          </div>
           <div v-if="pv.msg" class="text-[12px] rounded-lg px-2.5 py-1.5" :class="pv.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'">{{ pv.msg }}</div>
         </div>
       </section>

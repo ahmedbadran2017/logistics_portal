@@ -1577,6 +1577,11 @@ export default {
     colAgeD: "Jours",
   },
   crs: {
+    block_manifest_draft: "Il est sur le manifeste Cathedis {ref} (pas encore clôturé) : retire-le d'abord depuis l'écran Manifeste, puis revérifie.",
+    block_manifest_done: "Il est parti sur le manifeste Cathedis {ref} : il ne peut plus changer de transporteur.",
+    block_collected: "Cathedis l'a déjà ({ref}) : il ne peut plus changer de transporteur.",
+    block_no_dn: "Pas encore de bon de livraison : ajoute-le plutôt aux commandes de test.",
+    block_not_ready: "Sendit n'est pas prêt : il faut les clés et la ville de ramassage plus haut.",
     alreadyLabelled: "Déjà étiqueté :",
     addTest: "Ajouter aux commandes de test",
     isTest: "✓ Dans les commandes de test",

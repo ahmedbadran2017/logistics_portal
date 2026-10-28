@@ -1578,6 +1578,11 @@ export default {
     colAgeD: "Days",
   },
   crs: {
+    block_manifest_draft: "It is on Cathedis manifest {ref} (not closed yet): remove it from the Manifest screen first, then check again.",
+    block_manifest_done: "It left on Cathedis manifest {ref}: it can no longer change carrier.",
+    block_collected: "Cathedis already has it ({ref}): it can no longer change carrier.",
+    block_no_dn: "It has no Delivery Note yet: add it to the test orders instead.",
+    block_not_ready: "Sendit is not ready: keys and pickup city are needed above.",
     alreadyLabelled: "Already labelled:",
     addTest: "Add to test orders",
     isTest: "✓ In the test orders",
