@@ -83,6 +83,15 @@ def _city(so_name, dn=None):
     return (city or frappe.db.get_value("Sales Order", so_name, "custom_shipping_city") or "").strip()
 
 
+def _street(so_name, dn=None):
+    addr = (dn.get("shipping_address_name") if dn else None) or \
+        frappe.db.get_value("Sales Order", so_name, "shipping_address_name")
+    if not addr:
+        return ""
+    a = frappe.db.get_value("Address", addr, ["address_line1", "address_line2"], as_dict=True) or {}
+    return " ".join(x for x in [a.get("address_line1"), a.get("address_line2")] if x)
+
+
 def _sendit_today():
     # Parcels CREATED today: the order's `modified` moves with every Sendit
     # webhook, so counting by it filled the cap with last week's parcels.
@@ -131,7 +140,7 @@ def choose(so_name, dn=None):
             break
         else:
             return CATHEDIS, "no rule"
-    did, label = sendit.district_for(city, s.get("city_map"))
+    did, label = sendit.district_for(city, s.get("city_map"), _street(so_name, dn))
     if not did:
         return CATHEDIS, f"Sendit does not serve / map {city or 'this city'}"
     return SENDIT, f"{why} · {label}"

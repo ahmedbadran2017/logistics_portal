@@ -210,10 +210,73 @@ def pickup_cities():
     return [{"id": int(r.get("id")), "name": r.get("name") or "", "ar": r.get("arabic_name") or ""} for r in rows]
 
 
-def district_for(city, overrides=None):
-    """Our city -> (district id, label) or (None, None). A manual choice in the
-    settings wins; then the district named like its city; then the city's
-    first district. Our addresses carry the city only, never the quarter."""
+def _words(s):
+    s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode().upper()
+    return " " + " ".join(re.sub(r"[^A-Z0-9]+", " ", s).split()) + " "
+
+
+# How Casablanca addresses actually spell Sendit's quarters (400 real ones,
+# October 2026): "ain sbaa", "barnousi", "marif", "Ain chokc", and Arabic.
+# Keys are the quarter as Sendit names it after "Casablanca - ".
+_QUARTER_ALIASES = {
+    "Ain chok": ["AIN CHOK", "AIN CHOCK", "AIN CHOQ", "AIN CHOKC", "AINCHOK", "AINCHOCK", "AIN CHOCO", "عين الشق"],
+    "Ain sebaa": ["AIN SEBAA", "AIN SBAA", "AINSBAA", "AINSEBAA", "AIN SEBA", "عين السبع"],
+    "Bernoussi": ["BERNOUSSI", "BERNOUSI", "BARNOUSSI", "BARNOUSI", "BERNOSI", "BERNESSI", "BERNOSSI", "BERNOUSSI", "البرنوصي"],
+    "Maarif": ["MAARIF", "MARIF", "MAARIF", "MARRIF", "MAARIF", "المعاريف"],
+    "Sidi Maârouf": ["SIDI MAAROUF", "SIDI MAAROF", "SIDI MAEROF", "SIDI MAROOF", "SIDI MAAROUFE", "سيدي معروف"],
+    "Sidi Moumen": ["SIDI MOUMEN", "SIDI MOMEN", "SIDI MOUMENE", "سيدي مومن"],
+    "Sidi Othmane": ["SIDI OTHMANE", "SIDI OTHMAN", "SIDI OTMANE", "SIDI OTMAN", "سيدي عثمان"],
+    "Hay mohammedi": ["HAY MOHAMMEDI", "HAY MOHAMMADI", "HAY MOHAMADI", "HAY MOHAMMADIE", "HAY MOHAMADIE", "HAY MOUHAMADI",
+                      "الحي المحمدي", "الخي المحمدي"],
+    "Hay Hassani": ["HAY HASSANI", "HAY ALHASSANI", "HAY EL HASSANI", "الحي الحسني"],
+    "Hay Moulay Rachid": ["MOULAY RACHID", "MOULAY RCHID", "MOLAY RCHID", "MLY RACHID", "مولاي رشيد"],
+    "Bourgogne": ["BOURGOGNE", "BORGONE", "BOUGONE", "BOURGONE", "بوركون"],
+    "Belvédère": ["BELVEDERE", "BRLVEDERE", "BELVEDER", "بلفدير"],
+    "Lissassfa": ["LISSASFA", "LISASFA", "LISSASFA", "LISA SFA", "ليساسفة"],
+    "Oulfa": ["OULFA", "EL OULFA", "WALFA", "الألفة", "الالفة", "الولفة", "الولفه"],
+    "Sbata": ["SBATA", "سباتة"],
+    "Californie": ["CALIFORNIE", "CALIFORNIA", "كاليفورني"],
+    "Bournazel": ["BOURNAZEL", "BOURNAZIL", "بورنازيل"],
+    "Ain diab": ["AIN DIAB", "AINDIAB", "عين الذياب"],
+    "Hay assalama": ["HAY SALAMA", "HAY ESSALAMA", "ESSALAMA", "HAY ASSALAMA", "حي سلامة", "حي السلامة"],
+    "Roches noires": ["ROCHES NOIRES", "ROCHE NOIRE", "ROCHNWAR", "ROCHE NOIR", "روش نوار"],
+    "Les Hôpitaux": ["HOPITAUX", "HOPITAL"],
+    "2 mars": ["2 MARS", "2MARS", "DEUX MARS"],
+    "Anassi": ["ANASSI", "BAB ANASI"],
+    "Habous": ["HABOUS", "HOUBOUS", "الحبوس"],
+    "Mers sultan": ["MERS SULTAN", "MER SULTAN"],
+    "Derb sultan": ["DERB SULTAN"],
+    "El Hana": ["HAY HANA", "HAY EL HANA", "EL HANA"],
+    "Ain Borja": ["AIN BORJA", "عين برجة"],
+    "Al fida": ["AL FIDA", "EL FIDA", "BD AL FIDA", "الفداء"],
+    "Ben msik": ["BEN MSIK", "BENMSIK", "بن مسيك"],
+    "Al Mostakbal": ["MOSTAKBAL", "MOUSTAKBAL", "ALMOUSTAKBAL", "المستقبل"],
+}
+
+
+def _quarter_hit(quarter, addr_words, addr_raw):
+    variants = [quarter] + _QUARTER_ALIASES.get(quarter, [])
+    best = 0
+    for v in variants:
+        if re.search(r"[\u0600-\u06FF]", v):
+            if v in addr_raw:
+                best = max(best, len(v) + 2)
+            continue
+        w = _words(v)
+        if len(w.strip()) >= 3 and w in addr_words:
+            best = max(best, len(w))
+    return best
+
+
+def district_for(city, overrides=None, address=""):
+    """Our city (+ the street address) -> (district id, label) or (None, None).
+
+    A manual choice in the settings wins. Most Sendit cities are one district.
+    Casablanca is 71 quarters ("Casablanca - Ain chok" ...): the quarter is read
+    from the address, whole words only (#268400 "AIN CHOK bd eddouha" -> Ain
+    chok, where the first district was Abdelmoumen), longest name first, and
+    "Autres quartiers" when no quarter is named. Our addresses carry no
+    quarter field."""
     key = _norm(city)
     if not key:
         return None, None
@@ -226,7 +289,21 @@ def district_for(city, overrides=None):
         same_city = [d for d in districts() if _norm(d["name"]) == key]
     if not same_city:
         return None, None
-    best = next((d for d in same_city if _norm(d["name"]) == _norm(d["ville"])), same_city[0])
+    if len(same_city) == 1:
+        d = same_city[0]
+        return d["id"], f"{d['ville']} / {d['name']}"
+    addr, raw = _words(address), str(address or "")
+    best, best_len = None, 0
+    for d in same_city:
+        quarter = d["name"].split(" - ", 1)[-1].strip()
+        if "AUTRES" in _words(quarter):
+            continue
+        n = _quarter_hit(quarter, addr, raw)
+        if n > best_len:
+            best, best_len = d, n
+    if not best:
+        best = next((d for d in same_city if "AUTRES" in _words(d["name"])), None) or \
+            next((d for d in same_city if _norm(d["name"]) == _norm(d["ville"])), None) or same_city[0]
     return best["id"], f"{best['ville']} / {best['name']}"
 
 
@@ -301,7 +378,8 @@ def create_for_delivery_note(dn, so_name, why=""):
     addr_name = dn.get("shipping_address_name") or so.get("shipping_address_name")
     addr = frappe.get_doc("Address", addr_name) if addr_name else None
     city = (addr.city if addr else "") or so.get("custom_shipping_city") or ""
-    district_id, district_label = district_for(city, carriers.settings().get("city_map"))
+    street = " ".join(x for x in [(addr.address_line1 if addr else ""), (addr.address_line2 if addr else "")] if x)
+    district_id, district_label = district_for(city, carriers.settings().get("city_map"), street)
     if not district_id:
         raise SenditError(f"City not served by Sendit / not mapped: {city or '—'}")
     if not cfg.get("pickup_district_id"):
