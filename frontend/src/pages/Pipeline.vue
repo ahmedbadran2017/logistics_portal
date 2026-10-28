@@ -442,7 +442,7 @@
     </button>
 
     <!-- City filter -->
-    <div v-if="cities.length" class="flex items-center gap-2 flex-wrap">
+    <div v-if="cities.length || suppliers.length" class="flex items-center gap-2 flex-wrap">
       <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400">{{ t("ordersPg.city") }}</span>
       <div class="relative">
         <select
@@ -457,8 +457,9 @@
         <Icon name="chevron-down" :size="13" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-end:.6rem" />
       </div>
 
-      <!-- Supplier: same contract as the city filter. Only the blocked
-           buckets have a supplier behind them, so it appears with them. -->
+      <!-- Supplier: same contract as the city filter, on every stage. In the
+           blocked To Pick tabs it means "who owes the missing item"; elsewhere
+           "the order carries an item of this supplier". -->
       <template v-if="suppliers.length">
         <span class="text-[11px] font-semibold uppercase tracking-[0.05em] text-stone-400 ms-2">{{ t("ordersPg.supplier") }}</span>
         <div class="relative">
@@ -476,8 +477,8 @@
           <Icon name="chevron-down" :size="13" class="absolute top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" style="inset-inline-end:.6rem" />
         </div>
       </template>
-      <button v-if="cityFilter" class="text-[11.5px] font-medium text-stone-400 hover:text-stone-600"
-              @click="cityFilter=''; load(activeStage, activeTrack)">
+      <button v-if="cityFilter || supplierFilter" class="text-[11.5px] font-medium text-stone-400 hover:text-stone-600"
+              @click="cityFilter=''; supplierFilter=''; load(activeStage, activeTrack)">
         {{ t("ordersPg.clear") }}
       </button>
     </div>
@@ -1131,6 +1132,8 @@ const total = ref(0);
 
 async function load(stage, track = "", keepPage = false) {
   const stageChanged = stage !== activeStage.value;
+  // City clears with the stage; the supplier stays, so one supplier's orders
+  // can be followed from To Pick to Shipped.
   if (stageChanged) cityFilter.value = "";
   if (stageChanged && stage === "to_pick") pickTab.value = "ready";
   if (!keepPage) page.value = 1;
@@ -1485,6 +1488,9 @@ let refreshTimer = null;
 onMounted(() => {
   const qStage = String(route.query.stage || "");
   if (route.query.q) { q.value = String(route.query.q); findAll(); }
+  // From an order page's supplier link: open with that supplier filtered.
+  // load() clears filters only when the stage CHANGES, and this is the first load.
+  if (route.query.supplier) supplierFilter.value = String(route.query.supplier);
   const valid = qStage === "attention" || stages.some((s) => s.key === qStage);
   load(valid ? qStage : "to_pick");
   timer = setInterval(() => { tick.value++; }, 30000);

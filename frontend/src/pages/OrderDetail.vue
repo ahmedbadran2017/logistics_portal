@@ -241,6 +241,15 @@
                       <button class="font-mono text-[10.5px] text-[var(--accent-700)] hover:underline text-start" title="Open SKU lookup" @click="openSku(it.realSku || it.sku)">
                         SKU {{ it.realSku || it.sku }}
                       </button>
+                      <!-- Who supplies this line; a click lists every order of that supplier. -->
+                      <button v-if="it.supplier"
+                              class="flex items-center gap-1 text-[10.5px] text-stone-500 hover:text-stone-900 text-start"
+                              :title="t('od.supplierFilter').replace('{s}', it.supplier)"
+                              @click="$router.push({ name: 'Pipeline', query: { supplier: it.supplier } })">
+                        <Icon name="truck" :size="10" />
+                        <span class="truncate max-w-[160px]">{{ it.supplier }}</span>
+                        <span v-if="it.supplierModel" class="px-1 rounded bg-stone-100 ring-1 ring-stone-200 text-[9.5px] font-semibold text-stone-500">{{ it.supplierModel }}</span>
+                      </button>
                     </div>
                   </div>
                 </td>
@@ -1217,6 +1226,7 @@ onMounted(async () => {
     if (Array.isArray(live.items) && live.items.length) {
       liveItems.value = live.items.map((it) => ({
         sku: it.sku, realSku: it.real_sku || "", name: it.name || it.sku, bin: it.bin || "—",
+        supplier: it.supplier || "", supplierModel: it.supplier_model || "",
         qty: it.qty || 1, price: it.price || 0, line: it.line || 0,
         image: it.image || "",
         // orders.detail already answers "how much of this may THIS order

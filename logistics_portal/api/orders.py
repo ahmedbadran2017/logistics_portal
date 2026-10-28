@@ -236,29 +236,46 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
                 pick_names = [r["so"] for r in transfer_hold["rows"]]
             elif pick == "city":
                 pick_names = [r["so"] for r in city_hold["rows"]]
+            if pick in ("partial", "oos", "local"):
                 # Who owes us the blocked item. The row already names WHAT is
                 # missing; without the supplier the dispatcher has to open each
                 # order to find out who to call, and cannot see that eleven of
                 # them are one phone call. Same facet contract as the city
-                # filter, so the two behave identically.
+                # filter, so the two behave identically. (This sat under the
+                # City-issue tab, where nothing is missing, so the dropdown
+                # never showed on the tabs it was written for.)
                 sup_by_order, sup_facet = _supplier_facet(pick_avail, pick_names)
-                supplier = (supplier or "").strip()
-                if supplier:
+                if (supplier or "").strip():
                     pick_names = [n for n in pick_names
-                                  if supplier in (sup_by_order.get(n) or [])]
+                                  if supplier.strip() in (sup_by_order.get(n) or [])]
+                    supplier = None          # already applied, by the missing item
 
-        rows = _board_rows(stage, track, limit, q, offset, city, sort, dates, pick_names=pick_names)
+        # Every other view: the orders' own suppliers, like the city facet
+        # (Eman 2026-10-28: "who is the supplier, filterable like All Cities").
+        if sup_facet is None:
+            sk = f"lp_board_sups:{stage}:{track or ''}:{pick or ''}"
+            cached_sups = cache.get_value(sk)
+            if cached_sups:
+                sup_facet = _json.loads(cached_sups)
+            else:
+                sup_facet = _stage_supplier_facet(stage, track, names=pick_names)
+                cache.set_value(sk, _json.dumps(sup_facet),
+                                expires_in_sec=120 if pick_names is not None else 600)
+
+        rows = _board_rows(stage, track, limit, q, offset, city, sort, dates,
+                           pick_names=pick_names, supplier=supplier)
         # Unfiltered views reuse the cached stage count — the mirrored COUNT(*)
         # scan is only worth paying when q/city/dates narrow the set.
         if stage == "attention":
             total = len(rows)
         elif pick_names is not None:
-            total = len(pick_names) if not (q or city or dates) \
-                else _board_total(stage, track, q, city, dates, pick_names=pick_names)
-        elif not q and not city and not dates and not track:
+            total = len(pick_names) if not (q or city or dates or supplier) \
+                else _board_total(stage, track, q, city, dates, pick_names=pick_names,
+                                  supplier=supplier)
+        elif not q and not city and not dates and not track and not supplier:
             total = counts.get(stage, len(rows))
         else:
-            total = _board_total(stage, track, q, city, dates)
+            total = _board_total(stage, track, q, city, dates, supplier=supplier)
         from frappe.utils import now_datetime
         # A date filter re-scopes the DONE-stage cards to that period (throughput),
         # while the backlog cards stay live. Only pay for it when a filter is set.
@@ -267,13 +284,13 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
         resp = {"counts": counts, "values": values, "shippedTracks": shipped_tracks,
                 "attention": attention, "rows": rows, "cities": cities,
                 "total": total, "stage": stage, "intakeToday": _intake_today(),
-                "serverNow": str(now_datetime())[:16]}
+                "serverNow": str(now_datetime())[:16],
+                "suppliers": sup_facet or []}
         if pick_buckets is not None:
             resp["pickBuckets"] = pick_buckets
             resp["cityHeld"] = city_hold
             resp["transferHeld"] = transfer_hold
-            if pick_names is not None and sup_facet is not None:
-                resp["suppliers"] = sup_facet
+            if sup_by_order:
                 resp["pickSuppliers"] = {r["no"]: sup_by_order.get(r["no"], [])
                                          for r in rows}
             resp["pickStuck"] = pick_avail.get("stuck", {})
@@ -393,7 +410,7 @@ def find(q=None, limit=20):
     return out
 
 
-def _board_total(stage, track, q=None, city=None, dates=None, pick_names=None):
+def _board_total(stage, track, q=None, city=None, dates=None, pick_names=None, supplier=None):
     """Filtered row count for the stage — powers real pagination."""
     w, dw = _win(BOARD_WINDOW_DAYS), _win(DONE_WINDOW_DAYS)
     addr = """LEFT JOIN `tabAddress` addr
@@ -445,6 +462,7 @@ def _board_total(stage, track, q=None, city=None, dates=None, pick_names=None):
 
     where += _q_cond(q, args)
     where += _city_cond(city, args)
+    where += _sup_cond(supplier, args)
     where += _period_cond(dates, args, _dcol(stage))
     if pick_names is not None and stage == "to_pick":
         if not pick_names:
@@ -764,6 +782,69 @@ def _city_cond(city, args):
         return ""
     args.append(city)
     return " AND COALESCE(NULLIF(so.custom_shipping_city,''), addr.city) = %s"
+
+
+def _sup_cond(supplier, args):
+    """Orders carrying at least one item of this supplier. The supplier of an
+    item is Item.default_supplier: measured 2026-10-28 over a month of
+    confirmed orders, every one of the 1,465 lines with a PO was bought from
+    exactly that supplier (0 differ); 2% of lines (227/10,712) have none."""
+    supplier = (supplier or "").strip()
+    if not supplier:
+        return ""
+    args.append(supplier)
+    return (" AND EXISTS (SELECT 1 FROM `tabSales Order Item` soi_s"
+            " JOIN `tabItem` i_s ON i_s.name = soi_s.item_code"
+            " WHERE soi_s.parent = so.name AND i_s.default_supplier = %s)")
+
+
+def _stage_supplier_facet(stage, track, names=None, top=40):
+    """Suppliers behind the orders of a stage (or of `names`, a To Pick
+    bucket), counted once per order -- the City dropdown's twin. An order with
+    items from two suppliers counts for both. ~0.4 s cold for the widest
+    stage on prod, so the caller caches it like the city facet."""
+    w, dw = _win(BOARD_WINDOW_DAYS), _win(DONE_WINDOW_DAYS)
+    base = "so.docstatus=1 AND so.custom_sales_status='Confirmed'"
+    if names is not None:
+        if not names:
+            return []
+        where = "so.name IN %(names)s"
+        args = {"names": tuple(names)}
+    elif stage in ("to_pick", "picking"):
+        pl = "NOT EXISTS" if stage == "to_pick" else "EXISTS"
+        draft = "" if stage == "to_pick" else " AND p.docstatus = 0"
+        where = (f"{base} AND so.custom_logistics_status='Pending' AND so.creation >= %(w)s"
+                 f" AND {pl} (SELECT 1 FROM `tabPick List Item` pli JOIN `tabPick List` p"
+                 f" ON p.name = pli.parent WHERE pli.sales_order = so.name AND p.docstatus < 2{draft})")
+        args = {"w": w}
+    else:
+        status = {"prepared": "Label Generated", "ready": "Label Printed",
+                  "shipped": "Shipped", "delivered": "Delivered",
+                  "to_return": "Returned", "returned": "Returned"}.get(stage)
+        if not status:
+            return []
+        where = f"{base} AND so.custom_logistics_status=%(st)s AND so.creation >= %(w)s"
+        args = {"st": status,
+                "w": dw if stage in ("delivered", "to_return", "returned") else w}
+        if stage == "shipped" and track and track != "none":
+            where += " AND so.custom_track_shipment_status = %(tr)s"
+            args["tr"] = track
+    try:
+        rows = frappe.db.sql(f"""
+            SELECT i.default_supplier s, COUNT(DISTINCT so.name) n,
+                   MAX(COALESCE(sp.supplier_group, '')) grp
+            FROM `tabSales Order` so
+            JOIN `tabSales Order Item` soi ON soi.parent = so.name
+            JOIN `tabItem` i ON i.name = soi.item_code
+            LEFT JOIN `tabSupplier` sp ON sp.name = i.default_supplier
+            WHERE {where} AND COALESCE(i.default_supplier, '') <> ''
+            GROUP BY i.default_supplier
+            ORDER BY n DESC LIMIT {int(top)}""", args, as_dict=True)
+        return [{"supplier": r.s, "orders": int(r.n), "local": r.grp == LOCAL_SUPPLIER_GROUP}
+                for r in rows]
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "logistics_portal.orders.supplier_facet")
+        return []
 
 
 def _row(r, **extra):
@@ -1519,7 +1600,7 @@ def consolidation_groups(limit=30):
     return _consol_scope(groups)[: min(int(limit), 60)]
 
 
-def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dates=None, pick_names=None):
+def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dates=None, pick_names=None, supplier=None):
     w, dw = _win(BOARD_WINDOW_DAYS), _win(DONE_WINDOW_DAYS)
     addr = """LEFT JOIN `tabAddress` addr
         ON addr.name = COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address)"""
@@ -1531,7 +1612,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
 
     if stage == "to_pick":
         args = [w]
-        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
+        qc = _q_cond(q, args); cc = _city_cond(city, args) + _sup_cond(supplier, args); dc = _period_cond(dates, args, _dcol(stage))
         pc = ""
         if pick_names is not None:
             if not pick_names:
@@ -1548,7 +1629,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
 
     if stage == "picking":
         args = [w]
-        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
+        qc = _q_cond(q, args); cc = _city_cond(city, args) + _sup_cond(supplier, args); dc = _period_cond(dates, args, _dcol(stage))
         rows = frappe.db.sql(f"""SELECT {_so_fields()}, pl.pl, pl.picker, pl.pl_owner
             FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
@@ -1563,7 +1644,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
             if stage == "prepared" else ["Label Printed"]
         ph = ", ".join(["%s"] * len(statuses))
         args = statuses + [w]
-        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
+        qc = _q_cond(q, args); cc = _city_cond(city, args) + _sup_cond(supplier, args); dc = _period_cond(dates, args, _dcol(stage))
         rows = frappe.db.sql(f"""SELECT {_so_fields()}, pl.pl, pl.picker, pl.pl_owner
             FROM `tabSales Order` so {addr} {pl_join}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
@@ -1578,7 +1659,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
         elif track:
             cond = "AND so.custom_track_shipment_status = %s"
             args.append(track)
-        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
+        qc = _q_cond(q, args); cc = _city_cond(city, args) + _sup_cond(supplier, args); dc = _period_cond(dates, args, _dcol(stage))
         rows = frappe.db.sql(f"""SELECT {_so_fields()}, sh.sh FROM `tabSales Order` so {addr}
             LEFT JOIN (SELECT dni.against_sales_order so_name, MAX(sdn.parent) sh
                        FROM `tabDelivery Note Item` dni
@@ -1591,7 +1672,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
 
     if stage == "delivered":
         args = [dw]
-        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
+        qc = _q_cond(q, args); cc = _city_cond(city, args) + _sup_cond(supplier, args); dc = _period_cond(dates, args, _dcol(stage))
         rows = frappe.db.sql(f"""SELECT {_so_fields()} FROM `tabSales Order` so {addr}
             WHERE so.docstatus=1 AND so.custom_sales_status='Confirmed'
               AND so.custom_logistics_status='Delivered' AND so.creation >= %s {qc} {cc} {dc}
@@ -1603,7 +1684,7 @@ def _board_rows(stage, track, limit, q=None, offset=0, city=None, sort=None, dat
         cond = ("AND " + back_in_house_sql()) if stage == "returned" \
             else "AND NOT " + back_in_house_sql()
         args = [dw]
-        qc = _q_cond(q, args); cc = _city_cond(city, args); dc = _period_cond(dates, args, _dcol(stage))
+        qc = _q_cond(q, args); cc = _city_cond(city, args) + _sup_cond(supplier, args); dc = _period_cond(dates, args, _dcol(stage))
         rows = frappe.db.sql(f"""SELECT {_so_fields()}, dn.ret, dn.dn FROM `tabSales Order` so {addr}
             LEFT JOIN (SELECT dni.against_sales_order so_name, MAX(d.custom_return_shipment) ret,
                               MAX(d.name) dn
@@ -1981,9 +2062,14 @@ def detail(name):
     # Line items with the product image (97% of items carry one).
     items = frappe.db.sql(
         """SELECT soi.idx, soi.name row, soi.item_code sku, soi.item_name name, soi.qty, soi.rate price,
-                  soi.amount line, soi.warehouse bin, i.image, i.custom_sku real_sku
+                  soi.amount line, soi.warehouse bin, i.image, i.custom_sku real_sku,
+                  i.default_supplier supplier, sp.custom_fulfillment_model supplier_model
            FROM `tabSales Order Item` soi
            LEFT JOIN `tabItem` i ON i.name = soi.item_code
+           -- The supplier is Item.default_supplier (see _sup_cond); its model
+           -- says whether the piece is bought per order (Cross-dock), sits on
+           -- a consignment shelf (Fulfillment), or is our own stock.
+           LEFT JOIN `tabSupplier` sp ON sp.name = i.default_supplier
            WHERE soi.parent = %s ORDER BY soi.idx""",
         (name,), as_dict=True)
 

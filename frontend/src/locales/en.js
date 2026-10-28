@@ -1360,6 +1360,7 @@ export default {
     tracking: "Tracking", returns: "Returns",
   },
   od: {
+    supplierFilter: "Show every order with items from {s}",
     csTitle: "Customer service",
     urgentDo: "Mark urgent",
     backHere: "Back on our shelves", backHereSince: "Received here on",
