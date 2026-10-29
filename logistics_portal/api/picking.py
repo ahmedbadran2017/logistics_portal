@@ -550,6 +550,13 @@ def mark_packed(order):
     # a parcel whose AWB existed but whose label never came (Sendit
     # DH3FEEF7D5, #268446, 2026-10-28) and flipped it to Label Printed with
     # nothing to stick on the box.
+    # But ask the carrier once before saying so: on 2026-10-29 Cathedis
+    # answered the label render with a 504 for 11 parcels between 14:51 and
+    # 15:10 (PL-56925: 9 of 12, e.g. #268558 / LD008915056). The AWB existed,
+    # only the PDF was missing, and label_pdf would have fetched it -- but this
+    # gate now refused first, so the Print button could never reach it.
+    if not has_label(name):
+        _fetch_carrier_label(name)
     if not has_label(name):
         return {"ok": False, "reason": "no_label", "order": name}
     if st in ("Label Generated", "Picked", "In transit", "Received"):
@@ -3332,6 +3339,11 @@ def recheck_label(pick_list, order):
             frappe.db.commit()
         except Exception:
             frappe.db.rollback()
+    if not has_label(order) and awb:
+        # Same for Cathedis: an AWB whose label render timed out (504 on
+        # 2026-10-29, 11 parcels) keeps the bare base address as its "URL".
+        # Re-reading the order cannot cure that; asking Cathedis again can.
+        _fetch_carrier_label(order)
     if not has_label(order):
         return {"ok": False, "reason": "no_label_yet"}
     frappe.db.sql(
