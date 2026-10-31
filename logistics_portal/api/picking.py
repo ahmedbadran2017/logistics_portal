@@ -1323,13 +1323,21 @@ def _insert_one(sos, picker=None):
     if picker and frappe.get_meta("Pick List").has_field("custom_assigned_picker"):
         pl.custom_assigned_picker = picker
     dropped = []
-    bins = _resolve_bins({it.item_code for so in sos for it in _pick_lines(so)})
+    codes = {it.item_code for so in sos for it in _pick_lines(so)}
+    bins = _resolve_bins(codes)
     # Running pool per (item, bin): two orders on the same list must not both be
     # written against the same single unit.
     left = {}
     for code, b in bins.items():
         for c in b.get("pool") or [b]:
             left[(code, c["bin"])] = c["qty"]
+    # Cross-dock rows are written only against the order the piece came for
+    # (its claim), or an unowned unit for an order not waiting on its own PO
+    # for that item -- the count said "covered", but the bin a row lands on
+    # is chosen here, and here it used to be any bin with stock in walk order
+    # (#268660 written against SAL-ORD-2026-04550's piece, PL-56931).
+    xd_claim, xd_free, xd_waiting = _crossdock_split(codes)
+    xd_claim, xd_free = dict(xd_claim), dict(xd_free)
 
     for so in sos:
         rows_for_order, unplaceable = [], None
@@ -1343,13 +1351,27 @@ def _insert_one(sos, picker=None):
             # asking one bin for more than it holds fails the whole document.
             rows_for_line = []
             if b:
-                for c in (b.get("pool") or [b]):
+                key = (so.name, it.item_code)
+                cands = list(b.get("pool") or [b])
+                if xd_claim.get(key, 0) > 0:
+                    # Its own piece first: taking a shelf unit instead would
+                    # leave the received piece owned by nobody.
+                    cands.sort(key=lambda c: c["bin"] != _CROSSDOCK_WH)
+                for c in cands:
                     if pending <= 0:
                         break
                     have = left.get((it.item_code, c["bin"]), 0)
                     take = min(pending, have)
+                    if c["bin"] == _CROSSDOCK_WH:
+                        mine = xd_claim.get(key, 0)
+                        spare = 0 if key in xd_waiting else xd_free.get(it.item_code, 0)
+                        take = min(take, mine + spare)
                     if take <= 0:
                         continue
+                    if c["bin"] == _CROSSDOCK_WH:
+                        from_mine = min(take, xd_claim.get(key, 0))
+                        xd_claim[key] = xd_claim.get(key, 0) - from_mine
+                        xd_free[it.item_code] = xd_free.get(it.item_code, 0) - (take - from_mine)
                     left[(it.item_code, c["bin"])] = have - take
                     rows_for_line.append((c["bin"], take))
                     pending -= take
@@ -1575,6 +1597,7 @@ def _crossdock_owed(item_codes):
     codes = tuple({c for c in (item_codes or []) if c})
     if not codes:
         return [], {}
+    room = _crossdock_room(codes)
     since = str(frappe.utils.add_days(frappe.utils.nowdate(), -60))
     rec = frappe.db.sql(
         """SELECT poi.sales_order AS so, pri.item_code AS code, SUM(pri.stock_qty) AS q,
@@ -1589,7 +1612,7 @@ def _crossdock_owed(item_codes):
              AND so.status NOT IN ('Closed', 'Completed', 'Cancelled', 'On Hold')
            GROUP BY poi.sales_order, pri.item_code""", (_CROSSDOCK_WH, codes, since), as_dict=True)
     if not rec:
-        return [], {}
+        return [], room
     sos = tuple({r.so for r in rec})
     gone = {}
     for r in frappe.db.sql(
@@ -1605,7 +1628,17 @@ def _crossdock_owed(item_codes):
                WHERE p.docstatus = 0 AND pli.sales_order IN %s AND pli.item_code IN %s
                GROUP BY pli.sales_order, pli.item_code""", (sos, codes), as_dict=True):
         gone[(r.so, r.code)] = gone.get((r.so, r.code), 0) + flt(r.q)
-    # What the bin holds that a draft list has not already taken.
+    owed = []
+    for r in sorted(rec, key=lambda x: str(x.at)):
+        q = flt(r.q) - gone.get((r.so, r.code), 0)
+        if q > 0:
+            owed.append((r.so, r.code, q))
+    return owed, room
+
+
+def _crossdock_room(codes):
+    """{code: units} the Cross-dock bin holds that a draft list has not
+    already taken."""
     room = {r[0]: flt(r[1]) for r in frappe.db.sql(
         "SELECT item_code, actual_qty FROM `tabBin` WHERE warehouse = %s AND item_code IN %s",
         (_CROSSDOCK_WH, codes))}
@@ -1615,12 +1648,53 @@ def _crossdock_owed(item_codes):
                WHERE p.docstatus = 0 AND pli.warehouse = %s AND pli.item_code IN %s
                GROUP BY pli.item_code""", (_CROSSDOCK_WH, codes)):
         room[r[0]] = room.get(r[0], 0) - flt(r[1])
-    owed = []
-    for r in sorted(rec, key=lambda x: str(x.at)):
-        q = flt(r.q) - gone.get((r.so, r.code), 0)
-        if q > 0:
-            owed.append((r.so, r.code, q))
-    return owed, room
+    return room
+
+
+def _crossdock_split(item_codes):
+    """(claims, unowned, waiting) for Cross-dock: who a piece there belongs
+    to, and who must not be handed one that belongs to nobody.
+
+    A Cross-dock piece is bought for one order and leaves with that order --
+    the claims already said so, but a piece with NO live claim (its order
+    cancelled or closed, or a unit the books hold beyond every receipt) was
+    free stock, and the next order wanting the item took it. Measured
+    2026-10-31: since the claims shipped (10-16) 15 lines left Cross-dock on
+    an order with no receipt of its own, 14 of them orders whose OWN PO was
+    still To Receive (e.g. #268660 took SAL-ORD-2026-04550's piece on 10-29
+    at 19:07; 04550 is still waiting). The supplier then sends the taker's
+    piece too, and it matches nobody. Today 45 of 115 units in the bin are
+    unowned, 15 of them on items an order is still waiting on its PO for.
+
+    So: claims go to their owner; an unowned unit may go only to an order
+    that is NOT waiting on its own open PO line for that item.
+      claims   {(so, code): units}   (see _crossdock_claims)
+      unowned  {code: units}         bin room beyond every claim
+      waiting  {(so, code)}          open PO line, not fully received"""
+    codes = tuple({c for c in (item_codes or []) if c})
+    if not codes:
+        return {}, {}, set()
+    owed, room = _crossdock_owed(codes)
+    left = dict(room)
+    claims = {}
+    for so, code, q in owed:              # same capping as _crossdock_claims
+        take = min(q, max(left.get(code, 0), 0))
+        if take > 0:
+            claims[(so, code)] = take
+            left[code] = left.get(code, 0) - take
+    unowned = {code: q for code, q in left.items() if q > 1e-9}
+    waiting = set()
+    if unowned:
+        for so, code in frappe.db.sql(
+                """SELECT COALESCE(NULLIF(poi.sales_order, ''), po.custom_sales_order), poi.item_code
+                   FROM `tabPurchase Order Item` poi
+                   JOIN `tabPurchase Order` po ON po.name = poi.parent
+                   WHERE po.docstatus = 1 AND po.status NOT IN ('Closed', 'Completed', 'Cancelled')
+                     AND poi.received_qty < poi.qty AND poi.item_code IN %s""",
+                (tuple(unowned),)):
+            if so:
+                waiting.add((so, code))
+    return claims, unowned, waiting
 
 
 def _with_claims(sre, item_codes):
@@ -1708,11 +1782,17 @@ def _allocate_and_insert(sos, skipped, picker):
     # The orders' own Cross-dock pieces stay theirs after the release above:
     # the claim is read from the receipts, not from the reservation.
     sre = _with_claims(_sre_by_order(item_codes), item_codes)
+    # Unowned Cross-dock units: a third pool, closed to orders still waiting
+    # on their own PO for the item (see _crossdock_split).
+    _c, xd_left, xd_waiting = _crossdock_split(item_codes)
+    xd_left = dict(xd_left)
     ceiling, shared = {}, {}
     for code in item_codes:
         ceiling[code] = max(0.0, float(totals.get(code, 0)))
         shared[code] = ceiling[code]
     for (_so, code), q in sre.items():
+        shared[code] = shared.get(code, 0) - float(q)
+    for code, q in xd_left.items():
         shared[code] = shared.get(code, 0) - float(q)
     for code in shared:
         if shared[code] < 0:
@@ -1736,20 +1816,23 @@ def _allocate_and_insert(sos, skipped, picker):
             own = max(0.0, sre.get((so.name, c), 0) - used_own.get((so.name, c), 0))
             use_own = min(q, own)
             rem = q - use_own          # the part that must come from shared free stock
-            if shared.get(c, 0) < rem:
+            from_shared = min(rem, shared.get(c, 0))
+            from_xd = rem - from_shared
+            if from_xd > 1e-9 and ((so.name, c) in xd_waiting or xd_left.get(c, 0) < from_xd):
                 short = c              # what is left is reserved to somebody else
                 break
-            plan[c] = (use_own, rem)
+            plan[c] = (use_own, from_shared, from_xd)
         if short:
             skipped.append({"order": so.name, "reason": f"insufficient stock ({short})"})
             continue
-        for c, (use_own, rem) in plan.items():
+        for c, (use_own, from_shared, from_xd) in plan.items():
             used_own[(so.name, c)] = used_own.get((so.name, c), 0) + use_own
             # The piece leaves the building either way, so the ceiling always
             # pays the full quantity; only the shared half is spared when the
             # order draws on its own reservation.
-            ceiling[c] = ceiling.get(c, 0) - (use_own + rem)
-            shared[c] = shared.get(c, 0) - rem
+            ceiling[c] = ceiling.get(c, 0) - (use_own + from_shared + from_xd)
+            shared[c] = shared.get(c, 0) - from_shared
+            xd_left[c] = xd_left.get(c, 0) - from_xd
         covered.append(so)
     sos = covered
     if not sos:
@@ -2633,10 +2716,15 @@ def availability(item_codes, scope="pick"):
     """
     totals = _available_totals(item_codes, scope)
     sre = _with_claims(_sre_by_order(item_codes), item_codes)
+    # Unowned Cross-dock units are not common stock: an order still waiting
+    # on its own PO for the item must not be told it can have one.
+    _c, xd_unowned, xd_waiting = _crossdock_split(item_codes)
     shared = {}
     for code in set(item_codes) | set(totals):
         shared[code] = max(0.0, float(totals.get(code, 0)))
     for (_so, code), q in sre.items():
+        shared[code] = shared.get(code, 0) - float(q)
+    for code, q in xd_unowned.items():
         shared[code] = shared.get(code, 0) - float(q)
     for code in shared:
         if shared[code] < 0:
@@ -2644,7 +2732,8 @@ def availability(item_codes, scope="pick"):
 
     def free(order, code):
         ceiling = max(0.0, float(totals.get(code, 0)))
-        return min(ceiling, shared.get(code, 0) + float(sre.get((order, code), 0)))
+        xd = 0.0 if (order, code) in xd_waiting else float(xd_unowned.get(code, 0))
+        return min(ceiling, shared.get(code, 0) + float(sre.get((order, code), 0)) + xd)
 
     return totals, sre, free
 
