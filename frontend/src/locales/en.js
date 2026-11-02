@@ -463,6 +463,9 @@ export default {
     missingFail: "Could not report it",
   },
   zs: {
+    reset: "Reset this zone",
+    resetConfirm: "Reset {zone}? Its {n} pass(es) are deleted and the zone is walked again from the first pass.",
+    resetDone: "{n} pass(es) removed — the zone starts over",
     title: "Zone survey",
     intro: "Walk a zone and mark which shelves are really there, in the order you pass them. Empty or full does not matter.",
     pass: "Pass",
@@ -2266,6 +2269,7 @@ export default {
     done_cancel: "Cancelled",
   },
   srv: {
+    surveyApplied: "This zone's survey is already applied to the map — it can't be reset.",
     urgentListDone: "Already on pick list {0} — picked and waiting to be sent, not in the queue any more.",
     urgentListPicking: "Already on pick list {0} — being picked now, so it is past the queue.",
     urgentGone: "Too late — the warehouse already has it ({0}). Nothing left here to hurry.",

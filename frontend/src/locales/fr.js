@@ -463,6 +463,9 @@ export default {
     missingFail: "Signalement impossible",
   },
   zs: {
+    reset: "Réinitialiser la zone",
+    resetConfirm: "Réinitialiser {zone} ? Ses {n} passage(s) sont supprimés et la zone repart du premier passage.",
+    resetDone: "{n} passage(s) supprimé(s) — la zone repart de zéro",
     title: "Relevé de zone",
     intro: "Parcourez une zone et marquez les étagères réellement présentes, dans l'ordre où vous passez. Vide ou pleine, peu importe.",
     pass: "Passage",
@@ -2262,6 +2265,7 @@ export default {
     done_cancel: "Annulée",
   },
   srv: {
+    surveyApplied: "Le relevé de cette zone est déjà appliqué au plan — il ne peut plus être réinitialisé.",
     urgentListDone: "Déjà sur la liste {0} — prélevée et en attente d'envoi, plus dans la file.",
     urgentListPicking: "Déjà sur la liste {0} — en cours de prélèvement, donc déjà sortie de la file.",
     urgentGone: "Trop tard — l'entrepôt l'a déjà ({0}). Plus rien à accélérer ici.",

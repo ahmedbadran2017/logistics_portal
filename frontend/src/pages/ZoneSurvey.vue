@@ -26,8 +26,9 @@
       <div v-if="loading" class="space-y-2">
         <div v-for="n in 6" :key="n" class="h-[62px] rounded-2xl bg-white ring-1 ring-stone-200/60 animate-pulse" />
       </div>
-      <button v-for="z in zones" :key="z.zone"
-              class="w-full min-h-[62px] px-4 py-3 rounded-2xl bg-white ring-1 flex items-center gap-3 text-start active:bg-stone-50"
+      <div v-for="z in zones" :key="z.zone" class="flex items-stretch gap-1.5">
+      <button
+              class="flex-1 min-w-0 min-h-[62px] px-4 py-3 rounded-2xl bg-white ring-1 flex items-center gap-3 text-start active:bg-stone-50"
               :class="z.stage === 'confirmed' ? 'ring-emerald-200' : z.stage === 'disputed' ? 'ring-rose-200' : 'ring-stone-200/70'"
               @click="start(z)">
         <span class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-[13px] font-bold tabular-nums"
@@ -51,6 +52,13 @@
           {{ t('zs.st_' + z.stage) }}
         </span>
       </button>
+      <!-- manager: start this zone over (only before it is applied) -->
+      <button v-if="canReview && z.passes.length && !z.stamped"
+              class="w-11 rounded-2xl bg-white ring-1 ring-stone-200/70 text-stone-400 flex items-center justify-center active:bg-rose-50 hover:text-rose-600 flex-shrink-0"
+              :title="t('zs.reset')" :aria-label="t('zs.reset')" @click="resetZone(z)">
+        <Icon name="rotate-ccw" :size="16" />
+      </button>
+      </div>
     </div>
 
     <!-- the walk -->
@@ -121,6 +129,7 @@ const { t } = useI18n();
 const { success, warn } = useToast();
 
 const zones = ref([]);
+const canReview = ref(false);
 const loading = ref(true);
 const walk = ref(null);
 const newLabel = ref("");
@@ -137,6 +146,7 @@ async function load() {
   try {
     const r = await api("zone_survey.zones");
     zones.value = r.zones || [];
+    canReview.value = !!r.canReview;
   } catch (e) { warn(t("mv.loadFail"), String(e.message || e)); } finally { loading.value = false; }
 }
 
@@ -150,6 +160,16 @@ async function start(z) {
     }
     walk.value = r;
     window.scrollTo(0, 0);
+  } catch (e) { warn(t("mv.loadFail"), String(e.message || e)); }
+}
+
+async function resetZone(z) {
+  const name = z.zone.replace(" - JM", "");
+  if (!window.confirm(t("zs.resetConfirm").replace("{zone}", name).replace("{n}", String(z.passes.length)))) return;
+  try {
+    const r = await apiPost("zone_survey.reset_zone", { zone: z.zone });
+    success(t("zs.resetDone").replace("{n}", String(r.removed)), name);
+    load();
   } catch (e) { warn(t("mv.loadFail"), String(e.message || e)); }
 }
 

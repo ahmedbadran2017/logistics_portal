@@ -270,6 +270,37 @@ def finish(zone):
     return {"ok": True, "pass": doc.pass_no, **review(zone)}
 
 
+@frappe.whitelist(methods=["POST"])
+def reset_zone(zone):
+    """Wipe a zone's passes so it is walked again from the first pass.
+
+    For a survey started by mistake (2026-11-02: 32 passes across 16 zones,
+    13 shelves recorded in all — test walks and wrong taps had left zones
+    "disputed" or skipping straight to the blind pass). Refused once the zone
+    has been applied: by then the map carries its walk order, and wiping the
+    passes would erase the only record of where that order came from."""
+    if not _is_manager():
+        frappe.throw("Only a manager can reset a survey.", frappe.PermissionError)
+    zone = (zone or "").strip()
+    if not frappe.db.exists("Warehouse", zone):
+        frappe.throw("Unknown zone.")
+    if frappe.get_meta("Warehouse").has_field("custom_seen_at") and frappe.db.sql(
+            """SELECT 1 FROM `tabWarehouse` WHERE parent_warehouse = %s
+               AND custom_seen_at IS NOT NULL LIMIT 1""", (zone,)):
+        frappe.throw("lp:surveyApplied")
+    ps = _passes(zone)
+    for p in ps:
+        frappe.delete_doc(SURVEY_DT, p.name, ignore_permissions=True, force=True)
+    frappe.get_doc({"doctype": "Comment", "comment_type": "Info",
+                    "reference_doctype": "Warehouse", "reference_name": zone,
+                    "content": f"Zone survey reset: {len(ps)} pass(es) removed — "
+                               + ", ".join(f"pass {p.pass_no} {(p.surveyor or '').split('@')[0]} "
+                                           f"({p.state}, {p.seen_n or 0} seen / {p.missing_n or 0} missing)"
+                                           for p in ps)}).insert(ignore_permissions=True)
+    frappe.db.commit()
+    return {"ok": True, "zone": zone, "removed": len(ps)}
+
+
 # ── the comparison ────────────────────────────────────────────────────────
 
 def _compare(zone):
