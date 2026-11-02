@@ -271,6 +271,46 @@ def _bonus_settings():
     return out
 
 
+# The rescue weights that were re-priced from the click to the outcome on
+# 2026-09-30, mapped OLD -> NEW. Settings saved before that date carry the old
+# numbers, and saved settings override these defaults key by key — so on
+# production the lane was being scored on a mix: the old click prices (a
+# redeliver 0.5, giving up 0.1) PLUS the new outcome prices (landed 0.4). A
+# redeliver that landed was paid twice, and "Request return" kept paying.
+_RESCUE_REPRICE = {"rs.redeliver": (0.5, 0.1), "rs.reship": (0.5, 0.1),
+                   "rs.returnreq": (0.1, 0.0)}
+
+
+def reprice_stale_rescue_weights():
+    """after_migrate: carry stored settings onto the re-priced rescue weights.
+
+    Touches a key only while it still holds its OLD default exactly. A value a
+    manager set deliberately — anything else — is theirs and is left alone.
+    Idempotent: once corrected, nothing matches and nothing is written."""
+    import json as _json
+    try:
+        raw = frappe.db.get_default(_BONUS_KEY)
+        if not raw:
+            return
+        saved = _json.loads(raw)
+        pts = saved.get("points") if isinstance(saved, dict) else None
+        if not isinstance(pts, dict):
+            return
+        changed = []
+        for k, (old, new) in _RESCUE_REPRICE.items():
+            if k in pts and abs(float(pts[k]) - old) < 1e-9:
+                pts[k] = new
+                changed.append(f"{k} {old}->{new}")
+        if changed:
+            frappe.db.set_default(_BONUS_KEY, _json.dumps(saved))
+            frappe.db.commit()
+            frappe.logger().info("bonus: re-priced stale rescue weights: "
+                                 + ", ".join(changed))
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000],
+                         "contact_center.reprice_stale_rescue_weights")
+
+
 @frappe.whitelist()
 def bonus_settings():
     role = _portal_gate()
@@ -645,11 +685,55 @@ def _ship_board(month, pts):
            FROM `tabDelivery Note` dn
            JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
            WHERE dn.docstatus = 1 AND dn.company = %(co)s
-             AND COALESCE(dn.custom_rescue_outcome, '') <> ''
+             AND COALESCE(dn.custom_rescue_outcome, '') NOT IN ('', 'failed_again')
              AND dn.custom_rescue_outcome_at >= %(start)s
              AND dn.custom_rescue_outcome_at < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
+             -- Only decisions made once the lane was being paid. An outcome
+             -- is credited in the month it LANDS, which is right in steady
+             -- state, but the first run settled a September backlog inside
+             -- October: 664 returns asked in September, 513 of them one
+             -- agent's, would have been paid as October work (Ahmed
+             -- 2026-11-02: October without September).
+             AND dn.custom_exception_actioned_at >= %(paid_from)s
            GROUP BY dn.name""",
-        dict(args, co=_CO), as_dict=True)
+        dict(args, co=_CO, paid_from=f"{PAY_START.get('ship', '2026-10')}-01 00:00:00"),
+        as_dict=True)
+    # ── promises that broke, read from the trail ──
+    #
+    # Not from custom_rescue_outcome. That field holds how a parcel ENDED,
+    # and a new decision blanks it: a redeliver fails, the parcel comes back
+    # to the queue, an agent decides again inside the hour — before the
+    # hourly settle ever sees the failure — and the break vanishes. Measured
+    # for October: 283 orders failed after a redeliver, 9 were recorded. The
+    # penalty was catching 3% of what it exists for, and the kept-rate read
+    # ~98% when the truth was 67-75%.
+    #
+    # So a break is counted where it happened: a failure that follows a
+    # redeliver or reship and comes before the next decision on that order.
+    # Charged to whoever made the decision it broke — once per order, the
+    # same one-per-parcel rule every other column follows.
+    breaks = frappe.db.sql(
+        """SELECT DISTINCT SUBSTRING_INDEX(r.content, '\u00b7 by ', -1) u, r.reference_name so
+           FROM `tabComment` r
+           WHERE r.reference_doctype = 'Sales Order' AND r.comment_type = 'Comment'
+             AND (r.content LIKE 'Rescue: redeliver%%' OR r.content LIKE 'Rescue: reship%%')
+             AND r.creation >= %(start)s
+             AND r.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
+             AND EXISTS (
+               SELECT 1 FROM `tabComment` f
+                WHERE f.reference_doctype = 'Sales Order'
+                  AND f.reference_name = r.reference_name
+                  AND f.comment_type = 'Comment'
+                  AND f.content LIKE 'Customer unreachable%%'
+                  AND f.creation > r.creation
+                  AND NOT EXISTS (
+                    SELECT 1 FROM `tabComment` n
+                     WHERE n.reference_doctype = 'Sales Order'
+                       AND n.reference_name = r.reference_name
+                       AND n.comment_type = 'Comment'
+                       AND n.content LIKE 'Rescue:%%'
+                       AND n.creation > r.creation AND n.creation < f.creation))""",
+        args, as_dict=True)
 
     # Only this lane's people. Without the test the board fills with whoever
     # left a trail on an order: run for September it put a manager and a
@@ -690,6 +774,8 @@ def _ship_board(month, pts):
         add(r.u, r.act)
     for r in outs:
         add(r.u, "rs." + str(r.o or ""))
+    for r in breaks:
+        add(r.u, "rs.failed_again")
 
     rows = []
     for u, d in tally.items():
