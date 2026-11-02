@@ -391,6 +391,121 @@ def save_bonus_settings(settings=None):
 _ROLE_LOCKED = {"cc"}
 
 
+# ── Manual approval before a board shows to its own team ─────────────────
+#
+# Ahmed, 2026-11-02: the floor's October — its first paid month — is reviewed
+# and approved by hand before anyone on the floor sees a number. Measured that
+# day: 755 picked orders credited to someone other than the scanner (338 of
+# them Mohamed's under Anass Mouakkal's name), and the board pays picking only
+# while sorting, the manifest, packing, receiving and stock moves earn nothing
+# (Reda: 3,056 parcels manifested, 805 receipts, 968 moves -> 0 MAD).
+#
+# Until a month is approved its board, points and amounts are withheld from
+# everyone but the approvers. Approvers are a named list, NOT a role: the
+# portal "manager" role is held by Chaimaa, Reda, Anass Karrassi and others on
+# the floor, and System Manager by 17 users that day — Anass Karrassi and
+# three CC agents among them. Either would let someone approve their own pay.
+# The approved amounts are final — they replace the computed ones on the
+# page, people the board missed included.
+_NEEDS_APPROVAL = {"floor"}
+_APPROVAL_KEY = "lp_bonus_approval:{group}:{month}"
+_APPROVERS = {"Administrator", "ahmed@justyol.com"}
+
+
+def _approver(user=None):
+    """Ahmed, plus anyone listed in the `lp_bonus_approvers` default (JSON)."""
+    import json as _json
+    u = user or frappe.session.user
+    if u in _APPROVERS:
+        return True
+    try:
+        extra = _json.loads(frappe.db.get_default("lp_bonus_approvers") or "[]")
+    except Exception:
+        extra = []
+    return isinstance(extra, list) and u in extra
+
+
+def _approval(group, month):
+    import json as _json
+    raw = frappe.db.get_default(_APPROVAL_KEY.format(group=group, month=month))
+    try:
+        v = _json.loads(raw) if raw else None
+        return v if isinstance(v, dict) else None
+    except Exception:
+        return None
+
+
+def _withheld(group, month, user=None):
+    """True while this board's month must stay hidden from `user`."""
+    if group not in _NEEDS_APPROVAL or month < PAY_START.get(group, "2026-10"):
+        return False
+    if _approver(user):
+        return False
+    a = _approval(group, month)
+    return not (a and a.get("state") == "approved")
+
+
+@frappe.whitelist(methods=["POST"])
+def set_bonus_approval(group, month, amounts=None, note="", state="approved"):
+    """Save the reviewed amounts for one board's month, as a draft or
+    approved (which publishes them to the team). Approvers only."""
+    import json as _json
+    import re as _re
+    if not _approver():
+        frappe.throw("Only a bonus approver can approve bonuses.", frappe.PermissionError)
+    if group not in _NEEDS_APPROVAL or not _re.match(r"^\d{4}-\d{2}$", month or ""):
+        frappe.throw("Nothing to approve for this board.")
+    if state not in ("draft", "approved"):
+        frappe.throw("Unknown state.")
+    amounts = _json.loads(amounts) if isinstance(amounts, str) else (amounts or {})
+    clean = {}
+    for u, v in amounts.items():
+        if not u or not frappe.db.exists("User", u):
+            continue
+        clean[u] = max(0, round(float(v or 0)))
+    if frappe.session.user in clean:
+        frappe.throw("You cannot approve a month that pays you — ask another approver.")
+    s = _bonus_settings()
+    system = {a["user"]: (a.get("pay") or {}).get("total")
+              for a in _priced_board(group, month, s)}
+    rec = {"state": state, "amounts": clean, "note": (note or "")[:1000],
+           "by": frappe.session.user, "at": str(now_datetime())[:19], "system": system,
+           "total": sum(clean.values())}
+    frappe.db.set_default(_APPROVAL_KEY.format(group=group, month=month), _json.dumps(rec))
+    frappe.get_doc({"doctype": "Comment", "comment_type": "Info", "reference_doctype": "User",
+                    "reference_name": frappe.session.user,
+                    "content": f"Bonus {group} {month} {state}: {len(clean)} people, "
+                               f"{rec['total']} MAD"}).insert(ignore_permissions=True)
+    frappe.db.commit()
+    return {"ok": True, **rec}
+
+
+@frappe.whitelist(methods=["POST"])
+def reopen_bonus_approval(group, month):
+    """Take an approved month back to draft: the team stops seeing it."""
+    import json as _json
+    if not _approver():
+        frappe.throw("Only a bonus approver can reopen bonuses.", frappe.PermissionError)
+    a = _approval(group, month) or {}
+    a["state"] = "draft"
+    a["reopenedBy"] = frappe.session.user
+    a["reopenedAt"] = str(now_datetime())[:19]
+    frappe.db.set_default(_APPROVAL_KEY.format(group=group, month=month), _json.dumps(a))
+    frappe.db.commit()
+    return {"ok": True, **a}
+
+
+def _priced_board(group, month, s):
+    """The board with the scheme's computed pay on each row (no approval)."""
+    agents = _board(group, month, s["points"])
+    money = s["money"]
+    priced = float((money.get("perPoint") or {}).get(group) or 0) > 0
+    if money["on"] and month >= PAY_START.get(group, "2026-10") and priced:
+        for a in agents:
+            a["pay"] = _payout(a, group, s, month, False)
+    return agents
+
+
 def _board(group, month, pts):
     """The board for `group`, limited to its own role where that is the rule.
     The filter runs AFTER the cache, so a role change shows at once instead of
@@ -1107,6 +1222,8 @@ def bonus_points_for(user, group, month):
     """One person's points this month — used by My Performance too."""
     if not group:
         return None
+    if _withheld(group, month):
+        return None     # under review: the tile waits for the approval too
     s = _bonus_settings()
     board = _board(group, month, s["points"])
     for a in board:
@@ -1136,6 +1253,17 @@ def bonus(month=None, group=None):
     if role != "manager" and group != my_group:
         frappe.throw("You can only see your own board.", frappe.PermissionError)
 
+    if _withheld(group, month):
+        # Under review: nothing of this month reaches the team — no rank, no
+        # points, no amount — until an approver publishes it.
+        return {"available": True, "pending": True, "month": month, "group": group, "of": 0,
+                "scoped": True, "groups": [my_group] if my_group else [], "cols": [],
+                "target": 0, "agents": [], "me": {"points": 0, "rank": 0, "actions": 0, "pay": None},
+                "meUser": frappe.session.user, "trial": False,
+                "payStart": PAY_START.get(group, "2026-10"),
+                "money": {"on": False, "currency": "MAD", "pool": None},
+                "serverNow": str(now_datetime())[:19]}
+
     s = _bonus_settings()
     agents = _board(group, month, s["points"])
 
@@ -1162,6 +1290,26 @@ def bonus(month=None, group=None):
             if prize:
                 a["prize"] = round(float(prize))
 
+    # An approved month pays what the approver decided, for every person on
+    # it — the computed amount is replaced, and someone the board missed
+    # (Reda, October: no picks credited, 3,056 parcels manifested) appears.
+    approval = _approval(group, month) if group in _NEEDS_APPROVAL else None
+    if approval and approval.get("state") == "approved":
+        amounts = approval.get("amounts") or {}
+        on_board = {a["user"] for a in agents}
+        for u in amounts:
+            if u not in on_board:
+                agents.append({"agent": frappe.db.get_value("User", u, "full_name") or u.split("@")[0],
+                               "user": u, "cols": [0] * (1 if group != "cc" else 4),
+                               "points": 0.0, "actions": 0})
+        for a in agents:
+            a.pop("prize", None)
+            a["pay"] = {"total": int(amounts.get(a["user"], 0)), "approved": True, "currency": "MAD",
+                        "base": int(amounts.get(a["user"], 0)), "streakPct": 0, "streakDays": 0,
+                        "gatePct": None, "gatePass": True, "kicker": 0, "capped": False}
+        agents.sort(key=lambda a: (-a["pay"]["total"], -a["points"]))
+        pool = sum(a["pay"]["total"] for a in agents)
+
     me = {"points": 0.0, "rank": 0, "actions": 0, "pay": None}
     for i, a in enumerate(agents):
         if a["user"] == frappe.session.user:
@@ -1186,7 +1334,13 @@ def bonus(month=None, group=None):
             "cols": cols, "target": s["targets"][group], "agents": agents,
             "me": me, "meUser": frappe.session.user,
             "trial": trial, "payStart": PAY_START.get(group, "2026-10"),
-            "money": {"on": money["on"] and not trial and priced,
+            # The review state, for approvers only (the team is withheld above).
+            "approval": ({**(approval or {}), "needed": True, "canApprove": True}
+                         if group in _NEEDS_APPROVAL and _approver()
+                         and month >= PAY_START.get(group, "2026-10") else None),
+            "approved": bool(approval and approval.get("state") == "approved"),
+            "money": {"on": bool((money["on"] and not trial and priced)
+                                 or (approval and approval.get("state") == "approved")),
                       "currency": money["currency"],
                       "pool": round(pool) if pool is not None else None,
                       "kickerOn": money["kickerOn"], "kickerHit": kicker_on,

@@ -108,6 +108,17 @@
       <div class="text-[11.5px] text-stone-400 font-mono mt-1 max-w-[420px] mx-auto break-words">{{ loadError }}</div>
     </div>
 
+    <!-- The floor's month is under review (Ahmed 2026-11-02): until an
+         approver publishes it the server sends no points and no amount, so
+         this card is all there is to show. -->
+    <div v-else-if="d && d.pending" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-10 text-center">
+      <span class="inline-flex w-12 h-12 rounded-2xl items-center justify-center bg-amber-50 text-amber-500 ring-1 ring-amber-200/60 mb-2.5">
+        <Icon name="clock" :size="22" />
+      </span>
+      <div class="text-[14px] font-semibold text-stone-900">{{ t('bn.apPendingTitle') }}</div>
+      <div class="text-[12.5px] text-stone-500 mt-1 max-w-[440px] mx-auto leading-relaxed">{{ t('bn.apPendingBody') }}</div>
+    </div>
+
     <!-- roles whose work has no per-person source yet -->
     <div v-else-if="d && !d.available" class="bg-white rounded-2xl ring-1 ring-stone-200/70 p-10 text-center">
       <span class="inline-flex w-12 h-12 rounded-2xl items-center justify-center bg-stone-100 text-stone-400 mb-2.5">
@@ -118,6 +129,77 @@
     </div>
 
     <template v-else-if="d">
+      <!-- The approver's desk: the computed amount beside the amount that will
+           be paid. Nothing here reaches the team until "Approve". -->
+      <div v-if="d.approval" class="bg-white rounded-2xl ring-1 overflow-hidden"
+           :class="d.approved ? 'ring-emerald-200' : 'ring-amber-200'">
+        <div class="px-4 py-3 flex items-center gap-3 flex-wrap"
+             :class="d.approved ? 'bg-emerald-50' : 'bg-amber-50'">
+          <Icon :name="d.approved ? 'check' : 'shield-alert'" :size="16"
+                :class="d.approved ? 'text-emerald-600' : 'text-amber-600'" />
+          <div class="flex-1 min-w-[220px]">
+            <div class="text-[13px] font-bold text-stone-900">
+              {{ d.approved ? t('bn.apApproved') : t('bn.apTitle') }}
+              <span class="font-normal text-stone-500">· {{ d.month }} · {{ t('bn.grp_' + d.group) }}</span>
+            </div>
+            <div class="text-[11.5px] text-stone-600 mt-0.5">
+              <template v-if="d.approval.by">{{ t('bn.apBy').replace('{u}', d.approval.by).replace('{at}', d.approval.at || '') }} · </template>
+              {{ d.approved ? t('bn.apLive') : t('bn.apHidden') }}
+            </div>
+          </div>
+          <span class="text-[12px] text-stone-600 tabular-nums">{{ t('bn.apTotal') }} <b class="text-stone-900">{{ apTotal }}</b> {{ d.money?.currency || 'MAD' }}</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[480px] text-[12.5px]">
+            <thead>
+              <tr class="text-[10.5px] font-semibold uppercase tracking-[0.05em] text-stone-400 border-b border-stone-100">
+                <th class="text-start px-4 py-2">{{ t('cfr.thAgent') }}</th>
+                <th class="text-end px-3 py-2">{{ t('bn.thPoints') }}</th>
+                <th class="text-end px-3 py-2">{{ t('bn.apSystem') }}</th>
+                <th class="text-end px-4 py-2">{{ t('bn.apFinal') }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-stone-100">
+              <tr v-for="r in apRows" :key="r.user">
+                <td class="px-4 py-2">
+                  <div class="font-medium text-stone-900">{{ r.agent }}</div>
+                  <div class="text-[10.5px] text-stone-400">{{ r.user }}</div>
+                </td>
+                <td class="px-3 py-2 text-end tabular-nums text-stone-500">{{ r.points ?? '—' }}</td>
+                <td class="px-3 py-2 text-end tabular-nums text-stone-500">{{ r.system ?? '—' }}</td>
+                <td class="px-4 py-2 text-end">
+                  <input v-model.number="r.final" type="number" min="0" step="10" :disabled="d.approved"
+                         class="w-[96px] h-8 px-2 rounded-lg ring-1 ring-stone-200 text-end tabular-nums font-bold text-stone-900 disabled:bg-stone-50 disabled:text-stone-500"
+                         @input="apDirty = true" />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="!d.approved" class="px-4 py-3 border-t border-stone-100 space-y-2.5">
+          <div class="flex items-center gap-2 flex-wrap">
+            <input v-model.trim="apAdd" type="email" :placeholder="t('bn.apAddPh')"
+                   class="flex-1 min-w-[200px] h-8 px-2.5 rounded-lg ring-1 ring-stone-200 text-[12px]"
+                   @keyup.enter="addApRow" />
+            <button class="h-8 px-3 rounded-lg text-[12px] font-semibold ring-1 ring-stone-200 bg-white text-stone-700 hover:bg-stone-50"
+                    :disabled="!apAdd" @click="addApRow">{{ t('bn.apAdd') }}</button>
+          </div>
+          <textarea v-model="apNote" rows="2" :placeholder="t('bn.apNotePh')"
+                    class="w-full px-2.5 py-2 rounded-lg ring-1 ring-stone-200 text-[12px]" @input="apDirty = true" />
+          <div class="flex items-center gap-2 justify-end flex-wrap">
+            <button class="h-8 px-3 rounded-lg text-[12px] font-semibold ring-1 ring-stone-200 bg-white text-stone-700 hover:bg-stone-50"
+                    :disabled="apSaving" @click="saveApproval('draft')">{{ t('bn.apDraft') }}</button>
+            <button class="h-8 px-3 rounded-lg text-[12px] font-semibold bg-emerald-600 text-white hover:bg-emerald-700"
+                    :disabled="apSaving" @click="saveApproval('approved')">{{ t('bn.apApprove') }}</button>
+          </div>
+        </div>
+        <div v-else class="px-4 py-3 border-t border-stone-100 flex items-center gap-2 flex-wrap">
+          <div v-if="d.approval.note" class="flex-1 text-[12px] text-stone-600 whitespace-pre-line">{{ d.approval.note }}</div>
+          <button class="ms-auto h-8 px-3 rounded-lg text-[12px] font-semibold ring-1 ring-stone-200 bg-white text-stone-700 hover:bg-stone-50"
+                  :disabled="apSaving" @click="reopenApproval">{{ t('bn.apReopen') }}</button>
+        </div>
+      </div>
+
       <!-- September was the trial: points so people can see how the scheme
            reads their work, no money (Ahmed 2026-09-30). -->
       <div v-if="d.trial" class="rounded-2xl px-4 py-3 flex items-start gap-3 bg-amber-50 ring-1 ring-amber-200/70">
@@ -507,8 +589,12 @@ const { t } = useI18n();
 const { role, ccAdmin, viewAs } = useAuth();
 // Floor roles wait for the scheme to be switched on; CC lanes + managers
 // see the live board.
-const floorComingSoon = computed(() =>
+// From October the floor is paid, but each month is reviewed by hand first:
+// the poster stays up until a month comes back approved from the server.
+const floorRole = computed(() =>
   ["picker", "packer", "dispatcher", "returns"].includes(role.value));
+const floorApproved = ref(false);
+const floorComingSoon = computed(() => floorRole.value && !floorApproved.value);
 const isManager = computed(() => role.value === "manager");
 const { openRules } = useBonusLaunch();
 
@@ -702,9 +788,94 @@ async function saveScheme() {
   }
 }
 
+// The latest approved month, this one first. A floor member is never shown
+// a month the approver has not published.
+async function loadFloorApproved() {
+  for (const m of months.value) {
+    try {
+      const res = await api("contact_center.bonus", { month: m.key });
+      if (res?.approved) {
+        month.value = m.key;
+        d.value = res;
+        if (res.group) group.value = res.group;
+        floorApproved.value = true;
+        loading.value = false;
+        return;
+      }
+    } catch { /* stay on the poster */ }
+  }
+}
+
+// ── approval (named approvers only — the server sends d.approval to them) ─
+const apRows = ref([]);
+const apNote = ref("");
+const apAdd = ref("");
+const apDirty = ref(false);
+const apSaving = ref(false);
+const apTotal = computed(() =>
+  apRows.value.reduce((n, r) => n + Math.max(0, Number(r.final) || 0), 0));
+watch(d, (v) => {
+  const ap = v?.approval;
+  if (!ap) { apRows.value = []; return; }
+  const amounts = ap.amounts || {};
+  const system = ap.system || {};
+  const rows = (v.agents || []).map((a) => {
+    // An approved board carries the approved amount in pay; the computed
+    // one survives in the snapshot taken at approval.
+    const sys = v.approved ? system[a.user] : a.pay?.total;
+    return { user: a.user, agent: a.agent, points: a.points, system: sys ?? null,
+             final: amounts[a.user] ?? sys ?? 0 };
+  });
+  for (const u of Object.keys(amounts)) {
+    if (!rows.some((r) => r.user === u)) {
+      rows.push({ user: u, agent: u.split("@")[0], points: null,
+                  system: system[u] ?? null, final: amounts[u] });
+    }
+  }
+  apRows.value = rows;
+  apNote.value = ap.note || "";
+  apDirty.value = false;
+});
+function addApRow() {
+  const u = (apAdd.value || "").toLowerCase();
+  if (!u || apRows.value.some((r) => r.user === u)) { apAdd.value = ""; return; }
+  apRows.value.push({ user: u, agent: u.split("@")[0], points: null, system: null, final: 0 });
+  apAdd.value = "";
+  apDirty.value = true;
+}
+async function saveApproval(state) {
+  if (state === "approved" && !window.confirm(t("bn.apConfirm").replace("{n}", String(apTotal.value)))) return;
+  apSaving.value = true;
+  try {
+    const amounts = Object.fromEntries(apRows.value.map((r) => [r.user, Math.max(0, Number(r.final) || 0)]));
+    await apiPost("contact_center.set_bonus_approval", {
+      group: d.value.group, month: d.value.month, amounts: JSON.stringify(amounts),
+      note: apNote.value, state,
+    });
+    success(state === "approved" ? t("bn.apApprovedToast") : t("cfs.saved"));
+    load();
+  } catch (e) {
+    warn(t("cfs.saveFail"), String(e.message || e));
+  } finally {
+    apSaving.value = false;
+  }
+}
+async function reopenApproval() {
+  if (!window.confirm(t("bn.apReopenConfirm"))) return;
+  apSaving.value = true;
+  try {
+    await apiPost("contact_center.reopen_bonus_approval", { group: d.value.group, month: d.value.month });
+    load();
+  } catch (e) {
+    warn(t("cfs.saveFail"), String(e.message || e));
+  } finally {
+    apSaving.value = false;
+  }
+}
+
 onMounted(async () => {
   loadAcks();
-  if (floorComingSoon.value) return;
+  if (floorRole.value) { await loadFloorApproved(); return; }
   // Scheme first: comingSoon depends on money.on, so the promise page must
   // not be the thing that decides whether we ever find out it was switched on.
   await loadScheme();
