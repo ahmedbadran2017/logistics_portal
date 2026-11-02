@@ -406,9 +406,11 @@
                     <div v-for="l in breakdown.lines" :key="l.key" class="flex items-center gap-2 text-[12px] tabular-nums">
                       <span class="text-stone-600 flex-1">{{ t('bn.k_' + l.key.replace('.', '_'), l.key) }}</span>
                       <span class="text-stone-400">{{ l.count }} × {{ l.each }}</span>
-                      <span class="font-bold text-stone-800 w-[60px] text-end">{{ l.subtotal }}</span>
+                      <span class="font-bold w-[60px] text-end"
+                            :class="l.subtotal < 0 ? 'text-rose-600' : 'text-stone-800'">{{ l.subtotal }}</span>
                     </div>
-                    <div class="flex items-center gap-2 text-[12px] tabular-nums">
+                    <!-- the ship lane's outcomes are already lines above -->
+                    <div v-if="breakdown.outcomes !== false" class="flex items-center gap-2 text-[12px] tabular-nums">
                       <span class="text-stone-600 flex-1">{{ t('bn.k_delivered') }}</span>
                       <span class="text-stone-400">{{ breakdown.delivered }} × {{ breakdown.deliveredEach }}</span>
                       <span class="font-bold text-emerald-600 w-[60px] text-end">{{ breakdown.deliveredPts }}</span>

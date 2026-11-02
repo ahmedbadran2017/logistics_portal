@@ -997,6 +997,7 @@ def _ship_board(month, pts):
                      d.get("rs.recovered", 0)],
             "points": round(pts_total, 1),
             "actions": sum(d.values()),
+            "counts": dict(d), "each": {k: pts.get(k, 0) for k in d},
         })
     return sorted(rows, key=lambda x: -x["points"])
 
@@ -1320,7 +1321,13 @@ def bonus(month=None, group=None):
             break
 
     cols = (["nav.confirmation", "nav.rescue", "nav.tickets", "bn.colDelivered"]
-            if group == "cc" else ["bn.colOrders"])
+            if group == "cc" else
+            ["bn.colRedeliver", "bn.colReturnReq", "bn.colNoAnswer", "bn.colFixes",
+             "bn.colLanded", "bn.colFailedAgain", "bn.colRecovered"]
+            if group == "ship" else ["bn.colOrders"])
+    for a in agents:
+        a.pop("counts", None)
+        a.pop("each", None)
     # A plain agent sees THEIR numbers, not the team's: the leaderboard rows
     # collapse to their own row (rank and group size stay, so the context
     # survives without exposing colleagues' pay).
@@ -1726,6 +1733,8 @@ def bonus_breakdown(user=None, month=None, group="cc"):
         month = SCHEME_START
     s = _bonus_settings()
     pts = s["points"]
+    if group == "ship":
+        return _ship_receipt(user, month, s)
 
     rows = {}
     seen = set()
@@ -1842,6 +1851,43 @@ def bonus_breakdown(user=None, month=None, group="cc"):
                 "streakCapPct": float(m.get("streakCapPct") or 0),
                 "confirmEach": float(pts.get("cf.confirm", 0)),
                 "deliveryRate": round(100.0 * delivered / shipped, 1) if shipped else None,
+            }}
+
+
+def _ship_receipt(user, month, s):
+    """The rescue lane's receipt. It is the board's own row for this person,
+    priced line by line — a second query family here is how the first one
+    showed 35.5 under a board that said 201.8: it priced only the decisions
+    and never read an outcome."""
+    # The cached board first — the very rows the leaderboard just drew. A row
+    # cached before the board carried its tally falls through to a fresh one.
+    row = next((r for r in _board_raw("ship", month, s["points"]) if r["user"] == user), None)
+    if row is not None and "counts" not in row:
+        row = next((r for r in _ship_board(month, s["points"]) if r["user"] == user), None)
+    counts, each = (row or {}).get("counts") or {}, (row or {}).get("each") or {}
+    lines = [{"key": k, "count": n, "each": round(float(each.get(k, 0) or 0), 2),
+              "subtotal": round(n * float(each.get(k, 0) or 0), 1)}
+             for k, n in counts.items()
+             # a trail word the scheme never priced is not a line of pay
+             if k in s["points"] or k == "rs.landed_shared"]
+    lines.sort(key=lambda x: (x["subtotal"] < 0, -x["subtotal"], -x["count"]))
+    m = s["money"]
+    return {"user": user, "month": month, "lines": lines, "outcomes": False,
+            "delivered": 0, "returned": 0, "sharedDelivered": 0,
+            "deliveredEach": 0, "deliveredPts": 0, "returnedEach": 0, "returnedPts": 0,
+            "streakDays": _streak_days(user, "cc", month),
+            "total": (row or {}).get("points", 0.0),
+            "target": s["targets"].get("ship", 0),
+            "scheme": {
+                "moneyOn": int(m.get("on") or 0),
+                "currency": m.get("currency") or "MAD",
+                "perPoint": float((m.get("perPoint") or {}).get("ship", 0)),
+                "cap": float((m.get("monthlyCap") or {}).get("ship", 0)),
+                "gateOn": int((m.get("gateOn") or {}).get("ship", 0)),
+                "gatePct": float((m.get("gatePct") or {}).get("ship", 0)),
+                "streakStepPct": float(m.get("streakStepPct") or 0),
+                "streakCapPct": float(m.get("streakCapPct") or 0),
+                "confirmEach": 0.0, "deliveryRate": None,
             }}
 
 
