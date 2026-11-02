@@ -607,6 +607,10 @@ def _ship_board(month, pts):
     One point per (agent, parcel, action), so a decision flipped back and
     forth cannot be farmed.
     """
+    # _CO was used below without this import: the ship board raised
+    # NameError on every call, so the tracking lane's Bonus page and the
+    # manager's October board were both empty (found 2026-11-02).
+    from logistics_portal.api.confirmation import _CO
     start = f"{month}-01 00:00:00"
     args = {"start": start}
     # ── what they did ──
