@@ -468,10 +468,17 @@ def set_bonus_approval(group, month, amounts=None, note="", state="approved"):
     if clean.get(frappe.session.user, 0) > 0:
         frappe.throw("You cannot approve a month that pays you — ask another approver.")
     s = _bonus_settings()
-    system = {a["user"]: (a.get("pay") or {}).get("total")
-              for a in _priced_board(group, month, s)}
+    board = _priced_board(group, month, s)
+    system = {a["user"]: (a.get("pay") or {}).get("total") for a in board}
+    pool = sum(v or 0 for v in system.values())
+    raw_cap = (s["money"].get("monthlyCap") or {}).get(group)
+    cap = float(raw_cap) if raw_cap is not None and str(raw_cap) != "" else None
+    prev = _approval(group, month) or {}
+    suggestion = (prev.get("suggestion") if prev.get("state") == "approved"
+                  else _floor_worktime(month, pool, cap))
     rec = {"state": state, "amounts": clean, "note": (note or "")[:1000],
            "by": frappe.session.user, "at": str(now_datetime())[:19], "system": system,
+           "suggestion": suggestion,
            "total": sum(clean.values())}
     frappe.db.set_default(_APPROVAL_KEY.format(group=group, month=month), _json.dumps(rec))
     frappe.get_doc({"doctype": "Comment", "comment_type": "Info", "reference_doctype": "User",
@@ -495,6 +502,75 @@ def reopen_bonus_approval(group, month):
     frappe.db.set_default(_APPROVAL_KEY.format(group=group, month=month), _json.dumps(a))
     frappe.db.commit()
     return {"ok": True, **a}
+
+
+# Seconds of standard work per task, measured on the floor's own scan gaps
+# (trimmed mean of in-session gaps <= 3 min; pick/sort/manifest on 10-30 Sep,
+# pack/move/receipt on October). A shelf visit is one (pick list, item) pair.
+_FLOOR_STD_SEC = {"visit": 33.3, "unit": 0.8, "sort": 12.0, "manifest": 9.7,
+                  "pack": 8.7, "move": 69.1, "receipt": 73.2}
+
+
+def _floor_worktime(month, pool, cap=None):
+    """The approver's suggestion for a floor month: everyone's standard hours
+    across ALL floor work — picking, sorting, the manifest, packing, stock
+    moves, receipts — sharing the computed pool in proportion. Budget-neutral:
+    it moves the same money, it does not add any.
+
+    The board pays picking only (Pick List assignment), so in October Reda —
+    3,056 parcels manifested, 968 moves, 805 receipts — scored 0, while picking
+    paid 0.4 MAD an order whatever else the picker did. Only people with a
+    logistics role count; desk users who post a receipt are not the floor."""
+    start = f"{month}-01"
+    per = {}
+
+    def row(u):
+        return per.setdefault(u, {"visit": 0, "unit": 0, "sort": 0, "manifest": 0,
+                                  "pack": 0, "move": 0, "receipt": 0})
+    win = "creation >= %(s)s AND creation < DATE_ADD(%(s)s, INTERVAL 1 MONTH)"
+    for r in frappe.db.sql(
+            f"""SELECT owner u, COUNT(DISTINCT pick_list, item_code) v, COUNT(*) n
+                FROM `tabLP Scan Event` WHERE station = 'pick' AND {win}
+                GROUP BY owner""", {"s": start}, as_dict=True):
+        row(r.u)["visit"] = int(r.v or 0)
+        row(r.u)["unit"] = max(int(r.n or 0) - int(r.v or 0), 0)
+    for r in frappe.db.sql(
+            f"""SELECT owner u, SUM(station = 'sort') so,
+                       COUNT(DISTINCT CASE WHEN station = 'manifest' THEN sales_order END) m,
+                       SUM(station = 'pack' AND IFNULL(item_code, '') <> '') pk
+                FROM `tabLP Scan Event`
+                WHERE station IN ('sort', 'manifest', 'pack') AND {win}
+                GROUP BY owner""", {"s": start}, as_dict=True):
+        p = row(r.u)
+        p["sort"], p["manifest"], p["pack"] = int(r.so or 0), int(r.m or 0), int(r.pk or 0)
+    pwin = "posting_date >= %(s)s AND posting_date < DATE_ADD(%(s)s, INTERVAL 1 MONTH)"
+    for r in frappe.db.sql(
+            f"""SELECT owner u, COUNT(*) n FROM `tabStock Entry`
+                WHERE docstatus = 1 AND purpose = 'Material Transfer' AND {pwin}
+                GROUP BY owner""", {"s": start}, as_dict=True):
+        row(r.u)["move"] = int(r.n or 0)
+    for r in frappe.db.sql(
+            f"""SELECT owner u, COUNT(*) n FROM `tabPurchase Receipt`
+                WHERE docstatus = 1 AND company = 'Justyol Morocco' AND {pwin}
+                GROUP BY owner""", {"s": start}, as_dict=True):
+        row(r.u)["receipt"] = int(r.n or 0)
+    if not per:
+        return {}
+    floor = {r.name: r.full_name for r in frappe.db.sql(
+        """SELECT name, full_name FROM `tabUser` WHERE name IN %(u)s
+           AND IFNULL(custom_logistics_role, '') <> ''""", {"u": tuple(per)}, as_dict=True)}
+    hours = {u: sum(p[k] * _FLOOR_STD_SEC[k] for k in p) / 3600
+             for u, p in per.items() if u in floor}
+    total_h = sum(hours.values())
+    rate = (float(pool or 0) / total_h) if total_h else 0
+    out = {}
+    for u, h in hours.items():
+        amt = round(h * rate)
+        if cap is not None and amt > cap:
+            amt = round(cap)
+        out[u] = {"agent": floor[u] or u.split("@")[0], "hours": round(h, 1),
+                  "amount": amt, "work": per[u]}
+    return {"rate": round(rate, 1), "hours": round(total_h, 1), "people": out}
 
 
 def _priced_board(group, month, s):
@@ -1296,6 +1372,15 @@ def bonus(month=None, group=None):
             if prize:
                 a["prize"] = round(float(prize))
 
+    # The approver's suggestion, from the computed pool before any approval
+    # replaces it (an approved month keeps the one saved with it).
+    suggestion = None
+    if (group == "floor" and _approver() and not trial and pool
+            and not (_approval(group, month) or {}).get("state") == "approved"):
+        raw_cap = (money.get("monthlyCap") or {}).get(group)
+        cap = float(raw_cap) if raw_cap is not None and str(raw_cap) != "" else None
+        suggestion = _floor_worktime(month, pool, cap)
+
     # An approved month pays what the approver decided, for every person on
     # it — the computed amount is replaced, and someone the board missed
     # (Reda, October: no picks credited, 3,056 parcels manifested) appears.
@@ -1347,7 +1432,8 @@ def bonus(month=None, group=None):
             "me": me, "meUser": frappe.session.user,
             "trial": trial, "payStart": PAY_START.get(group, "2026-10"),
             # The review state, for approvers only (the team is withheld above).
-            "approval": ({**(approval or {}), "needed": True, "canApprove": True}
+            "approval": ({**(approval or {}), "needed": True, "canApprove": True,
+                          **({"suggestion": suggestion} if suggestion else {})}
                          if group in _NEEDS_APPROVAL and _approver()
                          and month >= PAY_START.get(group, "2026-10") else None),
             "approved": bool(approval and approval.get("state") == "approved"),

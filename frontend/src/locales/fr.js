@@ -3161,6 +3161,10 @@ export default {
     done_reopen: "Rouvert",
   },
   bn: {
+    apSuggest: "Suggéré (temps de travail)",
+    apSuggestHint: "Suggéré = tout le travail du dépôt (picking, tri, manifeste, emballage, mouvements, réceptions) en heures standard, sur la même enveloppe : {r} MAD/h sur {h} h.",
+    apFillSystem: "Remplir avec le calcul",
+    apFillSuggest: "Remplir avec la suggestion",
     apPendingTitle: "Bonus en cours de validation",
     apPendingBody: "Le bonus de ce mois est en cours de vérification par la direction. Vos points et votre montant apparaîtront ici dès leur validation.",
     apTitle: "À valider avant publication",

@@ -156,6 +156,7 @@
                 <th class="text-start px-4 py-2">{{ t('cfr.thAgent') }}</th>
                 <th class="text-end px-3 py-2">{{ t('bn.thPoints') }}</th>
                 <th class="text-end px-3 py-2">{{ t('bn.apSystem') }}</th>
+                <th v-if="apHasSuggest" class="text-end px-3 py-2">{{ t('bn.apSuggest') }}</th>
                 <th class="text-end px-4 py-2">{{ t('bn.apFinal') }}</th>
               </tr>
             </thead>
@@ -167,6 +168,10 @@
                 </td>
                 <td class="px-3 py-2 text-end tabular-nums text-stone-500">{{ r.points ?? '—' }}</td>
                 <td class="px-3 py-2 text-end tabular-nums text-stone-500">{{ r.system ?? '—' }}</td>
+                <td v-if="apHasSuggest" class="px-3 py-2 text-end tabular-nums" :title="r.work">
+                  <div class="font-semibold text-violet-700">{{ r.suggested ?? '—' }}</div>
+                  <div v-if="r.hours != null" class="text-[10.5px] text-stone-400">{{ r.hours }} h</div>
+                </td>
                 <td class="px-4 py-2 text-end">
                   <input v-model.number="r.final" type="number" min="0" step="10" :disabled="d.approved"
                          class="w-[96px] h-8 px-2 rounded-lg ring-1 ring-stone-200 text-end tabular-nums font-bold text-stone-900 disabled:bg-stone-50 disabled:text-stone-500"
@@ -177,6 +182,13 @@
           </table>
         </div>
         <div v-if="!d.approved" class="px-4 py-3 border-t border-stone-100 space-y-2.5">
+          <div v-if="apHasSuggest" class="flex items-center gap-2 flex-wrap text-[11.5px] text-stone-500">
+            <span class="flex-1 min-w-[220px]">{{ t('bn.apSuggestHint').replace('{r}', String(d.approval.suggestion.rate)).replace('{h}', String(d.approval.suggestion.hours)) }}</span>
+            <button class="h-7 px-2.5 rounded-lg font-semibold ring-1 ring-stone-200 bg-white text-stone-700 hover:bg-stone-50"
+                    @click="fillAp('system')">{{ t('bn.apFillSystem') }}</button>
+            <button class="h-7 px-2.5 rounded-lg font-semibold ring-1 ring-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"
+                    @click="fillAp('suggested')">{{ t('bn.apFillSuggest') }}</button>
+          </div>
           <div class="flex items-center gap-2 flex-wrap">
             <input v-model.trim="apAdd" type="email" :placeholder="t('bn.apAddPh')"
                    class="flex-1 min-w-[200px] h-8 px-2.5 rounded-lg ring-1 ring-stone-200 text-[12px]"
@@ -821,27 +833,42 @@ watch(d, (v) => {
   if (!ap) { apRows.value = []; return; }
   const amounts = ap.amounts || {};
   const system = ap.system || {};
-  const rows = (v.agents || []).map((a) => {
-    // An approved board carries the approved amount in pay; the computed
-    // one survives in the snapshot taken at approval.
-    const sys = v.approved ? system[a.user] : a.pay?.total;
-    return { user: a.user, agent: a.agent, points: a.points, system: sys ?? null,
-             final: amounts[a.user] ?? sys ?? 0 };
+  const sug = ap.suggestion?.people || {};
+  // A saved draft wins; otherwise the work-time suggestion pre-fills "to pay".
+  const hasDraft = Object.keys(amounts).length > 0;
+  const workOf = (u) => {
+    const w = sug[u]?.work;
+    return w ? Object.entries(w).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(" · ") : "";
+  };
+  const mk = (user, agent, points, sys) => ({
+    user, agent, points, system: sys ?? null,
+    suggested: sug[user]?.amount ?? null, hours: sug[user]?.hours ?? null, work: workOf(user),
+    final: hasDraft ? (amounts[user] ?? 0) : (sug[user]?.amount ?? sys ?? 0),
   });
-  for (const u of Object.keys(amounts)) {
+  // An approved board carries the approved amount in pay; the computed one
+  // survives in the snapshot taken at approval.
+  const rows = (v.agents || []).map((a) =>
+    mk(a.user, a.agent, a.points, v.approved ? system[a.user] : a.pay?.total));
+  for (const u of [...Object.keys(sug), ...Object.keys(amounts)]) {
     if (!rows.some((r) => r.user === u)) {
-      rows.push({ user: u, agent: u.split("@")[0], points: null,
-                  system: system[u] ?? null, final: amounts[u] });
+      rows.push(mk(u, sug[u]?.agent || u.split("@")[0], null, system[u]));
     }
   }
+  rows.sort((a, b) => (Number(b.final) || 0) - (Number(a.final) || 0));
   apRows.value = rows;
   apNote.value = ap.note || "";
   apDirty.value = false;
 });
+const apHasSuggest = computed(() => !!d.value?.approval?.suggestion?.people);
+function fillAp(which) {
+  for (const r of apRows.value) r.final = (which === "suggested" ? r.suggested : r.system) ?? 0;
+  apDirty.value = true;
+}
 function addApRow() {
   const u = (apAdd.value || "").toLowerCase();
   if (!u || apRows.value.some((r) => r.user === u)) { apAdd.value = ""; return; }
-  apRows.value.push({ user: u, agent: u.split("@")[0], points: null, system: null, final: 0 });
+  apRows.value.push({ user: u, agent: u.split("@")[0], points: null, system: null,
+                      suggested: null, hours: null, work: "", final: 0 });
   apAdd.value = "";
   apDirty.value = true;
 }

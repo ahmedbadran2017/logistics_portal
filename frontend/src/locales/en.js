@@ -3168,6 +3168,10 @@ export default {
     done_reopen: "Reopened",
   },
   bn: {
+    apSuggest: "Suggested (work time)",
+    apSuggestHint: "Suggested = all floor work (picking, sorting, manifest, packing, moves, receipts) in standard hours, sharing the same pool: {r} MAD/h over {h} h.",
+    apFillSystem: "Fill with computed",
+    apFillSuggest: "Fill with suggested",
     apPendingTitle: "Bonus under review",
     apPendingBody: "This month's bonus is being checked by management. Your points and amount will appear here once they are approved.",
     apTitle: "Review before publishing",
