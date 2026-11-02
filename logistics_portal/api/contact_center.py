@@ -1104,7 +1104,10 @@ def _quality_pct(user, group, month):
 
 def _streak_days(user, group, month):
     """Consecutive working days ending at the last day worked this month."""
-    if group == "cc":
+    # The tracking lane works the same comment trail (Rescue: …), not pick
+    # lists: read as floor, every tracking agent's streak paid 0% while their
+    # receipt printed 11 days.
+    if group in ("cc", "ship"):
         # BOTH trails. A day worked entirely in the Desk leaves no comment, so
         # reading comments alone broke the run on every such day — and the
         # Desk is where most of this lane's work still happens.
@@ -1875,7 +1878,7 @@ def _ship_receipt(user, month, s):
     return {"user": user, "month": month, "lines": lines, "outcomes": False,
             "delivered": 0, "returned": 0, "sharedDelivered": 0,
             "deliveredEach": 0, "deliveredPts": 0, "returnedEach": 0, "returnedPts": 0,
-            "streakDays": _streak_days(user, "cc", month),
+            "streakDays": _streak_days(user, "ship", month),
             "total": (row or {}).get("points", 0.0),
             "target": s["targets"].get("ship", 0),
             "scheme": {
