@@ -571,6 +571,7 @@ def _cc_board(month, pts):
         for u, orders in confirmed_by.items():
             for name in orders:
                 owner_of[name] = u          # last confirm wins, as the SLE does
+        rescued = _rescuers(list(owner_of))
         for r in frappe.db.sql(
                 # COUNT(DISTINCT dn.name), never SUM/COUNT(*): the DN Item join
                 # fans out one row PER LINE, so a 3-item parcel counted 3× —
@@ -598,9 +599,15 @@ def _cc_board(month, pts):
             u = owner_of.get(r.so)
             if not u:
                 continue
-            o2 = outcome.setdefault(u, {"delivered": 0, "returned": 0})
+            o2 = outcome.setdefault(u, {"delivered": 0, "returned": 0, "shared": 0})
             o2["delivered"] += int(r.d or 0)
             o2["returned"] += int(r.f or 0)
+            # Saved by someone ELSE in the rescue lane: this delivery's
+            # commission is shared. Rescuing your own confirmation shares
+            # nothing — it was your delivery twice over.
+            rescuer = rescued.get(r.so)
+            if r.d and rescuer and rescuer != u:
+                o2["shared"] += int(r.d or 0)
         for u in outcome:
             per_agent.setdefault(u, {"cf": 0.0, "rs": 0.0, "cs": 0.0,
                                      "actions": 0})
@@ -608,13 +615,16 @@ def _cc_board(month, pts):
     rows = []
     r_rate = pts.get("cf.returned", 0)
     for u, a in per_agent.items():
-        o = outcome.get(u, {"delivered": 0, "returned": 0})
+        o = outcome.get(u, {"delivered": 0, "returned": 0, "shared": 0})
         shipped = o["delivered"] + o["returned"]
         # NET outcome: what landed earns, what bounced deducts — so the four
         # columns still sum to the points column. The receipt itemises the
         # two halves. Floor at zero: the scheme punishes a careless month by
         # paying nothing, never by billing anybody.
-        dpts = o["delivered"] * d_rate + o["returned"] * r_rate
+        shared = o.get("shared", 0)
+        dpts = ((o["delivered"] - shared) * d_rate
+                + shared * d_rate * (1 - RESCUE_SHARE)
+                + o["returned"] * r_rate)
         rows.append({
             "agent": u.split("@")[0], "user": u,
             "cols": [round(a["cf"], 1), round(a["rs"], 1), round(a["cs"], 1),
@@ -624,10 +634,78 @@ def _cc_board(month, pts):
             # The two numbers the agent has to see. A careless confirm is a
             # return, and a return is a round trip paid for nothing.
             "delivered": o["delivered"], "returned": o["returned"],
+            # Delivered, but saved by the rescue lane: half the commission.
+            "sharedDelivered": o.get("shared", 0),
             "deliveryRate": round(o["delivered"] * 100.0 / shipped, 1) if shipped else None,
             "returnRate": round(o["returned"] * 100.0 / shipped, 1) if shipped else None,
         })
     return sorted(rows, key=lambda x: -x["points"])
+
+
+# ── One commission per delivered order ───────────────────────────────────
+#
+# Ahmed 2026-11-02. A parcel that failed and was then SAVED by the rescue lane
+# used to pay twice: cf.delivered 0.4 to whoever confirmed it, and rs.landed
+# 0.4 to whoever rescued it — 0.8 for one delivery against 0.4 for any other,
+# and the confirmer took full credit for a delivery that would otherwise
+# have cost them cf.returned. From November it is ONE commission, shared:
+#
+#   rescuer      always RESCUE_SHARE of it, whoever confirmed the order —
+#                the same work earns the same pay. 222 of October's 384
+#                rescued deliveries were confirmed by the WhatsApp bot, and
+#                a rescuer cannot choose who confirmed their parcel.
+#   confirmer    the rest, when a human confirmed it. The bot's half is
+#                paid to nobody.
+#
+# Decided per ORDER by the date of the rescue decision, by both boards alike,
+# so a parcel saved on the 30th and delivered on the 2nd cannot fall between
+# two months and be paid in full on one side and halved on the other.
+# October is untouched: it was measured and promised under the old rule.
+RESCUE_SHARE = 0.5
+SPLIT_FROM = "2026-11-01 00:00:00"
+
+
+def _rescuers(orders):
+    """{sales order: rescuer} — orders a ship-lane agent SAVED, from SPLIT_FROM.
+
+    Strict on purpose: the carrier failed it, a ship-lane agent then decided
+    Redeliver or Reship, and it was delivered. A city fix or a no-answer log
+    on the way takes nobody's commission. The rescuer is whoever made the
+    last redeliver/reship before it landed."""
+    orders = [o for o in (orders or []) if o]
+    if not orders:
+        return {}
+    rows = frappe.db.sql(
+        """SELECT dni.against_sales_order so,
+                  (SELECT SUBSTRING_INDEX(c.content, '\u00b7 by ', -1)
+                     FROM `tabComment` c
+                    WHERE c.reference_doctype = 'Sales Order'
+                      AND c.reference_name = dni.against_sales_order
+                      AND c.comment_type = 'Comment'
+                      AND (c.content LIKE 'Rescue: redeliver%%'
+                           OR c.content LIKE 'Rescue: reship%%')
+                      AND c.creation <= dn.custom_rescue_outcome_at
+                    ORDER BY c.creation DESC LIMIT 1) u
+           FROM `tabDelivery Note` dn
+           JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
+           WHERE dn.docstatus = 1 AND dn.custom_rescue_outcome = 'landed'
+             AND dn.custom_exception_actioned_at >= %(f)s
+             AND dni.against_sales_order IN %(o)s
+           GROUP BY dn.name""", {"f": SPLIT_FROM, "o": tuple(orders)}, as_dict=True)
+    from logistics_portal.api.auth import resolve_role
+    out, ship = {}, {}
+    for r in rows:
+        u = str(r.u or "").split(" ")[0].strip()
+        if not u or "@" not in u:
+            continue
+        if u not in ship:
+            try:
+                ship[u] = _ROLE_GROUP.get(resolve_role(u) or "") == "ship"
+            except Exception:
+                ship[u] = False
+        if ship[u]:
+            out[r.so] = u
+    return out
 
 
 def _ship_board(month, pts):
@@ -674,6 +752,7 @@ def _ship_board(month, pts):
     # ── how it ended, credited to whoever made the last call on that parcel ──
     outs = frappe.db.sql(
         """SELECT dn.custom_rescue_outcome o, dni.against_sales_order so,
+                  dn.custom_exception_actioned_at act_at,
                   (SELECT SUBSTRING_INDEX(c2.content, '\u00b7 by ', -1)
                      FROM `tabComment` c2
                     WHERE c2.reference_doctype = 'Sales Order'
@@ -772,10 +851,21 @@ def _ship_board(month, pts):
             continue
         seen.add(k)
         add(r.u, r.act)
+    # From SPLIT_FROM a saved delivery is half of ONE commission, credited to
+    # whoever made the redeliver/reship that saved it — the same rescuer the
+    # confirmation board halves its confirmer's share for.
+    rescued = _rescuers([r.so for r in outs if r.o == "landed"
+                         and str(r.act_at or "") >= SPLIT_FROM])
     for r in outs:
+        if r.o == "landed" and str(r.act_at or "") >= SPLIT_FROM:
+            if r.so in rescued:
+                add(rescued[r.so], "rs.landed_shared")
+            continue
         add(r.u, "rs." + str(r.o or ""))
     for r in breaks:
         add(r.u, "rs.failed_again")
+    pts = dict(pts)
+    pts["rs.landed_shared"] = float(pts.get("cf.delivered", 0) or 0) * RESCUE_SHARE
 
     rows = []
     for u, d in tally.items():
@@ -785,7 +875,8 @@ def _ship_board(month, pts):
             "cols": [d.get("rs.redeliver", 0) + d.get("rs.reship", 0),
                      d.get("rs.returnreq", 0), d.get("rs.dna", 0),
                      d.get("city.fix", 0) + d.get("contact.fix", 0),
-                     d.get("rs.landed", 0), d.get("rs.failed_again", 0),
+                     d.get("rs.landed", 0) + d.get("rs.landed_shared", 0),
+                     d.get("rs.failed_again", 0),
                      d.get("rs.recovered", 0)],
             "points": round(pts_total, 1),
             "actions": sum(d.values()),
@@ -1545,10 +1636,29 @@ def bonus_breakdown(user=None, month=None, group="cc"):
             {"names": tuple(confirmed_orders), "start": f"{month}-01"})[0]
         delivered, returned = int(r[0] or 0), int(r[1] or 0)
 
+    # The receipt must match the board, so it shares the same deliveries the
+    # board shares: saved by someone else in the rescue lane, from SPLIT_FROM.
+    shared = 0
+    if confirmed_orders and delivered:
+        saved = [o for o, who in _rescuers(list(confirmed_orders)).items() if who != user]
+        if saved:
+            shared = int(frappe.db.sql(
+                """SELECT COUNT(DISTINCT dn.name)
+                   FROM `tabSales Order` so
+                   JOIN `tabDelivery Note Item` dni
+                     ON dni.against_sales_order = so.name AND dni.docstatus = 1
+                   JOIN `tabDelivery Note` dn ON dn.name = dni.parent AND dn.docstatus = 1
+                   WHERE so.docstatus = 1 AND so.name IN %(names)s
+                     AND dn.custom_track_shipment_status = 'Delivered'
+                     AND dn.posting_date >= %(start)s
+                     AND dn.posting_date < DATE_ADD(%(start)s, INTERVAL 1 MONTH)""",
+                {"names": tuple(saved), "start": f"{month}-01"})[0][0] or 0)
+
     lines = [{"key": k, "count": n, "each": pts[k],
               "subtotal": round(n * pts[k], 1)}
              for k, n in sorted(rows.items(), key=lambda x: -x[1] * pts[x[0]])]
-    dpts = round(delivered * d_rate, 1)
+    dpts = round((delivered - shared) * d_rate
+                 + shared * d_rate * (1 - RESCUE_SHARE), 1)
     r_rate = pts.get("cf.returned", 0)
     rpts = round(returned * r_rate, 1)
     total = round(max(0.0, sum(x["subtotal"] for x in lines) + dpts + rpts), 1)
@@ -1560,6 +1670,7 @@ def bonus_breakdown(user=None, month=None, group="cc"):
     shipped = delivered + returned
     return {"user": user, "month": month, "lines": lines,
             "delivered": delivered, "returned": returned,
+            "sharedDelivered": shared, "sharedEach": round(d_rate * (1 - RESCUE_SHARE), 2),
             "deliveredEach": d_rate, "deliveredPts": dpts,
             "returnedEach": r_rate, "returnedPts": rpts,
             "streakDays": streak, "total": total,
