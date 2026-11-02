@@ -463,7 +463,9 @@ def set_bonus_approval(group, month, amounts=None, note="", state="approved"):
         if not u or not frappe.db.exists("User", u):
             continue
         clean[u] = max(0, round(float(v or 0)))
-    if frappe.session.user in clean:
+    # The approver may appear on the board (Ahmed, October: one pick list,
+    # 0.1 points) — only a non-zero amount to themselves is refused.
+    if clean.get(frappe.session.user, 0) > 0:
         frappe.throw("You cannot approve a month that pays you — ask another approver.")
     s = _bonus_settings()
     system = {a["user"]: (a.get("pay") or {}).get("total")
