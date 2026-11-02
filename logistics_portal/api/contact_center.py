@@ -77,7 +77,11 @@ GROUPS = ("cc", "floor", "ship")
 # and read "not available". Measured 2026-09-30 over their first five weeks --
 # 1,565 and 796 actions each — against a scoring table that priced three of
 # their action types and none of the rest.
-_ROLE_GROUP = {"confirmation": "cc", "picker": "floor",
+# Dispatchers, packers and returns are floor too: the approved floor month
+# pays them (October: Mouakkal and Asmaa dispatch, Hamza runs returns), and
+# without a group they could never open the month they were paid for.
+_ROLE_GROUP = {"confirmation": "cc", "picker": "floor", "dispatcher": "floor",
+               "packer": "floor", "returns": "floor",
                "tracking": "ship", "cs": "ship"}
 # What a point is WORTH. The old handoff design paid money and gated it on
 # quality — a much better idea than bare points, so it comes back here, wired
@@ -409,7 +413,8 @@ _ROLE_LOCKED = {"cc"}
 # page, people the board missed included.
 _NEEDS_APPROVAL = {"floor"}
 _APPROVAL_KEY = "lp_bonus_approval:{group}:{month}"
-_APPROVERS = {"Administrator", "ahmed@justyol.com"}
+# Khadija reviews the floor's month (Ahmed, 2026-11-02).
+_APPROVERS = {"Administrator", "ahmed@justyol.com", "khadija@justyol.com"}
 
 
 def _approver(user=None):
@@ -1420,13 +1425,18 @@ def bonus(month=None, group=None):
     # collapse to their own row (rank and group size stay, so the context
     # survives without exposing colleagues' pay).
     total_agents = len(agents)
-    if not _is_any_cc_admin():
+    # An approved board is pay, person by person: everyone but its approvers
+    # sees their own row — the portal "manager" role is held on the floor
+    # itself (Ossama, Reda, Lamdani, Anass Karrassi) and must not open
+    # colleagues' amounts.
+    scoped = (not _is_any_cc_admin()) or (group in _NEEDS_APPROVAL and not _approver())
+    if scoped:
         agents = [a for a in agents if a["user"] == frappe.session.user]
         # The team payout pool ÷ team size = everyone's average pay — a
         # scoped agent gets their own numbers, not the team's purse.
         pool = None
     return {"available": True, "month": month, "group": group, "of": total_agents,
-            "scoped": not _is_any_cc_admin(),
+            "scoped": scoped,
             "groups": list(GROUPS) if role == "manager" else [my_group],
             "cols": cols, "target": s["targets"][group], "agents": agents,
             "me": me, "meUser": frappe.session.user,

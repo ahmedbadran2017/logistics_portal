@@ -624,9 +624,10 @@ async function loadAcks() {
 // CC agents — and a manager viewing as one — get the coming-soon panel; only
 // the manager/section admins see (and keep designing) the actual board.
 const comingSoon = computed(() => {
-  // The tracking team's scheme is not designed yet: the promise, honestly.
-  if (IS_SHIP) return true;
-  if (!IS_CC) return false;
+  if (!IS_CC && !IS_SHIP) return false;
+  // The tracking team waited behind the poster until its lane was priced
+  // (2 MAD a point, 2026-11-02); an unpriced lane still gets the promise.
+  if (IS_SHIP && !(Number(scheme.value?.money?.perPoint?.ship) > 0)) return true;
   // The moment the manager flips money.on, the promise page steps aside on
   // its own — no deploy between "activated" and "the team can see it".
   if (Number(scheme.value?.money?.on)) return false;
@@ -655,7 +656,9 @@ const months = computed(() => {
 });
 
 const month = ref(fmt(now));
-const group = ref("");
+// The logistics portal opens on the floor's board — its managers are floor
+// staff, and the server's default for a manager is the CC board.
+const group = ref(IS_CC || IS_SHIP ? "" : "floor");
 const d = ref(null);
 const breakdownFor = ref("");
 const breakdown = ref(null);
