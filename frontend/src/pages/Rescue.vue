@@ -206,19 +206,19 @@
                    would have made thirteen — on a row that already drops its
                    labels below md, so a phone showed eleven bare icons. The
                    three that stay are the ones that RESOLVE the parcel. -->
-              <template v-else>
+              <template v-else-if="!endedChip">
                 <button class="rs-act rs-act-save" :disabled="busy === r.id" :title="t('rs.actRedeliverHint')"
                         :class="reasonFor === r.id && reasonAction === 'redeliver' ? 'ring-2' : ''"
                         @click="openReason(r, 'redeliver')">
                   <Icon name="refresh-cw" :size="14" class="inline -mt-px me-1" />{{ t('rs.actRedeliver') }}
                 </button>
               </template>
-              <button class="rs-act rs-act-lbl text-amber-700" :disabled="busy === r.id" :title="t('cf.actDna')"
+              <button v-if="!endedChip" class="rs-act rs-act-lbl text-amber-700" :disabled="busy === r.id" :title="t('cf.actDna')"
                       :class="reasonFor === r.id && reasonAction === 'dna' ? 'ring-2' : ''"
                       @click="openReason(r, 'dna')">
                 <Icon name="phone-off" :size="14" /><span class="hidden md:inline">{{ t('cf.actDna') }}</span>
               </button>
-              <button v-if="!isNdTab" class="rs-act rs-act-lbl text-rose-600" :disabled="busy === r.id" :title="t('rs.actReturnHint')"
+              <button v-if="!isNdTab && !endedChip" class="rs-act rs-act-lbl text-rose-600" :disabled="busy === r.id" :title="t('rs.actReturnHint')"
                       :class="reasonFor === r.id && reasonAction === 'returnreq' ? 'ring-2' : ''" @click="openReason(r, 'returnreq')">
                 <Icon name="rotate-ccw" :size="14" /><span class="hidden md:inline">{{ t('rs.actReturn') }}</span>
               </button>
@@ -251,7 +251,7 @@
              works the same under a thumb. -->
         <Transition name="rsslide">
           <div v-if="moreFor === r.id" class="mt-2.5 flex flex-wrap gap-1.5 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-2">
-            <button v-if="!isNdTab" class="rs-act rs-act-lbl text-violet-700"
+            <button v-if="!isNdTab && !endedChip" class="rs-act rs-act-lbl text-violet-700"
                     @click="openReason(r, 'reship'); moreFor = ''">
               <Icon name="send" :size="14" />{{ t('rs.actReship') }}
             </button>
@@ -260,13 +260,13 @@
                  order page instead of repeating the picker here — choosing a
                  different article needs a catalogue search, and a second copy
                  of that is a second thing to drift. -->
-            <RouterLink v-if="!isNdTab && r.order" class="rs-act rs-act-lbl text-violet-700"
+            <RouterLink v-if="!isNdTab && !endedChip && r.order" class="rs-act rs-act-lbl text-violet-700"
                         :to="{ name: 'OrderDetail',
                                params: { name: String(r.order).replace('#', '') },
                                query: { send: 'other' } }" @click="moreFor = ''">
               <Icon name="package-check" :size="14" />{{ t('rs.actSendInstead') }}
             </RouterLink>
-            <button v-if="!isNdTab" class="rs-act rs-act-lbl text-sky-700"
+            <button v-if="!isNdTab && !endedChip" class="rs-act rs-act-lbl text-sky-700"
                     @click="openReason(r, 'followup'); moreFor = ''">
               <Icon name="clock" :size="14" />{{ t('rs.actFollowup') }}
             </button>
@@ -467,6 +467,11 @@ const verdictF = ref(String(route.query.reason ?? "rescuable"));
 const openChip = computed(() =>
   data.value?.chip || chip.value || (tab.value === "todo" ? "exceptions" : ""));
 const hasVerdict = computed(() => openChip.value === "exceptions" || openChip.value === "failed");
+// Done is what already ENDED. Its rows offered every decision, and pressing
+// one blanked the outcome and moved the parcel back to Promised: one parcel,
+// two decisions, both scored. The server refuses it too; this just stops
+// offering a button that can only fail.
+const endedChip = computed(() => openChip.value === "done");
 // The filter the board is loaded under. The heartbeat must send the SAME one:
 // it used to send "" for "rescuable", so it compared the unfiltered depth with
 // the filtered count on the screen, they never matched while any cancelled

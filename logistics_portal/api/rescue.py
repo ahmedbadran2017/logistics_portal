@@ -55,6 +55,9 @@ _DN_ACTION = {
 # happens next.
 _PROMISE = ("Redeliver", "Reship")
 
+# Outcomes after which a parcel takes no new decision.
+_ENDED = ("landed", "returned", "recovered", "cancelled", "delivered_anyway")
+
 # ── the board, in three questions instead of six piles ───────────────────
 #
 # Audited 2026-09-21: six tabs stood over 128 live parcels (89 exceptions +
@@ -1267,6 +1270,15 @@ def act(id=None, action=None, note=None):
                            id, "company") != _CO:
         frappe.throw("Unknown parcel/order.")
     dn = id if is_dn else ""
+    # A parcel that already ENDED takes no new decision. Re-deciding one
+    # blanked its outcome and sent it back to Promised, so the same parcel
+    # was decided -- and scored -- twice. A failed_again or never_came_back
+    # ending is still open to a decision: those are the ones that need one.
+    if dn:
+        ended = frappe.db.get_value("Delivery Note", dn, "custom_rescue_outcome") \
+            if frappe.get_meta("Delivery Note").has_field("custom_rescue_outcome") else ""
+        if (ended or "") in _ENDED:
+            frappe.throw(f"This parcel already ended ({ended}). Nothing left to decide.")
     # MIN, matching the board's SO link — get_value picked an arbitrary line,
     # so on multi-order parcels the agent could act on a different order than
     # the one the row displayed.
