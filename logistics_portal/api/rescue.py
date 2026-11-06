@@ -1018,11 +1018,19 @@ def my_report(days=7, frm=None, to=None):
     acts = {"redeliver": 0, "reship": 0, "returnreq": 0, "dna": 0,
             "cancel": 0, "resolve": 0}
     daily = {}
+    # Sales Order only: act() writes the same tag on the parcel AND on the
+    # order, so reading both counted every redeliver / return / cancel twice
+    # (a no-answer is written on the order alone, so it alone was right) --
+    # 5,660 doubled rows in October. And the day is the floor's day, not the
+    # site clock's, or an evening's work lands on tomorrow's bar.
+    from logistics_portal.api import clock as _clk
+    _day = _clk.sql_local("c.creation")
     for r in frappe.db.sql(
-            f"""SELECT DATE(c.creation) d, c.content, COUNT(*) n
+            f"""SELECT {_day} d, c.content, COUNT(*) n
                 FROM `tabComment` c
-                WHERE c.owner = %(me)s AND c.content LIKE 'Rescue: %%' AND {c_rng}
-                GROUP BY DATE(c.creation), c.content""", rng_vals, as_dict=True):
+                WHERE c.owner = %(me)s AND c.reference_doctype = 'Sales Order'
+                  AND c.content LIKE 'Rescue: %%' AND {c_rng}
+                GROUP BY {_day}, c.content""", rng_vals, as_dict=True):
         if "(bulk)" in (r.content or ""):
             continue
         action = (r.content.split("Rescue: ", 1)[1] or "").split(" ", 1)[0].strip("()—-→ ")
