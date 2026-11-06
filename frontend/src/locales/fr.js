@@ -2374,6 +2374,7 @@ export default {
     v_wave: "Chez nous", v_carrier: "Chez le transporteur",
     s_to_pick: "sans liste", s_picking: "préparation",
     s_to_hand_over: "attend la remise", s_with_carrier: "transporteur",
+    s_delivered: "livrée", s_failed: "échouée",
     hShort: "h", dShort: "j",
     trTitle: "Performance de l'équipe", trIntro: "Ce que chaque membre de l'équipe suivi a fait sur la période, et ce que cela a donné : un sauvetage terminé en livraison, un colis relancé qui est arrivé.",
     trUnscoped: "Personne n'a encore le rôle suivi : la page montre tous ceux qui ont laissé ces traces, autres équipes comprises. Attribuez le rôle sur la page Équipe pour la limiter.",
@@ -2933,6 +2934,8 @@ export default {
     done_returnreq: "Retour demandé",
     done_dna: "Noté : sans réponse",
     done_cancel: "Commande annulée",
+    done_followup: "Relance transporteur",
+    done_resolve: "Marqué résolu",
   },
   rsr: {
     title: "Sauvetage — rapports du service",

@@ -2378,6 +2378,7 @@ export default {
     v_wave: "In the building", v_carrier: "With the carrier",
     s_to_pick: "no pick list", s_picking: "picking",
     s_to_hand_over: "awaiting handover", s_with_carrier: "with carrier",
+    s_delivered: "delivered", s_failed: "failed",
     hShort: "h", dShort: "d",
     trTitle: "Team performance", trIntro: "What each person on the tracking team did over the window, and what came of it: a rescue that ended in a delivery, a chased parcel that arrived.",
     trUnscoped: "Nobody holds the tracking role yet, so this shows everyone who left these trails — including other lanes. Assign the role on the Team page to scope it.",
@@ -2940,6 +2941,8 @@ export default {
     done_returnreq: "Return requested",
     done_dna: "Logged: no answer",
     done_cancel: "Order cancelled",
+    done_followup: "Chasing the carrier",
+    done_resolve: "Marked resolved",
   },
   rsr: {
     title: "Rescue — section reports",
