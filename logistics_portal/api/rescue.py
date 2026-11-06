@@ -627,6 +627,13 @@ def _dn_select():
         "{claim_cols}", _CLAIM_COLS if _has_claim_fields() else _NO_CLAIM_COLS)
 
 
+# The order left the building: the rescue lane's callbacks are about parcels.
+_SHIPPED = ("EXISTS (SELECT 1 FROM `tabDelivery Note Item` cdni "
+            "JOIN `tabDelivery Note` cdn ON cdn.name = cdni.parent "
+            "WHERE cdni.against_sales_order = so.name "
+            "AND cdn.docstatus = 1 AND cdn.is_return = 0)")
+
+
 def _cached_counts(days, reason=""):
     """Queue depths, under the SAME filter the list will use.
 
@@ -666,7 +673,8 @@ def _cached_counts(days, reason=""):
              AND COALESCE(so.custom_logistics_status,'') NOT IN ('Delivered', 'Returned')
              AND COALESCE(so.custom_track_shipment_status,'')
                  NOT IN ('Delivered', 'Return', 'Returned')
-             AND NOT {_back_in_house()}""",
+             AND NOT {_back_in_house()}
+             AND {_SHIPPED}""",
         {"co": _CO, "snow": _site_now()})[0][0])
     try:
         frappe.cache().set_value(ck, counts, expires_in_sec=60)
@@ -795,7 +803,13 @@ def board(tab="todo", days=30, q="", limit=30, offset=0, reason="", surface="",
                  # scheduled: a chip reading 81 opened onto 231 rows, 150 of
                  # them not due yet. The tab asks who is waiting on me RIGHT
                  # NOW, and a call booked for Thursday is not.
-                 "so.custom_next_call_at <= %(snow)s"]
+                 "so.custom_next_call_at <= %(snow)s",
+                 # This lane's callbacks only: an order that SHIPPED. The
+                 # confirmation lane writes the same timer on its own
+                 # no-answers, before anything leaves the building, and those
+                 # rows landed here as orders a tracking agent could not act
+                 # on -- every button answered "assigned to another agent".
+                 _SHIPPED]
         vals["co"] = _CO
         # This branch builds its own vals and never passes through _dn_where,
         # which is the only other place that binds it — the due test above
@@ -816,7 +830,16 @@ def board(tab="todo", days=30, q="", limit=30, offset=0, reason="", surface="",
                        so.grand_total AS total, so.custom_awb AS awb,
                        COALESCE(NULLIF(so.custom_track_shipment_status,''),
                                 so.custom_sales_status) AS track,
-                       NULL AS dn,
+                       -- The PARCEL, so the row is worked like every other
+                       -- row on this board: act / take / desk all address a
+                       -- parcel, and an order id sent them down the
+                       -- confirmation path ("Unknown parcel", "assigned to
+                       -- another agent").
+                       (SELECT cdn.name FROM `tabDelivery Note Item` cdni
+                          JOIN `tabDelivery Note` cdn ON cdn.name = cdni.parent
+                         WHERE cdni.against_sales_order = so.name
+                           AND cdn.docstatus = 1 AND cdn.is_return = 0
+                         ORDER BY cdn.creation DESC LIMIT 1) AS dn,
                        COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone) AS phone,
                        so.custom_shipping_city AS city,
                        COALESCE(so.custom_call_attempts, 0) AS attempts,
