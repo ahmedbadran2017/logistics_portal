@@ -4387,14 +4387,16 @@ def run_alerts():
             return
         sla_h = int(_cf_settings().get("slaFirstCallH", 6))
         row = frappe.db.sql(
-            """SELECT COUNT(*), MAX(TIMESTAMPDIFF(HOUR, creation, NOW()))
+            # creation is the site clock, NOW() the DB's UTC: this paged 3h
+            # late and reported the oldest order 3h younger than it was.
+            """SELECT COUNT(*), MAX(TIMESTAMPDIFF(HOUR, creation, %(snow)s))
                FROM `tabSales Order`
                WHERE docstatus = 1 AND company = %(co)s
                  AND custom_sales_status = 'Pending'
                  AND COALESCE(custom_call_attempts, 0) = 0
-                 AND creation <= DATE_SUB(NOW(), INTERVAL %(h)s HOUR)
-                 AND creation >= DATE_SUB(NOW(), INTERVAL 30 DAY)""",
-            {"co": _CO, "h": sla_h})[0]
+                 AND creation <= DATE_SUB(%(snow)s, INTERVAL %(h)s HOUR)
+                 AND creation >= DATE_SUB(%(snow)s, INTERVAL 30 DAY)""",
+            {"co": _CO, "h": sla_h, "snow": frappe.utils.now_datetime()})[0]
         n, oldest = int(row[0] or 0), int(row[1] or 0)
         if n >= 5:
             _emit("cf_first_call", {"n": n, "h": sla_h, "oldest": oldest},
