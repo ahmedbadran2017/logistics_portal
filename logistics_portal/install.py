@@ -189,7 +189,9 @@ _DN_EXC_FIELDS = [
     # failure vanished from history. A rate you cannot look back on is not
     # a rate.
     {"fieldname": "custom_rescue_outcome", "label": "Rescue Outcome",
-     "fieldtype": "Select", "options": "\nlanded\nfailed\nreturned",
+     "fieldtype": "Select",
+     "options": "\nlanded\nfailed\nreturned\nfailed_again\ncancelled\nrecovered"
+                "\nnever_came_back\ndelivered_anyway",
      "read_only": 1, "no_copy": 1, "hidden": 1, "in_standard_filter": 1},
     {"fieldname": "custom_rescue_outcome_at", "label": "Rescue Outcome At",
      "fieldtype": "Datetime", "read_only": 1, "no_copy": 1, "hidden": 1},

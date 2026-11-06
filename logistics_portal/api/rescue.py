@@ -317,7 +317,7 @@ _RS_DEFAULTS = {
     "promiseSlaH": 48,
     # A requested return that never arrives is stock we paid for and lost, so
     # it needs a day on which we stop waiting and say so.
-    "returnGraceD": 14,
+    "returnGraceD": 30,
     # Kept: the vocabulary for ENDING a parcel (return / cancel).
     "reasons": ["Client injoignable", "Refuse le colis", "Adresse introuvable",
                 "Reporté par le client", "Annulé par le client"],
@@ -1369,9 +1369,23 @@ def settle_outcomes(limit=400):
     try:
         if not frappe.get_meta("Delivery Note").has_field("custom_rescue_outcome"):
             return
-        rows = frappe.db.sql(
-            f"""SELECT dn.name, dn.custom_track_shipment_status trk,
+        # Two piles, read the same way. The blank ones are the promises still
+        # waiting for an ending. The never_came_back ones are endings we may
+        # have called too early: measured 2026-11-06, 325 of the 493 parcels
+        # written off at 14 days reached our dock afterwards (median 18 days
+        # after the request, p90 26) and 30 had been delivered -- and the
+        # label, written once, said "lost" about all of them for good.
+        #
+        # ret_dn is the return note. custom_return_shipment is empty on every
+        # parcel on the site, so "returned" was never stamped from it: 91
+        # promises older than two weeks had a submitted return note and no
+        # ending, and sat at the head of this queue for good.
+        sql = f"""SELECT dn.name, dn.custom_track_shipment_status trk,
                        dn.custom_return_shipment ret,
+                       dn.custom_rescue_outcome cur,
+                       EXISTS (SELECT 1 FROM `tabDelivery Note` rdn
+                               WHERE rdn.is_return = 1 AND rdn.docstatus = 1
+                                 AND rdn.return_against = dn.name) AS ret_dn,
                        dn.custom_exception_action act,
                        {_fail_event_at_sql()} fail_at,
                        {_last_event_sql("content")} last_ev,
@@ -1387,22 +1401,39 @@ def settle_outcomes(limit=400):
                   AND dn.custom_exception_action IN ('Redeliver', 'Reship',
                                                      'Follow Up', 'Return Requested')
                   AND dn.custom_exception_actioned_at IS NOT NULL
-                  AND COALESCE(dn.custom_rescue_outcome,'') = ''
+                  AND __PILE__
                 GROUP BY dn.name
                 ORDER BY dn.custom_exception_actioned_at
-                LIMIT {int(limit)}""", {"co": _CO, "snow": _site_now()}, as_dict=True)
+                LIMIT __LIMIT__"""
+        args = {"co": _CO, "snow": _site_now()}
+        rows = []
+        for pile, cap in (("COALESCE(dn.custom_rescue_outcome,'') = ''", int(limit)),
+                          ("dn.custom_rescue_outcome = 'never_came_back'", 200)):
+            rows += frappe.db.sql(sql.replace("__PILE__", pile)
+                                  .replace("__LIMIT__", str(cap)), args, as_dict=True)
         now = now_datetime()
         done = 0
         grace = _return_grace_d()
         for r in rows:
+            kind = carrier_events.kind_of(r.last_ev or "")
+            back = int(r.back_in_house or 0) or int(r.ret_dn or 0)
             # A return we ASKED for ends at our own dock, not at the carrier's
-            # status, which never says "returned" at all.
+            # status, which never says "returned" at all. The dock has two
+            # witnesses, the receiving scan and the return note, and either
+            # one is the parcel in our hands.
             if r.act == "Return Requested":
-                if int(r.back_in_house or 0):
+                if back:
                     out = "recovered"
+                # The customer took it after all. Not stock lost, and not the
+                # agent's win either -- it earns nothing, but it must not be
+                # written off as lost goods.
+                elif kind == "delivered" or (r.trk or "") == "Delivered":
+                    out = "delivered_anyway"
                 elif int(r.age_d or 0) >= grace:
                     out = "never_came_back"
                 else:
+                    continue
+                if out == (r.cur or ""):
                     continue
                 frappe.db.set_value("Delivery Note", r.name, {
                     "custom_rescue_outcome": out,
@@ -1419,9 +1450,8 @@ def settle_outcomes(limit=400):
             # posts the event and does not always update the status. The
             # same gap was found on J-003683 in September and fixed for the
             # clock; it was never carried over to here.
-            kind = carrier_events.kind_of(r.last_ev or "")
             after = bool(r.last_ev_at and r.act_at and r.last_ev_at > r.act_at)
-            if r.ret:
+            if r.ret or back:
                 out = "returned"
             elif kind == "delivered" or (r.trk or "") == "Delivered":
                 out = "landed"
@@ -1464,13 +1494,15 @@ def _promise_sla_h():
 def _return_grace_d():
     """How long a requested return may be in transit before we call it lost.
 
-    Fourteen days because the measured curve says so: of the return requests
-    older than ten days, 80% had already reached our dock. Waiting longer
-    than that stops teaching us anything and only delays the write-off; a
-    shorter window would blame the carrier for parcels still legitimately
-    moving. Tunable, because the carrier's speed is not a constant.
+    Thirty days. It was fourteen, from "80% of the requests older than ten
+    days are back" -- but the other 20% were not lost, they were slow:
+    measured 2026-11-06 on the parcels written off, the return reached our
+    dock a median 18 days after the request, p90 26. Fourteen days blamed
+    the carrier for two thirds of its write-offs. Tunable, because the
+    carrier's speed is not a constant -- and the label is revised anyway if
+    the parcel turns up later.
     """
-    return int(_rs_settings().get("returnGraceD", 14))
+    return int(_rs_settings().get("returnGraceD", 30))
 
 
 @frappe.whitelist(methods=["POST"])
