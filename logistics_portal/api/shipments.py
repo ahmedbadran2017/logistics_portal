@@ -1477,16 +1477,17 @@ def team_report(days=7):
     now = clock.floor_now()
     lo, _hi = clock.day_bounds(frappe.utils.add_days(now.date(), -(days - 1)))
     _lo0, hi = clock.day_bounds(now.date())
-    off_min = int(round(clock.offset_hours() * 60))
     sums = ", ".join(f"SUM(content LIKE %({k})s) AS {k}" for k in _DAY_KINDS)
     anyof = " OR ".join(f"content LIKE %({k})s" for k in _DAY_KINDS)
-    params = dict(_DAY_KINDS, lo=lo, hi=hi, off=off_min)
+    params = dict(_DAY_KINDS, lo=lo, hi=hi)
     base = f"""FROM `tabComment`
                WHERE reference_doctype = 'Sales Order' AND comment_type = 'Comment'
                  AND creation >= %(lo)s AND creation < %(hi)s AND ({anyof})"""
     per = frappe.db.sql(f"SELECT owner, {sums} {base} GROUP BY owner", params, as_dict=True)
     daily = frappe.db.sql(
-        f"""SELECT DATE(DATE_SUB(creation, INTERVAL %(off)s MINUTE)) AS d, {sums} {base}
+        # offset_hours() is what to ADD (-2h here); subtracting it pushed every
+        # 22:00-24:00 floor action into the next day's bar.
+        f"""SELECT {clock.sql_local("creation")} AS d, {sums} {base}
             GROUP BY d ORDER BY d""", params, as_dict=True)
     # Outcomes: of the parcels this person decided to save (Redeliver/Reship)
     # or chased, how many the carrier later delivered.
