@@ -2219,7 +2219,9 @@ def my_day(days=1):
 _SETTLED = "Returned (reconciled)"
 
 
-@frappe.whitelist()
+# POST only: with apply=1 it stamps thousands of parcels, and a GET can
+# be fired by a link.
+@frappe.whitelist(methods=["POST"])
 def settled_backlog(apply=0, limit=2000):
     """Parcels still flagged as a carrier problem that physically came back.
 

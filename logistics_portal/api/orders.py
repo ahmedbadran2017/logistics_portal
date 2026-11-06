@@ -2585,7 +2585,8 @@ def _uncoverable(order, rows):
     return out
 
 
-@frappe.whitelist()
+# POST only: it creates and submits a new order.
+@frappe.whitelist(methods=["POST"])
 def reship(order, items=None, free=0, reason=None):
     """Re-enter a failed delivery into the shipping cycle. Creates a NEW Sales
     Order copy (same customer/address/items) that flows through pick → sort →
