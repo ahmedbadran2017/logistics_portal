@@ -1173,7 +1173,10 @@ async function setUrgent(on) {
     if (on) {
       const r = await apiPost("orders.mark_urgent", {
         order: canon.value, reason: urgentReason.value.trim() });
-      if (order.value) order.value.urgentAt = new Date().toISOString();
+      // On liveOrder, not on `order`: that is a computed returning a fresh
+      // object, so writing to it changed nothing and the card kept offering
+      // the button that had just been pressed.
+      if (liveOrder.value) liveOrder.value.urgentAt = new Date().toISOString();
       // Say whether anyone actually heard it. Marking an order urgent used
       // to return a cheerful toast whether or not a single person on the
       // floor would ever see the flag.
@@ -1182,7 +1185,7 @@ async function setUrgent(on) {
         told ? t("od.urgentTold").replace("{n}", String(told)) : t("od.urgentNobody"));
     } else {
       await apiPost("orders.clear_urgent", { order: canon.value });
-      if (order.value) order.value.urgentAt = "";
+      if (liveOrder.value) liveOrder.value.urgentAt = "";
       urgentReason.value = "";
     }
   } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
@@ -1267,6 +1270,7 @@ const order = computed(() => {
     backAt: live.backAt || "",
     urgentAt: live.urgentAt || "",
     urgentBy: live.urgentBy || "",
+    urgentReason: live.urgentReason || "",
     picker: "",
   };
 });
