@@ -245,7 +245,9 @@ def _bonus_settings():
     raw = frappe.db.get_default(_BONUS_KEY)
     out = {"targets": dict(_BONUS_DEFAULTS["targets"]),
            "points": dict(_BONUS_DEFAULTS["points"]),
-           "money": dict(_MONEY_DEFAULTS)}
+           # Deep: the nested perPoint/monthlyCap dicts were the module's own,
+           # so a save that wrote into them changed the defaults of that worker.
+           "money": _json.loads(_json.dumps(_MONEY_DEFAULTS))}
     if raw:
         try:
             saved = _json.loads(raw)
@@ -318,16 +320,25 @@ def reprice_stale_rescue_weights():
 @frappe.whitelist()
 def bonus_settings():
     role = _portal_gate()
-    return {**_bonus_settings(), "canEdit": role == "manager",
+    return {**_bonus_settings(), "canEdit": _scheme_editor(),
             "group": bonus_group_for(role), "groups": list(GROUPS)}
+
+
+# Who may change what the bonus pays. A named list, not the "manager" role:
+# 18 enabled users resolved to manager on 2026-11-06, four of them floor
+# workers whose own pay this scheme sets (Ahmed: "me and Khadija only").
+_SCHEME_EDITORS = {"Administrator", "ahmed@justyol.com", "khadija@justyol.com"}
+
+
+def _scheme_editor(user=None):
+    return (user or frappe.session.user) in _SCHEME_EDITORS
 
 
 @frappe.whitelist(methods=["POST"])
 def save_bonus_settings(settings=None):
     import json as _json
-    from logistics_portal.api.auth import resolve_role
-    if resolve_role(frappe.session.user) != "manager":
-        frappe.throw("Only the portal manager can change the bonus scheme.",
+    if not _scheme_editor():
+        frappe.throw("Only Ahmed and Khadija can change the bonus scheme.",
                      frappe.PermissionError)
     if isinstance(settings, str):
         settings = _json.loads(settings)
@@ -337,8 +348,11 @@ def save_bonus_settings(settings=None):
         for g in GROUPS:
             if g in settings["targets"]:
                 v = int(settings["targets"][g])
-                if not (1 <= v <= 100000):
-                    frappe.throw(f"{g} target must be between 1 and 100000.")
+                # 0 is "no target yet" -- the ship lane's default. Refusing it
+                # made every save of the page fail, since the page posts back
+                # what it was given.
+                if not (0 <= v <= 100000):
+                    frappe.throw(f"{g} target must be between 0 and 100000.")
                 out["targets"][g] = v
     if isinstance(settings.get("points"), dict):
         for k in out["points"]:
@@ -347,7 +361,10 @@ def save_bonus_settings(settings=None):
                 # Only the carrier-written outcome may go negative; a stray
                 # minus on any hand-logged action would quietly teach the
                 # team to stop logging (see the points table).
-                lo = -100 if k == "cf.returned" else 0
+                # rs.failed_again is the other one: it ships at -0.2, and
+                # refusing a minus there failed every save of the page.
+                lo = -100 if (k == "cf.returned"
+                              or float(_BONUS_DEFAULTS["points"].get(k) or 0) < 0) else 0
                 if not (lo <= v <= 100):
                     frappe.throw(f"{k}: points must be between {lo} and 100.")
                 out["points"][k] = v
@@ -1754,14 +1771,16 @@ def speed_dashboard():
         SELECT COUNT(*) FROM `tabSales Order`
         WHERE docstatus = 1 AND company = %s AND custom_sales_status = 'Pending'
           AND {in_hand} AND creation >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-          AND creation < DATE_SUB(NOW(), INTERVAL %s HOUR)
-          AND COALESCE(custom_call_attempts, 0) = 0""", (co, sla_h))[0][0])
+          AND creation < DATE_SUB(%s, INTERVAL %s HOUR)
+          AND COALESCE(custom_call_attempts, 0) = 0""", (co, now_datetime(), sla_h))[0][0])
+    # creation and next_call_at are on the site clock (UTC+3), NOW() is the
+    # DB's UTC: against NOW() "late" read 0 while 40 orders were late.
     fire["dueRetries"] = int(frappe.db.sql(f"""
         SELECT COUNT(*) FROM `tabSales Order` so
         WHERE so.docstatus = 1 AND so.company = %s
           AND so.custom_sales_status IN ('Did not Answer', 'Follow Up', 'On Hold')
           AND {_IN_HAND} AND so.custom_next_call_at IS NOT NULL
-          AND so.custom_next_call_at <= NOW()""", (co,))[0][0])
+          AND so.custom_next_call_at <= %s""", (co, now_datetime()))[0][0])
     # Confirmed orders the warehouse hasn't touched — the silent-death bucket
     # the stranded audit found. 4h grace keeps the fresh flow out.
     fire["stranded"] = int(frappe.db.sql("""
