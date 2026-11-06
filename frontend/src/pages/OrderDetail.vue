@@ -1161,9 +1161,6 @@ const urgentBusy = ref(false);
 // Seeded from the order so reopening the card shows what was said, not a
 // blank box over a live flag.
 const urgentReason = ref("");
-watch(() => order.value?.urgentReason, (v) => {
-  if (v && !urgentReason.value) urgentReason.value = v;
-});
 const backAt = computed(() => order.value?.backAt || "");
 const isUrgent = computed(() => !!order.value?.urgentAt);
 const canUrgent = computed(() =>
@@ -1272,6 +1269,12 @@ const order = computed(() => {
     urgentBy: live.urgentBy || "",
     picker: "",
   };
+});
+
+// Below `order`, not beside urgentReason: read before its declaration the
+// getter threw, Vue swallowed it, and the watch never fired.
+watch(() => order.value?.urgentReason, (v) => {
+  if (v && !urgentReason.value) urgentReason.value = v;
 });
 
 const channelBadge = computed(() => {
