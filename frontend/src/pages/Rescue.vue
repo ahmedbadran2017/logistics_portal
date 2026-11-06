@@ -467,6 +467,11 @@ const verdictF = ref(String(route.query.reason ?? "rescuable"));
 const openChip = computed(() =>
   data.value?.chip || chip.value || (tab.value === "todo" ? "exceptions" : ""));
 const hasVerdict = computed(() => openChip.value === "exceptions" || openChip.value === "failed");
+// The filter the board is loaded under. The heartbeat must send the SAME one:
+// it used to send "" for "rescuable", so it compared the unfiltered depth with
+// the filtered count on the screen, they never matched while any cancelled
+// parcel existed, and an idle Exceptions screen reloaded every 30 seconds.
+const boardReason = computed(() => (hasVerdict.value ? verdictF.value || undefined : undefined));
 // "All" is both sides of the split, not the depth under the current filter.
 const verdictAll = computed(() =>
   (data.value?.counts?.rescuable ?? 0) + (data.value?.counts?.cancelled ?? 0));
@@ -594,7 +599,7 @@ async function load() {
       // confirmation queue and has no business on the tracking portal,
       // whoever is looking at it.
       surface: SURFACE || "",
-      reason: hasVerdict.value ? verdictF.value || undefined : undefined,
+      reason: boardReason.value,
     });
     data.value = res;
     rows.value = res.rows || [];
@@ -637,7 +642,7 @@ async function beat() {
     const r = await api("rescue.pulse", {
       tab: tab.value, chip: chip.value, since: pulseSince, surface: SURFACE || "",
       // the depth is only comparable under the same filter the screen is on
-      reason: verdictF.value === "rescuable" ? "" : verdictF.value });
+      reason: boardReason.value });
     pulseSince = r.now || pulseSince;
     // Compare against the PILE the screen is showing, not the question it
     // sits under — a tab is a sum of chips and never a depth of its own.
