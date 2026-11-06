@@ -388,10 +388,19 @@ async function doReship(e) {
   try {
     const res = await apiPost("orders.reship", { order: e.order });
     // Recorded as a Reship naming the new order, so the lane watches the
-    // parcel it sent -- not the old one on its way home.
-    await apiPost("shipping.handle_exception", { dn: e.dn, action: "Reship",
-      note: res.order || "" }).catch(() => {});
+    // parcel it sent -- not the old one on its way home. The new order
+    // already exists by now, so a failure here must be SAID: swallowed, the
+    // row vanished with a success toast and came back untriaged, inviting
+    // a second reship.
+    try {
+      await apiPost("shipping.handle_exception", { dn: e.dn, action: "Reship",
+        note: res.order || "" });
+    } catch (err) {
+      warn(t("exc.triageFail"), `${e.order} → ${res.order} · ${String(err.message || err)}`);
+      return;
+    }
     rows.value = rows.value.filter((x) => x.id !== e.id);
+    total.value = Math.max(0, total.value - 1);
     success(t("exc.reshipped"), `${e.order} → ${res.order}`);
   } catch (err) {
     warn(t("exc.reshipFail"), String(err.message || err));
