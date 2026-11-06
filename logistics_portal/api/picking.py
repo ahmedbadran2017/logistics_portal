@@ -4101,6 +4101,17 @@ def _short_gate(pick_list):
         frappe.throw("This pick list is already submitted.")
 
 
+def _row_item_code(rows, code):
+    """The item code of the row a scanned/typed code names: the item code
+    itself, or the SKU (custom_sku) of one of these rows' items."""
+    code = (code or "").strip()
+    if not code or any(r.item_code == code for r in rows):
+        return code or None
+    hit = frappe.db.get_value(
+        "Item", {"name": ("in", list({r.item_code for r in rows})), "custom_sku": code}, "name")
+    return hit or code
+
+
 @frappe.whitelist()
 def report_short_pick(pick_list, order, item_code=None, defer=0):
     """The picker can't find an item on the shelf. Chosen ops flow: pull that
@@ -4123,6 +4134,12 @@ def report_short_pick(pick_list, order, item_code=None, defer=0):
     rows = [r for r in (pl.get("locations") or []) if r.sales_order == so_name]
     if not rows:
         frappe.throw("That order isn't on this pick list.")
+    # Pick Lists' stop removal sent the SKU on the label (custom_sku), not the
+    # item code: the shelf mark below then matched no row and was never set,
+    # and the comment carried a code the Short picks radar could not find
+    # (PL-57055/57058/57059, 2026-11-05: "Unknown item." on Not there, and
+    # "No stock in any bin" for items that had stock).
+    item_code = _row_item_code(rows, item_code)
 
     # An order never ships incomplete, so it leaves the list whole — and so do
     # the pieces already picked for it. Letting it go while they sit in the

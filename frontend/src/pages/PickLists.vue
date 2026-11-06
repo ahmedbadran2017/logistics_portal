@@ -993,7 +993,9 @@ async function removeStop(s, orders, pl, defer) {
   for (const so of orders) {
     try {
       await apiPost("picking.report_short_pick", {
-        pick_list: pl, order: so, item_code: s.realSku || s.sku, defer,
+        // The item code, not the SKU printed on the label: the server keys the
+        // shelf mark and the Short picks radar on it.
+        pick_list: pl, order: so, item_code: s.sku, defer,
       });
       n += 1;
     } catch (e) { /* keep going; the rest of the stop still needs clearing */ }
