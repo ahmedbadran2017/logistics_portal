@@ -507,11 +507,14 @@ def _untriaged_cond():
     have stayed 'handled' for good. But only a FAILURE re-opens it; the
     carrier agreeing with us is not news worth an agent's attention."""
     fail_at = _fail_event_at_sql()
-    # Reship joins Redeliver here now that it is a word of its own — before
-    # this it WAS "Redeliver" on the parcel and inherited the rule by
-    # accident. Naming it properly would have quietly dropped it out.
+    # Redeliver only. A Reship sends a NEW parcel on a new order; the old
+    # one is on its way home, and the carrier failing to hand it to the
+    # customer on that trip is expected, not a broken promise. Re-opening it
+    # invited a Redeliver of the old parcel while the new one was already on
+    # the road -- two parcels to one customer. If the new parcel fails, it
+    # comes to the queue on its own, as its own parcel.
     return ("(COALESCE(dn.custom_exception_action,'') = '' OR "
-            "(dn.custom_exception_action IN ('Redeliver', 'Reship') "
+            "(dn.custom_exception_action = 'Redeliver' "
             "AND dn.custom_exception_actioned_at IS NOT NULL "
             f"AND {fail_at} > dn.custom_exception_actioned_at))")
 
@@ -1395,6 +1398,13 @@ def settle_outcomes(limit=400):
                                WHERE rdn.is_return = 1 AND rdn.docstatus = 1
                                  AND rdn.return_against = dn.name) AS ret_dn,
                        dn.custom_exception_action act,
+                       CASE WHEN dn.custom_exception_action = 'Reship' THEN
+                         (SELECT c.content FROM `tabComment` c
+                           WHERE c.reference_doctype = 'Sales Order'
+                             AND c.reference_name = so.name
+                             AND c.comment_type = 'Comment'
+                             AND c.content LIKE 'Rescue: reship%%'
+                           ORDER BY c.creation DESC LIMIT 1) END AS reship_tag,
                        {_fail_event_at_sql()} fail_at,
                        {_last_event_sql("content")} last_ev,
                        {_last_event_sql("creation")} last_ev_at,
@@ -1448,6 +1458,18 @@ def settle_outcomes(limit=400):
                     "custom_rescue_outcome_at": now}, update_modified=False)
                 done += 1
                 continue
+            # A Reship is judged on the parcel it SENT. The old one coming
+            # home is the plan, so reading it stamped "failed_again" (and
+            # charged the agent) on the expected return trip, and a reship
+            # could never land.
+            if r.act == "Reship":
+                out = _reship_outcome(_reship_target(r.reship_tag), r.act_at)
+                if out:
+                    frappe.db.set_value("Delivery Note", r.name, {
+                        "custom_rescue_outcome": out,
+                        "custom_rescue_outcome_at": now}, update_modified=False)
+                    done += 1
+                continue
             # A parcel physically back in the building is settled whatever
             # the tracker says — the return note is the harder evidence.
             #
@@ -1493,6 +1515,56 @@ def settle_outcomes(limit=400):
         return {"settled": done, "scanned": len(rows)}
     except Exception:
         frappe.log_error(frappe.get_traceback()[:2000], "rescue.settle_outcomes")
+
+
+def _reship_target(tag):
+    """The order a 'Rescue: reship → <order> …' tag sent."""
+    tail = (tag or "").split("\u2192", 1)
+    if len(tail) < 2:
+        return ""
+    return (tail[1].strip().split(" ", 1)[0] or "").strip()
+
+
+def _reship_outcome(order, act_at):
+    """How the replacement parcel ended, in the same words as a promise.
+
+    Blank while it has not ended -- including before it has a parcel at all.
+    """
+    if not order or not frappe.db.exists("Sales Order", order):
+        return ""
+    so = frappe.db.get_value("Sales Order", order,
+                             ["docstatus", "custom_sales_status"], as_dict=True)
+    dns = frappe.db.sql(
+        """SELECT dn.name, dn.custom_track_shipment_status trk,
+                  EXISTS (SELECT 1 FROM `tabDelivery Note` r
+                          WHERE r.is_return = 1 AND r.docstatus = 1
+                            AND r.return_against = dn.name) ret
+           FROM `tabDelivery Note` dn
+           JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
+           WHERE dn.docstatus = 1 AND dn.is_return = 0
+             AND dni.against_sales_order = %s
+           GROUP BY dn.name""", (order,), as_dict=True)
+    if not dns:
+        if so and (int(so.docstatus or 0) == 2
+                   or (so.custom_sales_status or "") == "Cancelled"):
+            return "cancelled"
+        return ""
+    events = frappe.db.sql(
+        """SELECT c.content, c.creation FROM `tabComment` c
+           WHERE c.reference_doctype = 'Sales Order' AND c.reference_name = %s
+             AND c.comment_type = 'Comment' AND c.creation > %s
+           ORDER BY c.creation""", (order, act_at), as_dict=True)
+    kinds = [carrier_events.kind_of(e.content) for e in events]
+    if any(d.trk == "Delivered" for d in dns) or "delivered" in kinds:
+        return "landed"
+    if any(int(d.ret or 0) for d in dns) or frappe.db.sql(
+            f"SELECT {_back_in_house('%s')}", (order,))[0][0]:
+        return "returned"
+    if "cancelled" in kinds:
+        return "cancelled"
+    if any(k in carrier_events.BROKE_THE_PROMISE for k in kinds):
+        return "failed_again"
+    return ""
 
 
 def _promise_sla_h():

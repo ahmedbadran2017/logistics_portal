@@ -989,27 +989,37 @@ def _ship_board(month, pts):
     # redeliver or reship and comes before the next decision on that order.
     # Charged to whoever made the decision it broke — once per order, the
     # same one-per-parcel rule every other column follows.
+    #
+    # A reship is watched on the order it SENT ("Rescue: reship → <order>"),
+    # not on the original: the old parcel failing on its expected way home
+    # charged the agent -0.2 for a promise nobody had made about it.
     breaks = frappe.db.sql(
-        """SELECT DISTINCT SUBSTRING_INDEX(r.content, '\u00b7 by ', -1) u, r.reference_name so
-           FROM `tabComment` r
-           WHERE r.reference_doctype = 'Sales Order' AND r.comment_type = 'Comment'
-             AND (r.content LIKE 'Rescue: redeliver%%' OR r.content LIKE 'Rescue: reship%%')
-             AND r.creation >= %(start)s
-             AND r.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
-             AND EXISTS (
+        """SELECT DISTINCT r.u, r.so
+           FROM (SELECT SUBSTRING_INDEX(c.content, '\u00b7 by ', -1) u,
+                        c.reference_name so, c.creation t,
+                        CASE WHEN c.content LIKE 'Rescue: reship%%'
+                             THEN TRIM(SUBSTRING_INDEX(TRIM(SUBSTRING_INDEX(
+                                  c.content, '\u2192', -1)), ' ', 1))
+                             ELSE c.reference_name END tgt
+                   FROM `tabComment` c
+                  WHERE c.reference_doctype = 'Sales Order' AND c.comment_type = 'Comment'
+                    AND (c.content LIKE 'Rescue: redeliver%%' OR c.content LIKE 'Rescue: reship%%')
+                    AND c.creation >= %(start)s
+                    AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)) r
+           WHERE EXISTS (
                SELECT 1 FROM `tabComment` f
                 WHERE f.reference_doctype = 'Sales Order'
-                  AND f.reference_name = r.reference_name
+                  AND f.reference_name = r.tgt
                   AND f.comment_type = 'Comment'
                   AND f.content LIKE 'Customer unreachable%%'
-                  AND f.creation > r.creation
+                  AND f.creation > r.t
                   AND NOT EXISTS (
                     SELECT 1 FROM `tabComment` n
                      WHERE n.reference_doctype = 'Sales Order'
-                       AND n.reference_name = r.reference_name
+                       AND n.reference_name = r.tgt
                        AND n.comment_type = 'Comment'
                        AND n.content LIKE 'Rescue:%%'
-                       AND n.creation > r.creation AND n.creation < f.creation))""",
+                       AND n.creation > r.t AND n.creation < f.creation))""",
         args, as_dict=True)
 
     # Only this lane's people. Without the test the board fills with whoever
