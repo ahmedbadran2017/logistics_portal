@@ -1962,12 +1962,25 @@ def _claim_vals(vals):
     return vals
 
 
-def _holder(dn):
-    """(who, since) — empty when nobody holds it or the claim went stale."""
+def _holder(dn, for_update=False):
+    """(who, since) — empty when nobody holds it or the claim went stale.
+
+    for_update reads the latest COMMITTED row and locks it. A plain read
+    answers from the transaction's snapshot, which under REPEATABLE READ was
+    taken by the first query of the request (the role check, the parcel
+    check) -- before the named lock was even requested. The second of two
+    agents pressing Take together waited on the lock and then read that old
+    snapshot: no holder, and both were told the parcel was theirs."""
     if not _has_claim_fields():
         return ("", "")
-    row = frappe.db.get_value("Delivery Note", dn,
-                              ["custom_rescue_by", "custom_rescue_at"], as_dict=True)
+    if for_update:
+        rows = frappe.db.sql(
+            """SELECT custom_rescue_by, custom_rescue_at FROM `tabDelivery Note`
+               WHERE name = %s FOR UPDATE""", (dn,), as_dict=True)
+        row = rows[0] if rows else None
+    else:
+        row = frappe.db.get_value("Delivery Note", dn,
+                                  ["custom_rescue_by", "custom_rescue_at"], as_dict=True)
     if not row or not row.custom_rescue_by:
         return ("", "")
     if str(row.custom_rescue_at or "")[:19] < _claim_cutoff():
@@ -2009,7 +2022,7 @@ def claim(dn):
         return {"ok": False, "reason": "no_fields"}
     from logistics_portal.api.locks import named_lock
     with named_lock(f"rescue_claim_{dn}"):
-        who, since = _holder(dn)
+        who, since = _holder(dn, for_update=True)
         me = frappe.session.user
         if who and who != me:
             return {"ok": False, "reason": "taken", "by": who, "at": since}
