@@ -1469,21 +1469,38 @@ def settle_outcomes(limit=400):
                                                      'Follow Up', 'Return Requested')
                   AND dn.custom_exception_actioned_at IS NOT NULL
                   AND __PILE__
+                  AND (dn.custom_exception_actioned_at, dn.name) > (%(ka)s, %(kn)s)
                 GROUP BY dn.name
-                ORDER BY dn.custom_exception_actioned_at
+                ORDER BY dn.custom_exception_actioned_at, dn.name
                 LIMIT __LIMIT__"""
-        args = {"co": _CO, "snow": _site_now()}
+        # Every pending row, a page at a time -- not the oldest `limit`. Open
+        # promises, reships in transit and returns inside their grace cannot
+        # end yet, and they are the OLDEST rows, so a single capped page was
+        # mostly them: measured 2026-11-06, 297 of the first 400 could not
+        # settle while 106 that could sat beyond the cap, and the lost-parcel
+        # pile (capped at 200) would stop re-checking its newest write-offs.
+        import time
+        stop_at = time.monotonic() + 150
+        page = max(int(limit or 400), 50)
         rows = []
-        for pile, cap in (("COALESCE(dn.custom_rescue_outcome,'') = ''", int(limit)),
-                          ("dn.custom_rescue_outcome = 'never_came_back'", 200)):
-            rows += frappe.db.sql(sql.replace("__PILE__", pile)
-                                  .replace("__LIMIT__", str(cap)), args, as_dict=True)
+        for pile in ("COALESCE(dn.custom_rescue_outcome,'') = ''",
+                     "dn.custom_rescue_outcome = 'never_came_back'"):
+            q = sql.replace("__PILE__", pile).replace("__LIMIT__", str(page))
+            ka, kn = "1900-01-01", ""
+            while time.monotonic() < stop_at:
+                got = frappe.db.sql(q, {"co": _CO, "snow": _site_now(),
+                                        "ka": ka, "kn": kn}, as_dict=True)
+                rows += got
+                if len(got) < page:
+                    break
+                ka, kn = got[-1].act_at, got[-1].name
         now = now_datetime()
         done = 0
         grace = _return_grace_d()
         for r in rows:
             kind = carrier_events.kind_of(r.last_ev or "")
             back = int(r.back_in_house or 0) or int(r.ret_dn or 0)
+            after = bool(r.last_ev_at and r.act_at and r.last_ev_at > r.act_at)
             # A return we ASKED for ends at our own dock, not at the carrier's
             # status, which never says "returned" at all. The dock has two
             # witnesses, the receiving scan and the return note, and either
@@ -1494,7 +1511,11 @@ def settle_outcomes(limit=400):
                 # The customer took it after all. Not stock lost, and not the
                 # agent's win either -- it earns nothing, but it must not be
                 # written off as lost goods.
-                elif kind == "delivered" or (r.trk or "") == "Delivered":
+                # Only a delivery AFTER the request: 3 parcels had been
+                # delivered before anyone asked for them back, and the stamp
+                # is final -- the dock receiving them later could not undo it.
+                elif ((kind == "delivered" and after)
+                      or ((r.trk or "") == "Delivered" and kind != "delivered")):
                     out = "delivered_anyway"
                 elif int(r.age_d or 0) >= grace:
                     out = "never_came_back"
@@ -1529,7 +1550,6 @@ def settle_outcomes(limit=400):
             # posts the event and does not always update the status. The
             # same gap was found on J-003683 in September and fixed for the
             # clock; it was never carried over to here.
-            after = bool(r.last_ev_at and r.act_at and r.last_ev_at > r.act_at)
             if r.ret or back:
                 out = "returned"
             elif kind == "delivered" or (r.trk or "") == "Delivered":

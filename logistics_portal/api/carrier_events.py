@@ -26,7 +26,10 @@ EVENT_KINDS = (
     ("appointment", ("The driver",)),
     ("ofd", ("Out for",)),
     ("hub", ("The parcel", "Shipped to")),
-    ("delivered", ("Package",)),
+    # "Package" alone also caught "Package returned" (3 times since June)
+    # and called a parcel on its way back to us delivered.
+    ("returned", ("Package returned",)),
+    ("delivered", ("Package Delivered",)),
     ("label", ("Newly created",)),
 )
 
