@@ -1430,6 +1430,9 @@ def settle_outcomes(limit=400):
         # parcel on the site, so "returned" was never stamped from it: 91
         # promises older than two weeks had a submitted return note and no
         # ending, and sat at the head of this queue for good.
+        # reship_tag reads the parcel first -- act() and the Exceptions page
+        # both write the tag there -- then the order. One OR across the two
+        # documents cost ~12 s a row on prod: no index fits that shape.
         sql = f"""SELECT dn.name, dn.custom_track_shipment_status trk,
                        dn.custom_return_shipment ret,
                        dn.custom_rescue_outcome cur,
@@ -1438,14 +1441,19 @@ def settle_outcomes(limit=400):
                                  AND rdn.return_against = dn.name) AS ret_dn,
                        dn.custom_exception_action act,
                        CASE WHEN dn.custom_exception_action = 'Reship' THEN
-                         (SELECT c.content FROM `tabComment` c
-                           WHERE ((c.reference_doctype = 'Sales Order'
-                                   AND c.reference_name = so.name)
-                                  OR (c.reference_doctype = 'Delivery Note'
-                                      AND c.reference_name = dn.name))
-                             AND c.comment_type = 'Comment'
-                             AND c.content LIKE 'Rescue: reship%%'
-                           ORDER BY c.creation DESC LIMIT 1) END AS reship_tag,
+                         COALESCE(
+                           (SELECT c.content FROM `tabComment` c
+                             WHERE c.reference_doctype = 'Delivery Note'
+                               AND c.reference_name = dn.name
+                               AND c.comment_type = 'Comment'
+                               AND c.content LIKE 'Rescue: reship%%'
+                             ORDER BY c.creation DESC LIMIT 1),
+                           (SELECT c.content FROM `tabComment` c
+                             WHERE c.reference_doctype = 'Sales Order'
+                               AND c.reference_name = so.name
+                               AND c.comment_type = 'Comment'
+                               AND c.content LIKE 'Rescue: reship%%'
+                             ORDER BY c.creation DESC LIMIT 1)) END AS reship_tag,
                        {_fail_event_at_sql()} fail_at,
                        {_last_event_sql("content")} last_ev,
                        {_last_event_sql("creation")} last_ev_at,
@@ -1570,11 +1578,19 @@ def _reship_outcome(order, act_at):
     """How the replacement parcel ended, in the same words as a promise.
 
     Blank while it has not ended -- including before it has a parcel at all.
+
+    The ORDER's own tracking column and carrier events count, not only its
+    Delivery Notes: 9 of the first 16 replacement orders shipped with no
+    Delivery Note at all (see orders-without-delivery-notes), and reading
+    DNs only left a delivered one open for good and called carrier failures
+    "cancelled" because the order was cancelled afterwards.
     """
     if not order or not frappe.db.exists("Sales Order", order):
         return ""
     so = frappe.db.get_value("Sales Order", order,
-                             ["docstatus", "custom_sales_status"], as_dict=True)
+                             ["docstatus", "custom_sales_status",
+                              "custom_track_shipment_status"], as_dict=True) or {}
+    so_trk = so.get("custom_track_shipment_status") or ""
     dns = frappe.db.sql(
         """SELECT dn.name, dn.custom_track_shipment_status trk,
                   EXISTS (SELECT 1 FROM `tabDelivery Note` r
@@ -1585,26 +1601,30 @@ def _reship_outcome(order, act_at):
            WHERE dn.docstatus = 1 AND dn.is_return = 0
              AND dni.against_sales_order = %s
            GROUP BY dn.name""", (order,), as_dict=True)
-    if not dns:
-        if so and (int(so.docstatus or 0) == 2
-                   or (so.custom_sales_status or "") == "Cancelled"):
-            return "cancelled"
-        return ""
     events = frappe.db.sql(
         """SELECT c.content, c.creation FROM `tabComment` c
            WHERE c.reference_doctype = 'Sales Order' AND c.reference_name = %s
              AND c.comment_type = 'Comment' AND c.creation > %s
            ORDER BY c.creation""", (order, act_at), as_dict=True)
     kinds = [carrier_events.kind_of(e.content) for e in events]
-    if any(d.trk == "Delivered" for d in dns) or "delivered" in kinds:
+    if (any(d.trk == "Delivered" for d in dns) or so_trk == "Delivered"
+            or "delivered" in kinds):
         return "landed"
-    if any(int(d.ret or 0) for d in dns) or frappe.db.sql(
-            f"SELECT {_back_in_house('%s')}", (order,))[0][0]:
+    if (any(int(d.ret or 0) for d in dns) or so_trk in ("Return", "Returned")
+            or frappe.db.sql(f"SELECT {_back_in_house('%s')}", (order,))[0][0]):
         return "returned"
-    if "cancelled" in kinds:
+    # The carrier's LAST word between the two: a customer who cancelled at
+    # the door after a failed try ended it; a failure with no cancellation
+    # after it broke the promise.
+    last = next((k for k in reversed(kinds)
+                 if k == "cancelled" or k in carrier_events.BROKE_THE_PROMISE), "")
+    if last == "cancelled":
         return "cancelled"
-    if any(k in carrier_events.BROKE_THE_PROMISE for k in kinds):
+    if last:
         return "failed_again"
+    # Never reached the carrier and the order is dead: nothing was sent.
+    if int(so.get("docstatus") or 0) == 2 or (so.get("custom_sales_status") or "") == "Cancelled":
+        return "cancelled"
     return ""
 
 
