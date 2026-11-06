@@ -1439,8 +1439,10 @@ def settle_outcomes(limit=400):
                        dn.custom_exception_action act,
                        CASE WHEN dn.custom_exception_action = 'Reship' THEN
                          (SELECT c.content FROM `tabComment` c
-                           WHERE c.reference_doctype = 'Sales Order'
-                             AND c.reference_name = so.name
+                           WHERE ((c.reference_doctype = 'Sales Order'
+                                   AND c.reference_name = so.name)
+                                  OR (c.reference_doctype = 'Delivery Note'
+                                      AND c.reference_name = dn.name))
                              AND c.comment_type = 'Comment'
                              AND c.content LIKE 'Rescue: reship%%'
                            ORDER BY c.creation DESC LIMIT 1) END AS reship_tag,

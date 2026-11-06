@@ -1444,28 +1444,63 @@ def mark_labels_printed(orders):
     return {"printed": done}
 
 
+# The Exceptions page and the tracking lane decide the same parcels. This
+# page used to write its own trail ("Exception triage: ..."), stamp a reship
+# as Redeliver, keep the old outcome and accept a parcel that had already
+# ended -- so the lane's settle, watch and history read it wrong. It now
+# records a decision exactly the way rescue.act does. The order-side
+# "Rescue:" comment stays the lane's own: that trail is what the ship board
+# pays on, and this page belongs to other roles.
+_EXC_ACTIONS = ("Redeliver", "Reship", "Return Requested", "Resolved")
+_EXC_VERB = {"Redeliver": "redeliver", "Reship": "reship",
+             "Return Requested": "returnreq", "Resolved": "resolve"}
+
+
+def _record_exception(dn, action, note=None, now=None):
+    from logistics_portal.api.rescue import _ENDED, _bust, _log
+    if not frappe.db.exists("Delivery Note", dn):
+        frappe.throw("Unknown parcel.")
+    meta = frappe.get_meta("Delivery Note")
+    if meta.has_field("custom_rescue_outcome"):
+        ended = frappe.db.get_value("Delivery Note", dn, "custom_rescue_outcome") or ""
+        if ended in _ENDED:
+            frappe.throw(f"This parcel already ended ({ended}). Nothing left to decide.")
+    now = now or frappe.utils.now_datetime()
+    vals = {"custom_exception_action": action, "custom_exception_actioned_at": now}
+    if meta.has_field("custom_rescue_outcome"):
+        vals.update({"custom_rescue_outcome": "", "custom_rescue_outcome_at": None})
+    frappe.db.set_value("Delivery Note", dn, vals, update_modified=False)
+    verb = _EXC_VERB[action]
+    if action == "Reship" and note:
+        head = f"Rescue: reship \u2192 {note}"
+    else:
+        head = f"Rescue: {verb}" + (f" \u2014 {note}" if note else "")
+    frappe.get_doc("Delivery Note", dn).add_comment(
+        "Comment", f"{head} \u00b7 by {frappe.session.user}")
+    order = frappe.db.sql("""SELECT MIN(against_sales_order) FROM `tabDelivery Note Item`
+                             WHERE parent = %s""", (dn,))[0][0] or ""
+    # A decided parcel is nobody's callback any more, same as in the lane.
+    if order:
+        frappe.db.set_value("Sales Order", order, "custom_next_call_at", None,
+                            update_modified=False)
+    _log(dn, order, "decision", verb + (f" \u2014 {note}" if note else ""))
+    _bust()
+    return order
+
+
 @frappe.whitelist()
 def handle_exception(dn, action, note=None):
     """Record the triage decision for a failed parcel. No carrier API exists
-    for redelivery, so this is a DECISION LOG — but it turns the anonymous
-    exceptions pile into a worked queue: who decided what, when, visible in
-    the 'handled' tab and on the document trail. Dispatcher/returns/manager."""
+    for redelivery, so this is a DECISION LOG -- the same one the tracking
+    lane keeps. For Reship, `note` is the new order. Dispatcher/returns/manager."""
     from logistics_portal.api.auth import resolve_role
     if resolve_role(frappe.session.user) not in ("dispatcher", "returns", "manager"):
         frappe.throw("Not authorized to triage exceptions.", frappe.PermissionError)
-    if action not in ("Redeliver", "Return Requested", "Resolved"):
+    if action not in _EXC_ACTIONS:
         frappe.throw("Invalid action.")
-    if not frappe.db.exists("Delivery Note", dn):
-        frappe.throw("Unknown parcel.")
     if not frappe.get_meta("Delivery Note").has_field("custom_exception_action"):
-        frappe.throw("Exception fields not installed yet — run migrate.")
-    doc = frappe.get_doc("Delivery Note", dn)
-    doc.db_set("custom_exception_action", action, update_modified=False)
-    doc.db_set("custom_exception_actioned_at", frappe.utils.now_datetime(),
-               update_modified=False)
-    doc.add_comment("Comment",
-                    f"Exception triage: {action} by {frappe.session.user}."
-                    + (f" Note: {note}" if note else ""))
+        frappe.throw("Exception fields not installed yet \u2014 run migrate.")
+    _record_exception(dn, action, (note or "").strip())
     frappe.db.commit()
     return {"ok": True, "dn": dn, "action": action}
 
@@ -1612,14 +1647,7 @@ def bulk_exceptions(action, dns=None, note=None):
     now = frappe.utils.now_datetime()
     for dn in dns:
         try:
-            if not frappe.db.exists("Delivery Note", dn):
-                raise frappe.ValidationError("unknown parcel")
-            doc = frappe.get_doc("Delivery Note", dn)
-            doc.db_set("custom_exception_action", action, update_modified=False)
-            doc.db_set("custom_exception_actioned_at", now, update_modified=False)
-            doc.add_comment("Comment",
-                            f"Exception triage (bulk): {action} by {frappe.session.user}."
-                            + (f" Note: {note}" if note else ""))
+            _record_exception(dn, action, (note or "").strip(), now)
             done += 1
             if done % 50 == 0:
                 frappe.db.commit()

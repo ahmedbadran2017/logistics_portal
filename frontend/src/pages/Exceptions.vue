@@ -387,8 +387,10 @@ async function doReship(e) {
   busy.value = e.id;
   try {
     const res = await apiPost("orders.reship", { order: e.order });
-    await apiPost("shipping.handle_exception", { dn: e.dn, action: "Redeliver",
-      note: `Reshipped as ${res.order}` }).catch(() => {});
+    // Recorded as a Reship naming the new order, so the lane watches the
+    // parcel it sent -- not the old one on its way home.
+    await apiPost("shipping.handle_exception", { dn: e.dn, action: "Reship",
+      note: res.order || "" }).catch(() => {});
     rows.value = rows.value.filter((x) => x.id !== e.id);
     success(t("exc.reshipped"), `${e.order} → ${res.order}`);
   } catch (err) {
