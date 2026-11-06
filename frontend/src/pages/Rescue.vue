@@ -71,7 +71,7 @@
     <div v-if="chipsFor.length > 1" class="flex items-center gap-1.5 flex-wrap mb-3">
       <button v-for="c in chipsFor" :key="c"
               class="h-8 px-3 rounded-full text-[12px] font-semibold ring-1 transition-all"
-              :class="chip === c ? 'text-white bg-stone-800 ring-stone-800'
+              :class="openChip === c ? 'text-white bg-stone-800 ring-stone-800'
                                  : 'text-stone-600 bg-white ring-stone-200 hover:bg-stone-50'"
               :title="t('rs.chipWhy_' + c, '')"
               @click="goChip(c)">
@@ -173,7 +173,7 @@
               <span v-if="r.waitUntil" class="inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5 ring-1 text-sky-700 bg-sky-50 ring-sky-200"
                     :title="t('rs.waitHint')" dir="ltr"><Icon name="hourglass" :size="10" />{{ local(r.waitUntil).slice(5, 10) }}</span>
               <span class="ms-auto inline-flex items-center gap-1 text-[11.5px] font-semibold tabular-nums rounded-full px-2 py-0.5"
-                    :class="r.slaBreached && tab !== 'backlog' ? 'text-rose-700 bg-rose-50 ring-1 ring-rose-200' : 'text-stone-500 bg-stone-100'"
+                    :class="r.slaBreached && openChip !== 'backlog' ? 'text-rose-700 bg-rose-50 ring-1 ring-rose-200' : 'text-stone-500 bg-stone-100'"
                     :title="r.slaBreached ? t('rs.slaLate') : ''" dir="ltr"><Icon name="clock" :size="11" />{{ r.ageD }}{{ t('cf.days') }}</span>
             </div>
             <div class="flex items-center gap-2.5 text-[11.5px] text-stone-500 tabular-nums mt-1 flex-wrap">
@@ -480,7 +480,11 @@ const boardReason = computed(() => (hasVerdict.value ? verdictF.value || undefin
 // "All" is both sides of the split, not the depth under the current filter.
 const verdictAll = computed(() =>
   (data.value?.counts?.rescuable ?? 0) + (data.value?.counts?.cancelled ?? 0));
-const canBulk = computed(() => tab.value === "backlog" || (hasVerdict.value && verdictF.value === "cancelled"));
+// The pile, not the question: since the 3-tab split `tab` is never
+// "backlog" or "mine", so these tests were always false -- no bulk on the
+// backlog, no chip lit on a tab's default pile, and decided rows were taken
+// off a "todo" count that does not exist instead of their own chip's.
+const canBulk = computed(() => openChip.value === "backlog" || (hasVerdict.value && verdictF.value === "cancelled"));
 const VERDICT_CLS = {
   cancelled: "text-rose-700 bg-rose-50 ring-rose-200", unreachable: "text-amber-700 bg-amber-50 ring-amber-200",
   appointment: "text-emerald-700 bg-emerald-50 ring-emerald-200", moving: "text-sky-700 bg-sky-50 ring-sky-200",
@@ -695,7 +699,7 @@ async function take(r) {
       warn(t("rs.takenBy").replace("{who}", (res.by || "").split("@")[0]), r.order || r.dn);
       return;
     }
-    if (tab.value === "mine") { r.heldBy = t("rs.heldMine"); r.heldMine = true; }
+    if (openChip.value === "mine") { r.heldBy = t("rs.heldMine"); r.heldMine = true; }
     else dropRow(r);
     success(t("rs.tookIt"), r.order || r.dn);
   } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
@@ -706,7 +710,7 @@ async function drop(r) {
   busy.value = r.id;
   try {
     await apiPost("rescue.release", { dn: r.dn || r.id });
-    if (tab.value === "mine") dropRow(r);
+    if (openChip.value === "mine") dropRow(r);
     else { r.heldBy = ""; r.heldMine = false; }
     success(t("rs.dropped"), r.order || r.dn);
   } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
@@ -717,7 +721,7 @@ function dropRow(r) {
   rows.value = rows.value.filter((x) => x.id !== r.id);
   total.value = Math.max(0, total.value - 1);
   if (data.value?.counts) {
-    data.value.counts[tab.value] = Math.max(0, (data.value.counts[tab.value] || 1) - 1);
+    data.value.counts[openChip.value] = Math.max(0, (data.value.counts[openChip.value] || 1) - 1);
     data.value.counts.mine = (data.value.counts.mine || 0) + 1;
   }
 }
@@ -756,7 +760,7 @@ async function parkWithCarrier(r, days) {
     const res = await apiPost("rescue.carrier_log", { dn: r.dn || r.id, days });
     if (res.due) { r.waitUntil = res.due; success(t("rs.carrierParked"), local(res.due).slice(5, 10)); }
     desk.value = await api("rescue.timeline", { dn: r.dn || r.id });
-    if (tab.value !== "mine") dropRow(r);
+    if (openChip.value !== "mine") dropRow(r);
   } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
   finally { busy.value = ""; }
 }
@@ -871,7 +875,7 @@ async function act(r, action, note) {
       rows.value = rows.value.filter((x) => x.id !== r.id);
       total.value = Math.max(0, total.value - 1);
       if (data.value?.counts) {
-        data.value.counts[tab.value] = Math.max(0, (data.value.counts[tab.value] || 1) - 1);
+        data.value.counts[openChip.value] = Math.max(0, (data.value.counts[openChip.value] || 1) - 1);
       }
     } else {
       const row = rows.value.find((x) => x.id === r.id);
@@ -909,7 +913,7 @@ async function decideCf(r, action) {
     rows.value = rows.value.filter((x) => x.id !== r.id);
     total.value = Math.max(0, total.value - 1);
     if (data.value?.counts) {
-      data.value.counts[tab.value] = Math.max(0, (data.value.counts[tab.value] || 1) - 1);
+      data.value.counts[openChip.value] = Math.max(0, (data.value.counts[openChip.value] || 1) - 1);
     }
     success(t(`cf.done_${action}`), r.order || r.id);
   } catch (e) {
