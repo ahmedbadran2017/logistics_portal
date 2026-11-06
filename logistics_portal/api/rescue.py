@@ -516,8 +516,12 @@ def _untriaged_cond():
     # invited a Redeliver of the old parcel while the new one was already on
     # the road -- two parcels to one customer. If the new parcel fails, it
     # comes to the queue on its own, as its own parcel.
+    #
+    # A Follow Up the carrier then fails is the same broken promise: settle
+    # stamped it failed_again, which took it off the Follow Up chip, and
+    # nothing reopened it -- it sat in Done while the customer waited.
     return ("(COALESCE(dn.custom_exception_action,'') = '' OR "
-            "(dn.custom_exception_action = 'Redeliver' "
+            "(dn.custom_exception_action IN ('Redeliver', 'Follow Up') "
             "AND dn.custom_exception_actioned_at IS NOT NULL "
             f"AND {fail_at} > dn.custom_exception_actioned_at))")
 
