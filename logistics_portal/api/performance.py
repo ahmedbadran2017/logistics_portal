@@ -550,8 +550,12 @@ def me(user=None):
     try:
         from logistics_portal.api.contact_center import (bonus_group_for,
                                                          bonus_points_for)
-        data["points"] = bonus_points_for(target_user, bonus_group_for(role),
-                                          nowdate()[:7])
+        # Someone else's points are their pay: only Ahmed and Khadija see
+        # them, the same fence as the Bonus page.
+        from logistics_portal.api.contact_center import _scheme_editor
+        data["points"] = (bonus_points_for(target_user, bonus_group_for(role),
+                                           nowdate()[:7])
+                          if target_user == me_user or _scheme_editor() else None)
     except Exception:
         data["points"] = None
 

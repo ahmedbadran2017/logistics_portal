@@ -435,16 +435,10 @@ _APPROVERS = {"Administrator", "ahmed@justyol.com", "khadija@justyol.com"}
 
 
 def _approver(user=None):
-    """Ahmed, plus anyone listed in the `lp_bonus_approvers` default (JSON)."""
-    import json as _json
-    u = user or frappe.session.user
-    if u in _APPROVERS:
-        return True
-    try:
-        extra = _json.loads(frappe.db.get_default("lp_bonus_approvers") or "[]")
-    except Exception:
-        extra = []
-    return isinstance(extra, list) and u in extra
+    """Ahmed and Khadija, nobody else (Ahmed, 2026-11-06: "lock it to me and
+    Khadija, block anyone else"). The `lp_bonus_approvers` default that could
+    extend this was empty on prod and is no longer read."""
+    return (user or frappe.session.user) in _APPROVERS
 
 
 def _approval(group, month):
@@ -1464,7 +1458,11 @@ def bonus(month=None, group=None):
     # sees their own row — the portal "manager" role is held on the floor
     # itself (Ossama, Reda, Lamdani, Anass Karrassi) and must not open
     # colleagues' amounts.
-    scoped = (not _is_any_cc_admin()) or (group in _NEEDS_APPROVAL and not _approver())
+    #
+    # Colleagues' points and pay are Ahmed's and Khadija's to see, on every
+    # board (Ahmed, 2026-11-06). Section admins and the manager role saw
+    # them: 18 users resolved to manager, four of them floor workers.
+    scoped = not _scheme_editor()
     if scoped:
         agents = [a for a in agents if a["user"] == frappe.session.user]
         # The team payout pool ÷ team size = everyone's average pay — a
@@ -1862,7 +1860,7 @@ def bonus_breakdown(user=None, month=None, group="cc"):
     role = _portal_gate()
     me = frappe.session.user
     user = (user or "").strip() or me
-    if user != me and not _is_any_cc_admin():
+    if user != me and not _scheme_editor():
         frappe.throw("You can only see your own breakdown.",
                      frappe.PermissionError)
     month = (month or "").strip()
