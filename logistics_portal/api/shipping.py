@@ -1469,6 +1469,11 @@ def _record_exception(dn, action, note=None, now=None):
     vals = {"custom_exception_action": action, "custom_exception_actioned_at": now}
     if meta.has_field("custom_rescue_outcome"):
         vals.update({"custom_rescue_outcome": "", "custom_rescue_outcome_at": None})
+    # A decision ends the holding, as in act(): Mine does not filter decided
+    # parcels, so a held one stayed in its agent's Mine for claimHours.
+    if meta.has_field("custom_rescue_by"):
+        vals.update({"custom_rescue_by": "", "custom_rescue_at": None,
+                     "custom_rescue_wait_until": None})
     frappe.db.set_value("Delivery Note", dn, vals, update_modified=False)
     verb = _EXC_VERB[action]
     if action == "Reship" and note:
@@ -1647,12 +1652,15 @@ def bulk_exceptions(action, dns=None, note=None):
     now = frappe.utils.now_datetime()
     for dn in dns:
         try:
+            frappe.db.savepoint("lp_bulk_exc")
             _record_exception(dn, action, (note or "").strip(), now)
             done += 1
             if done % 50 == 0:
                 frappe.db.commit()
         except Exception as e:
-            frappe.db.rollback()
+            # Back to before THIS parcel only. A plain rollback threw away up
+            # to 49 earlier, uncommitted parcels that `done` still counted.
+            frappe.db.rollback(save_point="lp_bulk_exc")
             failed.append({"name": dn, "error": str(e)[:90]})
     frappe.db.commit()
     return {"ok": True, "action": action, "done": done, "failed": failed}
