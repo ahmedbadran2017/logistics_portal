@@ -1652,11 +1652,17 @@ def bulk_act(ids=None, action=None, note=None):
            + f" · by {frappe.session.user}")
     done, skipped = [], []
     has_field = frappe.get_meta("Delivery Note").has_field("custom_exception_action")
+    has_outcome = frappe.get_meta("Delivery Note").has_field("custom_rescue_outcome")
     for dn in ids:
         # Per-item isolation: one bad parcel must not abort (and discard) the
         # rest of a 200-parcel triage batch.
         try:
             if frappe.db.get_value("Delivery Note", dn, "company") != _CO:
+                skipped.append(dn)
+                continue
+            # Same fence as act(): an ended parcel is not re-decided in bulk.
+            if has_outcome and (frappe.db.get_value(
+                    "Delivery Note", dn, "custom_rescue_outcome") or "") in _ENDED:
                 skipped.append(dn)
                 continue
             doc = frappe.get_doc("Delivery Note", dn)

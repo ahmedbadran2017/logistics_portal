@@ -944,6 +944,10 @@ def _ship_board(month, pts):
              AND c.creation >= %(start)s
              AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
              AND c.content LIKE '%%\u00b7 by %%'
+             -- Bulk triage is housekeeping on a backlog, not a decision
+             -- anyone made about a parcel; the cc and floor boards already
+             -- leave it out.
+             AND c.content NOT LIKE '%%(bulk)%%'
              AND (c.content LIKE 'Rescue:%%' OR c.content LIKE 'Shipping city set to%%'
                   OR c.content LIKE 'Contact updated:%%')""",
         args, as_dict=True)
@@ -951,7 +955,8 @@ def _ship_board(month, pts):
     outs = frappe.db.sql(
         """SELECT dn.custom_rescue_outcome o, dni.against_sales_order so,
                   dn.custom_exception_actioned_at act_at,
-                  (SELECT SUBSTRING_INDEX(c2.content, '\u00b7 by ', -1)
+                  (SELECT CASE WHEN c2.content LIKE '%%(bulk)%%' THEN ''
+                               ELSE SUBSTRING_INDEX(c2.content, '\u00b7 by ', -1) END
                      FROM `tabComment` c2
                     WHERE c2.reference_doctype = 'Sales Order'
                       AND c2.reference_name = dni.against_sales_order
