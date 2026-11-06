@@ -88,8 +88,11 @@
           <Icon name="wallet" :size="30" />
         </span>
       </div>
-      <div class="text-[17px] font-bold text-stone-900 mt-4">{{ t('bn.soonTitle') }}</div>
-      <div class="text-[12.5px] text-stone-500 mt-1.5 max-w-[440px] mx-auto leading-relaxed">{{ t('bn.soonBody') }}</div>
+      <!-- Two posters under one key: the contact centre's was defined second
+           in the same object and silently replaced the floor's, so pickers
+           and trackers were told about the contact centre. -->
+      <div class="text-[17px] font-bold text-stone-900 mt-4">{{ t(IS_CC ? 'bn.soonTitleCc' : 'bn.soonTitle') }}</div>
+      <div class="text-[12.5px] text-stone-500 mt-1.5 max-w-[440px] mx-auto leading-relaxed">{{ t(IS_CC ? 'bn.soonBodyCc' : 'bn.soonBody') }}</div>
       <!-- the "loading the money" shimmer -->
       <div class="h-2 w-[220px] mx-auto mt-5 rounded-full bg-stone-100 overflow-hidden">
         <div class="bn-shimmer h-full w-1/3 rounded-full" />
@@ -704,16 +707,21 @@ const howSteps = computed(() => {
     (a, [kk, vv]) => a.replaceAll("{" + kk + "}", String(vv)), t(k));
   const actions = (b?.lines || []).reduce((a, l) => a + (l.count || 0), 0);
   const ratio = sc.confirmEach ? Math.round((sc.deliveredEach ?? b?.deliveredEach ?? 0) / sc.confirmEach) : 4;
+  // The floor and the tracking lane are not paid on calls and deliveries:
+  // they read their own first step and have no delivered-parcel jackpot.
+  const g = d.value?.group || "cc";
+  const sfx = g === "floor" ? "Floor" : g === "ship" ? "Ship" : "";
   const steps = [
-    { icon: "phone", tint: "bg-sky-100 text-sky-600",
-      title: t("bn.how1Title"), body: t("bn.how1Body"),
+    { icon: g === "floor" ? "package" : g === "ship" ? "truck" : "phone", tint: "bg-sky-100 text-sky-600",
+      title: t("bn.how1Title" + sfx), body: t("bn.how1Body" + sfx),
       live: b ? fill("bn.how1Live", { n: actions }) : "",
       liveIcon: "activity", liveTint: "bg-sky-50 text-sky-700 ring-1 ring-sky-200/70" },
+  ];
+  if (b?.outcomes !== false) steps.push(
     { icon: "package-check", tint: "bg-emerald-100 text-emerald-600",
       title: t("bn.how2Title"), body: fill("bn.how2Body", { x: ratio }),
       live: b ? fill("bn.how2Live", { n: b.delivered, p: b.deliveredPts }) : "",
-      liveIcon: "check", liveTint: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/70" },
-  ];
+      liveIcon: "check", liveTint: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/70" });
   // The gate step only exists where the scheme actually gates.
   if (sc.gateOn) {
     const r = sc.deliveryRate;
@@ -843,10 +851,14 @@ watch(d, (v) => {
     const w = sug[u]?.work;
     return w ? Object.entries(w).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(" · ") : "";
   };
+  // The approver's own row starts at 0: the server refuses a month that
+  // pays the person approving it, so a pre-filled amount there made
+  // "Approve & publish" fail until it was zeroed by hand.
   const mk = (user, agent, points, sys) => ({
     user, agent, points, system: sys ?? null,
     suggested: sug[user]?.amount ?? null, hours: sug[user]?.hours ?? null, work: workOf(user),
-    final: hasDraft ? (amounts[user] ?? 0) : (sug[user]?.amount ?? sys ?? 0),
+    final: user === v.meUser ? 0
+      : hasDraft ? (amounts[user] ?? 0) : (sug[user]?.amount ?? sys ?? 0),
   });
   // An approved board carries the approved amount in pay; the computed one
   // survives in the snapshot taken at approval.
@@ -864,7 +876,9 @@ watch(d, (v) => {
 });
 const apHasSuggest = computed(() => !!d.value?.approval?.suggestion?.people);
 function fillAp(which) {
-  for (const r of apRows.value) r.final = (which === "suggested" ? r.suggested : r.system) ?? 0;
+  for (const r of apRows.value) {
+    r.final = r.user === d.value?.meUser ? 0 : (which === "suggested" ? r.suggested : r.system) ?? 0;
+  }
   apDirty.value = true;
 }
 function addApRow() {

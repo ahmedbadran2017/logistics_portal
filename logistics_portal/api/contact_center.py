@@ -1376,7 +1376,10 @@ def bonus(month=None, group=None):
         # Under review: nothing of this month reaches the team — no rank, no
         # points, no amount — until an approver publishes it.
         return {"available": True, "pending": True, "month": month, "group": group, "of": 0,
-                "scoped": True, "groups": [my_group] if my_group else [], "cols": [],
+                # The same switch as an open month: a manager landing on a
+                # pending floor month had no way back to the CC or ship board.
+                "scoped": True, "cols": [],
+                "groups": list(GROUPS) if role == "manager" else ([my_group] if my_group else []),
                 "target": 0, "agents": [], "me": {"points": 0, "rank": 0, "actions": 0, "pay": None},
                 "meUser": frappe.session.user, "trial": False,
                 "payStart": PAY_START.get(group, "2026-10"),
@@ -1871,6 +1874,8 @@ def bonus_breakdown(user=None, month=None, group="cc"):
     pts = s["points"]
     if group == "ship":
         return _ship_receipt(user, month, s)
+    if group == "floor":
+        return _floor_receipt(user, month, s)
 
     rows = {}
     seen = set()
@@ -2021,6 +2026,38 @@ def _ship_receipt(user, month, s):
                 "cap": float((m.get("monthlyCap") or {}).get("ship", 0)),
                 "gateOn": int((m.get("gateOn") or {}).get("ship", 0)),
                 "gatePct": float((m.get("gatePct") or {}).get("ship", 0)),
+                "streakStepPct": float(m.get("streakStepPct") or 0),
+                "streakCapPct": float(m.get("streakCapPct") or 0),
+                "confirmEach": 0.0, "deliveryRate": None,
+            }}
+
+
+def _floor_receipt(user, month, s):
+    """The floor's receipt: its board pays picked orders, so that is its one
+    line. It fell through to the contact-centre receipt before, and a picker
+    with 300+ points opened "Delivered parcels 0 x 0.4 = 0, total 0"."""
+    # The month stays hidden until approved, the receipt included.
+    if _withheld("floor", month, frappe.session.user):
+        frappe.throw("This month is waiting for approval.", frappe.PermissionError)
+    row = next((r for r in _board_raw("floor", month, s["points"]) if r["user"] == user), None)
+    rate = float(s["points"].get("pick.picked", 0) or 0)
+    n = int((row or {}).get("actions") or 0)
+    lines = [{"key": "pick.picked", "count": n, "each": round(rate, 2),
+              "subtotal": round(n * rate, 1)}] if n else []
+    m = s["money"]
+    return {"user": user, "month": month, "lines": lines, "outcomes": False,
+            "delivered": 0, "returned": 0, "sharedDelivered": 0,
+            "deliveredEach": 0, "deliveredPts": 0, "returnedEach": 0, "returnedPts": 0,
+            "streakDays": _streak_days(user, "floor", month),
+            "total": (row or {}).get("points", 0.0),
+            "target": s["targets"].get("floor", 0),
+            "scheme": {
+                "moneyOn": int(m.get("on") or 0),
+                "currency": m.get("currency") or "MAD",
+                "perPoint": float((m.get("perPoint") or {}).get("floor", 0)),
+                "cap": float((m.get("monthlyCap") or {}).get("floor", 0)),
+                "gateOn": int((m.get("gateOn") or {}).get("floor", 0)),
+                "gatePct": float((m.get("gatePct") or {}).get("floor", 0)),
                 "streakStepPct": float(m.get("streakStepPct") or 0),
                 "streakCapPct": float(m.get("streakCapPct") or 0),
                 "confirmEach": 0.0, "deliveryRate": None,
