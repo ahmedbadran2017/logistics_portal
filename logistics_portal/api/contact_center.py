@@ -708,6 +708,108 @@ def _desk_confirmation_work(month):
     return out
 
 
+# ── Outcomes by the month they HAPPENED (Ahmed, 2026-11-06) ──────────────
+#
+# Until October a delivery was credited by the month its parcel SHIPPED,
+# read at its CURRENT status, and only for orders confirmed in that same
+# month. So an order confirmed on the 31st and shipped on the 1st scored in
+# neither month (174 October parcels), and a closed month kept moving as
+# late parcels landed (364 of October's after it closed).
+#
+# From November an outcome is credited in the month it happened:
+#   delivered   the month of the delivery (Sales Order custom_delivered_at,
+#               present on 6,929 of 6,929 October deliveries)
+#   returned    the month it came back (its first return note), or 30 days
+#               after shipping if it never did -- charged once, whichever
+#               comes first
+# to whoever last confirmed the order, by time, whenever they confirmed it.
+# Only parcels shipped from OUTCOME_FROM: an October parcel delivered in
+# November was already counted on October's board, and stays there.
+OUTCOME_FROM = "2026-11"
+_RETURN_CHARGE_D = 30
+
+
+def _cc_outcomes(month):
+    """[(order, kind)] -- kind 'd' delivered or 'f' returned -- one per
+    parcel whose outcome happened in `month`. Measured 0.6 s for a month."""
+    start = f"{month}-01"
+    args = {"s": start, "frm": f"{OUTCOME_FROM}-01", "co": "Justyol Morocco",
+            "g": _RETURN_CHARGE_D}
+    out = [(r[0], "d") for r in frappe.db.sql(
+        """SELECT MIN(dni.against_sales_order)
+           FROM `tabDelivery Note` dn
+           JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
+           JOIN `tabSales Order` so ON so.name = dni.against_sales_order
+           WHERE dn.docstatus = 1 AND dn.is_return = 0 AND dn.company = %(co)s
+             AND dn.posting_date >= %(frm)s
+             AND dn.custom_track_shipment_status = 'Delivered'
+             AND so.custom_delivered_at >= %(s)s
+             AND so.custom_delivered_at < DATE_ADD(%(s)s, INTERVAL 1 MONTH)
+           GROUP BY dn.name""", args)]
+    out += [(r[0], "f") for r in frappe.db.sql(
+        """SELECT x.so FROM (
+             SELECT MIN(dni.against_sales_order) so,
+                    dn.custom_track_shipment_status st,
+                    LEAST(COALESCE(
+                        (SELECT MIN(r.posting_date) FROM `tabDelivery Note` r
+                          WHERE r.is_return = 1 AND r.docstatus = 1
+                            AND r.return_against = dn.name),
+                        DATE_ADD(dn.posting_date, INTERVAL %(g)s DAY)),
+                      DATE_ADD(dn.posting_date, INTERVAL %(g)s DAY)) charge_at,
+                    EXISTS (SELECT 1 FROM `tabDelivery Note` r
+                             WHERE r.is_return = 1 AND r.docstatus = 1
+                               AND r.return_against = dn.name) has_ret
+             FROM `tabDelivery Note` dn
+             JOIN `tabDelivery Note Item` dni ON dni.parent = dn.name
+             WHERE dn.docstatus = 1 AND dn.is_return = 0 AND dn.company = %(co)s
+               AND dn.posting_date >= %(frm)s
+               AND dn.posting_date < DATE_ADD(%(s)s, INTERVAL 1 MONTH)
+               AND COALESCE(dn.custom_track_shipment_status, '') <> 'Delivered'
+             GROUP BY dn.name) x
+           WHERE (x.has_ret OR x.st IN ('Delivery Exception', 'Failed Attempt'))
+             AND x.charge_at >= %(s)s
+             AND x.charge_at < DATE_ADD(%(s)s, INTERVAL 1 MONTH)""", args)]
+    return [(o, k) for o, k in out if o]
+
+
+def _confirmers(orders):
+    """{order: user} -- the LAST human confirm of each order, by time, from
+    both trails (the portal's comment and the Desk's Version row). The
+    month-scoped sets the board used before resolved two confirmers of one
+    order by set iteration order, which is not the same between workers."""
+    from logistics_portal.api.confirmation import _AUTOMATION_USERS
+    orders = list({o for o in (orders or []) if o})
+    best = {}
+
+    def keep(so, t, u):
+        if not u or u in _AUTOMATION_USERS or u in ("Administrator", "Guest"):
+            return
+        if so not in best or t > best[so][0]:
+            best[so] = (t, u)
+    for i in range(0, len(orders), 500):
+        chunk = tuple(orders[i:i + 500])
+        for r in frappe.db.sql(
+                """SELECT reference_name so, owner u, creation t, content
+                   FROM `tabComment`
+                   WHERE reference_doctype = 'Sales Order' AND reference_name IN %(o)s
+                     AND comment_type = 'Comment'
+                     AND content LIKE 'Confirmation: confirm%%'""",
+                {"o": chunk}, as_dict=True):
+            if " bulk " in (r.content or "") or "(bulk)" in (r.content or ""):
+                continue
+            keep(r.so, r.t, r.u)
+        for r in frappe.db.sql(
+                """SELECT docname so, owner u, creation t, data FROM `tabVersion`
+                   WHERE ref_doctype = 'Sales Order' AND docname IN %(o)s
+                     AND data LIKE '%%custom_sales_status%%'""",
+                {"o": chunk}, as_dict=True):
+            changed = (frappe.parse_json(r.data or "{}") or {}).get("changed") or []
+            if any(f and f[0] == "custom_sales_status" and f[2] == "Confirmed"
+                   for f in changed):
+                keep(r.so, r.t, r.u)
+    return {so: tu[1] for so, tu in best.items()}
+
+
 def _cc_board(month, pts):
     per_agent = {}
     # One point per (agent, document, action) — NOT per comment. The trail
@@ -775,7 +877,26 @@ def _cc_board(month, pts):
     # scheme going to nobody's work.
     d_rate = pts.get("cf.delivered", 0)
     outcome = {}
-    if d_rate and confirmed_by:
+    if d_rate and month >= OUTCOME_FROM:
+        evs = _cc_outcomes(month)
+        owner_of = _confirmers([o for o, _k in evs])
+        rescued = _rescuers([o for o, k in evs if k == "d"])
+        for so, k in evs:
+            u = owner_of.get(so)
+            if not u:
+                continue
+            o2 = outcome.setdefault(u, {"delivered": 0, "returned": 0, "shared": 0})
+            if k == "d":
+                o2["delivered"] += 1
+                rescuer = rescued.get(so)
+                if rescuer and rescuer != u:
+                    o2["shared"] += 1
+            else:
+                o2["returned"] += 1
+        for u in outcome:
+            per_agent.setdefault(u, {"cf": 0.0, "rs": 0.0, "cs": 0.0,
+                                     "actions": 0})
+    elif d_rate and confirmed_by:
         owner_of = {}
         for u, orders in confirmed_by.items():
             for name in orders:
@@ -1009,34 +1130,73 @@ def _ship_board(month, pts):
     # A reship is watched on the order it SENT ("Rescue: reship → <order>"),
     # not on the original: the old parcel failing on its expected way home
     # charged the agent -0.2 for a promise nobody had made about it.
-    breaks = frappe.db.sql(
-        """SELECT DISTINCT r.u, r.so
-           FROM (SELECT SUBSTRING_INDEX(c.content, '\u00b7 by ', -1) u,
-                        c.reference_name so, c.creation t,
-                        CASE WHEN c.content LIKE 'Rescue: reship%%'
-                             THEN TRIM(SUBSTRING_INDEX(TRIM(SUBSTRING_INDEX(
-                                  c.content, '\u2192', -1)), ' ', 1))
-                             ELSE c.reference_name END tgt
-                   FROM `tabComment` c
-                  WHERE c.reference_doctype = 'Sales Order' AND c.comment_type = 'Comment'
-                    AND (c.content LIKE 'Rescue: redeliver%%' OR c.content LIKE 'Rescue: reship%%')
-                    AND c.creation >= %(start)s
-                    AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)) r
-           WHERE EXISTS (
-               SELECT 1 FROM `tabComment` f
-                WHERE f.reference_doctype = 'Sales Order'
-                  AND f.reference_name = r.tgt
-                  AND f.comment_type = 'Comment'
-                  AND f.content LIKE 'Customer unreachable%%'
-                  AND f.creation > r.t
-                  AND NOT EXISTS (
-                    SELECT 1 FROM `tabComment` n
-                     WHERE n.reference_doctype = 'Sales Order'
-                       AND n.reference_name = r.tgt
-                       AND n.comment_type = 'Comment'
-                       AND n.content LIKE 'Rescue:%%'
-                       AND n.creation > r.t AND n.creation < f.creation))""",
-        args, as_dict=True)
+    #
+    # From OUTCOME_FROM a break is charged in the month the carrier FAILED,
+    # like every other outcome, not the month of the decision: 29 of
+    # October's 335 failures came in November and moved October's board
+    # after it closed. Decisions are read from 60 days back (and never from
+    # before OUTCOME_FROM, whose breaks October already charged).
+    if month >= OUTCOME_FROM:
+        breaks = frappe.db.sql(
+            """SELECT DISTINCT r.u, r.so FROM (
+                 SELECT d.u, d.so,
+                        (SELECT MIN(f.creation) FROM `tabComment` f
+                          WHERE f.reference_doctype = 'Sales Order'
+                            AND f.reference_name = d.tgt
+                            AND f.comment_type = 'Comment'
+                            AND f.content LIKE 'Customer unreachable%%'
+                            AND f.creation > d.t) ft,
+                        d.t, d.tgt
+                 FROM (SELECT SUBSTRING_INDEX(c.content, '\u00b7 by ', -1) u,
+                              c.reference_name so, c.creation t,
+                              CASE WHEN c.content LIKE 'Rescue: reship%%'
+                                   THEN TRIM(SUBSTRING_INDEX(TRIM(SUBSTRING_INDEX(
+                                        c.content, '\u2192', -1)), ' ', 1))
+                                   ELSE c.reference_name END tgt
+                         FROM `tabComment` c
+                        WHERE c.reference_doctype = 'Sales Order' AND c.comment_type = 'Comment'
+                          AND (c.content LIKE 'Rescue: redeliver%%' OR c.content LIKE 'Rescue: reship%%')
+                          AND c.creation >= GREATEST(%(ofrom)s, DATE_SUB(%(start)s, INTERVAL 60 DAY))
+                          AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)) d) r
+               WHERE r.ft >= %(start)s
+                 AND r.ft < DATE_ADD(%(start)s, INTERVAL 1 MONTH)
+                 AND NOT EXISTS (
+                   SELECT 1 FROM `tabComment` n
+                    WHERE n.reference_doctype = 'Sales Order'
+                      AND n.reference_name = r.tgt
+                      AND n.comment_type = 'Comment'
+                      AND n.content LIKE 'Rescue:%%'
+                      AND n.creation > r.t AND n.creation < r.ft)""",
+            dict(args, ofrom=f"{OUTCOME_FROM}-01 00:00:00"), as_dict=True)
+    else:
+        breaks = frappe.db.sql(
+            """SELECT DISTINCT r.u, r.so
+               FROM (SELECT SUBSTRING_INDEX(c.content, '\u00b7 by ', -1) u,
+                            c.reference_name so, c.creation t,
+                            CASE WHEN c.content LIKE 'Rescue: reship%%'
+                                 THEN TRIM(SUBSTRING_INDEX(TRIM(SUBSTRING_INDEX(
+                                      c.content, '\u2192', -1)), ' ', 1))
+                                 ELSE c.reference_name END tgt
+                       FROM `tabComment` c
+                      WHERE c.reference_doctype = 'Sales Order' AND c.comment_type = 'Comment'
+                        AND (c.content LIKE 'Rescue: redeliver%%' OR c.content LIKE 'Rescue: reship%%')
+                        AND c.creation >= %(start)s
+                        AND c.creation < DATE_ADD(%(start)s, INTERVAL 1 MONTH)) r
+               WHERE EXISTS (
+                   SELECT 1 FROM `tabComment` f
+                    WHERE f.reference_doctype = 'Sales Order'
+                      AND f.reference_name = r.tgt
+                      AND f.comment_type = 'Comment'
+                      AND f.content LIKE 'Customer unreachable%%'
+                      AND f.creation > r.t
+                      AND NOT EXISTS (
+                        SELECT 1 FROM `tabComment` n
+                         WHERE n.reference_doctype = 'Sales Order'
+                           AND n.reference_name = r.tgt
+                           AND n.comment_type = 'Comment'
+                           AND n.content LIKE 'Rescue:%%'
+                           AND n.creation > r.t AND n.creation < f.creation))""",
+            args, as_dict=True)
 
     # Only this lane's people. Without the test the board fills with whoever
     # left a trail on an order: run for September it put a manager and a
@@ -1943,7 +2103,14 @@ def bonus_breakdown(user=None, month=None, group="cc"):
     # The receipt must match the board, so it shares the same deliveries the
     # board shares: saved by someone else in the rescue lane, from SPLIT_FROM.
     shared = 0
-    if confirmed_orders and delivered:
+    if month >= OUTCOME_FROM:
+        # The board's own row: outcomes are no longer tied to this month's
+        # confirms, so recomputing them here would be a second definition.
+        row = next((r for r in _board_raw("cc", month, pts) if r["user"] == user), None) or {}
+        delivered = int(row.get("delivered") or 0)
+        returned = int(row.get("returned") or 0)
+        shared = int(row.get("sharedDelivered") or 0)
+    elif confirmed_orders and delivered:
         saved = [o for o, who in _rescuers(list(confirmed_orders)).items() if who != user]
         if saved:
             shared = int(frappe.db.sql(
