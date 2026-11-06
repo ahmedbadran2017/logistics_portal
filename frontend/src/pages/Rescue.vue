@@ -206,19 +206,19 @@
                    would have made thirteen — on a row that already drops its
                    labels below md, so a phone showed eleven bare icons. The
                    three that stay are the ones that RESOLVE the parcel. -->
-              <template v-else-if="!endedChip">
+              <template v-else-if="!isEnded(r) && !promisedChip">
                 <button class="rs-act rs-act-save" :disabled="busy === r.id" :title="t('rs.actRedeliverHint')"
                         :class="reasonFor === r.id && reasonAction === 'redeliver' ? 'ring-2' : ''"
                         @click="openReason(r, 'redeliver')">
                   <Icon name="refresh-cw" :size="14" class="inline -mt-px me-1" />{{ t('rs.actRedeliver') }}
                 </button>
               </template>
-              <button v-if="!endedChip" class="rs-act rs-act-lbl text-amber-700" :disabled="busy === r.id" :title="t('cf.actDna')"
+              <button v-if="!isEnded(r)" class="rs-act rs-act-lbl text-amber-700" :disabled="busy === r.id" :title="t('cf.actDna')"
                       :class="reasonFor === r.id && reasonAction === 'dna' ? 'ring-2' : ''"
                       @click="openReason(r, 'dna')">
                 <Icon name="phone-off" :size="14" /><span class="hidden md:inline">{{ t('cf.actDna') }}</span>
               </button>
-              <button v-if="!isNdTab && !endedChip" class="rs-act rs-act-lbl text-rose-600" :disabled="busy === r.id" :title="t('rs.actReturnHint')"
+              <button v-if="!isNdTab && !isEnded(r)" class="rs-act rs-act-lbl text-rose-600" :disabled="busy === r.id" :title="t('rs.actReturnHint')"
                       :class="reasonFor === r.id && reasonAction === 'returnreq' ? 'ring-2' : ''" @click="openReason(r, 'returnreq')">
                 <Icon name="rotate-ccw" :size="14" /><span class="hidden md:inline">{{ t('rs.actReturn') }}</span>
               </button>
@@ -251,7 +251,7 @@
              works the same under a thumb. -->
         <Transition name="rsslide">
           <div v-if="moreFor === r.id" class="mt-2.5 flex flex-wrap gap-1.5 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-2">
-            <button v-if="!isNdTab && !endedChip" class="rs-act rs-act-lbl text-violet-700"
+            <button v-if="!isNdTab && !isEnded(r) && !promisedChip" class="rs-act rs-act-lbl text-violet-700"
                     @click="openReason(r, 'reship'); moreFor = ''">
               <Icon name="send" :size="14" />{{ t('rs.actReship') }}
             </button>
@@ -260,13 +260,13 @@
                  order page instead of repeating the picker here — choosing a
                  different article needs a catalogue search, and a second copy
                  of that is a second thing to drift. -->
-            <RouterLink v-if="!isNdTab && !endedChip && r.order" class="rs-act rs-act-lbl text-violet-700"
+            <RouterLink v-if="!isNdTab && !isEnded(r) && !promisedChip && r.order" class="rs-act rs-act-lbl text-violet-700"
                         :to="{ name: 'OrderDetail',
                                params: { name: String(r.order).replace('#', '') },
                                query: { send: 'other' } }" @click="moreFor = ''">
               <Icon name="package-check" :size="14" />{{ t('rs.actSendInstead') }}
             </RouterLink>
-            <button v-if="!isNdTab && !endedChip" class="rs-act rs-act-lbl text-sky-700"
+            <button v-if="!isNdTab && !isEnded(r) && !promisedChip && openChip !== 'followup'" class="rs-act rs-act-lbl text-sky-700"
                     @click="openReason(r, 'followup'); moreFor = ''">
               <Icon name="clock" :size="14" />{{ t('rs.actFollowup') }}
             </button>
@@ -464,14 +464,28 @@ const verdictF = ref(String(route.query.reason ?? "rescuable"));
 // reading `tab` — so it has been false ever since, which silently took the
 // whole rescuable/cancelled filter off the screen along with the bulk action
 // that depends on it. Prefer the chip the server actually served.
+//
+// And the chip just CHOSEN wins over the last response: load() reads this
+// before the new answer arrives, so preferring data.chip sent the old pile's
+// reason filter with the new pile -- Mine lost its cancelled parcels, and
+// History came back filtered by carrier verdict.
+const TAB_DEFAULT = { todo: "exceptions", watch: "promised", history: "done" };
 const openChip = computed(() =>
-  data.value?.chip || chip.value || (tab.value === "todo" ? "exceptions" : ""));
+  chip.value
+  || (data.value?.tab === tab.value ? data.value?.chip : "")
+  || TAB_DEFAULT[tab.value] || "");
 const hasVerdict = computed(() => openChip.value === "exceptions" || openChip.value === "failed");
 // Done is what already ENDED. Its rows offered every decision, and pressing
 // one blanked the outcome and moved the parcel back to Promised: one parcel,
 // two decisions, both scored. The server refuses it too; this just stops
 // offering a button that can only fail.
-const endedChip = computed(() => openChip.value === "done");
+// Per row now: Done also holds failed_again and never_came_back, which the
+// server still accepts and which are the ones that need a decision.
+const isEnded = (r) => !!r?.ended;
+// A promise still being watched is not promised again: a second Reship is
+// refused, and a second Redeliver changes nothing and bounces back. If it
+// breaks, the parcel comes back to To do by itself.
+const promisedChip = computed(() => openChip.value === "promised");
 // The filter the board is loaded under. The heartbeat must send the SAME one:
 // it used to send "" for "rescuable", so it compared the unfiltered depth with
 // the filtered count on the screen, they never matched while any cancelled
@@ -614,6 +628,10 @@ async function load() {
     rows.value = res.rows || [];
     total.value = res.total || 0;
     loadError.value = "";
+    // What is on screen is as of the server's now. Starting the heartbeat
+    // from "" made the server look back ten minutes and announce, 30 s
+    // later, events already listed here.
+    if (res.serverNow) pulseSince = res.serverNow;
   } catch (e) {
     loadError.value = String(e.message || e);
     rows.value = [];
@@ -660,7 +678,10 @@ async function beat() {
       && r.depth !== data.value.counts[served];
     if (!r.n && !moved) return;
     if (canAutoApply()) { load(); freshN.value = 0; return; }
-    freshN.value += r.n || (moved ? 1 : 0);
+    // A count that still disagrees is ONE piece of news, not one per beat:
+    // nothing reloads counts until the agent applies, so this grew 1, 2, 3...
+    if (r.n) freshN.value += r.n;
+    else if (moved && !freshN.value) freshN.value = 1;
   } catch { /* a heartbeat that throws must never break the screen */ }
 }
 
@@ -699,8 +720,8 @@ async function take(r) {
       warn(t("rs.takenBy").replace("{who}", (res.by || "").split("@")[0]), r.order || r.dn);
       return;
     }
-    if (openChip.value === "mine") { r.heldBy = t("rs.heldMine"); r.heldMine = true; }
-    else dropRow(r);
+    if (!HIDES_HELD.includes(openChip.value)) { r.heldBy = t("rs.heldMine"); r.heldMine = true; }
+    else dropRow(r, true);
     success(t("rs.tookIt"), r.order || r.dn);
   } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
   finally { busy.value = ""; }
@@ -717,12 +738,20 @@ async function drop(r) {
   finally { busy.value = ""; }
 }
 
-function dropRow(r) {
+// The piles that leave out a parcel someone holds or that waits on the
+// carrier (_claim_cond on the server). Promised, Follow up, Done and the
+// SO-based Callback do not, so a Take there must not drop the row: it came
+// straight back on the next beat.
+const HIDES_HELD = ["exceptions", "failed", "stale", "backlog"];
+
+function dropRow(r, claimed = false) {
   rows.value = rows.value.filter((x) => x.id !== r.id);
   total.value = Math.max(0, total.value - 1);
   if (data.value?.counts) {
     data.value.counts[openChip.value] = Math.max(0, (data.value.counts[openChip.value] || 1) - 1);
-    data.value.counts.mine = (data.value.counts.mine || 0) + 1;
+    // Only a Take lands in Mine; a park does not claim and a release on
+    // Mine was -1 then +1.
+    if (claimed) data.value.counts.mine = (data.value.counts.mine || 0) + 1;
   }
 }
 
@@ -760,7 +789,7 @@ async function parkWithCarrier(r, days) {
     const res = await apiPost("rescue.carrier_log", { dn: r.dn || r.id, days });
     if (res.due) { r.waitUntil = res.due; success(t("rs.carrierParked"), local(res.due).slice(5, 10)); }
     desk.value = await api("rescue.timeline", { dn: r.dn || r.id });
-    if (openChip.value !== "mine") dropRow(r);
+    if (HIDES_HELD.includes(openChip.value)) dropRow(r);
   } catch (e) { warn(t("cf.actFail"), String(e.message || e)); }
   finally { busy.value = ""; }
 }

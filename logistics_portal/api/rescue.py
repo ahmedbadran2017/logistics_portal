@@ -454,6 +454,7 @@ _DN_SELECT = """
            COALESCE(so.custom_call_attempts, 0) AS attempts,
            so.custom_next_call_at AS next_call,
            dn.custom_exception_action AS prior_action, dn.custom_exception_actioned_at AS prior_at,
+           dn.custom_rescue_outcome AS rescue_outcome,
            {claim_cols}
            """ + _last_event_sql("content") + """ AS last_event,
            """ + _last_event_sql("creation") + """ AS last_event_at,
@@ -988,6 +989,9 @@ def board(tab="todo", days=30, q="", limit=30, offset=0, reason="", surface="",
             "verdict": _verdict(getattr(r, "last_event", "") or ""),
             "again": _failed_again(r),
             "priorAt": str(getattr(r, "prior_at", "") or "")[:16],
+            # Per row, because Done holds both: an ending act() refuses, and
+            # failed_again / never_came_back, which still need a decision.
+            "ended": (getattr(r, "rescue_outcome", "") or "") in _ENDED,
             "nextCall": str(r.next_call)[:16] if r.next_call else "",
             "due": bool(r.next_call and str(r.next_call) <= now),
             # Triage SLA in HOURS: the old day-grain math (age_d * 24) needed
