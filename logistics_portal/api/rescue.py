@@ -1829,15 +1829,19 @@ def dashboard():
     daily = [{"d": d, "inflow": inflow.get(d, 0), "decided": decided.get(d, 0)}
              for d in days_axis]
 
-    # The ten longest-waiting untouched failures — the call list.
+    # The ten longest-waiting untouched failures — the call list. Built from
+    # the working queue's own filter, so it holds only what an agent could
+    # open there. It had its own copy of that filter, without the return
+    # note, the customer-cancelled split, the start line or the claim, so
+    # it could put parcels on the call list that nobody should call.
+    ovals = {"days": 30}
+    owhere = _dn_where("exceptions", ovals, "rescuable").replace(
+        "dn.custom_track_shipment_status = %(track)s",
+        "dn.custom_track_shipment_status IN ('Delivery Exception', 'Failed Attempt')")
+    ovals.pop("track", None)
     oldest = frappe.db.sql(
-        _dn_select() + """ WHERE dn.docstatus = 1 AND dn.company = %(co)s
-              AND COALESCE(dn.custom_exception_action,'') = ''
-              AND dn.custom_track_shipment_status IN
-                  ('Delivery Exception', 'Failed Attempt')
-              AND dn.posting_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-            ORDER BY dn.posting_date LIMIT 10""",
-        {"co": _CO, "snow": _site_now()}, as_dict=True)
+        _dn_select() + f" WHERE {owhere} ORDER BY dn.posting_date LIMIT 10",
+        ovals, as_dict=True)
 
     return {
         "cards": cards, "ages": ages, "slaH": sla_h, "daily": daily,
