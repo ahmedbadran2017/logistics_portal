@@ -1499,9 +1499,11 @@ def overview():
            WHERE docstatus = 1 AND company = 'Justyol Morocco'
              AND custom_sales_status = 'Pending'
              AND creation >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-             AND creation < DATE_SUB(NOW(), INTERVAL %(h)s HOUR)
+             AND creation < DATE_SUB(%(snow)s, INTERVAL %(h)s HOUR)
              AND COALESCE(custom_call_attempts, 0) = 0""",
-        {"h": cf_s.get("slaFirstCallH", 6)})[0][0])
+        # creation is on the site clock (UTC+3) and NOW() is the DB's UTC:
+        # against NOW() a 6h SLA only counted as breached after 9h.
+        {"h": cf_s.get("slaFirstCallH", 6), "snow": now_datetime()})[0][0])
 
     # ── Lane 2: rescue ──────────────────────────────────────────────────
     rs_counts = {}
@@ -1544,8 +1546,9 @@ def overview():
         """SELECT COUNT(*) FROM `tabIssue`
            WHERE company = 'Justyol Morocco'
              AND status IN %(sts)s AND first_responded_on IS NULL
-             AND creation < DATE_SUB(NOW(), INTERVAL %(h)s HOUR)""",
-        {"sts": _OPEN_STATUSES, "h": cs_s.get("firstResponseH", 4)})[0][0])
+             AND creation < DATE_SUB(%(snow)s, INTERVAL %(h)s HOUR)""",
+        {"sts": _OPEN_STATUSES, "h": cs_s.get("firstResponseH", 4),
+         "snow": now_datetime()})[0][0])
     cs_inbox = 0
     if _has_wa():
         cs_inbox = int(frappe.db.sql(
