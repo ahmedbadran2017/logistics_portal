@@ -266,6 +266,8 @@ def seed_from_comments():
             want.append((r.so, m.group(1)))
     if not want:
         return {"marks": 0}
+    real = _item_for(want)            # a SKU in the comment means its item
+    want = [(so, real.get((so, c), c)) for so, c in want]
     sos = tuple({x[0] for x in want})
     codes = tuple({x[1] for x in want})
     where = {}
@@ -306,6 +308,39 @@ def seed_from_comments():
 import re as _re
 
 _CHECK = "Short pick check:"
+
+
+def _item_for(pairs):
+    """{(order, code): item_code} for codes read out of comments. A short
+    pick removed from Pick Lists wrote the SKU on the label (custom_sku), not
+    the item code (#270309 "item (8683589871128)" is item 48585485811966,
+    2026-11-05), so a lookup by name found nothing: Not there answered
+    "Unknown item." and every bin read empty. Resolved against the order's own
+    lines first -- one SKU can belong to several items -- then the SKU alone."""
+    out, todo = {}, []
+    names = {r[0] for r in frappe.db.sql(
+        "SELECT name FROM `tabItem` WHERE name IN %s",
+        (tuple({c for _o, c in pairs}) or ("",),))}
+    for so, code in pairs:
+        if code in names:
+            out[(so, code)] = code
+        else:
+            todo.append((so, code))
+    for so, code in todo:
+        hit = frappe.db.sql(
+            """SELECT i.name FROM `tabItem` i
+               WHERE i.custom_sku = %(c)s AND (
+                   EXISTS (SELECT 1 FROM `tabSales Order Item` soi
+                           WHERE soi.parent = %(so)s AND soi.item_code = i.name)
+                   OR EXISTS (SELECT 1 FROM `tabPacked Item` pk
+                              WHERE pk.parent = %(so)s AND pk.item_code = i.name))
+               LIMIT 1""", {"c": code, "so": so})
+        if not hit:
+            hit = frappe.db.sql(
+                "SELECT name FROM `tabItem` WHERE custom_sku = %s LIMIT 2", (code,))
+            hit = hit if len(hit) == 1 else None
+        out[(so, code)] = hit[0][0] if hit else code
+    return out
 _ITEM_RE = _re.compile(r"item \(([^)]+)\)")
 _WHO_RE = _re.compile(r" by (\S+) — pulled off ([^;]+);")
 
@@ -375,6 +410,21 @@ def radar(days=14, show="open"):
             p["tote"] = True
     if not pairs:
         return _empty_radar(days)
+    real = _item_for(list(pairs))
+    merged = {}
+    for (so, code), p in pairs.items():
+        k = (so, real.get((so, code), code))
+        p["item"] = k[1]
+        q = merged.get(k)
+        if not q:
+            merged[k] = p
+            continue
+        q["times"] += p["times"]
+        q["first"], q["last"] = min(q["first"], p["first"]), max(q["last"], p["last"])
+        q["tote"] = q["tote"] or p["tote"]
+        if p["last"] >= q["last"] and p["picker"]:
+            q["picker"], q["list"] = p["picker"], p["list"]
+    pairs = merged
 
     sos = tuple({k[0] for k in pairs})
     orders = {r.name: r for r in frappe.db.sql(
@@ -398,8 +448,9 @@ def radar(days=14, show="open"):
         m = _ITEM_RE.search(r.content or "")
         if m:
             verdict = "present" if " present " in (r.content or "") else "missing"
-            ruled[(r.so, m.group(1))] = {"at": r.creation, "by": r.owner,
-                                        "verdict": verdict}
+            code = _item_for([(r.so, m.group(1))]).get((r.so, m.group(1)), m.group(1))
+            ruled[(r.so, code)] = {"at": r.creation, "by": r.owner,
+                                   "verdict": verdict}
 
     # Is the order back on a list right now? Then a picker is on it already.
     on_list = {}
@@ -493,6 +544,7 @@ def rule(order, item_code, verdict, warehouse=None, note=None):
         frappe.throw("Verdict must be present or missing.")
     if not frappe.db.exists("Sales Order", order):
         frappe.throw("Unknown order.")
+    item_code = _item_for([(order, item_code)]).get((order, item_code), item_code)
     if not frappe.db.exists("Item", item_code):
         frappe.throw("Unknown item.")
     warehouse = (warehouse or "").strip() or None
