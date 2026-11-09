@@ -181,8 +181,10 @@ def bust(phone):
 def card(phone):
     """One customer's full history for the panel behind the segment chip."""
     from logistics_portal.api.auth import resolve_role
+    # The tracking lane calls the same customers about their parcels, and CS
+    # about their tickets (TKT-2611-4764565).
     if resolve_role(frappe.session.user) not in ("confirmation", "manager",
-                                                 "dispatcher"):
+                                                 "dispatcher", "tracking", "cs"):
         frappe.throw("Not authorized.", frappe.PermissionError)
     d = digits(phone)
     if not d:
