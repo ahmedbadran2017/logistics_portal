@@ -330,6 +330,11 @@
               </div>
               <div v-else class="text-[12px] text-stone-400">{{ t('rs.deskEmpty') }}</div>
 
+              <!-- Who called this customer, from both lanes, and who the
+                   customer is (TKT-2611-4764565). -->
+              <CallHistory v-if="r.order" :order="r.order" />
+              <CustomerHistory v-if="r.phone" :phone="r.phone" :current="r.order" />
+
               <div class="flex items-center gap-2">
                 <input v-model="noteText" :placeholder="t('rs.notePh')" maxlength="500"
                        class="flex-1 h-9 px-3 rounded-lg bg-white ring-1 ring-sky-200 text-[12.5px] focus:outline-none"
@@ -428,6 +433,8 @@
 import { computed, onMounted, ref, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import CallHistory from "@/components/CallHistory.vue";
+import CustomerHistory from "@/components/CustomerHistory.vue";
 import { local } from "@/lib/clock";
 import { setCsContext, clearCsContext } from "@/composables/useCsContext";
 import { IS_SHIP, SURFACE } from "@/lib/portal";

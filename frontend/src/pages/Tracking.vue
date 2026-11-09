@@ -106,6 +106,13 @@
         </div>
       </div>
 
+      <!-- Who called this customer, and every order they ever made
+           (TKT-2611-4764565). -->
+      <div v-if="tlParcel.order || tlParcel.phone" class="grid md:grid-cols-2 gap-3">
+        <CallHistory v-if="tlParcel.order" :order="tlParcel.order" />
+        <CustomerHistory v-if="tlParcel.phone" :phone="tlParcel.phone" :current="tlParcel.order" />
+      </div>
+
       <div class="bg-white rounded-xl ring-1 ring-stone-200/70">
         <div class="px-4 py-3 border-b border-stone-100"><div class="text-[13px] font-semibold text-stone-900">{{ t("trk.carrierStatus") }}</div></div>
         <div class="p-4">
@@ -312,6 +319,8 @@ import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { local } from "@/lib/clock";
 import JourneyTimeline from "@/components/JourneyTimeline.vue";
+import CallHistory from "@/components/CallHistory.vue";
+import CustomerHistory from "@/components/CustomerHistory.vue";
 import {
   TRACK_STATES, TRACK_LABEL, SLA, SLA_LABEL, CARRIER, fmtMAD,
 } from "@/lib/handoffData";

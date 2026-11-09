@@ -2168,6 +2168,81 @@ def carrier_log(dn, asked="", answer="", days=0):
     return {"ok": True, "due": str(due)[:16] if due else ""}
 
 
+_DESK_STATUS = {"Confirmed": "confirm", "Cancelled": "cancel",
+                "Did not Answer": "dna", "Follow Up": "followup",
+                "On Hold": "onhold", "Duplicated": "duplicate"}
+
+
+@frappe.whitelist()
+def calls(order, limit=60):
+    """Every time somebody called this customer about this order, from all
+    three trails, newest first (TKT-2611-4764565: the tracking lane saw
+    only confirmation's attempts, and only as a counter).
+
+      cf       the confirmation lane's portal decisions ("Confirmation: ...")
+      desk     status changes made in the Desk (a Version row, no comment)
+      rs       the tracking lane's decisions ("Rescue: ...")
+      carrier  the carrier's own failed call ("Customer unreachable")
+    """
+    import json as _json
+    import re
+    from logistics_portal.api.auth import resolve_role
+    # Wider than _gate(): Find Parcel is also the dispatcher's and CS's.
+    if resolve_role(frappe.session.user) not in ("confirmation", "tracking", "manager",
+                                                 "dispatcher", "cs"):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    order = (order or "").strip()
+    if not order or not frappe.db.exists("Sales Order", order):
+        return {"calls": []}
+    if frappe.db.get_value("Sales Order", order, "company") != _CO:
+        frappe.throw("Unknown order.")
+    limit = min(max(int(limit or 60), 1), 200)
+    out = []
+    for c in frappe.db.sql(
+            """SELECT content, owner, creation FROM `tabComment`
+               WHERE reference_doctype = 'Sales Order' AND reference_name = %s
+                 AND comment_type = 'Comment'
+                 AND (content LIKE 'Confirmation: %%' OR content LIKE 'Rescue: %%'
+                      OR content LIKE 'Customer unreachable%%')
+               ORDER BY creation DESC LIMIT 300""", (order,), as_dict=True):
+        text = frappe.utils.strip_html(c.content or "").strip()
+        if text.startswith("Customer unreachable"):
+            out.append({"at": str(c.creation)[:19], "lane": "carrier", "action": "unreachable",
+                        "who": "Cathedis", "note": ""})
+            continue
+        lane = "cf" if text.startswith("Confirmation:") else "rs"
+        body = text.split(": ", 1)[1] if ": " in text else text
+        action = body.split(" ", 1)[0].strip("()\u2014-\u2192 ")
+        m = re.search(r"\(attempt (\d+)\)", body)
+        note = ""
+        if " \u2014 " in body:
+            note = body.split(" \u2014 ", 1)[1].split(" \u00b7 by ", 1)[0].strip()
+        out.append({"at": str(c.creation)[:19], "lane": lane, "action": action,
+                    "who": (c.owner or "").split("@")[0], "note": note[:140],
+                    "attempt": int(m.group(1)) if m else None,
+                    "bulk": "(bulk)" in body or " bulk " in body})
+    from logistics_portal.api.confirmation import _AUTOMATION_USERS
+    for v in frappe.db.sql(
+            """SELECT owner, creation, data FROM `tabVersion`
+               WHERE ref_doctype = 'Sales Order' AND docname = %s
+                 AND data LIKE '%%custom_sales_status%%'
+               ORDER BY creation DESC LIMIT 100""", (order,), as_dict=True):
+        try:
+            changed = (_json.loads(v.data or "{}") or {}).get("changed") or []
+        except Exception:
+            continue
+        for f in changed:
+            if f and f[0] == "custom_sales_status" and _DESK_STATUS.get(f[2]):
+                out.append({"at": str(v.creation)[:19],
+                            "lane": "bot" if v.owner in _AUTOMATION_USERS else "desk",
+                            "action": _DESK_STATUS[f[2]],
+                            "who": (v.owner or "").split("@")[0], "note": ""})
+    out.sort(key=lambda x: x["at"], reverse=True)
+    return {"calls": out[:limit],
+            "attempts": int(frappe.db.get_value("Sales Order", order,
+                                                "custom_call_attempts") or 0)}
+
+
 @frappe.whitelist()
 def timeline(dn, limit=40):
     """Everything this parcel has been through, ours and the carrier's."""
