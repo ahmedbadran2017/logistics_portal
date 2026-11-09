@@ -281,6 +281,46 @@ _TRACK_MAP = {
 }
 
 
+def _dnless_matches(q, wide=False, limit=10):
+    """Shipped orders with no submitted Delivery Note that match a search,
+    shaped like a board row (dn empty, noDn set)."""
+    from logistics_portal.api.utils import phone_digits, phone_tail_sql
+    vals = {"q": f"%{str(q).strip()}%", "limit": limit}
+    fields = ["so.name LIKE %(q)s", "so.custom_awb LIKE %(q)s",
+              "so.customer_name LIKE %(q)s"]
+    ph = phone_digits(q)
+    if ph:
+        vals["ph"] = f"%{ph}"
+        fields.append(phone_tail_sql(
+            "NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone"))
+    window = "" if wide else "AND so.creation >= DATE_SUB(CURDATE(), INTERVAL 120 DAY)"
+    rows = frappe.db.sql(
+        f"""SELECT so.name, so.custom_awb awb, so.customer_name customer,
+                   so.custom_track_shipment_status raw, so.grand_total value,
+                   so.creation, so.modified,
+                   DATEDIFF(CURDATE(), so.creation) age,
+                   COALESCE(NULLIF(so.custom_customer_phone,''), so.custom_shipping_phone) phone,
+                   COALESCE(NULLIF(so.custom_shipping_city,''), addr.city) city
+            FROM `tabSales Order` so
+            LEFT JOIN `tabAddress` addr
+              ON addr.name = COALESCE(NULLIF(so.shipping_address_name,''), so.customer_address)
+            WHERE so.docstatus = 1 AND COALESCE(so.custom_awb, '') <> '' {window}
+              AND NOT EXISTS (SELECT 1 FROM `tabDelivery Note Item` dni
+                              JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+                              WHERE dni.against_sales_order = so.name AND dn.docstatus = 1)
+              AND ({" OR ".join(fields)})
+            ORDER BY so.creation DESC LIMIT %(limit)s""", vals, as_dict=True)
+    return [{
+        "dn": "", "noDn": True, "awb": r.awb or "", "trackNo": "",
+        "order": r.name, "customer": r.customer or "", "carrier": "Cathedis",
+        "track": _TRACK_MAP.get(r.raw, "pending"), "msg": r.raw or "",
+        "sla": "breached" if r.raw in ("Delivery Exception", "Failed Attempt") else "ontrack",
+        "value": r.value or 0, "days": int(r.age or 0),
+        "phone": r.phone or "", "city": (r.city or "").strip().title(),
+        "posted": str(r.creation or "")[:10], "updated": str(r.modified or "")[:16],
+    } for r in rows]
+
+
 @frappe.whitelist()
 def tracking(days=14, state="", q="", limit=30, offset=0, widen=0):
     """Windowed parcel board. Production has ~24k stale DN track statuses that
@@ -398,6 +438,15 @@ def tracking(days=14, state="", q="", limit=30, offset=0, widen=0):
             "phone": r.phone or "", "city": (r.city or "").strip().title(),
             "posted": str(r.posted or ""), "updated": str(r.updated or "")[:16],
         } for r in rows]
+        # Orders that shipped with NO Delivery Note (exchanges, some J-
+        # orders) have an AWB and a tracking status on the order itself, and
+        # this board -- built on Delivery Notes -- could never find them, by
+        # phone or by anything else: 2 of 40 shipped orders sampled on
+        # 2026-11-09, and the number an agent reported "not working". A search
+        # looks for them too, on the first page.
+        if q and str(q).strip() and offset == 0:
+            parcels += _dnless_matches(q, wide)
+            total = int(total or 0) + sum(1 for p in parcels if p.get("noDn"))
         # A search that found nothing inside the window has not answered the
         # question yet — say the whole table is still worth a look.
         can_widen = bool(q and str(q).strip()) and not wide and not parcels

@@ -16,7 +16,7 @@
           </span>
           <div>
             <div class="flex items-center gap-2 flex-wrap">
-              <h1 class="font-mono text-[17px] font-bold text-stone-900">{{ tlParcel.dn }}</h1>
+              <h1 class="font-mono text-[17px] font-bold text-stone-900">{{ tlParcel.dn || tlParcel.order }}</h1>
               <TrackBadge :state="tlParcel.track" />
               <SlaBadge :sla="tlParcel.sla" />
             </div>
@@ -34,7 +34,8 @@
             <Icon name="package" :size="15" />{{ tlParcel.order }}
           </button>
           <a
-            :href="'/app/delivery-note/' + encodeURIComponent(tlParcel.dn)" target="_blank"
+            :href="tlParcel.dn ? '/app/delivery-note/' + encodeURIComponent(tlParcel.dn)
+                   : '/app/sales-order/' + encodeURIComponent(tlParcel.order)" target="_blank"
             class="inline-flex items-center gap-1.5 px-3 h-9 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300"
           >
             {{ t("trk.openErp") }} <Icon name="chevron-right" :size="15" class="flip-rtl" />
@@ -239,12 +240,13 @@
       <div v-else class="divide-y divide-stone-100">
         <div
           v-for="p in parcels"
-          :key="p.dn"
+          :key="p.dn || p.order"
           class="w-full grid items-center gap-3 px-4 py-3 hover:bg-stone-50 transition-colors text-start cursor-pointer grid-cols-[1fr_auto] md:grid-cols-[170px_1fr_110px_120px_70px_auto]"
           @click="tlParcel = p"
         >
           <div class="min-w-0">
-            <div class="font-mono text-[12px] font-semibold text-stone-900 truncate">{{ p.dn }}</div>
+            <div class="font-mono text-[12px] font-semibold text-stone-900 truncate">{{ p.dn || p.order }}</div>
+            <div v-if="p.noDn" class="text-[10px] font-semibold text-amber-700">{{ t("trk.noDn") }}</div>
             <div class="font-mono text-[10.5px] text-stone-400 truncate">{{ p.awb || "—" }}</div>
           </div>
           <div class="min-w-0">
@@ -403,8 +405,14 @@ const updatedAt = ref(Date.now());
 const widened = ref(false);
 let searchTimer = null;
 
+// Every pause while typing fires a search, and a search that has to widen
+// takes ~5 s. Without this the answer for half a number could land after
+// the answer for the whole one and replace it with "No parcels match" --
+// which is how a working phone search read as broken.
+let loadSeq = 0;
 async function load(keepPage = false) {
   if (!keepPage) page.value = 1;
+  const mine = ++loadSeq;
   loading.value = true;
   // No fallback data. This screen answers "where is this customer's parcel"
   // and an agent reads it out loud on the phone. Inventing a row here means
@@ -417,11 +425,13 @@ async function load(keepPage = false) {
       limit: pageSize, offset: (page.value - 1) * pageSize,
     };
     let live = await api("shipping.tracking", args);
+    if (mine !== loadSeq) return;
     // A search that found nothing in the window has not answered the
     // question. Reported 2026-09-19: 688917648 read "No parcels match"
     // while the parcel sat 21 days out, delivered. Widening costs 2.2s
     // against 107ms, so it runs only on the miss — never on the board.
     if (live.canWiden) live = await api("shipping.tracking", { ...args, widen: 1 });
+    if (mine !== loadSeq) return;
     mode.value = "live";
     loadError.value = "";
     parcels.value = live.parcels || [];
@@ -430,13 +440,14 @@ async function load(keepPage = false) {
     widened.value = !!live.widened && !!(live.parcels || []).length;
     updatedAt.value = Date.now();
   } catch (e) {
+    if (mine !== loadSeq) return;
     mode.value = "error";
     loadError.value = String(e.message || e);
     parcels.value = [];
     counts.value = {};
     total.value = 0;
   }
-  loading.value = false;
+  if (mine === loadSeq) loading.value = false;
 }
 onMounted(load);
 

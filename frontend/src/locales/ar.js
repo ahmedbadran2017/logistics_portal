@@ -1535,6 +1535,7 @@ export default {
     trackOn: "تتبع على كاتيديس", call: "اتصال", whatsapp: "واتساب",
     searchPh: "بحث: DN · بوليصة · رقم تتبع · طلب · عميل · تليفون…",
     parcels: "الطرود", active: "نشط", lastDays: "آخر {n} يومًا",
+    noDn: "أوردر اتشحن من غير Delivery Note",
     noMatch: "لا طرود مطابقة.", of: "من",
     shippedHanded: "شُحن — سُلِّم إلى {carrier}",
     footnote: "حالة التتبع تُزامَن من كاتيديس على إذن التسليم — النافذة الزمنية تستبعد السجل القديم.",

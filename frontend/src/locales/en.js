@@ -1536,6 +1536,7 @@ export default {
     trackOn: "Track on Cathedis", call: "Call", whatsapp: "WhatsApp",
     searchPh: "Search DN, AWB, tracking no, order, customer, phone…",
     parcels: "Parcels", active: "active", lastDays: "last {n} days",
+    noDn: "order shipped without a delivery note",
     noMatch: "No parcels match.", of: "of",
     shippedHanded: "Shipped — handed to {carrier}",
     footnote: "Track status is synced from Cathedis onto the Delivery Note — the window keeps stale history out.",

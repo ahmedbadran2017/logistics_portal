@@ -1535,6 +1535,7 @@ export default {
     trackOn: "Suivre sur Cathedis", call: "Appeler", whatsapp: "WhatsApp",
     searchPh: "Rechercher BL, AWB, n° de suivi, commande, client, téléphone…",
     parcels: "Colis", active: "actifs", lastDays: "{n} derniers jours",
+    noDn: "commande expédiée sans bon de livraison",
     noMatch: "Aucun colis ne correspond.", of: "sur",
     shippedHanded: "Expédié — remis à {carrier}",
     footnote: "Le statut est synchronisé depuis Cathedis sur le bon de livraison — la fenêtre écarte l’historique périmé.",
