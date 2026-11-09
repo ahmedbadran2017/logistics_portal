@@ -1536,6 +1536,7 @@ export default {
     searchPh: "Rechercher BL, AWB, n° de suivi, commande, client, téléphone…",
     parcels: "Colis", active: "actifs", lastDays: "{n} derniers jours",
     noDn: "commande expédiée sans bon de livraison",
+    newOrder: "Nouvelle commande", newOrderConfirm: "Touchez encore pour la créer", newOrderDone: "Nouvelle commande créée", newOrderFail: "Impossible de créer la commande",
     noMatch: "Aucun colis ne correspond.", of: "sur",
     shippedHanded: "Expédié — remis à {carrier}",
     footnote: "Le statut est synchronisé depuis Cathedis sur le bon de livraison — la fenêtre écarte l’historique périmé.",

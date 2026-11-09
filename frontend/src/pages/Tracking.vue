@@ -26,6 +26,19 @@
           </div>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
+          <!-- The customer cancelled or the parcel came back, and an agent
+               talked them round: send it again as a new order, from here.
+               A parcel back on our shelves is in no tracking queue, so this
+               screen was the only place the agent could still find it --
+               and it had no button (TKT-2611-4764565). Two taps. -->
+          <button
+            v-if="canNewOrder(tlParcel)"
+            class="inline-flex items-center gap-1.5 px-3 h-9 text-[12.5px] font-semibold rounded-lg text-white disabled:opacity-50"
+            :class="armedNew === (tlParcel.dn || tlParcel.order) ? 'bg-violet-700' : 'bg-violet-600 hover:bg-violet-700'"
+            :disabled="newBusy" @click="newOrder(tlParcel)"
+          >
+            <Icon name="send" :size="14" />{{ armedNew === (tlParcel.dn || tlParcel.order) ? t("trk.newOrderConfirm") : t("trk.newOrder") }}
+          </button>
           <button
             v-if="tlParcel.order"
             class="inline-flex items-center gap-1.5 px-3 h-9 text-[12.5px] font-medium rounded-lg ring-1 ring-stone-200 text-stone-700 bg-white hover:ring-stone-300"
@@ -325,6 +338,7 @@ import {
   TRACK_STATES, TRACK_LABEL, SLA, SLA_LABEL, CARRIER, fmtMAD,
 } from "@/lib/handoffData";
 import { api, apiPost } from "@/lib/resource";
+import { useAuth } from "@/composables/useAuth";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
 
@@ -502,6 +516,40 @@ function waLink(phone) {
 }
 function openOrder(no) {
   router.push({ name: "OrderDetail", params: { name: String(no).replace("#", "") } });
+}
+
+// ── a new order for a customer won back ──
+const { role } = useAuth();
+const NEW_ORDER_ROLES = ["tracking", "confirmation", "manager"];
+const armedNew = ref("");
+const newBusy = ref(false);
+function canNewOrder(p) {
+  return !!p?.order && NEW_ORDER_ROLES.includes(role.value) && p.track !== "delivered";
+}
+async function newOrder(p) {
+  const key = p.dn || p.order;
+  if (armedNew.value !== key) {
+    armedNew.value = key;
+    setTimeout(() => { if (armedNew.value === key) armedNew.value = ""; }, 4000);
+    return;
+  }
+  armedNew.value = "";
+  newBusy.value = true;
+  try {
+    // Through the lane's own decision when there is a parcel, so the reship
+    // is recorded and watched on the order it sends; straight to the reship
+    // when the order shipped with no delivery note.
+    const res = p.dn
+      ? await apiPost("rescue.act", { id: p.dn, action: "reship" })
+      : await apiPost("orders.reship", { order: p.order });
+    const made = res.newOrder || (res.order && res.order !== p.order ? res.order : "");
+    success(t("trk.newOrderDone"), made ? `${p.order} → ${made}` : p.order);
+    if (made) openOrder(made);
+  } catch (e) {
+    warn(t("trk.newOrderFail"), String(e.message || e));
+  } finally {
+    newBusy.value = false;
+  }
 }
 
 // ── parcel timeline (honest: only shipped + last-update are known) ──

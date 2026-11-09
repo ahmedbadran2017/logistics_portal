@@ -1506,13 +1506,13 @@ _EXC_VERB = {"Redeliver": "redeliver", "Reship": "reship",
 
 
 def _record_exception(dn, action, note=None, now=None):
-    from logistics_portal.api.rescue import _ENDED, _bust, _log
+    from logistics_portal.api.rescue import _bust, _log, ended_refuses
     if not frappe.db.exists("Delivery Note", dn):
         frappe.throw("Unknown parcel.")
     meta = frappe.get_meta("Delivery Note")
     if meta.has_field("custom_rescue_outcome"):
         ended = frappe.db.get_value("Delivery Note", dn, "custom_rescue_outcome") or ""
-        if ended in _ENDED:
+        if ended_refuses(ended, "reship" if action == "Reship" else action):
             frappe.throw(f"This parcel already ended ({ended}). Nothing left to decide.")
     now = now or frappe.utils.now_datetime()
     vals = {"custom_exception_action": action, "custom_exception_actioned_at": now}

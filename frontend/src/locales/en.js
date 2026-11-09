@@ -1537,6 +1537,7 @@ export default {
     searchPh: "Search DN, AWB, tracking no, order, customer, phone…",
     parcels: "Parcels", active: "active", lastDays: "last {n} days",
     noDn: "order shipped without a delivery note",
+    newOrder: "New order", newOrderConfirm: "Tap again to create it", newOrderDone: "New order created", newOrderFail: "Could not create the order",
     noMatch: "No parcels match.", of: "of",
     shippedHanded: "Shipped — handed to {carrier}",
     footnote: "Track status is synced from Cathedis onto the Delivery Note — the window keeps stale history out.",

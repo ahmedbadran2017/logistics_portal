@@ -251,7 +251,7 @@
              works the same under a thumb. -->
         <Transition name="rsslide">
           <div v-if="moreFor === r.id" class="mt-2.5 flex flex-wrap gap-1.5 rounded-xl bg-stone-50 ring-1 ring-stone-200/70 p-2">
-            <button v-if="!isNdTab && !isEnded(r) && !promisedChip" class="rs-act rs-act-lbl text-violet-700"
+            <button v-if="!isNdTab && canReship(r) && !promisedChip" class="rs-act rs-act-lbl text-violet-700"
                     @click="openReason(r, 'reship'); moreFor = ''">
               <Icon name="send" :size="14" />{{ t('rs.actReship') }}
             </button>
@@ -260,7 +260,7 @@
                  order page instead of repeating the picker here — choosing a
                  different article needs a catalogue search, and a second copy
                  of that is a second thing to drift. -->
-            <RouterLink v-if="!isNdTab && !isEnded(r) && !promisedChip && r.order" class="rs-act rs-act-lbl text-violet-700"
+            <RouterLink v-if="!isNdTab && canReship(r) && !promisedChip && r.order" class="rs-act rs-act-lbl text-violet-700"
                         :to="{ name: 'OrderDetail',
                                params: { name: String(r.order).replace('#', '') },
                                query: { send: 'other' } }" @click="moreFor = ''">
@@ -489,6 +489,10 @@ const hasVerdict = computed(() => openChip.value === "exceptions" || openChip.va
 // Per row now: Done also holds failed_again and never_came_back, which the
 // server still accepts and which are the ones that need a decision.
 const isEnded = (r) => !!r?.ended;
+// A parcel that came back, or a customer who cancelled and was won back, can
+// still be sent again -- that is what a reship is for. Only a customer who
+// already has the goods cannot (rescue.ended_refuses on the server).
+const canReship = (r) => !["landed", "delivered_anyway"].includes(r?.outcome || "");
 // A promise still being watched is not promised again: a second Reship is
 // refused, and a second Redeliver changes nothing and bounces back. If it
 // breaks, the parcel comes back to To do by itself.

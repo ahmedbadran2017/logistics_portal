@@ -57,6 +57,19 @@ _PROMISE = ("Redeliver", "Reship")
 
 # Outcomes after which a parcel takes no new decision.
 _ENDED = ("landed", "returned", "recovered", "cancelled", "delivered_anyway")
+# ...except a reship, which is how a parcel that came back -- or a customer
+# who cancelled and was won back -- becomes a sale again: all 17 reships on
+# record carry "Retourne -- le client le veut encore". Refused only where the
+# customer already HAS the goods; that is Send instead or an exchange.
+_RESHIP_REFUSED = ("landed", "delivered_anyway")
+
+
+def ended_refuses(outcome, action):
+    """True when a parcel with this outcome must refuse this decision."""
+    outcome = outcome or ""
+    if action == "reship":
+        return outcome in _RESHIP_REFUSED
+    return outcome in _ENDED
 
 # ── the board, in three questions instead of six piles ───────────────────
 #
@@ -992,6 +1005,7 @@ def board(tab="todo", days=30, q="", limit=30, offset=0, reason="", surface="",
             # Per row, because Done holds both: an ending act() refuses, and
             # failed_again / never_came_back, which still need a decision.
             "ended": (getattr(r, "rescue_outcome", "") or "") in _ENDED,
+            "outcome": getattr(r, "rescue_outcome", "") or "",
             "nextCall": str(r.next_call)[:16] if r.next_call else "",
             "due": bool(r.next_call and str(r.next_call) <= now),
             # Triage SLA in HOURS: the old day-grain math (age_d * 24) needed
@@ -1285,7 +1299,7 @@ def act(id=None, action=None, note=None):
     if dn:
         ended = frappe.db.get_value("Delivery Note", dn, "custom_rescue_outcome") \
             if frappe.get_meta("Delivery Note").has_field("custom_rescue_outcome") else ""
-        if (ended or "") in _ENDED:
+        if ended_refuses(ended, action):
             frappe.throw(f"This parcel already ended ({ended}). Nothing left to decide.")
     # MIN, matching the board's SO link — get_value picked an arbitrary line,
     # so on multi-order parcels the agent could act on a different order than
@@ -1381,7 +1395,8 @@ def act(id=None, action=None, note=None):
     except Exception:
         pass
     return {"ok": True, "id": id, "action": action, "attempts": attempts,
-            "order": order or ""}
+            "order": order or "",
+            "newOrder": new_order if action == "reship" else ""}
 
 
 def settle_outcomes(limit=400):
