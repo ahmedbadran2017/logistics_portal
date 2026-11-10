@@ -742,6 +742,13 @@ def _receive_one(po, items, problem, note):
                     r["pr_item"] = pri.name
         _reserve(pr, so_rows)
         _sync_next_fields(po)
+        # A deadlock inside another app's on_submit hook rolls the whole
+        # transaction back, receipt included, and that hook swallows the
+        # error (2026-11-10: #270739's MAT-PRE-2026-05199 vanished and the
+        # next order's receipt took its number, while the order was told
+        # "received, reserved"). Only a receipt that is still there counts.
+        if frappe.db.get_value("Purchase Receipt", pr.name, "docstatus") != 1:
+            frappe.throw(f"{po}: the receipt was rolled back by the database — scan it again.")
 
     units = sum(r["qty"] for r in rows)
     left = sum(cint(l.pending) for l in open_lines.values()) - units
