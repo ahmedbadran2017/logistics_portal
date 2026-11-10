@@ -232,7 +232,29 @@ class PickList(_Base):
             # the job then runs exactly as it did before carriers existed.
             frappe.log_error(frappe.get_traceback()[:2000], "carrier router unavailable — Cathedis for all")
             routed = provider
-        return super().create_delivery_note_on_submit(routed)
+        # One job per pick list at a time. The base method checks for existing
+        # Delivery Notes ONCE, before its loop, so two jobs on the same list —
+        # a retry pressed while the first still runs, or a backlog draining on
+        # both workers — each create every order's note. Measured: 30 orders
+        # shipped twice on 30/10, 02/11 and 05/11 (46 units out of stock on
+        # paper, Cross-dock at -4 on PP01, a second invoice paid on three).
+        # The second job leaves; the first creates them all, and a retry after
+        # it finishes finds them through the base method's own check.
+        cache = frappe.cache()
+        key = cache.make_key(f"lp_dn_job:{self.name}")
+        if not cache.set(key, frappe.session.user or "job", ex=1800, nx=True):
+            frappe.log_error(f"{self.name}: a Delivery Note job is already running for this "
+                             "pick list — this one stopped instead of creating duplicates.",
+                             "pick_list duplicate DN job skipped")
+            return None
+        try:
+            out = super().create_delivery_note_on_submit(routed)
+            # Commit BEFORE the lock goes: a retry that starts the instant it
+            # is released must already see these notes.
+            frappe.db.commit()
+            return out
+        finally:
+            cache.delete(key)
 
     def _get_required_qty_for_sales_order(self, sales_order, bundle_cache):
         packed = _packed_by_line(sales_order)
