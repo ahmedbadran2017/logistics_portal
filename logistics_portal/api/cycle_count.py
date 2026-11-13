@@ -800,9 +800,11 @@ def _post_draft(name):
         if [r for r in live_lines if float(r.qty or 0) > 0 and not float(r.valuation_rate or 0)]:
             return {"posted": False, "retired": False, "kind": "rate", "reason": "", "moves": moves}
         _release_stale_reservations(doc)
+        held = _hold_live_reservations(doc)
         _apply_drift(doc)
         doc.flags.ignore_permissions = True
         doc.submit()
+        _restore_reservations(doc, held)
         _save_registry([n for n in _registry() if n != name])
         frappe.db.commit()
         for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
@@ -947,9 +949,11 @@ def approve_count(name):
     if zero:
         frappe.throw("lp:zeroRate")
     _release_stale_reservations(doc)
+    held = _hold_live_reservations(doc)
     _apply_drift(doc)
     doc.flags.ignore_permissions = True
     doc.submit()
+    _restore_reservations(doc, held)
     _save_registry([n for n in _registry() if n != name])
     frappe.db.commit()
     for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
@@ -994,9 +998,11 @@ def approve_all(limit=15):
                 skipped.append({"name": name, "kind": "rate", "reason": ""})
                 continue
             _release_stale_reservations(doc)
+            held = _hold_live_reservations(doc)
             _apply_drift(doc)
             doc.flags.ignore_permissions = True
             doc.submit()
+            _restore_reservations(doc, held)
             _save_registry([n for n in _registry() if n != name])
             posted.append(name)
             frappe.db.commit()
@@ -1180,6 +1186,73 @@ def _release_stale_reservations(doc):
     if released:
         doc.add_comment("Comment", "Released stale reservations before posting: " + ", ".join(released))
     return released
+
+
+def _hold_live_reservations(doc):
+    """ERPNext refuses a reconciliation on ANY reserved stock of its item and
+    shelf, whatever the count says — so one live order holding a unit froze
+    the whole line (MCH09178 on PLT, 2026-11-13: counted 333, book 22, one
+    confirmed order holding 1 → "1.0 units are reserved", and the release of
+    the seven cancelled orders' holds rolled back with it). A live order's
+    reservation is set aside for the post and put back right after it, in
+    the same transaction: if the restore fails, nothing posts. Only
+    quantity-based holds move; a serial/batch hold still blocks, as before."""
+    held = []
+    for r in doc.items:
+        rows = frappe.db.sql(
+            """SELECT name FROM `tabStock Reservation Entry`
+               WHERE docstatus = 1 AND item_code = %s AND warehouse = %s
+                 AND status IN ('Reserved', 'Partially Reserved', 'Partially Delivered')
+                 AND IFNULL(reservation_based_on, 'Qty') = 'Qty'""",
+            (r.item_code, r.warehouse), as_dict=True)
+        for x in rows:
+            sre = frappe.get_doc("Stock Reservation Entry", x.name)
+            qty = float(sre.reserved_qty or 0) - float(sre.delivered_qty or 0)
+            if qty <= 0:
+                continue
+            held.append({"was": sre.name, "qty": qty, "company": sre.company,
+                         "item_code": sre.item_code, "warehouse": sre.warehouse,
+                         "voucher_type": sre.voucher_type, "voucher_no": sre.voucher_no,
+                         "voucher_detail_no": sre.voucher_detail_no,
+                         "voucher_qty": sre.voucher_qty, "stock_uom": sre.stock_uom})
+            sre.flags.ignore_permissions = True
+            sre.cancel()
+    return held
+
+
+def _restore_reservations(doc, held):
+    """Put back what _hold_live_reservations set aside, against what the
+    shelf holds now. A count lower than the orders' holds can only give back
+    what is there — each shortfall is said on its order."""
+    if not held:
+        return []
+    from erpnext.stock.doctype.stock_reservation_entry.stock_reservation_entry import (
+        get_available_qty_to_reserve)
+    back, short = [], []
+    for h in held:
+        avail = float(get_available_qty_to_reserve(h["item_code"], h["warehouse"]) or 0)
+        qty = min(h["qty"], avail)
+        if qty > 0:
+            sre = frappe.get_doc({
+                "doctype": "Stock Reservation Entry", "company": h["company"],
+                "item_code": h["item_code"], "warehouse": h["warehouse"],
+                "voucher_type": h["voucher_type"], "voucher_no": h["voucher_no"],
+                "voucher_detail_no": h["voucher_detail_no"], "voucher_qty": h["voucher_qty"],
+                "available_qty": avail, "reserved_qty": qty, "stock_uom": h["stock_uom"],
+                "reservation_based_on": "Qty"})
+            sre.flags.ignore_permissions = True
+            sre.insert()
+            sre.submit()
+            back.append(f"{h['voucher_no']} {qty:g}u ({h['was']} → {sre.name})")
+        if qty < h["qty"]:
+            short.append(h)
+            frappe.get_doc(h["voucher_type"], h["voucher_no"]).add_comment(
+                "Comment", f"Cycle count {doc.name} found {h['warehouse']} short: this order's hold on "
+                           f"{h['item_code']} came back {max(qty, 0):g} of {h['qty']:g}.")
+    doc.add_comment("Comment", "Live orders' reservations set aside for the count and restored: "
+                    + (", ".join(back) or "—")
+                    + (f" · short: {', '.join(h['voucher_no'] for h in short)}" if short else ""))
+    return back
 
 
 def _own_touched(doc):
