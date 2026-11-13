@@ -1113,6 +1113,7 @@ export default {
     pickTransfer: "Virement en attente",
     pickTransferHint: "Virement pas encore confirmé par la comptabilité — hors prélèvement.",
     transferTitle: "Virements en attente de la comptabilité",
+    codSwitch: "Le client paie à la livraison", codReasonPh: "Qu'a dit le client ? (obligatoire)", codConfirm: "Passer en COD · le livreur encaisse {amt} MAD", codDone: "Passé en paiement à la livraison", codFail: "Impossible de passer en COD",
     transferHint: "La comptabilité confirme la réception du virement et l'enregistre sur la commande. La commande rejoint alors le prélèvement d'elle-même, avec une étiquette à 0.",
     cityTitle: "En attente d'une correction de ville",
     cityHint: "Cathedis a refusé ces noms de ville (ou ne les a jamais étiquetés). Le suivi des expéditions corrige la ville ; la commande revient ensuite toute seule dans le pool — ne les préparez pas.",

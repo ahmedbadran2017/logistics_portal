@@ -1113,6 +1113,7 @@ export default {
     pickTransfer: "Awaiting transfer",
     pickTransferHint: "Bank transfer not confirmed by accounting yet — held out of picking.",
     transferTitle: "Bank transfers waiting for accounting",
+    codSwitch: "Customer pays on delivery", codReasonPh: "What did the customer say? (required)", codConfirm: "Switch to COD · courier collects {amt} MAD", codDone: "Switched to cash on delivery", codFail: "Could not switch to COD",
     transferHint: "Accounting confirms the transfer reached us and posts it on the order. The order then joins picking by itself and its label reads 0.",
     cityTitle: "Waiting on a city fix",
     cityHint: "Cathedis refused these city names (or has never labeled them). Shipment tracking fixes the city; the order then re-enters the pick pool by itself — do not pick these.",

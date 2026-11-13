@@ -1001,6 +1001,55 @@ def transfer_held(limit=80):
                       "total": float(r.total or 0), "paid": float(r.paid or 0),
                       "ageH": int(r.age_h or 0)} for r in rows]}
 
+
+_COD = "Cash on Delivery (COD)"
+
+
+@frappe.whitelist(methods=["POST"])
+def switch_transfer_to_cod(order, reason=None):
+    """The customer will pay the courier after all: a bank-transfer order with
+    no transfer on the books becomes COD, and leaves the transfer hold.
+
+    payment_type is read-only on the Desk (it comes from Shopify), so an order
+    like #269750 -- "Virement bancaire", nothing paid, 11.7 days waiting in
+    2026-11 -- had no way out but a console. The label then asks the courier
+    for the full price (grand_total - advance_paid), which is right only if no
+    transfer is coming: hence managers and accounting only, a reason, and a
+    comment naming who switched it. A transfer already (even partly) posted is
+    refused -- that money must be sorted out by accounting, not overwritten."""
+    from logistics_portal.api.auth import resolve_role
+    user = frappe.session.user
+    if resolve_role(user) != "manager" and not (
+            {"Accounts Manager", "Accounts User", "System Manager"} & set(frappe.get_roles(user))):
+        frappe.throw("Only a manager or accounting can change how an order is paid.",
+                     frappe.PermissionError)
+    name = _resolve_order_name(order)
+    if not name:
+        frappe.throw("Unknown order.")
+    reason = (reason or "").strip()
+    if len(reason) < 5:
+        frappe.throw("Say why the customer pays on delivery now (what they told you).")
+    so = frappe.db.get_value("Sales Order", name,
+                             ["docstatus", "payment_type", "advance_paid", "grand_total"], as_dict=True)
+    if so.docstatus != 1:
+        frappe.throw("Only a submitted order can be switched.")
+    if (so.payment_type or "") not in ("Virement bancaire", "Bank Transfer"):
+        frappe.throw(f"This order is not a bank transfer ({so.payment_type or 'no payment type'}).")
+    if flt(so.advance_paid) > 0:
+        frappe.throw("A payment is already posted on this order — accounting must settle it "
+                     "before it can change to cash on delivery.")
+    if is_stopped(name):
+        frappe.throw("This order is cancelled.")
+    old = so.payment_type
+    frappe.db.set_value("Sales Order", name, "payment_type", _COD)
+    frappe.get_doc("Sales Order", name).add_comment(
+        "Comment", f"Payment changed: {old} → {_COD} by {user} — {reason[:300]}. "
+                   f"The courier collects {flt(so.grand_total):g} MAD.")
+    for k in ("lp_board_summary", "lp_pick_avail", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    frappe.cache().delete_keys("lp_suggest")
+    return {"ok": True, "order": name, "paymentType": _COD, "collect": flt(so.grand_total)}
+
 # The city FENCE (2026-09-11, Ahmed's call): an order whose city Cathedis
 # has refused — or that our AWB history has never successfully labeled —
 # leaves the pick circle entirely until a dispatcher fixes it in City-check.
