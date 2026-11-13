@@ -247,12 +247,29 @@
       </div>
       <p class="px-4 py-2 text-[11.5px] text-stone-500 border-b border-stone-100">{{ t('ordersPg.transferHint') }}</p>
       <ul class="divide-y divide-stone-100 max-h-[380px] overflow-y-auto">
-        <li v-for="r in transferHeld.rows" :key="r.so" class="px-4 py-2.5 flex items-center gap-3">
-          <span class="font-mono text-[12px] text-stone-800 flex-shrink-0">{{ r.so }}</span>
-          <span class="text-[12px] text-stone-600 truncate" dir="auto">{{ r.customer }}</span>
-          <span class="text-[11.5px] text-stone-500 tabular-nums" dir="ltr">{{ r.phone }}</span>
-          <span class="ms-auto text-[11px] text-stone-400 tabular-nums flex-shrink-0">{{ Math.round(r.ageH / 24 * 10) / 10 }}d</span>
-          <span class="text-[11.5px] font-semibold text-stone-700 tabular-nums flex-shrink-0">{{ fmtMAD(r.total) }} MAD</span>
+        <li v-for="r in transferHeld.rows" :key="r.so" class="px-4 py-2.5">
+          <div class="flex items-center gap-3">
+            <span class="font-mono text-[12px] text-stone-800 flex-shrink-0">{{ r.so }}</span>
+            <span class="text-[12px] text-stone-600 truncate" dir="auto">{{ r.customer }}</span>
+            <span class="text-[11.5px] text-stone-500 tabular-nums" dir="ltr">{{ r.phone }}</span>
+            <span class="ms-auto text-[11px] text-stone-400 tabular-nums flex-shrink-0">{{ Math.round(r.ageH / 24 * 10) / 10 }}d</span>
+            <span class="text-[11.5px] font-semibold text-stone-700 tabular-nums flex-shrink-0">{{ fmtMAD(r.total) }} MAD</span>
+            <!-- The customer pays the courier after all (manager only; the
+                 server also lets accounting). Asks why before it changes. -->
+            <button v-if="role === 'manager' && codFor !== r.so"
+                    class="flex-shrink-0 h-7 px-2.5 rounded-md text-[11.5px] font-semibold text-amber-800 bg-amber-50 ring-1 ring-amber-200 hover:bg-amber-100"
+                    @click="codFor = r.so; codReason = ''">{{ t('ordersPg.codSwitch') }}</button>
+          </div>
+          <div v-if="codFor === r.so" class="mt-2 flex items-center gap-2 flex-wrap">
+            <input v-model="codReason" dir="auto" :placeholder="t('ordersPg.codReasonPh')"
+                   class="flex-1 min-w-[200px] h-8 px-2.5 rounded-md bg-white ring-1 ring-stone-200 text-[12px] focus:ring-2 focus:outline-none"
+                   style="--tw-ring-color: var(--accent-400)" @keyup.enter="switchToCod(r)" />
+            <button class="h-8 px-3 rounded-md text-[12px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
+                    :disabled="codBusy || codReason.trim().length < 5" @click="switchToCod(r)">
+              {{ t('ordersPg.codConfirm').replace('{amt}', fmtMAD(r.total)) }}
+            </button>
+            <button class="h-8 px-2 text-[12px] text-stone-500 hover:text-stone-800" @click="codFor = ''">{{ t('common.cancel') }}</button>
+          </div>
         </li>
       </ul>
     </div>
@@ -990,6 +1007,7 @@ import SkuLookupModal from "@/components/SkuLookupModal.vue";
 import { WAREHOUSE, fmtMAD } from "@/lib/handoffData";
 import { api, apiPost, liveOr } from "@/lib/resource";
 import { useToast } from "@/composables/useToast";
+import { useAuth } from "@/composables/useAuth";
 import { useI18n } from "@/composables/useI18n";
 
 const router = useRouter();
@@ -1114,6 +1132,25 @@ const pickTab = ref("ready");
 const pickBuckets = ref({});
 const cityHeld = ref(null);
 const transferHeld = ref(null);
+// Switching a held bank-transfer order to cash on delivery.
+const { role } = useAuth();
+const codFor = ref("");
+const codReason = ref("");
+const codBusy = ref(false);
+async function switchToCod(r) {
+  if (codBusy.value || codReason.value.trim().length < 5) return;
+  codBusy.value = true;
+  try {
+    const res = await apiPost("picking.switch_transfer_to_cod", { order: r.so, reason: codReason.value.trim() });
+    success(t("ordersPg.codDone"), `${res.order} · ${fmtMAD(res.collect)} MAD`);
+    codFor.value = "";
+    await load(activeStage.value, activeTrack.value, true);
+  } catch (e) {
+    warn(t("ordersPg.codFail"), String(e.message || e));
+  } finally {
+    codBusy.value = false;
+  }
+}
 const localBoard = ref(null);
 const falseOos = ref(null);
 const openSup = ref("");
