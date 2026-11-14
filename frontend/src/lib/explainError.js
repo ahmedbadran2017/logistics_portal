@@ -188,10 +188,11 @@ const RULES = [
     test: /holds one consignment supplier's goods only/i,
     build: () => ({
       icon: "building", tone: "warn",
-      title: "Ce n'est pas du dépôt — c'est notre stock",
-      what: "Les sections CN - … ne gardent que la marchandise en dépôt (pas encore achetée). Ces articles ont été achetés au fournisseur : ils sont à nous.",
+      title: "Section réservée au dépôt du fournisseur",
+      what: "Une section CN - … ne garde que la marchandise en dépôt de son fournisseur. Ces articles-là n'en font pas partie.",
       steps: ["Choisis « Receiving Zone » (ou une de nos étagères) comme emplacement, puis valide à nouveau.",
-              "La marchandise en dépôt va dans sa section CN toute seule — pas besoin de la choisir."],
+              "La marchandise en dépôt va dans sa section CN toute seule — pas besoin de la choisir.",
+              "Si tu es sûr que c'est du dépôt, envoie le message au manager : le fournisseur n'est peut-être pas encore réglé en dépôt."],
     }),
   },
   {

@@ -277,10 +277,8 @@ def receive_boot():
         {"company": COMPANY}, as_dict=True)
     cond, args = _movable_condition("name")
     # A supplier's consignment section is never a target to type: its goods
-    # are routed there by themselves, and anything else is refused. Offered
-    # in the list, it read as "Awani's goods go to CN - Awani" — and the
-    # floor sent an outright Awani purchase there (PUR-ORD-2026-00272,
-    # 2026-11-13: refused, received a day late into Receiving Zone).
+    # are routed there by themselves (see consignment.sections_for), and
+    # anything else is refused there.
     from logistics_portal.api.consignment import is_consignment_warehouse
     warehouses = [w[0] for w in frappe.db.sql(
         f"""SELECT name FROM `tabWarehouse`
@@ -489,7 +487,7 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
         from logistics_portal.api.consignment import is_consignment_warehouse
         if is_consignment_warehouse(target):
             frappe.throw(f"{target} holds one consignment supplier's goods only — "
-                         "these items are our own stock (bought outright), receive them "
+                         "these items are not that supplier's consignment, receive them "
                          f"into {RECEIVING_WH} or one of our shelves.")
 
     # This PO's open lines, per item (a piece can span two lines of the same PO).

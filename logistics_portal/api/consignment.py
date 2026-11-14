@@ -13,7 +13,7 @@ how the two drift apart.
 
 The one fact worth stating twice, because it reads like a bug: a consignment
 product is `Item.default_supplier` whose `Supplier.custom_fulfillment_model`
-is **"Fulfillment"**. That Select offers only Fulfillment and Cross-dock —
+is **"Fulfillment"** — or **"Hybrid"** (since 2026-11-10; see _cn_models). That Select offers only Fulfillment and Cross-dock —
 there is no "Consignment" option — and supplier_portal reuses Fulfillment for
 it. Measured 2026-09-30: the 20 "Fulfillment" suppliers are exactly the 20
 that have a section, set difference empty both ways.
@@ -96,6 +96,21 @@ def owner(item_code):
     return (sup, sec) if sec else (None, None)
 
 
+def _cn_models():
+    """Supplier models whose units we hold for them. supplier_portal owns the
+    list (B22.554, 2026-11-10: "Fulfillment" and the new "Hybrid" — a Hybrid
+    supplier keeps some stock on its own shelf and places some with us, and
+    what it places with us lives in its section). Hard-coding "Fulfillment"
+    here sent Awani's placed goods to our bins: PUR-ORD-2026-00272 (231
+    units, unpaid) was refused at CN - Awani - JM and landed in Receiving
+    Zone. Read, never copied; the fallback is that same list."""
+    try:
+        m = frappe.get_attr("supplier_portal.api.supply_model.CN_MODELS")
+        return tuple(m) if m else ("Fulfillment", "Hybrid")
+    except Exception:
+        return ("Fulfillment", "Hybrid")
+
+
 def sections_for(item_codes):
     """{item_code: section} for the consignment ones — one query for the list,
     then one section lookup per distinct supplier. The pick engine calls this
@@ -108,8 +123,8 @@ def sections_for(item_codes):
            FROM `tabItem` i
            JOIN `tabSupplier` s ON s.name = i.default_supplier
            WHERE i.name IN %(codes)s
-             AND s.custom_fulfillment_model = 'Fulfillment'""",
-        {"codes": tuple(codes)}, as_dict=True)
+             AND s.custom_fulfillment_model IN %(models)s""",
+        {"codes": tuple(codes), "models": _cn_models()}, as_dict=True)
     cache, out = {}, {}
     for r in rows:
         if r.supplier not in cache:
