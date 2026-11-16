@@ -155,6 +155,8 @@ const routes = [
       // Inventory
       { path: "warehouse", name: "Warehouse", component: () => import("@/pages/Warehouse.vue") },
       { path: "move", name: "MoveStock", component: () => import("@/pages/MoveStock.vue") },
+      // A product assembled from others (MCH09178): Repack + labels.
+      { path: "kits", name: "Kits", component: () => import("@/pages/Kits.vue") },
       { path: "goods-in", name: "GoodsIn", component: () => import("@/pages/GoodsIn.vue") },
       { path: "crossdock-in", name: "CrossdockIn", component: () => import("@/pages/CrossdockIn.vue") },
       { path: "supplier-pickup", name: "SupplierPickup", component: () => import("@/pages/SupplierPickup.vue") },

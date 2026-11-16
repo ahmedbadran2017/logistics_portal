@@ -84,6 +84,9 @@ doc_events = {
             # A count of Cross-dock that zeroes pieces received for waiting
             # orders warns first (MAT-RECO-2026-22930).
             "logistics_portal.api.crossdock_in.warn_crossdock_count",
+            # A kit (MCH09178…) rises only through Assemble, which takes its
+            # components with it — never through a count (+600 on 13–16/11).
+            "logistics_portal.api.kits.warn_kit_count",
         ],
     },
     # Same overflow, built by ERPNext inside a Pick List / Delivery Note
