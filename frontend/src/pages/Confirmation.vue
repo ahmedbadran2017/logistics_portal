@@ -204,6 +204,14 @@
     </Transition>
 
     <!-- rows -->
+    <!-- Outside the loading / error / empty / rows chain on purpose: a
+         strip that joined it would swallow the branch after it, and the
+         rows would vanish exactly when something was being held. -->
+    <div v-if="!loading && held?.n && tab === 'pending'"
+         class="text-[11.5px] text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-xl px-3 py-2">
+      <Icon name="clock" :size="12" class="inline -mt-px me-1" />
+      {{ t('cf.heldLine').replace('{n}', String(held.n)).replace('{m}', String(held.freeIn)) }}
+    </div>
     <div v-if="loading" class="space-y-2.5">
       <div v-for="n in 6" :key="n" class="h-[76px] rounded-2xl cf-shimmer" />
     </div>
@@ -216,6 +224,10 @@
       <span class="inline-flex w-14 h-14 rounded-2xl items-center justify-center bg-emerald-50 text-emerald-500 mb-3"><Icon name="check-circle" :size="26" /></span>
       <div class="text-[15px] font-semibold text-stone-800">{{ t('cf.empty') }}</div>
       <div class="text-[12.5px] text-stone-400 mt-1">{{ t('cf.emptyHint') }}</div>
+      <!-- "Nothing here" is false if the queue is simply holding orders back. -->
+      <div v-if="held?.n" class="text-[12.5px] text-amber-700 mt-2 font-semibold">
+        {{ t('cf.heldLine').replace('{n}', String(held.n)).replace('{m}', String(held.freeIn)) }}
+      </div>
     </div>
     <TransitionGroup v-else name="cfrow" tag="div" class="space-y-2.5 relative">
       <div v-for="r in rows" :key="r.order"
@@ -708,6 +720,9 @@ watch([tab, q, page, days, frm, to], () => {
 // out of order.
 watch([page, pageSize], () => { if (!loading.value) load(); });
 const data = ref(null);
+// Served by the board itself, so the strip can never disagree with the list
+// it is explaining.
+const held = computed(() => data.value?.held || null);
 const rows = ref([]);
 const total = ref(0);
 const loading = ref(true);

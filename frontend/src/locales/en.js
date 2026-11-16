@@ -2171,6 +2171,8 @@ export default {
     loadFail: "Couldn't load the queue",
     hrs: "h",
     days: "d",
+    heldLine: "{n} new orders are with the automation — the first comes free in about {m} min",
+
   },
   vel: {
     title: "Velocity",
@@ -2758,6 +2760,9 @@ export default {
     parcels: "orders",
     took: "took",
     refused: "failed",
+    heldShort: "with the bot · {n}m",
+    heldHint: "New orders the automation is trying first. They join the queue on their own.",
+
   },
   rsd: {
     title: "Rescue dashboard",

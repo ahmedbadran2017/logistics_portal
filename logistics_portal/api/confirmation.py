@@ -14,7 +14,7 @@ import json
 
 import frappe
 from datetime import date
-from frappe.utils import add_to_date, flt, now_datetime
+from frappe.utils import add_to_date, flt, get_datetime, now_datetime
 
 from logistics_portal.api import clock as _clock
 
@@ -249,6 +249,83 @@ def _not_cold():
         return "1 = 1"
     return ("NOT (so.custom_sales_status = 'Pending' AND "
             "COALESCE(so.custom_order_source, '') = 'shopify_draft_order')")
+
+
+# ── Give the automation its turn first (A/B, Ahmed 2026-11-17) ─────────
+#
+# Measured over May→November: the bot closes an order it reaches first at
+# 90.4%; an order the team reaches before the bot closes at 64.3%. The team
+# got 2.4x faster this autumn (1,400 minutes to first human touch, down to
+# ~590), the share the bot reaches first fell 47% -> 36%, and the share it
+# never touches at all rose 32% -> 40%. In working hours the team now gets
+# there first on more than half of arrivals.
+#
+# That is worth about 3.2 of the 5.6 points the section lost since May — but
+# only if those orders would really have gone the bot's way, and that cannot
+# be read off history, because the ones the bot closes may simply be the easy
+# ones. So this is a test, not a change of policy.
+#
+# HALF the orders are held back from the queue for their first `botHoldMins`
+# minutes; the other half behave exactly as they do today. The arm is a pure
+# function of the order's NAME — no field, no migration, nothing written —
+# so the analysis can recompute which arm an order was in, and the two arms
+# were already indistinguishable before the test (November: 3,828 vs 3,741
+# orders, 205 vs 211 MAD average basket, 79.7% vs 79.5% confirmed).
+#
+# The hold binds ONLY a brand-new order nobody has touched or been given. A
+# retry, a call-back promise, or anything already somebody's work is never
+# delayed by it.
+def _ab_arm(a="so."):
+    return f"MOD(CONV(RIGHT(MD5({a}name), 1), 16, 10), 2)"
+
+
+def _hold_cond(a="so."):
+    """SQL: true unless this order is still inside the automation's window.
+
+    `a` is the table alias, because the board counts its queues on a query
+    with no alias at all and a condition that only works in one of the two
+    places would hold the rows while still counting them."""
+    cfg = _cf_settings()
+    mins = int(cfg.get("botHoldMins") or 0)
+    if mins <= 0:
+        return "1 = 1"
+    arm = f"{_ab_arm(a)} = 0" if cfg.get("botHoldHalf", True) else "1 = 1"
+    return (f"NOT ({arm} AND {a}custom_sales_status = 'Pending'"
+            f" AND COALESCE({a}custom_call_attempts, 0) = 0"
+            f" AND COALESCE({a}_assign, '') IN ('', '[]')"
+            f" AND {a}creation > %(hold_cut)s)")
+
+
+def held_now():
+    """How many orders are sitting with the automation right now, and when
+    the oldest of them comes free. The team must be able to SEE this: a
+    queue that is quietly shorter than the work in the building is how a
+    portal loses the floor's trust."""
+    mins = int(_cf_settings().get("botHoldMins") or 0)
+    if mins <= 0:
+        return {"n": 0, "mins": 0, "freeIn": 0}
+    vals = _hold_vals({"co": _CO})
+    row = frappe.db.sql(
+        f"""SELECT COUNT(*) n, MIN(so.creation) oldest
+              FROM `tabSales Order` so
+             WHERE so.docstatus = 1 AND so.company = %(co)s
+               AND NOT ({_hold_cond()})""", vals, as_dict=True)[0]
+    free_in = 0
+    if row.n and row.oldest:
+        gone = (now_datetime() - get_datetime(row.oldest)).total_seconds() / 60.0
+        free_in = max(0, int(round(mins - gone)))
+    return {"n": int(row.n or 0), "mins": mins, "freeIn": free_in}
+
+
+def _hold_vals(vals):
+    """The cut-off as a bound param on the SITE clock.
+
+    Not NOW(): the database answers in UTC while the site runs on UTC+3, and
+    three hours of error here would hold every order all morning instead of
+    half of them for half an hour."""
+    mins = int(_cf_settings().get("botHoldMins") or 0)
+    vals["hold_cut"] = str(add_to_date(now_datetime(), minutes=-max(mins, 0)))[:19]
+    return vals
 
 
 # ── The day's target ─────────────────────────────────────────────────────
@@ -583,6 +660,10 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
     # the window used to fall out of the queue exactly when it came due.
     in_hand = _IN_HAND.replace("so.", "")
     retry_rng = rng.format(col="COALESCE(custom_next_call_at, creation)")
+    # The Pending count must agree with the Pending rows, or the tab shows a
+    # number the list cannot produce.
+    hold_cnt = _hold_cond("")
+    _hold_vals(rng_vals)
     for sts, rng_sql in ((("Pending",), q_rng),
                          (tuple(v for k, v in QUEUES.items() if k != "pending"),
                           retry_rng)):
@@ -590,7 +671,7 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
                 f"""SELECT custom_sales_status s, COUNT(*) n FROM `tabSales Order`
                     WHERE docstatus = 1 AND company = %(co)s
                       AND custom_sales_status IN %(sts)s{me_q}{q_cnt}
-                      AND {in_hand} AND {_rng_or_all(rng_sql)}
+                      AND {in_hand} AND {hold_cnt} AND {_rng_or_all(rng_sql)}
                     GROUP BY custom_sales_status""",
                 {"sts": sts, "co": _CO, **rng_vals}, as_dict=True):
             for k, v in QUEUES.items():
@@ -786,6 +867,12 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
                  rng.format(col=("so.creation" if tab == "pending" else
                                  "COALESCE(so.custom_next_call_at, so.creation)"))]
         vals["status"] = QUEUES[tab]
+        # The board is the other door. Holding an order out of serve-next
+        # while it still sits in the Pending list would only move where the
+        # agent picks it up from, and the test would measure nothing.
+        if tab == "pending":
+            conds.append(_hold_cond())
+            _hold_vals(vals)
     # Agent scope on the rows AND the search: an agent searching still only
     # reaches their own orders. Working queues scope by the ERPNext assignment
     # (_assign, what the desk divides work by); the done tabs by the actor
@@ -961,6 +1048,9 @@ def board(tab="pending", days=30, q="", limit=30, offset=0, frm=None, to=None,
 
     return {
         "tab": tab, "counts": counts, "total": int(total or 0),
+        # What the queue is NOT showing, and for how long. Without this the
+        # Pending tab is simply shorter than the work and nobody can tell why.
+        "held": held_now(),
         "myTotal": my_total, "myTarget": day_target(),
         "slaHours": int(cf_s.get("slaFirstCallH", 6)),
         "discountCapPct": int(cf_s.get("discountCapPct", 15)),
@@ -1727,6 +1817,13 @@ def update_contact(order, name=None, phone=None, city=None, address_line=None):
 # portal-wide manager powers). Same pattern will serve lanes 2 and 3.
 _CF_KEY = "lp_cf_settings"
 _CF_DEFAULTS = {
+    # Give the automation its turn before the queue sees a new order.
+    # 0 switches the whole thing off without a deploy — the one control that
+    # has to work from the settings page at the moment somebody doubts it.
+    "botHoldMins": 30,
+    # True = half the orders (by name hash), which is the test. False would
+    # hold every order, which is the policy once the test says so.
+    "botHoldHalf": True,
     "retryDna": 4,        # hours before a Did-not-Answer resurfaces
     "retryFollowup": 24,
     "retryOnhold": 48,
@@ -1920,6 +2017,14 @@ def save_cf_settings(settings=None):
             if not (1 <= v <= 168):
                 frappe.throw(f"{k} must be between 1 and 168 hours.")
             out[k] = v
+    if "botHoldMins" in settings:
+        v = int(settings["botHoldMins"])
+        if not (0 <= v <= 240):
+            frappe.throw("botHoldMins must be between 0 and 240 minutes "
+                         "(0 turns the hold off).")
+        out["botHoldMins"] = v
+    if "botHoldHalf" in settings:
+        out["botHoldHalf"] = bool(settings["botHoldHalf"])
     if "poolEnabled" in settings:
         out["poolEnabled"] = bool(settings["poolEnabled"])
     if "poolPresence" in settings:
@@ -3691,7 +3796,7 @@ def _pool_cond():
     held = ("NOT EXISTS (SELECT 1 FROM `tabToDo` t WHERE t.reference_type = 'Sales Order' "
             "AND t.reference_name = so.name AND t.status = 'Open' "
             "AND t.creation > %(quiet)s)")
-    return (f"{_DUE} AND {held} AND {_open_free_cond()} AND ("
+    return (f"{_DUE} AND {held} AND {_hold_cond()} AND {_open_free_cond()} AND ("
             f"COALESCE(so._assign, '', '[]') IN ('', '[]') "
             f"OR COALESCE({_last_touch_sql()}, '1900-01-01') <= %(quiet)s)")
 
@@ -3760,6 +3865,7 @@ def _serve_order():
 
 def _pool_vals(vals):
     _open_vals(vals)
+    _hold_vals(vals)
     cfg = _cf_settings()
     h = min(max(int(cfg.get("poolAfterH") or 2), 1), 168)
     vals["quiet"] = str(add_to_date(now_datetime(), hours=-h))[:19]
@@ -3825,6 +3931,9 @@ def pool_depth():
               AND {_not_cold()}
               AND {_pool_cond()}""", vals)[0][0]
     return {"n": int(n or 0), "enabled": True, "block": _pool_block(me),
+            # "Nothing to serve" and "nothing to serve YET" are different
+            # answers, and the agent pressing the button deserves the second.
+            "held": held_now(),
             "holding": _holding(me), "max": int(_cf_settings().get("poolMax") or 20)}
 
 

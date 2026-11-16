@@ -58,6 +58,13 @@
       </span>
 
       <!-- the pool is a lead's number: present, never shouting -->
+      <!-- What the queue is holding back, and for how long. -->
+      <span v-if="heldN" class="inline-flex items-center gap-1.5 text-stone-400"
+            :title="t('ws.heldHint')">
+        <Icon name="clock" :size="13" />
+        <b class="tabular-nums">{{ heldN }}</b>
+        {{ t('ws.heldShort').replace('{n}', String(heldFreeIn)) }}
+      </span>
       <button v-if="poolN" class="inline-flex items-center gap-1.5 hover:text-stone-800 transition-colors"
               :class="poolBlock ? 'text-stone-400' : 'text-teal-600'"
               :title="poolBlock ? t('ws.poolBlk_' + poolBlock) : t('ws.poolLeft').replace('{n}', poolN)"
@@ -1231,6 +1238,11 @@ async function loadFresh() {
 
 const poolN = ref(0);
 const poolBlock = ref("");
+// Orders the automation still has. An empty queue and an empty queue FOR
+// ANOTHER TWELVE MINUTES are different answers, and the agent pressing the
+// button is owed the second one.
+const heldN = ref(0);
+const heldFreeIn = ref(0);
 const team = ref([]);
 const teamOpen = ref(false);
 async function loadPool() {
@@ -1238,7 +1250,9 @@ async function loadPool() {
     const r = await api("confirmation.pool_depth");
     poolN.value = r.enabled ? (r.n || 0) : 0;
     poolBlock.value = r.block || "";
-  } catch { poolN.value = 0; poolBlock.value = ""; }
+    heldN.value = r.held?.n || 0;
+    heldFreeIn.value = r.held?.freeIn || 0;
+  } catch { poolN.value = 0; poolBlock.value = ""; heldN.value = 0; }
 }
 // Leads only — the endpoint refuses everyone else, so a quiet failure here
 // simply means the popover stays empty for an agent.

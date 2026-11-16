@@ -2170,6 +2170,8 @@ export default {
     loadFail: "Impossible de charger la file",
     hrs: "h",
     days: "j",
+    heldLine: "{n} nouvelles commandes sont chez l'automatisation — la première se libère dans ~{m} min",
+
   },
   vel: {
     title: "Cadence",
@@ -2754,6 +2756,9 @@ export default {
     parcels: "commandes",
     took: "re\u00e7ues",
     refused: "\u00e9checs",
+    heldShort: "chez le bot · {n}min",
+    heldHint: "Nouvelles commandes que l'automatisation tente en premier. Elles rejoignent la file toutes seules.",
+
   },
   rsd: {
     title: "Tableau de bord Sauvetage",
