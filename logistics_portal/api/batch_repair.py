@@ -138,13 +138,80 @@ def release(limit=50):
 # document, so ERPNext never releases its Stock Reservation Entries. Measured:
 # 497 live SREs on Cancelled orders holding 539 units across 212 items — each
 # one a false-OOS in the pick pool (the pool subtracts every active SRE).
+#
+# Widened 2026-11-16 to orders the Desk CLOSED (status Closed) — closing does
+# not release a reservation either, and that was most of what blocked
+# PL-57236: 11 of 15 units of MCH09045 on PLT held by ten dead orders.
 _SRE_STALE = """
     FROM `tabStock Reservation Entry` sre
     JOIN `tabSales Order` so ON so.name = sre.voucher_no
     WHERE sre.docstatus = 1
       AND sre.status IN ('Reserved', 'Partially Reserved', 'Partially Delivered')
-      AND so.custom_sales_status IN ('Cancelled', 'Duplicated')
+      AND (so.custom_sales_status IN ('Cancelled', 'Duplicated')
+           OR so.status IN ('Closed', 'Cancelled') OR so.docstatus = 2)
 """
+
+
+def _release(names, why):
+    """Cancel these reservations with the framework's own cancel (ERPNext
+    keeps Bin.reserved_stock right), one Comment per order. Never raises."""
+    released, failed, items = 0, 0, {}
+    for nm in names:
+        try:
+            doc = frappe.get_doc("Stock Reservation Entry", nm)
+            if doc.docstatus != 1:
+                continue
+            qty = float(doc.reserved_qty or 0) - float(doc.delivered_qty or 0)
+            doc.flags.ignore_permissions = True
+            doc.cancel()
+            items[doc.item_code] = items.get(doc.item_code, 0) + qty
+            if doc.voucher_no and frappe.db.exists("Sales Order", doc.voucher_no):
+                try:
+                    frappe.get_doc("Sales Order", doc.voucher_no).add_comment(
+                        "Comment", f"Stock reservation {nm} released ({qty:g} × {doc.item_code} in "
+                                   f"{doc.warehouse}) — {why} · by {frappe.session.user}")
+                except Exception:
+                    pass
+            released += 1
+        except Exception:
+            failed += 1
+            frappe.log_error(frappe.get_traceback()[:2000], f"batch_repair release {nm}")
+    if released:
+        cache = frappe.cache()
+        for k in ("lp_pick_avail", "lp_board_summary", "lp_problem_radar"):
+            cache.delete_value(k)
+    return released, failed, items
+
+
+def release_on_order_end(doc, method=None):
+    """Sales Order hook (on_update_after_submit, on_cancel): the moment an
+    order is cancelled, duplicated or closed, its reservations go back to
+    the pool — they hold nothing a dead order will ever ship. Before this
+    they stayed until someone ran Batch Repair (123 reservations, 133 units,
+    82 items on 2026-11-16) and every one was a false out-of-stock."""
+    try:
+        dead = (doc.docstatus == 2 or doc.get("status") in ("Closed", "Cancelled")
+                or doc.get("custom_sales_status") in ("Cancelled", "Duplicated"))
+        if not dead:
+            return
+        names = [r[0] for r in frappe.db.sql(
+            f"SELECT sre.name {_SRE_STALE} AND sre.voucher_no = %s", (doc.name,))]
+        if names:
+            _release(names, "the order is cancelled or closed")
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], f"release_on_order_end {doc.name}")
+
+
+def sweep_stale_reservations():
+    """Scheduler, every 15 min: the paths no hook sees — the WhatsApp flow
+    and the sales screens write custom_sales_status with db_set, and the
+    Desk's Close button sets status without a save — so nothing stays held
+    by a dead order for more than a quarter of an hour."""
+    names = [r[0] for r in frappe.db.sql(
+        f"SELECT sre.name {_SRE_STALE} ORDER BY sre.creation LIMIT 300")]
+    if names:
+        _release(names, "the order is cancelled or closed (scheduled sweep)")
+        frappe.db.commit()
 
 
 @frappe.whitelist()
@@ -178,32 +245,9 @@ def sre_release(limit=50):
         f"SELECT sre.name {_SRE_STALE} ORDER BY sre.creation LIMIT %s", (limit,))]
     if not names:
         return {"released": 0, "unitsFreed": 0, "failed": 0, "items": []}
-    released, failed = 0, 0
-    items_touched = {}
-    for nm in names:
-        try:
-            doc = frappe.get_doc("Stock Reservation Entry", nm)
-            qty = float(doc.reserved_qty or 0) - float(doc.delivered_qty or 0)
-            doc.flags.ignore_permissions = True
-            doc.cancel()
-            items_touched[doc.item_code] = items_touched.get(doc.item_code, 0) + qty
-            if doc.voucher_no and frappe.db.exists("Sales Order", doc.voucher_no):
-                try:
-                    frappe.get_doc("Sales Order", doc.voucher_no).add_comment(
-                        "Comment",
-                        f"Stale stock reservation {nm} released ({qty:g}u) — the "
-                        f"order is sales-cancelled, the reservation was blocking "
-                        f"live orders · by {frappe.session.user}")
-                except Exception:
-                    pass
-            released += 1
-        except Exception:
-            failed += 1
-            frappe.log_error(frappe.get_traceback(), "batch_repair.sre_release")
+    released, failed, items_touched = _release(
+        names, "the order is cancelled or closed, the reservation was blocking live orders")
     frappe.db.commit()
-    cache = frappe.cache()
-    for k in ("lp_pick_avail", "lp_board_summary", "lp_problem_radar"):
-        cache.delete_value(k)
     top = sorted(items_touched.items(), key=lambda x: -x[1])[:10]
     return {"released": released, "failed": failed,
             "unitsFreed": round(sum(items_touched.values())),

@@ -126,6 +126,10 @@ doc_events = {
             # report as having never touched the order.
             "logistics_portal.api.orders.stamp_first_touch",
         ],
+        # A cancelled, duplicated or closed order gives its reserved stock
+        # back at once (the sweep below catches the writes no hook sees).
+        "on_update_after_submit": "logistics_portal.api.batch_repair.release_on_order_end",
+        "on_cancel": "logistics_portal.api.batch_repair.release_on_order_end",
         "validate": [
             # A cancelled order stays cancelled unless a human reopens it —
             # blocks the external WhatsApp flow's Cancelled→Follow Up
@@ -236,6 +240,9 @@ scheduler_events = {
             # with db_set and raw UPDATEs, and by the carrier integration,
             # none of which run document hooks.
             "logistics_portal.api.orders.drop_stale_urgent",
+            # Reservations held by cancelled / closed orders go back to the
+            # pool (batch_repair.sweep_stale_reservations).
+            "logistics_portal.api.batch_repair.sweep_stale_reservations",
         ],
         # Carrier status pull: the Cathedis resync the team used to run by
         # hand, hourly at :20, so 'Pending' means the carrier said so.
