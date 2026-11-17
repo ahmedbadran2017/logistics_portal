@@ -23,6 +23,10 @@
           <button v-if="d.stage === 'buying'" class="h-9 px-3 rounded-lg bg-stone-900 text-white text-[12.5px] font-bold disabled:opacity-40" :disabled="busy" @click="finish">{{ t('souk.retry') }}</button>
           <router-link v-if="d.canReceive && d.stage === 'bought' && d.po" :to="{ name: 'SoukReceive', params: { po: d.po } }"
                        class="h-9 px-3 rounded-lg bg-emerald-600 text-white text-[12.5px] font-bold inline-flex items-center">{{ t('souk.receiveBtn') }}</router-link>
+          <router-link v-if="d.canPhoto && d.stage === 'photos'" :to="{ name: 'SoukPhoto', params: { name: d.name } }"
+                       class="h-9 px-3 rounded-lg bg-stone-900 text-white text-[12.5px] font-bold inline-flex items-center">{{ t('souk.shootBtn') }}</router-link>
+          <router-link v-if="d.canStudio && d.stage === 'studio'" :to="{ name: 'SoukStudio', params: { name: d.name } }"
+                       class="h-9 px-3 rounded-lg bg-stone-900 text-white text-[12.5px] font-bold inline-flex items-center">{{ t('souk.finalsBtn') }}</router-link>
           <router-link v-if="d.canBuy && d.stage !== 'buying'" :to="{ name: 'SoukBuy', query: { again: d.name, kind: 'souk' } }"
                        class="h-9 px-3 rounded-lg bg-white ring-1 ring-stone-300 text-[12.5px] font-semibold inline-flex items-center">{{ t('souk.buyAgain') }}</router-link>
         </div>
@@ -71,6 +75,27 @@
                 </tr>
               </tbody>
             </table>
+          </section>
+
+          <!-- photos -->
+          <section v-if="d.finals.length || d.photos.length" class="bg-white ring-1 ring-stone-200/70 rounded-2xl p-4 space-y-3">
+            <div v-if="d.finals.length" class="space-y-1.5">
+              <h2 class="text-[12.5px] font-bold">{{ t('souk.finals') }} · {{ d.finals.length }}</h2>
+              <div class="flex gap-2 flex-wrap">
+                <a v-for="f in d.finals" :key="f.url" :href="f.url" target="_blank" rel="noopener" class="block w-[86px] h-[86px] rounded-lg overflow-hidden ring-1 ring-stone-200">
+                  <img :src="f.url" class="w-full h-full object-cover" alt="" loading="lazy" />
+                </a>
+              </div>
+            </div>
+            <div v-if="d.photos.length" class="space-y-1.5">
+              <h2 class="text-[12.5px] font-bold">{{ t('souk.rawPhotos') }} · {{ d.photos.length }}</h2>
+              <div class="flex gap-2 flex-wrap">
+                <a v-for="p in d.photos" :key="p.url" :href="p.url" target="_blank" rel="noopener" class="block w-[64px] h-[64px] rounded-lg overflow-hidden ring-1 ring-stone-200">
+                  <img :src="p.url" class="w-full h-full object-cover" alt="" loading="lazy" />
+                </a>
+              </div>
+            </div>
+            <div v-if="d.specs" class="text-[12px] text-stone-600"><b>{{ t('souk.specs') }}:</b> {{ d.specs }}</div>
           </section>
 
           <!-- timeline -->
@@ -138,7 +163,7 @@ import { api, apiPost } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
 
-const STAGES = ["buying", "bought", "received", "photographed", "studio", "content", "review", "live"];
+const STAGES = ["buying", "bought", "photos", "studio", "content", "review", "live"];
 const { t, isRTL } = useI18n();
 const { warn } = useToast();
 const route = useRoute();

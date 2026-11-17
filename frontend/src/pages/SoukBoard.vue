@@ -71,6 +71,10 @@
           </router-link>
           <router-link v-if="c.stage === 'bought' && c.po && data.canReceive" :to="{ name: 'SoukReceive', params: { po: c.po } }"
                        class="flex h-8 rounded-lg bg-emerald-600 text-white text-[11.5px] font-bold items-center justify-center">{{ t('souk.receiveBtn') }}</router-link>
+          <router-link v-if="c.stage === 'photos' && data.canPhoto" :to="{ name: 'SoukPhoto', params: { name: c.name } }"
+                       class="flex h-8 rounded-lg bg-stone-900 text-white text-[11.5px] font-bold items-center justify-center">{{ t('souk.shootBtn') }}</router-link>
+          <router-link v-if="c.stage === 'studio' && data.canStudio" :to="{ name: 'SoukStudio', params: { name: c.name } }"
+                       class="flex h-8 rounded-lg bg-stone-900 text-white text-[11.5px] font-bold items-center justify-center">{{ t('souk.finalsBtn') }}</router-link>
           </div>
           <div v-if="!col(s).length" class="text-center text-[11px] text-stone-400 py-4">—</div>
         </section>

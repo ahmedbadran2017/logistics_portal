@@ -55,8 +55,10 @@ MODE_OF_PAYMENT = "Cash MAD"
 # module — the smallest the floor scanners read (shelf-label work, 2026-10).
 SKU_MAX = 13
 
-STAGES = ["buying", "bought", "received", "photographed", "studio",
-          "content", "review", "live", "dropped"]
+# Each stage is the QUEUE a card waits in (its days = that queue's deadline):
+# bought → receiving; photos → in-house photos (floor, 24 h); studio → the
+# finals (marketing, 3 days); content; review; then live.
+STAGES = ["buying", "bought", "photos", "studio", "content", "review", "live", "dropped"]
 
 DEFAULT_SETTINGS = {
     "skuPrefix": "SK",
@@ -92,8 +94,7 @@ DEFAULT_SETTINGS = {
         {"code": "MLT", "fr": "Multicolore", "ar": "ملون"},
     ],
     # Days a card may sit in a stage before it is late (alerts repeat daily).
-    "stageDays": {"bought": 2, "received": 1, "photographed": 3, "studio": 3,
-                  "content": 2, "review": 1},
+    "stageDays": {"bought": 2, "photos": 1, "studio": 3, "content": 2, "review": 1},
     "escalateDays": 21,
     # Receiving: pieces of each new product that go to the studio first.
     "studioSamples": 3,
@@ -118,6 +119,8 @@ def ensure_doctype():
         _ensure_trip()
         _ensure_product()
         _add_missing_fields(DT_TRIP, TRIP_LATER_FIELDS)
+        _add_missing_fields(DT_PRODUCT, PRODUCT_LATER_FIELDS)
+        _sync_stage_options()
         _ensure_po_fields()
         _ensure_studio()
         if not frappe.db.exists("Supplier Group", SUPPLIER_GROUP):
@@ -206,6 +209,27 @@ def _ensure_product():
     }).insert(ignore_permissions=True)
 
 
+PRODUCT_LATER_FIELDS = [
+    {"fieldname": "photos_json", "fieldtype": "Long Text", "label": "In-house photos"},
+    {"fieldname": "finals_json", "fieldtype": "Long Text", "label": "Final photos"},
+    {"fieldname": "specs", "fieldtype": "Small Text", "label": "Measurements & material"},
+    {"fieldname": "shopify_media", "fieldtype": "Long Text", "label": "Shopify media we pushed"},
+]
+
+
+def _sync_stage_options():
+    """The stage list was renamed to queues before anything shipped; keep the
+    Select in step and move any card that carries an old name."""
+    want = "\n".join(STAGES)
+    df = frappe.db.get_value("DocField", {"parent": DT_PRODUCT, "fieldname": "stage"},
+                             ["name", "options"], as_dict=True)
+    if df and (df.options or "") != want:
+        frappe.db.set_value("DocField", df.name, "options", want, update_modified=False)
+        frappe.clear_cache(doctype=DT_PRODUCT)
+    frappe.db.sql(f"UPDATE `tab{DT_PRODUCT}` SET stage = 'photos' WHERE stage = 'received'")
+    frappe.db.sql(f"UPDATE `tab{DT_PRODUCT}` SET stage = 'studio' WHERE stage = 'photographed'")
+
+
 def _ensure_po_fields():
     from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
     create_custom_fields({"Purchase Order": [
@@ -263,7 +287,7 @@ def _is_accountant():
 
 
 def _gate_view():
-    if _role() not in ("manager", "sourcing", "accountant") and not _is_accountant():
+    if _role() not in ("manager", "sourcing", "accountant", "marketing") and not _is_accountant():
         frappe.throw("Not authorized for souk sourcing.", frappe.PermissionError)
 
 
@@ -552,18 +576,37 @@ def count_trip(trip, counted, note=""):
 
 # --- photos ------------------------------------------------------------------
 
+def _read_upload(max_mb=12):
+    f = (frappe.request.files or {}).get("file")
+    if not f:
+        frappe.throw("No photo.")
+    content = f.stream.read()
+    if len(content) > max_mb * 1024 * 1024:
+        frappe.throw(f"Photo too large ({max_mb} MB max).")
+    ext = (f.filename or "").rsplit(".", 1)[-1].lower() if "." in (f.filename or "") else "jpg"
+    if ext not in ("jpg", "jpeg", "png", "webp", "heic"):
+        frappe.throw("Photos only.")
+    return content, ext
+
+
+def _insert_file(kind, dt, dn, content, ext):
+    """Public with an unguessable name: the accountant, the board and
+    marketing must see a photo somebody else took, and none of them has rights
+    on the others' private files (the souk doctypes are System Manager only;
+    the portal gates). Public also lets Shopify fetch a final by its URL."""
+    return frappe.get_doc({
+        "doctype": "File", "file_name": f"souk-{kind}-{frappe.generate_hash(length=16)}.{ext}",
+        "content": content, "attached_to_doctype": dt, "attached_to_name": str(dn), "is_private": 0,
+    }).insert(ignore_permissions=True)
+
+
 @frappe.whitelist(methods=["POST"])
 def upload_photo(kind, target):
     """One photo from the phone. kind: ref (product reference photo), receipt
     (stall receipt on a PO or on a product still being created), transport
     (the trip's taxi receipt). Attached to its record."""
     _gate_view()
-    f = (frappe.request.files or {}).get("file")
-    if not f:
-        frappe.throw("No photo.")
-    content = f.stream.read()
-    if len(content) > 12 * 1024 * 1024:
-        frappe.throw("Photo too large (12 MB max).")
+    content, ext = _read_upload()
     if kind == "transport":
         t = _trip_for_write(target)
         dt, dn, field = DT_TRIP, t.name, "transport_receipt"
@@ -585,16 +628,7 @@ def upload_photo(kind, target):
         frappe.throw("Unknown photo kind.")
     if not frappe.db.exists(dt, dn):
         frappe.throw("Record not found.")
-    # Public with an unguessable name: the accountant and the board must see a
-    # photo the buyer took, and none of them has rights on the other's private
-    # files (the souk doctypes are System Manager only; the portal gates).
-    ext = (f.filename or "").rsplit(".", 1)[-1].lower() if "." in (f.filename or "") else "jpg"
-    if ext not in ("jpg", "jpeg", "png", "webp", "heic"):
-        frappe.throw("Photos only.")
-    fdoc = frappe.get_doc({
-        "doctype": "File", "file_name": f"souk-{kind}-{frappe.generate_hash(length=16)}.{ext}",
-        "content": content, "attached_to_doctype": dt, "attached_to_name": str(dn), "is_private": 0,
-    }).insert(ignore_permissions=True)
+    fdoc = _insert_file(kind, dt, dn, content, ext)
     if not field:
         frappe.db.commit()
         return {"url": fdoc.file_url}
@@ -1146,7 +1180,7 @@ def board():
     dropped = frappe.db.count(DT_PRODUCT, {"stage": "dropped"})
     return {"stages": STAGES[:-1], "cards": cards, "late": late, "notLive": round(tied, 2),
             "dropped": dropped, "stageDays": s.get("stageDays"), "canBuy": _role() in ("manager", "sourcing"),
-            "canReceive": _can_receive()}
+            "canReceive": _can_receive(), "canPhoto": _can_photo(), "canStudio": _can_studio()}
 
 
 @frappe.whitelist()
@@ -1191,6 +1225,9 @@ def product(name):
         "events": events,
         "canBuy": _role() in ("manager", "sourcing"),
         "canReceive": _can_receive(),
+        "canPhoto": _can_photo(), "canStudio": _can_studio(),
+        "photos": _loads(doc.photos_json) or [], "finals": _loads(doc.finals_json) or [],
+        "specs": doc.specs or "",
     }
 
 
@@ -1492,7 +1529,8 @@ def _after_receive(h, po, pr, target, rows, outcome, owed, owed_lines, counted, 
         for n in notes:
             d.add_comment("Comment", "Souk: " + n)
         if d.stage == "bought" and pr:
-            d.db_set({"stage": "received", "stage_at": now_datetime()})
+            # Waiting for the in-house photos: the samples are in the studio.
+            d.db_set({"stage": "photos", "stage_at": now_datetime()})
         elif d.stage == "bought":
             # Nothing of ours ever arrived: the card leaves the cycle; the
             # stall's debt stays on the PO.
@@ -1598,3 +1636,460 @@ def allocate_transport(trip):
                              f"over {len(prs)} receipt(s): {lcv.name}.")
     frappe.db.commit()
     return {"lcv": lcv.name, "byWeight": use_weight}
+
+
+# --- photos & studio ------------------------------------------------------------
+#
+# In-house photos (the floor, on the phone, 24 h from receiving): the first
+# colour needs six angles, every other colour one front shot. They land on the
+# card itself, so marketing never asks for them on WhatsApp. The person
+# shooting also notes the measurements and the material.
+#
+# The finals (marketing, 3 days): uploaded on the card, put in order (the
+# first is the main photo) and tied to a colour or to all colours. Handing to
+# content puts them on the Shopify Draft as its media; each colour's first
+# final becomes the image of that colour's variants. A resend replaces only
+# the media WE pushed (ids kept on the card), never anything added by hand.
+
+RAW_SLOTS = ("front", "back", "side", "detail", "size", "hand")
+EXTRA_SLOT = "extra"
+MAX_EXTRAS = 10
+MAX_FINALS = 20
+
+
+def _can_photo():
+    return _role() in ("manager", "dispatcher", "returns", "packer")
+
+
+def _can_studio():
+    return _role() in ("manager", "marketing")
+
+
+def _gate_photo():
+    if not _can_photo():
+        frappe.throw("Not authorized to photograph souk products.", frappe.PermissionError)
+
+
+def _gate_studio():
+    if not _can_studio():
+        frappe.throw("Only marketing hands in the final photos.", frappe.PermissionError)
+
+
+def _colors(variants):
+    """The product's colours in buying order; one blank colour when the
+    product has none."""
+    names = {c["code"]: c for c in settings().get("colors") or []}
+    out, seen = [], set()
+    for v in variants:
+        c = v.get("color") or ""
+        if c in seen:
+            continue
+        seen.add(c)
+        out.append({"code": c, "fr": v.get("colorFr") or (names.get(c) or {}).get("fr", ""),
+                    "ar": (names.get(c) or {}).get("ar", "")})
+    return out or [{"code": "", "fr": "", "ar": ""}]
+
+
+def _required(colors):
+    req = []
+    for i, c in enumerate(colors):
+        for slot in (RAW_SLOTS if i == 0 else ("front",)):
+            req.append((c["code"], slot))
+    return req
+
+
+def _missing(colors, photos):
+    have = {(p.get("color") or "", p.get("slot")) for p in photos}
+    return [{"color": c, "slot": s} for c, s in _required(colors) if (c, s) not in have]
+
+
+def _lock_product(name):
+    """Row lock: two phones uploading at once must not lose a photo."""
+    if not frappe.db.sql(f"SELECT name FROM `tab{DT_PRODUCT}` WHERE name = %s FOR UPDATE", (name,)):
+        frappe.throw("Product not found.")
+    return frappe.get_doc(DT_PRODUCT, name)
+
+
+def _drop_files(dn, urls):
+    for url in urls:
+        for f in frappe.get_all("File", filters={"file_url": url, "attached_to_doctype": DT_PRODUCT,
+                                                 "attached_to_name": dn}, pluck="name"):
+            frappe.delete_doc("File", f, ignore_permissions=True, force=True)
+
+
+def _hours_left(doc_stage_at, stage):
+    days = cint((settings().get("stageDays") or {}).get(stage)) or 0
+    if not days:
+        return None
+    return round(days * 24 - time_diff_in_hours(now_datetime(), doc_stage_at), 1)
+
+
+def _studio_stock(variants):
+    codes = [v["itemCode"] for v in variants if v.get("itemCode")]
+    if not codes:
+        return {}
+    return {r[0]: flt(r[1]) for r in frappe.db.sql(
+        "SELECT item_code, actual_qty FROM `tabBin` WHERE warehouse = %s AND item_code IN %s AND actual_qty > 0",
+        (STUDIO_WH, tuple(codes)))}
+
+
+def _samples(variants):
+    st = _studio_stock(variants)
+    return [{"sku": v["sku"], "color": v.get("color") or "", "colorFr": v.get("colorFr") or "",
+             "size": v.get("sizeLabel") or "", "qty": st.get(v.get("itemCode"), 0)}
+            for v in variants if st.get(v.get("itemCode"))]
+
+
+@frappe.whitelist()
+def photo_queue():
+    _gate_photo()
+    rows = frappe.get_all(DT_PRODUCT, filters={"stage": "photos"},
+                          fields=["name", "title", "stage_at", "ref_image", "variants_json", "photos_json"],
+                          order_by="stage_at asc", limit=200)
+    out = []
+    for r in rows:
+        variants = _loads(r.variants_json) or []
+        colors = _colors(variants)
+        photos = _loads(r.photos_json) or []
+        req = len(_required(colors))
+        left = _hours_left(r.stage_at, "photos")
+        out.append({"name": r.name, "title": r.title, "image": r.ref_image or "", "colors": len(colors),
+                    "required": req, "done": req - len(_missing(colors, photos)),
+                    "hoursLeft": left, "late": left is not None and left < 0,
+                    "samples": sum(s["qty"] for s in _samples(variants))})
+    return {"queue": out}
+
+
+@frappe.whitelist()
+def photo_boot(name):
+    _gate_photo()
+    doc = frappe.get_doc(DT_PRODUCT, name)
+    variants = _loads(doc.variants_json) or []
+    colors = _colors(variants)
+    photos = _loads(doc.photos_json) or []
+    return {"name": doc.name, "title": doc.title, "stage": doc.stage, "image": doc.ref_image or "",
+            "colors": colors, "slots": list(RAW_SLOTS), "photos": photos,
+            "missing": _missing(colors, photos), "specs": doc.specs or "",
+            "hoursLeft": _hours_left(doc.stage_at, "photos") if doc.stage == "photos" else None,
+            "canEdit": doc.stage == "photos", "samples": _samples(variants),
+            "sizes": [x for x in dict.fromkeys(v.get("sizeLabel") for v in variants) if x]}
+
+
+@frappe.whitelist(methods=["POST"])
+def photo_add(name, color="", slot="front"):
+    """One in-house photo for a colour × angle; a retake replaces the old one.
+    'extra' adds an optional photo (up to ten)."""
+    _gate_photo()
+    content, ext = _read_upload()
+    doc = _lock_product(name)
+    if doc.stage != "photos":
+        frappe.throw("This product is not waiting for in-house photos.")
+    colors = _colors(_loads(doc.variants_json) or [])
+    color = (color or "").upper()
+    if color not in [c["code"] for c in colors]:
+        frappe.throw(f"Unknown colour {color}.")
+    if slot not in RAW_SLOTS + (EXTRA_SLOT,):
+        frappe.throw("Unknown angle.")
+    photos = _loads(doc.photos_json) or []
+    replaced = []
+    if slot == EXTRA_SLOT:
+        if len([p for p in photos if p.get("slot") == EXTRA_SLOT]) >= MAX_EXTRAS:
+            frappe.throw(f"{MAX_EXTRAS} extra photos at most.")
+    else:
+        keep = []
+        for p in photos:
+            if (p.get("color") or "") == color and p.get("slot") == slot:
+                replaced.append(p["url"])
+            else:
+                keep.append(p)
+        photos = keep
+    fdoc = _insert_file("raw", DT_PRODUCT, doc.name, content, ext)
+    photos.append({"url": fdoc.file_url, "color": color, "slot": slot,
+                   "by": _user_name(frappe.session.user), "at": str(now_datetime())[:16]})
+    doc.db_set("photos_json", json.dumps(photos, ensure_ascii=False), update_modified=False)
+    _drop_files(doc.name, replaced)
+    frappe.db.commit()
+    return {"photos": photos, "missing": _missing(colors, photos)}
+
+
+@frappe.whitelist(methods=["POST"])
+def photo_remove(name, url, which="raw"):
+    """Take one photo off the card: an in-house one while it is being shot,
+    a final while marketing works on it."""
+    if which == "final":
+        _gate_studio()
+    else:
+        _gate_photo()
+    doc = _lock_product(name)
+    if doc.stage != ("studio" if which == "final" else "photos"):
+        frappe.throw("This product is no longer at that step.")
+    field = "finals_json" if which == "final" else "photos_json"
+    rows = _loads(doc.get(field)) or []
+    keep = [p for p in rows if p.get("url") != url]
+    if len(keep) == len(rows):
+        frappe.throw("Photo not found on this product.")
+    doc.db_set(field, json.dumps(keep, ensure_ascii=False), update_modified=False)
+    _drop_files(doc.name, [url])
+    frappe.db.commit()
+    colors = _colors(_loads(doc.variants_json) or [])
+    return {"photos": keep, "missing": _missing(colors, keep) if which != "final" else []}
+
+
+@frappe.whitelist(methods=["POST"])
+def photos_send(name, specs=""):
+    """In-house photos done → marketing's queue."""
+    _gate_photo()
+    doc = _lock_product(name)
+    if doc.stage != "photos":
+        frappe.throw("This product is not waiting for in-house photos.")
+    colors = _colors(_loads(doc.variants_json) or [])
+    photos = _loads(doc.photos_json) or []
+    miss = _missing(colors, photos)
+    if miss:
+        frappe.throw(f"{len(miss)} required photo(s) still missing.")
+    specs = (specs or "").strip()[:1000]
+    doc.db_set({"specs": specs, "stage": "studio", "stage_at": now_datetime()})
+    doc.add_comment("Comment", f"Souk: {len(photos)} in-house photos by {_user_name(frappe.session.user)}"
+                               + (f" · {specs}" if specs else "") + " · to marketing.")
+    frappe.db.commit()
+    return {"ok": True}
+
+
+@frappe.whitelist()
+def raw_zip(name):
+    """All in-house photos of a product in one download, named
+    <sku>-<colour>-<angle>."""
+    if not (_can_studio() or _can_photo()):
+        frappe.throw("Not authorized.", frappe.PermissionError)
+    import io
+    import zipfile
+
+    doc = frappe.get_doc(DT_PRODUCT, name)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        for i, p in enumerate(_loads(doc.photos_json) or []):
+            fname = frappe.db.get_value("File", {"file_url": p.get("url")}, "name")
+            if not fname:
+                continue
+            ext = (p.get("url") or "").rsplit(".", 1)[-1]
+            z.writestr(f"{doc.name}-{p.get('color') or 'ALL'}-{p.get('slot')}-{i + 1}.{ext}",
+                       frappe.get_doc("File", fname).get_content())
+    frappe.local.response.filename = f"{doc.name}-raw.zip"
+    frappe.local.response.filecontent = buf.getvalue()
+    frappe.local.response.type = "download"
+
+
+def _studio_detail(name):
+    doc = frappe.get_doc(DT_PRODUCT, name)
+    variants = _loads(doc.variants_json) or []
+    colors = _colors(variants)
+    finals = _loads(doc.finals_json) or []
+    weights = {}
+    codes = [v["itemCode"] for v in variants if v.get("itemCode")]
+    if codes:
+        for r in frappe.get_all("Item", filters={"name": ["in", codes]},
+                                fields=["name", "weight_per_unit", "weight_uom"]):
+            if flt(r.weight_per_unit):
+                weights[r.name] = round(flt(r.weight_per_unit) * (1000 if (r.weight_uom or "").lower() in ("kg", "kilogram") else 1))
+    tied = {f.get("color") for f in finals}
+    return {
+        "name": doc.name, "title": doc.title, "stage": doc.stage, "image": doc.ref_image or "",
+        "category": doc.category, "brand": doc.brand, "age": _age_days(doc.stage_at),
+        "hoursLeft": _hours_left(doc.stage_at, "studio") if doc.stage == "studio" else None,
+        "colors": colors, "photos": _loads(doc.photos_json) or [], "finals": finals,
+        "specs": doc.specs or "", "shopifyId": doc.shopify_product_id or "", "error": doc.error or "",
+        "variants": [{"sku": v["sku"], "color": v.get("color") or "", "colorFr": v.get("colorFr") or "",
+                      "size": v.get("sizeLabel") or "", "grams": weights.get(v.get("itemCode"))}
+                     for v in variants],
+        "samples": _samples(variants),
+        # Only colours that really are colours need their own final.
+        "colorsWithout": [c["code"] for c in colors if c["code"] and c["code"] not in tied]
+        if len(colors) > 1 else [],
+        "canEdit": doc.stage == "studio",
+    }
+
+
+@frappe.whitelist()
+def studio_boot(name=None):
+    _gate_studio()
+    limit = cint((settings().get("stageDays") or {}).get("studio")) or 0
+    rows = frappe.get_all(DT_PRODUCT, filters={"stage": "studio"},
+                          fields=["name", "title", "stage_at", "ref_image", "variants_json", "photos_json"],
+                          order_by="stage_at asc", limit=200)
+    queue = []
+    for r in rows:
+        age = _age_days(r.stage_at)
+        queue.append({"name": r.name, "title": r.title, "image": r.ref_image or "", "age": age,
+                      "late": bool(limit and age > limit),
+                      "colors": len(_colors(_loads(r.variants_json) or [])),
+                      "raw": len(_loads(r.photos_json) or [])})
+    sel = name or (queue[0]["name"] if queue else None)
+    return {"queue": queue, "limit": limit,
+            "detail": _studio_detail(sel) if sel and frappe.db.exists(DT_PRODUCT, sel) else None}
+
+
+@frappe.whitelist(methods=["POST"])
+def final_add(name, color=""):
+    """One final photo; it goes to the end of the list."""
+    _gate_studio()
+    content, ext = _read_upload(max_mb=20)
+    doc = _lock_product(name)
+    if doc.stage != "studio":
+        frappe.throw("This product is not waiting for its final photos.")
+    color = (color or "").upper()
+    if color and color not in [c["code"] for c in _colors(_loads(doc.variants_json) or [])]:
+        frappe.throw(f"Unknown colour {color}.")
+    finals = _loads(doc.finals_json) or []
+    if len(finals) >= MAX_FINALS:
+        frappe.throw(f"{MAX_FINALS} final photos at most.")
+    fdoc = _insert_file("final", DT_PRODUCT, doc.name, content, ext)
+    finals.append({"url": fdoc.file_url, "color": color, "by": _user_name(frappe.session.user),
+                   "at": str(now_datetime())[:16]})
+    doc.db_set("finals_json", json.dumps(finals, ensure_ascii=False), update_modified=False)
+    frappe.db.commit()
+    return _studio_detail(doc.name)
+
+
+@frappe.whitelist(methods=["POST"])
+def final_set(name, finals):
+    """New order and colour ties: [{url, color}] — the same photos, nothing
+    added or lost."""
+    _gate_studio()
+    want = json.loads(finals) if isinstance(finals, str) else (finals or [])
+    doc = _lock_product(name)
+    if doc.stage != "studio":
+        frappe.throw("This product is not waiting for its final photos.")
+    cur = {f["url"]: f for f in (_loads(doc.finals_json) or [])}
+    if sorted(cur) != sorted(w.get("url") for w in want):
+        frappe.throw("The photo list changed meanwhile — reload.")
+    codes = [c["code"] for c in _colors(_loads(doc.variants_json) or [])]
+    out = []
+    for w in want:
+        color = (w.get("color") or "").upper()
+        if color and color not in codes:
+            frappe.throw(f"Unknown colour {color}.")
+        out.append({**cur[w["url"]], "color": color})
+    doc.db_set("finals_json", json.dumps(out, ensure_ascii=False), update_modified=False)
+    frappe.db.commit()
+    return _studio_detail(doc.name)
+
+
+@frappe.whitelist(methods=["POST"])
+def studio_return(name, reason):
+    """Marketing cannot work with the in-house photos: back to the floor."""
+    _gate_studio()
+    reason = (reason or "").strip()
+    if not reason:
+        frappe.throw("Say what is missing.")
+    doc = _lock_product(name)
+    if doc.stage != "studio":
+        frappe.throw("This product is not with marketing.")
+    doc.db_set({"stage": "photos", "stage_at": now_datetime()})
+    doc.add_comment("Comment", f"Souk: sent back to in-house photos by {_user_name(frappe.session.user)} · {reason[:280]}")
+    frappe.db.commit()
+    return {"ok": True}
+
+
+_PRODUCT_MEDIA = """
+query($id: ID!) { product(id: $id) { media(first: 100) { nodes { id } } } }
+"""
+_FILES_UNLINK = """
+mutation($files: [FileUpdateInput!]!) {
+  fileUpdate(files: $files) { userErrors { field message } }
+}
+"""
+_VARIANTS_MEDIA = """
+mutation($pid: ID!, $media: [CreateMediaInput!], $variants: [ProductVariantsBulkInput!]!) {
+  productVariantsBulkUpdate(productId: $pid, media: $media, variants: $variants) {
+    userErrors { field message }
+  }
+}
+"""
+
+
+def _gql_errors(data, key):
+    errs = ((data.get("data") or {}).get(key) or {}).get("userErrors") or []
+    if errs:
+        raise Exception("; ".join(f"{'.'.join(e.get('field') or [])}: {e.get('message')}" for e in errs)[:400])
+
+
+def _media_ids(pid):
+    from logistics_portal.api.catalog_hub.sync import shopify_graphql
+    data = shopify_graphql(_PRODUCT_MEDIA, {"id": pid})
+    prod = (data.get("data") or {}).get("product") or {}
+    return [n["id"] for n in ((prod.get("media") or {}).get("nodes") or [])]
+
+
+def _push_finals(doc, finals, variants, colors):
+    """Finals → the Draft's media, in order; each colour's first final → its
+    variants' image. Returns the media ids we now own on the product."""
+    from frappe.utils import get_url
+
+    from logistics_portal.api.catalog_hub.sync import shopify_graphql
+    pid = f"gid://shopify/Product/{doc.shopify_product_id}"
+    ours = set(_loads(doc.shopify_media) or [])
+    before = _media_ids(pid)
+    stale = [m for m in before if m in ours]
+    if stale:
+        # Unlinking a file from the product removes it from the gallery and
+        # from any variant that used it.
+        _gql_errors(shopify_graphql(_FILES_UNLINK, {"files": [{"id": m, "referencesToRemove": [pid]}
+                                                               for m in stale]}), "fileUpdate")
+        doc.db_set("shopify_media", "[]", update_modified=False)
+        frappe.db.commit()
+    fr = {c["code"]: c["fr"] for c in colors}
+    media, first_of = [], {}
+    for f in finals:
+        # Shopify fetches the file itself; behind the proxy get_url may say
+        # http, and the site only answers https.
+        src = re.sub(r"^http://", "https://", get_url(f["url"]))
+        alt = (doc.title or doc.name) + (f" - {fr.get(f['color'])}" if f.get("color") and fr.get(f["color"]) else "")
+        media.append({"originalSource": src, "mediaContentType": "IMAGE", "alt": alt[:500]})
+        if f.get("color"):
+            first_of.setdefault(f["color"], src)
+    vin = []
+    for v in variants:
+        if not v.get("variantId"):
+            continue
+        row = {"id": f"gid://shopify/ProductVariant/{v['variantId']}"}
+        if first_of.get(v.get("color") or ""):
+            row["mediaSrc"] = [first_of[v["color"]]]
+        vin.append(row)
+    if not vin:
+        raise Exception("the Draft's variant ids are missing on the card")
+    _gql_errors(shopify_graphql(_VARIANTS_MEDIA, {"pid": pid, "media": media, "variants": vin}),
+                "productVariantsBulkUpdate")
+    keep = set(before) - set(stale)
+    return [m for m in _media_ids(pid) if m not in keep]
+
+
+@frappe.whitelist(methods=["POST"])
+def studio_send(name):
+    """Finals done → onto the Shopify Draft → content's queue."""
+    _gate_studio()
+    doc = _lock_product(name)
+    if doc.stage != "studio":
+        frappe.throw("This product is not waiting for its final photos.")
+    variants = _loads(doc.variants_json) or []
+    colors = _colors(variants)
+    finals = _loads(doc.finals_json) or []
+    if not finals:
+        frappe.throw("Upload the final photos first.")
+    det = _studio_detail(doc.name)
+    if det["colorsWithout"]:
+        frappe.throw("Every colour needs at least one final photo: " + ", ".join(det["colorsWithout"]))
+    if not doc.shopify_product_id:
+        frappe.throw("This product has no Shopify Draft.")
+    try:
+        mine = _push_finals(doc, finals, variants, colors)
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(frappe.get_traceback()[:3000], f"souk.studio_send {name}")
+        frappe.db.set_value(DT_PRODUCT, name, "error", f"Shopify photos: {str(e)[:400]}", update_modified=False)
+        frappe.db.commit()
+        frappe.throw(f"Shopify did not take the photos: {str(e)[:300]}")
+    doc.db_set({"shopify_media": json.dumps(mine), "stage": "content", "stage_at": now_datetime(), "error": ""})
+    doc.add_comment("Comment", f"Souk: {len(finals)} final photos on the Shopify Draft by "
+                               f"{_user_name(frappe.session.user)} · to content.")
+    frappe.db.commit()
+    return {"ok": True, "media": len(mine)}

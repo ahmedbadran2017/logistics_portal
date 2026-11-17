@@ -87,6 +87,8 @@ export const ROLE_CONFIG = {
           { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
           { to: "SoukBuy", label: "nav.soukBuy", icon: "shopping-bag" },
           { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
+          { to: "SoukPhoto", label: "nav.soukPhoto", icon: "camera" },
+          { to: "SoukStudio", label: "nav.soukStudio", icon: "image" },
           { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
         ],
       },
@@ -159,6 +161,7 @@ export const ROLE_CONFIG = {
           { to: "Inventory", label: "nav.stock", icon: "boxes" },
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
           { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
+          { to: "SoukPhoto", label: "nav.soukPhoto", icon: "camera" },
           { to: "CrossdockIn", label: "nav.crossdockIn", icon: "truck" },
           { to: "SupplierPickup", label: "nav.supplierPickup", icon: "rotate-ccw" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
@@ -249,6 +252,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
           { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
+          { to: "SoukPhoto", label: "nav.soukPhoto", icon: "camera" },
           { to: "CrossdockIn", label: "nav.crossdockIn", icon: "truck" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
           { to: "Kits", label: "nav.kits", icon: "boxes" },
@@ -407,6 +411,20 @@ export const ROLE_CONFIG = {
       },
     ],
   },
+  marketing: {
+    // Shoots or retouches the finals of new souk products and hands them to
+    // content (2026-11-17).
+    home: "SoukStudio",
+    nav: [
+      {
+        section: "nav.souk",
+        items: [
+          { to: "SoukStudio", label: "nav.soukStudio", icon: "image" },
+          { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
+        ],
+      },
+    ],
+  },
   returns: {
     home: "Returns",
     nav: [
@@ -428,6 +446,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
           { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
+          { to: "SoukPhoto", label: "nav.soukPhoto", icon: "camera" },
           { to: "CrossdockIn", label: "nav.crossdockIn", icon: "truck" },
           { to: "SupplierPickup", label: "nav.supplierPickup", icon: "rotate-ccw" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
