@@ -3404,6 +3404,15 @@ def sorting_detail(pick_list):
             o["done"] = True
             o["noLabel"] = False
             o["awbMissing"] = False
+    # Why each stuck parcel is stuck, in the carrier's own words. The wall used
+    # to say "often an Arabic city" for every one of them; measured 2026-11-17
+    # on the ten stuck parcels the reasons were five different things (city,
+    # sector, no address on the DN, a 255+ character subject, a Closed order),
+    # and only two of those are cured by the city picker.
+    stuck = [o["order"] for o in out if o["noLabel"] or o["awbMissing"]]
+    blockers = label_blockers(stuck) if stuck else {}
+    for o in out:
+        o["blocker"] = blockers.get(o["order"])
     # Handover state per order: on a Shipment (draft = scanned at the door
     # today, submitted = gone), or still waiting after printing. `short` marks
     # a printed parcel that a manifest closed without.
@@ -3493,6 +3502,44 @@ def recheck_label(pick_list, order):
     return {"ok": True, "labelUrl": lbl or "", "awb": awb or ""}
 
 
+def _carrier_lines(err):
+    """The carrier's complaints in one Error Log body, as (column, reason).
+
+    Parsed as JSON, not by regex: Cathedis escapes quotes inside a reason
+    ('Secteur introuvable: Autre de ville \\" \\"' for an empty city) and the
+    old regex stopped at the first escaped quote. Column is "" for a message
+    that names none ("Un problème est survenu lors de l'import des livraisons",
+    which is what a subject over 255 characters gets -- #266634, 2026-11).
+    """
+    import json, re
+    err = err or ""
+    out = []
+    i = err.find("Response Data:")
+    if i >= 0:
+        try:
+            data = json.loads(err[i + len("Response Data:"):].strip())
+            for d in (data.get("data") or []):
+                vals = (d.get("values") or {}) if isinstance(d, dict) else {}
+                for ie in (vals.get("importErrors") or []):
+                    out.append(((ie.get("col") or "").strip(),
+                                (ie.get("reason") or "").strip()[:160]))
+                msg = ((d.get("error") or {}).get("message") or "") if isinstance(d, dict) else ""
+                if msg:
+                    out.append(("", msg.strip()[:160]))
+        except Exception:
+            pass
+    if not out:
+        cols = re.findall(r'"col"\s*:\s*"([^"]{0,40})"', err)
+        why = re.findall(r'"reason"\s*:\s*"([^"]{0,160})"', err)
+        for k, w in enumerate(why):
+            out.append((cols[k] if k < len(cols) else "", w))
+    if not out:
+        m = re.search(r"Exception in Cathedis shipping: (.{0,160})", err)
+        if m:
+            out.append(("", m.group(1).strip()))
+    return out
+
+
 def _carrier_complaint(delivery_note, since):
     """Read back what the carrier actually refused.
 
@@ -3506,28 +3553,89 @@ def _carrier_complaint(delivery_note, since):
     address at all. Only the first is fixable with a city picker, so the screen
     has to say which one it is.
     """
-    import re
+    # reference_doctype is indexed and ee sets reference_name to the DN; the
+    # old `error LIKE` scan over every Error Log took seconds per parcel.
     rows = frappe.db.sql(
         """SELECT error FROM `tabError Log`
-           WHERE creation >= %s AND (method LIKE %s OR error LIKE %s)
+           WHERE reference_doctype = 'Delivery Note' AND reference_name = %s
+             AND creation >= %s
            ORDER BY creation DESC LIMIT 4""",
-        (since, "%" + delivery_note + "%", "%" + delivery_note + "%"))
+        (delivery_note, since))
     out, seen = [], set()
     for (err,) in rows or []:
-        err = err or ""
-        cols = re.findall(r'"col"\s*:\s*"([^"]{0,40})"', err)
-        why = re.findall(r'"reason"\s*:\s*"([^"]{0,160})"', err)
-        for i, w in enumerate(why):
-            line = ("%s: %s" % (cols[i], w)) if i < len(cols) else w
+        for col, why in _carrier_lines(err):
+            line = ("%s: %s" % (col, why)) if col else why
             if line not in seen:
                 seen.add(line)
                 out.append(line)
-        if not why:
-            m = re.search(r"Exception in Cathedis shipping: (.{0,160})", err)
-            if m and m.group(1).strip() not in seen:
-                seen.add(m.group(1).strip())
-                out.append(m.group(1).strip())
     return out[:4]
+
+
+# What the sorter should do about each kind, keyed for the locale files
+# (sort.bk_<kind>). Order matters: the first match wins, and a missing address
+# or a Closed order makes every other complaint moot.
+_BLOCKER_COLS = (("ville", "city"), ("secteur", "sector"),
+                 ("phone", "phone"), ("t\u00e9l\u00e9phone", "phone"), ("telephone", "phone"))
+
+
+def label_blockers(orders):
+    """{order: {"kind", "why": [carrier lines], "dn"}} for parcels with no label.
+
+    kind is one of closed / no_dn / address / city / sector / phone / subject /
+    carrier / "" (nothing recorded yet -- usually the AWB is still in flight).
+    Read-only; called by the sort wall for the stuck slots only.
+    """
+    orders = [o for o in (orders or []) if o]
+    if not orders:
+        return {}
+    res = {o: {"kind": "", "why": [], "dn": ""} for o in orders}
+    closed = {r[0] for r in frappe.db.sql(
+        "SELECT name FROM `tabSales Order` WHERE name IN %s AND status = 'Closed'",
+        (tuple(orders),))}
+    dns = {}
+    for so, dn, addr in frappe.db.sql(
+            """SELECT di.against_sales_order, d.name,
+                      COALESCE(NULLIF(d.shipping_address_name,''), NULLIF(d.customer_address,''))
+               FROM `tabDelivery Note` d
+               JOIN `tabDelivery Note Item` di ON di.parent = d.name
+               WHERE di.against_sales_order IN %s AND d.docstatus = 1
+               ORDER BY d.creation""", (tuple(orders),)):
+        dns[so] = (dn, addr)          # newest wins (ORDER BY creation)
+    errs = {}
+    if dns:
+        for dn, err in frappe.db.sql(
+                """SELECT reference_name, error FROM `tabError Log`
+                   WHERE reference_doctype = 'Delivery Note' AND reference_name IN %s
+                   ORDER BY creation""", (tuple(v[0] for v in dns.values()),)):
+            lines = _carrier_lines(err)
+            if lines:
+                errs[dn] = lines      # newest wins
+    for o in orders:
+        b = res[o]
+        dn, addr = dns.get(o, ("", None))
+        b["dn"] = dn or ""
+        lines = errs.get(dn, []) if dn else []
+        b["why"] = [("%s: %s" % (c, w)) if c else w for c, w in lines][:4]
+        if o in closed:
+            b["kind"] = "closed"
+        elif not dn:
+            b["kind"] = "no_dn"
+        elif not addr or any("Address None" in w for _, w in lines):
+            # J-xxxx / SAL-ORD orders created by hand: ERPNext submitted the DN
+            # with no address and Cathedis gets "Address None not found"
+            # (SAL-ORD-2026-04982, MAT-DN-2026-122468).
+            b["kind"] = "address"
+        elif lines:
+            cols = " ".join(c.lower() for c, _ in lines)
+            kind = ""
+            for key, k in _BLOCKER_COLS:
+                if key in cols:
+                    kind = k
+                    break
+            if not kind and any("import des livraisons" in w for _, w in lines):
+                kind = "subject"
+            b["kind"] = kind or "carrier"
+    return res
 
 
 @frappe.whitelist(methods=["POST"])
@@ -3621,6 +3729,7 @@ def relabel_order(pick_list, order, city=None):
         frappe.db.rollback()
         return {"ok": False, "reason": "carrier_error", "error": _short_err(e),
                 "why": _carrier_complaint(dn[0][0], started),
+                "blocker": label_blockers([order]).get(order),
                 "cityChanged": changed}
 
     awb, lbl = frappe.db.get_value(
@@ -3630,7 +3739,8 @@ def relabel_order(pick_list, order, city=None):
         # so the dispatcher learns whether to pick another city, phone the
         # customer, or fix an address -- not just that it "didn't work".
         return {"ok": False, "reason": "carrier_refused", "cityChanged": changed,
-                "why": _carrier_complaint(dn[0][0], started)}
+                "why": _carrier_complaint(dn[0][0], started),
+                "blocker": label_blockers([order]).get(order)}
 
     frappe.get_doc("Sales Order", order).add_comment(
         "Comment", "Carrier label regenerated from delivery note "

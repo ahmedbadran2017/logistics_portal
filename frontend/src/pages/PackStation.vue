@@ -262,7 +262,19 @@
           <div v-else-if="o.noLabel || showFix(o)" class="mt-2.5 space-y-1.5">
             <div class="flex items-start gap-2 rounded-lg bg-amber-50 ring-1 ring-amber-200/70 px-3 py-2 text-[11.5px] text-amber-800">
               <Icon name="alert-triangle" :size="14" class="text-amber-500 shrink-0 mt-0.5" />
-              <span>{{ t('sort.noLabelHint') }}</span>
+              <!-- The carrier's actual reason, classified (picking.label_blockers).
+                   The generic "often an Arabic city" sent the floor to the city
+                   picker for parcels whose real problem was a missing address
+                   or a Closed order (10 stuck parcels, 2026-11-17: 5 reasons). -->
+              <div class="space-y-1 min-w-0">
+                <div :class="o.blocker?.kind ? 'font-semibold' : ''">
+                  {{ o.blocker?.kind ? t('sort.bk_' + o.blocker.kind) : t('sort.noLabelHint') }}
+                </div>
+                <div v-if="!o.why?.length && o.blocker?.why?.length" class="space-y-0.5">
+                  <div class="text-[10.5px] font-semibold text-rose-700">{{ t('sort.carrierSaid') }}</div>
+                  <div v-for="(w, i) in o.blocker.why" :key="i" class="text-[11px] text-rose-800 break-words" dir="auto">{{ w }}</div>
+                </div>
+              </div>
             </div>
             <!-- The AWB often lands MINUTES late — give the sorter a way to
                  claim it without rescanning (which says 'already sorted'). -->
@@ -661,6 +673,7 @@ async function fixAndLabel(o) {
       // Say what the carrier said. A generic failure here sends the parcel
       // back to the shelf it just came from.
       o.why = res.why || [];
+      if (res.blocker) o.blocker = res.blocker;
       warn(t("sort.carrierRefused"), (res.why && res.why[0]) || res.error || o.order);
     }
   } catch (e) {
