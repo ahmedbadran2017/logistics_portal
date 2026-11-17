@@ -63,6 +63,7 @@ def apply():
         from ecommerce_integrations.shipping.cathedis import CathedisShipping as C
     except Exception:
         return
+    _cap_subject(C)
     if getattr(C, "_lp_prepaid_zero", False):
         return
     orig_dn = C.get_delivery_note_cash_on_delivery_amount
@@ -99,6 +100,50 @@ def apply():
     C.get_delivery_note_cash_on_delivery_amount = get_delivery_note_cash_on_delivery_amount
     C.get_cash_on_delivery_amount = get_cash_on_delivery_amount
     C._lp_prepaid_zero = True
+
+
+# The parcel's `subject` is every line's "SKU (xN)" joined by " - ", and
+# Cathedis refuses a subject over 255 characters with the same blind "Un
+# problème est survenu lors de l'import des livraisons" -- no AWB, the parcel
+# stuck on the wall. Measured 2026-11-17 over 89 notes of 7+ lines since
+# September: the longest subject accepted was 242, and every one over 255 was
+# refused (298 #266634, 314, 455, 491 #272128). The label still lists the
+# goods; the subject only has to name them, so it is cut at a separator and
+# says how many lines it left out.
+SUBJECT_MAX = 240
+_SEP = " - "
+
+
+def _short_subject(subject):
+    s = subject if isinstance(subject, str) else ""
+    if len(s) <= SUBJECT_MAX:
+        return subject
+    parts = s.split(_SEP)
+    kept = []
+    for i, p in enumerate(parts):
+        tail = f"{_SEP}+{len(parts) - i - 1} more" if i < len(parts) - 1 else ""
+        if len(_SEP.join(kept + [p])) + len(tail) > SUBJECT_MAX:
+            break
+        kept.append(p)
+    rest = len(parts) - len(kept)
+    if not kept:                       # one SKU longer than the limit
+        return s[:SUBJECT_MAX]
+    return _SEP.join(kept) + (f"{_SEP}+{rest} more" if rest else "")
+
+
+def _cap_subject(C):
+    if getattr(C, "_lp_subject_cap", False):
+        return
+    for attr in ("_get_items_sku", "_get_delivery_note_items_sku"):
+        orig = getattr(C, attr, None)
+        if not orig:
+            continue
+
+        def capped(self, *args, _orig=orig, **kwargs):
+            return _short_subject(_orig(self, *args, **kwargs))
+
+        setattr(C, attr, capped)
+    C._lp_subject_cap = True
 
 
 apply()

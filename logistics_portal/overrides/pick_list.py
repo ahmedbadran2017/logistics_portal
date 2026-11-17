@@ -147,7 +147,90 @@ class PickList(_Base):
         # goes back to its shelf.
         if getattr(self, "_action", "") == "submit" and self.get("locations"):
             self._trim_to_order()
+        if getattr(self, "_action", "") == "submit" and self.get("locations"):
+            try:
+                self._yield_late_reservations()
+            except Exception:
+                # A failed hand-over leaves the list exactly where it was:
+                # ERPNext's own check below still decides.
+                frappe.log_error(frappe.get_traceback()[:2000], f"yield late reservations {self.name}")
         super().validate()
+
+    def _yield_late_reservations(self):
+        """A reservation made AFTER this list gives its piece back to the list.
+
+        Orders reserve stock automatically when they arrive (~200 a day, owner
+        Administrator, no source document), and that reservation cannot see a
+        piece already promised to a draft pick list. PL-57232 (67 orders) was
+        made at 14:49 on 2026-11-16 with the last WN-BG-066-brn on E3D for
+        #274326; #274428 arrived at 14:56 and reserved it; every submit then
+        failed "available stock 0.0 for the batch". Three lists in ten days.
+
+        Only such a reservation yields: automatic (no source document -- a
+        Cross-dock receipt's or Goods In's reservation never does), made after
+        the list was created, for an order on no pick list, and only as many
+        as the list is short. The newest goes first; its order simply waits
+        for the next piece, like any order that came in after the list."""
+        rows = [l for l in self.locations if l.item_code and l.warehouse]
+        mine = {l.sales_order for l in rows if l.sales_order}
+        need = {}
+        for l in rows:
+            q = flt(l.get("picked_qty")) or flt(l.get("stock_qty")) or flt(l.qty)
+            need[(l.item_code, l.warehouse)] = need.get((l.item_code, l.warehouse), 0) + q
+        if not need:
+            return
+        from logistics_portal.api.picking import _CROSSDOCK_WH
+        codes = tuple({k[0] for k in need})
+        sres = frappe.db.sql(
+            """SELECT name, voucher_no, item_code, warehouse, creation,
+                      COALESCE(from_voucher_type, '') src, reserved_qty - delivered_qty q
+               FROM `tabStock Reservation Entry`
+               WHERE docstatus = 1 AND status NOT IN ('Delivered', 'Cancelled')
+                 AND voucher_type = 'Sales Order' AND item_code IN %s""", (codes,), as_dict=True)
+        sres = [r for r in sres if (r.item_code, r.warehouse) in need and r.voucher_no not in mine]
+        if not sres:
+            return
+        bins = {(r.item_code, r.warehouse): flt(r.actual_qty) for r in frappe.db.sql(
+            "SELECT item_code, warehouse, actual_qty FROM `tabBin` WHERE item_code IN %s",
+            (codes,), as_dict=True)}
+        picking = {r[0] for r in frappe.db.sql(
+            """SELECT DISTINCT pli.sales_order FROM `tabPick List Item` pli
+               JOIN `tabPick List` p ON p.name = pli.parent
+               WHERE p.docstatus < 2 AND pli.sales_order IN %s""",
+            (tuple({r.voucher_no for r in sres}),))}
+        made = self.creation
+        released = {}
+        for key, q in need.items():
+            others = [r for r in sres if (r.item_code, r.warehouse) == key]
+            short = q - (bins.get(key, 0) - sum(flt(r.q) for r in others))
+            if short <= 1e-9:
+                continue
+            late = sorted((r for r in others
+                           if not r.src and key[1] != _CROSSDOCK_WH and made
+                           and r.creation > made and r.voucher_no not in picking),
+                          key=lambda r: r.creation, reverse=True)
+            for r in late:
+                if short <= 1e-9:
+                    break
+                doc = frappe.get_doc("Stock Reservation Entry", r.name)
+                doc.flags.ignore_permissions = True
+                doc.cancel()
+                short -= flt(r.q)
+                released.setdefault(r.voucher_no, []).append((r.name, key))
+        for so, items in released.items():
+            try:
+                what = ", ".join(f"{k[0]} on {k[1]}" for _n, k in items)
+                frappe.get_doc("Sales Order", so).add_comment(
+                    "Comment",
+                    f"Stock reservation released ({', '.join(n for n, _k in items)}): {what} was "
+                    f"already on {self.name}, made before this order came in. The order waits "
+                    "for the next piece.")
+            except Exception:
+                pass
+        if released:
+            self.flags.lp_reservations_yielded = sorted(released)
+            frappe.msgprint("Reservations made after this list gave their piece back: "
+                            + ", ".join(sorted(released)), indicator="orange", alert=True)
 
     def _trim_to_order(self):
         rows = [l for l in self.locations if l.get("sales_order_item") and not l.get("product_bundle_item")]
