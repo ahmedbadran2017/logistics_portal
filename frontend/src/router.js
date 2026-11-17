@@ -1,14 +1,17 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuth } from "@/composables/useAuth";
 import { homeRouteFor } from "@/lib/roles";
-import { PORTAL_BASE, IS_CC, IS_SHIP, SURFACE, portalOf } from "@/lib/portal";
+import { PORTAL_BASE, IS_SOUK, SURFACE, BASES, portalOf } from "@/lib/portal";
 import { useToast } from "@/composables/useToast";
 import { useI18n } from "@/composables/useI18n";
 
 const AppLayout = () => import("@/components/layout/AppLayout.vue");
 const LaneShell = () => import("@/components/layout/LaneShell.vue");
 
-// Paths are RELATIVE to the portal base (/logistics or /confirmation) — the
+// The souk screens' prefix: none on their own portal, "souk/" on /logistics.
+const SK = IS_SOUK ? "" : "souk/";
+
+// Paths are RELATIVE to the portal base (/logistics, /confirmation, …) — the
 // base comes from createWebHistory below, so both portals share this tree and
 // every {name:…} push works unchanged in either.
 const routes = [
@@ -158,15 +161,19 @@ const routes = [
       // A product assembled from others (MCH09178): Repack + labels.
       { path: "kits", name: "Kits", component: () => import("@/pages/Kits.vue") },
       // Souk sourcing: custody, buying (Shopify Draft at purchase), launch board.
-      { path: "souk", name: "SoukBoard", component: () => import("@/pages/SoukBoard.vue") },
-      { path: "souk/buy", name: "SoukBuy", component: () => import("@/pages/SoukBuy.vue") },
-      { path: "souk/custody", name: "SoukTrip", component: () => import("@/pages/SoukTrip.vue") },
-      { path: "souk/p/:name", name: "SoukProduct", component: () => import("@/pages/SoukProduct.vue") },
-      { path: "souk/receive/:po?", name: "SoukReceive", component: () => import("@/pages/SoukReceive.vue") },
-      { path: "souk/photo/:name?", name: "SoukPhoto", component: () => import("@/pages/SoukPhoto.vue") },
-      { path: "souk/studio/:name?", name: "SoukStudio", component: () => import("@/pages/SoukStudio.vue") },
-      { path: "souk/content/:name?", name: "SoukContent", component: () => import("@/pages/SoukContent.vue") },
-      { path: "souk/review/:name?", name: "SoukReview", component: () => import("@/pages/SoukReview.vue") },
+      // Under its own base (/souk) the cycle IS the portal, so the screens
+      // drop the souk/ prefix: /souk/buy, not /souk/souk/buy. On /logistics
+      // (the floor's receiving + photos) they keep it. The board can't be
+      // "board" there — the tracking portal's ShipBoard owns that path.
+      { path: IS_SOUK ? "launch" : "souk", name: "SoukBoard", component: () => import("@/pages/SoukBoard.vue") },
+      { path: SK + "buy", name: "SoukBuy", component: () => import("@/pages/SoukBuy.vue") },
+      { path: SK + "custody", name: "SoukTrip", component: () => import("@/pages/SoukTrip.vue") },
+      { path: SK + "p/:name", name: "SoukProduct", component: () => import("@/pages/SoukProduct.vue") },
+      { path: SK + "receive/:po?", name: "SoukReceive", component: () => import("@/pages/SoukReceive.vue") },
+      { path: SK + "photo/:name?", name: "SoukPhoto", component: () => import("@/pages/SoukPhoto.vue") },
+      { path: SK + "studio/:name?", name: "SoukStudio", component: () => import("@/pages/SoukStudio.vue") },
+      { path: SK + "content/:name?", name: "SoukContent", component: () => import("@/pages/SoukContent.vue") },
+      { path: SK + "review/:name?", name: "SoukReview", component: () => import("@/pages/SoukReview.vue") },
       { path: "goods-in", name: "GoodsIn", component: () => import("@/pages/GoodsIn.vue") },
       { path: "crossdock-in", name: "CrossdockIn", component: () => import("@/pages/CrossdockIn.vue") },
       { path: "supplier-pickup", name: "SupplierPickup", component: () => import("@/pages/SupplierPickup.vue") },
@@ -242,6 +249,18 @@ function roleRedirect(to, from, next) {
   next(back);
 }
 
+// A souk link opened on the wrong side keeps its place across the move — an
+// old /logistics/souk/p/X bookmark, or a floor packer handed /souk/photo/X —
+// instead of dropping the person on their home screen. The two bases spell
+// the same screen differently (see SK above), so the path is translated.
+function soukCrossing(side, to) {
+  if (!String(to.name || "").startsWith("Souk")) return "";
+  const tail = to.fullPath.slice(to.path.length); // ?query#hash
+  if (side === "souk" && !IS_SOUK) return BASES.souk + (to.path.replace(/^\/souk(?=\/|$)/, "") || "/launch") + tail;
+  if (side === "floor" && IS_SOUK) return BASES.floor + "/souk" + (to.path === "/launch" ? "" : to.path) + tail;
+  return "";
+}
+
 const router = createRouter({
   history: createWebHistory(PORTAL_BASE),
   routes,
@@ -267,10 +286,9 @@ router.beforeEach(async (to, from, next) => {
     // each side names its base, and anyone standing on the wrong one is sent
     // home. Managers ("both") are never moved.
     const side = portalOf(role.value);
-    const here = IS_CC ? "cc" : IS_SHIP ? "ship" : "floor";
-    const BASE = { cc: "/confirmation", ship: "/tracking", floor: "/logistics" };
+    const here = SURFACE || "floor";
     if (side !== "both" && side !== here) {
-      window.location.replace(BASE[side] + "/home");
+      window.location.replace(soukCrossing(side, to) || BASES[side] + "/home");
       return;
     }
   }

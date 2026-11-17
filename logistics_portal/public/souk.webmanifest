@@ -1,0 +1,48 @@
+{
+  "name": "Justyol Souk",
+  "short_name": "Souk",
+  "description": "Souk sourcing: custody, buying, receiving, photos, content and publishing.",
+  "id": "/souk/",
+  "start_url": "/souk/home",
+  "scope": "/souk/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1c1917",
+  "theme_color": "#1c1917",
+  "lang": "en",
+  "dir": "auto",
+  "icons": [
+    {
+      "src": "/assets/logistics_portal/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/logistics_portal/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/logistics_portal/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Custody",
+      "url": "/souk/custody"
+    },
+    {
+      "name": "Buy",
+      "url": "/souk/buy"
+    },
+    {
+      "name": "Launch board",
+      "url": "/souk/launch"
+    }
+  ]
+}

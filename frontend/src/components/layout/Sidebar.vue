@@ -6,7 +6,7 @@
         <img :src="logoSrc" alt="Justyol" class="block h-3.5 flex-shrink-0" />
         <span class="h-3.5 w-px bg-stone-200 flex-shrink-0" />
         <span class="text-[9.5px] font-semibold text-stone-400 tracking-[0.14em] uppercase">
-          {{ IS_CC ? t("nav.ccPortal", "Contact Center") : IS_SHIP ? t("nav.shipPortal", "Shipment Tracking") : t("nav.logistics", "Logistics") }}
+          {{ IS_CC ? t("nav.ccPortal", "Contact Center") : IS_SHIP ? t("nav.shipPortal", "Shipment Tracking") : IS_SOUK ? t("nav.soukPortalShort", "Souk") : t("nav.logistics", "Logistics") }}
         </span>
       </div>
     </div>
@@ -228,7 +228,7 @@ import { useAuth } from "@/composables/useAuth";
 import { useI18n } from "@/composables/useI18n";
 import { api } from "@/lib/resource";
 import { navFor } from "@/lib/roles";
-import { IS_CC, IS_SHIP, SURFACE, PORTAL_BASE } from "@/lib/portal";
+import { IS_CC, IS_SHIP, IS_SOUK, SURFACE, PORTAL_BASE } from "@/lib/portal";
 
 defineEmits(["open-search"]);
 
@@ -390,6 +390,10 @@ const ROLE_ICON = {
   confirmation: "phone",
   cs: "message-circle",
   tracking: "map-pin",
+  sourcing: "shopping-bag",
+  accountant: "wallet",
+  marketing: "image",
+  content: "file-text",
 };
 function roleIcon(r) {
   return ROLE_ICON[r] || "user";

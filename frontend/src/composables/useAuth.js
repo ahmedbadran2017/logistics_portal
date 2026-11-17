@@ -1,6 +1,7 @@
 import { ref, computed } from "vue";
 import { api } from "@/lib/resource";
 import { setSiteOffset } from "@/lib/clock";
+import { BASES, portalOf } from "@/lib/portal";
 
 // Module-level singletons so every component shares one auth state.
 const user = ref(null);        // ERPNext login id (e.g. marouane@justyol.com)
@@ -43,8 +44,12 @@ function setViewAs(member) {
     }
   } catch (_) { /* private mode */ }
   // Hard reload: the role change swaps home/nav/portal side entirely.
-  window.location.href = member && ["confirmation", "cs", "tracking"].includes(member.role)
-    ? "/confirmation/home" : (member ? "/logistics/home" : window.location.pathname);
+  // Straight to the member's own portal (a tracker on /tracking, a buyer on
+  // /souk) rather than via a second hop through the router's fence.
+  const side = member ? portalOf(member.role) : "";
+  window.location.href = member
+    ? (BASES[side] || BASES.floor) + "/home"
+    : window.location.pathname;
 }
 
 async function init(force = false) {

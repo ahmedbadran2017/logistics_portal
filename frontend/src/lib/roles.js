@@ -73,6 +73,8 @@ export const ROLE_CONFIG = {
           { to: "SupplierPickup", label: "nav.supplierPickup", icon: "rotate-ccw" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
           { to: "Kits", label: "nav.kits", icon: "boxes" },
+          { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
+          { to: "SoukPhoto", label: "nav.soukPhoto", icon: "camera" },
           { to: "CycleCount", label: "nav.count", icon: "list-checks" },
           { to: "ZoneSurvey", label: "nav.zoneSurvey", icon: "map-pin" },
           { to: "CountControl", label: "nav.countControl", icon: "clipboard-check" },
@@ -81,17 +83,12 @@ export const ROLE_CONFIG = {
         ],
       },
       {
-        // Souk sourcing: buying in the wholesale market → Live.
+        // Souk sourcing lives in its own portal (/souk, 2026-11-17) — like
+        // the contact centre. The floor's part of it (receiving the bags,
+        // the in-house photos) is under inventory; this is the door out.
         section: "nav.souk",
         items: [
-          { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
-          { to: "SoukBuy", label: "nav.soukBuy", icon: "shopping-bag" },
-          { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
-          { to: "SoukPhoto", label: "nav.soukPhoto", icon: "camera" },
-          { to: "SoukStudio", label: "nav.soukStudio", icon: "image" },
-          { to: "SoukContent", label: "nav.soukContent", icon: "file-text" },
-          { to: "SoukReview", label: "nav.soukReview", icon: "check" },
-          { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
+          { href: "/souk/home", label: "nav.soukPortal", icon: "shopping-bag" },
         ],
       },
       {
@@ -568,8 +565,51 @@ const SHIP_MANAGER = {
   ],
 };
 
-// `surface`: "cc" (or true, the old boolean) | "ship" | false for the floor.
+// The souk portal (/souk): the sourcing / accountant / marketing / content
+// configs above are its navs; a manager entering it gets the whole cycle in
+// the order a product travels it — bought, received, shot, written, Live.
+const SOUK_MANAGER = {
+  home: "SoukBoard",
+  nav: [
+    {
+      section: "nav.soukBuying",
+      items: [
+        { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
+        { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
+        { to: "SoukBuy", label: "nav.soukBuy", icon: "shopping-bag" },
+      ],
+    },
+    {
+      section: "nav.soukWarehouse",
+      items: [
+        { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
+        { to: "SoukPhoto", label: "nav.soukPhoto", icon: "camera" },
+      ],
+    },
+    {
+      section: "nav.soukPublish",
+      items: [
+        { to: "SoukStudio", label: "nav.soukStudio", icon: "image" },
+        { to: "SoukContent", label: "nav.soukContent", icon: "file-text" },
+        { to: "SoukReview", label: "nav.soukReview", icon: "check" },
+      ],
+    },
+    {
+      section: "nav.team",
+      items: [
+        { to: "Team", label: "nav.team", icon: "users" },
+        { href: "/logistics/home", label: "nav.backToLogistics", icon: "warehouse" },
+      ],
+    },
+  ],
+};
+
+// `surface`: "cc" (or true, the old boolean) | "ship" | "souk" | false for the floor.
 function configFor(role, surface) {
+  if (surface === "souk") {
+    if (role === "manager") return SOUK_MANAGER;
+    return ROLE_CONFIG[role] || ROLE_CONFIG.sourcing;
+  }
   if (surface === "ship") {
     if (role === "manager") return SHIP_MANAGER;
     return ROLE_CONFIG[role] || ROLE_CONFIG.tracking;

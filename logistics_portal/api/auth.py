@@ -40,9 +40,9 @@ SEED_ROLES = {
 
 # cs = customer service & complaints (tickets lane); tracking = shipment
 # follow-up (rescue lane + tracking). Both live in the /confirmation portal.
-# sourcing = souk buyer; accountant = hands out and counts the buyer's custody
-# (both on the floor portal, souk screens only — 2026-11-17); marketing = the
-# souk products' final photos; content = their pages, and reviews others'.
+# sourcing = souk buyer; accountant = hands out and counts the buyer's custody;
+# marketing = the souk products' final photos; content = their pages, and
+# reviews others'. All four live in the /souk portal (2026-11-17).
 VALID_ROLES = {"manager", "dispatcher", "picker", "packer", "returns",
                "confirmation", "cs", "tracking", "sourcing", "accountant", "marketing", "content"}
 
@@ -213,7 +213,8 @@ def _require_manager():
 
 # Which roles belong to which portal surface. The Team page on /tracking is
 # about the tracking team, not the floor or the contact centre.
-SURFACE_ROLES = {"ship": {"tracking"}, "cc": {"confirmation", "cs"}}
+SURFACE_ROLES = {"ship": {"tracking"}, "cc": {"confirmation", "cs"},
+                 "souk": {"sourcing", "accountant", "marketing", "content"}}
 
 
 @frappe.whitelist()

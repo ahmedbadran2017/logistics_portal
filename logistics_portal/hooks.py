@@ -19,6 +19,10 @@ website_route_rules = [
     # /shipments is taken by ERPNext's own customer portal (Delivery Note
     # list), whose rule wins — so the tracking portal lives at /tracking.
     {"from_route": "/tracking/<path:app_path>", "to_route": "tracking"},
+    # Souk sourcing (buy → receive → photos → content → Live) is its own
+    # surface too since 2026-11-17: the buyer, the accountant, marketing and
+    # content were sitting in the floor's shell.
+    {"from_route": "/souk/<path:app_path>", "to_route": "souk"},
 ]
 
 # ---------------------------------------------------------------------------
