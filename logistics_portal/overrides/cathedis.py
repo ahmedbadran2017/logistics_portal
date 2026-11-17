@@ -131,6 +131,29 @@ def _short_subject(subject):
     return _SEP.join(kept) + (f"{_SEP}+{rest} more" if rest else "")
 
 
+def _short_comment(comment):
+    """Same limit on `comment` (one "SKU (xN)" per line). Capping the subject
+    alone did not get #272128 out on 2026-11-17: the payload then had a
+    237-char subject and a 493-char comment and was refused again. Measured
+    over 178 notes of 6+ lines since September: the longest comment accepted
+    was 244, and all four over 255 (300, 316, 457, 493) were refused -- the
+    same four parcels the subject was blamed for."""
+    s = comment if isinstance(comment, str) else ""
+    if len(s) <= SUBJECT_MAX:
+        return comment
+    lines = s.split("\n")
+    kept = []
+    for i, ln in enumerate(lines):
+        tail = f"\n+{len(lines) - i - 1} more" if i < len(lines) - 1 else ""
+        if len("\n".join(kept + [ln])) + len(tail) > SUBJECT_MAX:
+            break
+        kept.append(ln)
+    rest = len(lines) - len(kept)
+    if not kept:
+        return s[:SUBJECT_MAX]
+    return "\n".join(kept) + (f"\n+{rest} more" if rest else "")
+
+
 def _cap_subject(C):
     if getattr(C, "_lp_subject_cap", False):
         return
@@ -143,6 +166,20 @@ def _cap_subject(C):
             return _short_subject(_orig(self, *args, **kwargs))
 
         setattr(C, attr, capped)
+    # The comment is built inline in the two payload builders, so it is cut on
+    # the finished payload.
+    for attr in ("_prepare_shipment_data", "_prepare_delivery_note_shipment_data"):
+        orig = getattr(C, attr, None)
+        if not orig:
+            continue
+
+        def capped_payload(self, *args, _orig=orig, **kwargs):
+            data = _orig(self, *args, **kwargs)
+            if isinstance(data, dict) and isinstance(data.get("comment"), str):
+                data["comment"] = _short_comment(data["comment"])
+            return data
+
+        setattr(C, attr, capped_payload)
     C._lp_subject_cap = True
 
 
