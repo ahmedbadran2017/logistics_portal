@@ -24,7 +24,7 @@
         <div v-if="!data.queue.length" class="p-6 text-center text-[12.5px] text-stone-500">{{ t('souk.reviewNone') }}</div>
         <router-link v-for="q in data.queue" :key="q.name" :to="{ name: 'SoukReview', params: { name: q.name } }"
                      class="flex items-center gap-2.5 px-3 py-2.5 border-b border-stone-100 last:border-0"
-                     :class="d && d.name === q.name ? 'bg-[#fdf5f3]' : 'hover:bg-stone-50'">
+                     :class="d && d.name === q.name ? 'bg-[var(--accent-50)]' : 'hover:bg-stone-50'">
           <img v-if="q.image" :src="q.image" class="w-10 h-10 rounded-lg object-cover ring-1 ring-stone-200" alt="" />
           <div v-else class="w-10 h-10 rounded-lg bg-stone-100" />
           <div class="min-w-0 flex-1">
@@ -137,7 +137,7 @@
               {{ t('souk.samplesBack').replace('{n}', d.samples.reduce((s, x) => s + x.qty, 0)) }}
             </div>
 
-            <button v-if="d.stage === 'review'" class="w-full h-12 rounded-xl bg-[#c4301c] text-white text-[14px] font-bold disabled:opacity-40"
+            <button v-if="d.stage === 'review'" class="w-full h-12 rounded-xl bg-[var(--accent-600)] text-white text-[14px] font-bold disabled:opacity-40"
                     :disabled="busy || !canPublish" @click="publish">
               {{ busy ? t('souk.sending') : t('souk.publish') }}
             </button>

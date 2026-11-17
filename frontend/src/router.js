@@ -1,15 +1,12 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuth } from "@/composables/useAuth";
 import { homeRouteFor } from "@/lib/roles";
-import { PORTAL_BASE, IS_SOUK, SURFACE, BASES, portalOf } from "@/lib/portal";
+import { PORTAL_BASE, SURFACE, BASES, portalOf } from "@/lib/portal";
 import { useToast } from "@/composables/useToast";
 import { useI18n } from "@/composables/useI18n";
 
 const AppLayout = () => import("@/components/layout/AppLayout.vue");
 const LaneShell = () => import("@/components/layout/LaneShell.vue");
-
-// The souk screens' prefix: none on their own portal, "souk/" on /logistics.
-const SK = IS_SOUK ? "" : "souk/";
 
 // Paths are RELATIVE to the portal base (/logistics, /confirmation, …) — the
 // base comes from createWebHistory below, so both portals share this tree and
@@ -160,20 +157,18 @@ const routes = [
       { path: "move", name: "MoveStock", component: () => import("@/pages/MoveStock.vue") },
       // A product assembled from others (MCH09178): Repack + labels.
       { path: "kits", name: "Kits", component: () => import("@/pages/Kits.vue") },
-      // Souk sourcing: custody, buying (Shopify Draft at purchase), launch board.
-      // Under its own base (/souk) the cycle IS the portal, so the screens
-      // drop the souk/ prefix: /souk/buy, not /souk/souk/buy. On /logistics
-      // (the floor's receiving + photos) they keep it. The board can't be
-      // "board" there — the tracking portal's ShipBoard owns that path.
-      { path: IS_SOUK ? "launch" : "souk", name: "SoukBoard", component: () => import("@/pages/SoukBoard.vue") },
-      { path: SK + "buy", name: "SoukBuy", component: () => import("@/pages/SoukBuy.vue") },
-      { path: SK + "custody", name: "SoukTrip", component: () => import("@/pages/SoukTrip.vue") },
-      { path: SK + "p/:name", name: "SoukProduct", component: () => import("@/pages/SoukProduct.vue") },
-      { path: SK + "receive/:po?", name: "SoukReceive", component: () => import("@/pages/SoukReceive.vue") },
-      { path: SK + "photo/:name?", name: "SoukPhoto", component: () => import("@/pages/SoukPhoto.vue") },
-      { path: SK + "studio/:name?", name: "SoukStudio", component: () => import("@/pages/SoukStudio.vue") },
-      { path: SK + "content/:name?", name: "SoukContent", component: () => import("@/pages/SoukContent.vue") },
-      { path: SK + "review/:name?", name: "SoukReview", component: () => import("@/pages/SoukReview.vue") },
+      // Souk sourcing. Its own app lives at /souk (src/souk/); these routes
+      // stay on /logistics for the floor's part of the cycle (receiving the
+      // bags, the in-house photos) and for a manager's old links.
+      { path: "souk", name: "SoukBoard", component: () => import("@/pages/SoukBoard.vue") },
+      { path: "souk/buy", name: "SoukBuy", component: () => import("@/pages/SoukBuy.vue") },
+      { path: "souk/custody", name: "SoukTrip", component: () => import("@/pages/SoukTrip.vue") },
+      { path: "souk/p/:name", name: "SoukProduct", component: () => import("@/pages/SoukProduct.vue") },
+      { path: "souk/receive/:po?", name: "SoukReceive", component: () => import("@/pages/SoukReceive.vue") },
+      { path: "souk/photo/:name?", name: "SoukPhoto", component: () => import("@/pages/SoukPhoto.vue") },
+      { path: "souk/studio/:name?", name: "SoukStudio", component: () => import("@/pages/SoukStudio.vue") },
+      { path: "souk/content/:name?", name: "SoukContent", component: () => import("@/pages/SoukContent.vue") },
+      { path: "souk/review/:name?", name: "SoukReview", component: () => import("@/pages/SoukReview.vue") },
       { path: "goods-in", name: "GoodsIn", component: () => import("@/pages/GoodsIn.vue") },
       { path: "crossdock-in", name: "CrossdockIn", component: () => import("@/pages/CrossdockIn.vue") },
       { path: "supplier-pickup", name: "SupplierPickup", component: () => import("@/pages/SupplierPickup.vue") },
@@ -249,16 +244,13 @@ function roleRedirect(to, from, next) {
   next(back);
 }
 
-// A souk link opened on the wrong side keeps its place across the move — an
-// old /logistics/souk/p/X bookmark, or a floor packer handed /souk/photo/X —
-// instead of dropping the person on their home screen. The two bases spell
-// the same screen differently (see SK above), so the path is translated.
+// A souk-portal person (buyer, accountant, marketing, content) who opens an
+// old /logistics/souk/… link lands on the same screen in the souk app, whose
+// paths drop the souk/ prefix (/souk/p/X, and the board is /souk/launch).
 function soukCrossing(side, to) {
-  if (!String(to.name || "").startsWith("Souk")) return "";
+  if (side !== "souk" || !String(to.name || "").startsWith("Souk")) return "";
   const tail = to.fullPath.slice(to.path.length); // ?query#hash
-  if (side === "souk" && !IS_SOUK) return BASES.souk + (to.path.replace(/^\/souk(?=\/|$)/, "") || "/launch") + tail;
-  if (side === "floor" && IS_SOUK) return BASES.floor + "/souk" + (to.path === "/launch" ? "" : to.path) + tail;
-  return "";
+  return BASES.souk + (to.path.replace(/^\/souk(?=\/|$)/, "") || "/launch") + tail;
 }
 
 const router = createRouter({

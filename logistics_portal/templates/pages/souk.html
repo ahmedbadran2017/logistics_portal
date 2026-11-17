@@ -18,7 +18,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap">
-{{ include_style("logistics_portal.bundle.css") }}
+{{ include_style("logistics_souk.bundle.css") }}
 {%- endblock %}
 
 {%- block page_content %}
@@ -35,5 +35,5 @@
     };
     window.csrf_token = "{{ frappe.session.csrf_token if frappe.session else '' }}";
 </script>
-{{ include_script("logistics_portal.bundle.js") }}
+{{ include_script("logistics_souk.bundle.js") }}
 {%- endblock %}

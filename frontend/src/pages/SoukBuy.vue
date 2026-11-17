@@ -99,7 +99,7 @@
             <div v-for="r in similarRows" :key="r.kind + r.key" class="flex items-center gap-2 text-[12px]">
               <span class="font-mono text-stone-700">{{ r.sku }}</span>
               <span class="flex-1 truncate text-stone-600">{{ r.title }}</span>
-              <button class="font-bold text-[#a33a22]" @click="startAgain(r)">{{ t('souk.buyAgain') }}</button>
+              <button class="font-bold text-[var(--accent-700)]" @click="startAgain(r)">{{ t('souk.buyAgain') }}</button>
             </div>
           </div>
 
@@ -239,7 +239,7 @@
           <span class="text-stone-500">{{ t('souk.total') }}</span>
           <span class="font-extrabold text-[16px] tabular-nums" :class="total > boot.trip.expected ? 'text-rose-600' : 'text-stone-900'">{{ fmt(total) }} MAD</span>
         </div>
-        <button class="w-full h-12 rounded-xl bg-[#c4301c] text-white text-[14px] font-bold disabled:opacity-40"
+        <button class="w-full h-12 rounded-xl bg-[var(--accent-600)] text-white text-[14px] font-bold disabled:opacity-40"
                 :disabled="busy || !canSubmit" @click="submit">
           {{ busy ? t('souk.sending') : tab === 'new' ? t('souk.confirmBuy') : t('souk.confirmRebuy') }}
         </button>

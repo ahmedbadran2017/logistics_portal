@@ -2896,6 +2896,9 @@ export default {
     password: "Mot de passe",
     signIn: "Se connecter",
     badLogin: "E-mail ou mot de passe incorrect.",
+    soukHero: "Acheté au souk. En ligne sur Justyol en quelques jours.",
+    soukWelcome: "Bon retour",
+    soukSub: "Sourcing souk — de l'étal jusqu'au Live.",
   },
   md: {
     touchTitle: "Délai médian avant votre première action",

@@ -16,11 +16,14 @@ Before changing an area, read its notes in `docs/knowledge/` (index: `docs/knowl
 - `frontend/` — Vue 3 + Tailwind, no frappe-ui (dropped; `src/lib/resource.js` is the RPC client).
   Pages in `src/pages`, routes in `src/router.js`, nav per role in `src/lib/roles.js`,
   strings in `src/locales/{en,fr,ar}.js` (every string in all three; Arabic is Egyptian-friendly MSA).
-- Base routes: `/logistics`, `/confirmation`, `/tracking`. Never use `/shipments`, `/orders` etc. —
-  ERPNext's customer portal owns them.
+- Base routes: `/logistics`, `/confirmation`, `/tracking` (one SPA), and `/souk` — the souk sourcing
+  cycle is its own app (`frontend/src/souk/`: own router, shell, login, green accent, bundle
+  `logistics_souk.bundle.js`); it reuses `src/pages/Souk*.vue`. Never use `/shipments`, `/orders`,
+  `/studio`, `/suppliers` etc. — ERPNext's customer portal and other apps own them.
 
 ## Build & ship
-- `cd frontend && npm run build` → writes `logistics_portal/public/logistics_portal.bundle.{js,css}`.
+- `cd frontend && npm run build` → writes `logistics_portal/public/logistics_portal.bundle.{js,css}`
+  and (second pass, `LP_ENTRY=souk`) `logistics_souk.bundle.{js,css}`.
   **The bundle is committed**; rebuild and commit it with every frontend change.
 - Commit to `main` and push. **Ahmed deploys production himself** — never run `/usr/bin/update`
   or any deploy/migrate on the server. Tell him what was pushed and whether it needs a restart.

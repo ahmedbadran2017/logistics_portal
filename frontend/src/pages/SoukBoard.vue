@@ -13,7 +13,7 @@
         <router-link :to="{ name: 'SoukTrip' }" class="h-9 px-3 rounded-lg bg-white ring-1 ring-stone-300 text-[12.5px] font-semibold inline-flex items-center gap-1.5">
           <Icon name="wallet" :size="14" />{{ t('souk.custody') }}
         </router-link>
-        <router-link v-if="data?.canBuy" :to="{ name: 'SoukBuy' }" class="h-9 px-3 rounded-lg bg-[#c4301c] text-white text-[12.5px] font-bold inline-flex items-center">+ {{ t('souk.product') }}</router-link>
+        <router-link v-if="data?.canBuy" :to="{ name: 'SoukBuy' }" class="h-9 px-3 rounded-lg bg-[var(--accent-600)] text-white text-[12.5px] font-bold inline-flex items-center">+ {{ t('souk.product') }}</router-link>
         <button class="h-9 px-3 rounded-lg bg-white ring-1 ring-stone-200 text-[12.5px] font-semibold inline-flex items-center gap-1.5" :disabled="loading" @click="load">
           <Icon name="rotate-ccw" :size="14" />
         </button>
@@ -78,7 +78,7 @@
           <router-link v-if="c.stage === 'content' && data.canContent" :to="{ name: 'SoukContent', params: { name: c.name } }"
                        class="flex h-8 rounded-lg bg-stone-900 text-white text-[11.5px] font-bold items-center justify-center">{{ t('souk.contentBtn') }}</router-link>
           <router-link v-if="c.stage === 'review' && data.canReview" :to="{ name: 'SoukReview', params: { name: c.name } }"
-                       class="flex h-8 rounded-lg bg-[#c4301c] text-white text-[11.5px] font-bold items-center justify-center">{{ t('souk.reviewBtn') }}</router-link>
+                       class="flex h-8 rounded-lg bg-[var(--accent-600)] text-white text-[11.5px] font-bold items-center justify-center">{{ t('souk.reviewBtn') }}</router-link>
           </div>
           <div v-if="!col(s).length" class="text-center text-[11px] text-stone-400 py-4">—</div>
         </section>

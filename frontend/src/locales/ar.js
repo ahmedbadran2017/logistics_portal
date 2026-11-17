@@ -2895,6 +2895,9 @@ export default {
     password: "كلمة المرور",
     signIn: "دخول",
     badLogin: "البريد أو كلمة المرور غير صحيحة.",
+    soukHero: "نشتري من السوق، ويبقى على Justyol خلال أيام.",
+    soukWelcome: "أهلاً بعودتك",
+    soukSub: "مشتريات السوق — من المحل حتى النشر.",
   },
   md: {
     touchTitle: "وسيط وقت أول لمسة منك",

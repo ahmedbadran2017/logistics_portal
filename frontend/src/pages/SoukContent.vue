@@ -23,7 +23,7 @@
         <div v-if="!data.queue.length" class="p-6 text-center text-[12.5px] text-stone-500">{{ t('souk.contentNone') }}</div>
         <router-link v-for="q in data.queue" :key="q.name" :to="{ name: 'SoukContent', params: { name: q.name } }"
                      class="flex items-center gap-2.5 px-3 py-2.5 border-b border-stone-100 last:border-0"
-                     :class="d && d.name === q.name ? 'bg-[#fdf5f3]' : 'hover:bg-stone-50'">
+                     :class="d && d.name === q.name ? 'bg-[var(--accent-50)]' : 'hover:bg-stone-50'">
           <img v-if="q.image" :src="q.image" class="w-10 h-10 rounded-lg object-cover ring-1 ring-stone-200" alt="" />
           <div v-else class="w-10 h-10 rounded-lg bg-stone-100" />
           <div class="min-w-0 flex-1">

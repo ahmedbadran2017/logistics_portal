@@ -30,7 +30,7 @@
           <router-link v-if="d.canContent && d.stage === 'content'" :to="{ name: 'SoukContent', params: { name: d.name } }"
                        class="h-9 px-3 rounded-lg bg-stone-900 text-white text-[12.5px] font-bold inline-flex items-center">{{ t('souk.contentBtn') }}</router-link>
           <router-link v-if="d.canReview && d.stage === 'review'" :to="{ name: 'SoukReview', params: { name: d.name } }"
-                       class="h-9 px-3 rounded-lg bg-[#c4301c] text-white text-[12.5px] font-bold inline-flex items-center">{{ t('souk.reviewBtn') }}</router-link>
+                       class="h-9 px-3 rounded-lg bg-[var(--accent-600)] text-white text-[12.5px] font-bold inline-flex items-center">{{ t('souk.reviewBtn') }}</router-link>
           <a v-if="d.shopifyAdmin" :href="d.shopifyAdmin" target="_blank" rel="noopener"
              class="h-9 px-3 rounded-lg bg-white ring-1 ring-stone-300 text-[12.5px] font-semibold inline-flex items-center">Shopify</a>
           <router-link v-if="d.canBuy && d.stage !== 'buying'" :to="{ name: 'SoukBuy', query: { again: d.name, kind: 'souk' } }"

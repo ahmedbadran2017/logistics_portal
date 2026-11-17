@@ -1,0 +1,18 @@
+/* The souk portal's colour: a market green instead of the floor's rust, so
+   nobody mistakes which app they are in. Same token names as index.css —
+   every shared component that says var(--accent-*) follows. Higher
+   specificity than index.css's html[data-theme="dark"] on purpose. */
+html[data-portal="souk"] {
+  --accent-50: #ecfdf5;  --accent-100: #d1fae5; --accent-200: #a7f3d0;
+  --accent-300: #6ee7b7; --accent-400: #34d399; --accent-500: #10b981;
+  --accent-600: #059669; --accent-700: #047857; --accent-800: #065f46;
+  --accent-900: #064e3b;
+}
+html[data-portal="souk"][data-theme="dark"] {
+  /* Dark: the light end becomes deep green tints (selected chips), the
+     high end brightens so accent text stays legible on near-black. */
+  --accent-50: #11261f;  --accent-100: #133328; --accent-200: #184434;
+  --accent-300: #2f8f6c; --accent-400: #34b583; --accent-500: #3ccf95;
+  --accent-600: #22a974; --accent-700: #5fd9a8; --accent-800: #1f7a56;
+  --accent-900: #a7f0cf;
+}

@@ -1,9 +1,12 @@
 /**
- * One SPA, four portals — the same bundle serves:
- *   /logistics     the warehouse floor (pick/pack/ship/inventory)
- *   /confirmation  the contact center (confirmation / rescue / CS tickets)
- *   /tracking      shipment tracking (confirmation → the door)
- *   /souk          souk sourcing (buy → receive → photos → content → Live)
+ * One source tree, two apps:
+ *   logistics_portal.bundle.js serves three portals —
+ *     /logistics     the warehouse floor (pick/pack/ship/inventory)
+ *     /confirmation  the contact center (confirmation / rescue / CS tickets)
+ *     /tracking      shipment tracking (confirmation → the door)
+ *   logistics_souk.bundle.js (src/souk/) is its own app at
+ *     /souk          souk sourcing (buy → receive → photos → content → Live)
+ *   — separate shell, login, colour and bundle, like the supplier portal.
  *
  * The split is Ahmed's 2026-08-27 directive: the confirmation team must live
  * in its own portal, fully separated from logistics (like joyagent's supplier

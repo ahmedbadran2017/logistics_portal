@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && LP_ENTRY=souk vite build",
     "preview": "vite preview",
     "prebuild": "rm -f ../logistics_portal/public/lp-*.js"
   },

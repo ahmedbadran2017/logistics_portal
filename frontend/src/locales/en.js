@@ -2900,6 +2900,9 @@ export default {
     password: "Password",
     signIn: "Sign in",
     badLogin: "Invalid email or password.",
+    soukHero: "Buy in the souk. Live on Justyol within days.",
+    soukWelcome: "Welcome back",
+    soukSub: "Souk sourcing — from the stall to Live.",
   },
   md: {
     touchTitle: "Median time to your first touch",

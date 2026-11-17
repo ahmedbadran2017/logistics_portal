@@ -7,6 +7,13 @@ export default defineConfig(({ mode }) => {
   // Load ALL env vars (incl. non-VITE_) from .env.local so LP_BACKEND / LP_API_TOKEN
   // are available to the proxy below without ever reaching the client bundle.
   const env = loadEnv(mode, process.cwd(), "");
+  // Two SPAs from one source tree. The souk portal (/souk) is its own app —
+  // own entry, shell, login and bundle — like the supplier portal, so the
+  // buyer's phone never downloads the warehouse floor (2026-11-17). Rollup
+  // cannot inline dynamic imports across two inputs, hence two passes:
+  // `npm run build` runs this config once plain and once with LP_ENTRY=souk.
+  const souk = process.env.LP_ENTRY === "souk";
+  const NAME = souk ? "logistics_souk" : "logistics_portal";
   return {
   plugins: [vue(), Icons()],
   resolve: {
@@ -22,7 +29,7 @@ export default defineConfig(({ mode }) => {
     target: "es2015",
     cssCodeSplit: false,
     rollupOptions: {
-      input: path.resolve(__dirname, "src/main.js"),
+      input: path.resolve(__dirname, souk ? "src/souk/main.js" : "src/main.js"),
       output: {
         // ONE self-contained bundle. Route-level code splitting was reverted:
         // frappe serves static public/ files and busts the entry via
@@ -31,8 +38,8 @@ export default defineConfig(({ mode }) => {
         // deleted chunk hash and the route renders blank. A single bundle
         // (frappe ?ver-busted, then cached) is the robust trade for a
         // self-hosted team tool; the real load win was the DB indexes.
-        entryFileNames: "logistics_portal.bundle.js",
-        assetFileNames: "logistics_portal.bundle.css",
+        entryFileNames: `${NAME}.bundle.js`,
+        assetFileNames: `${NAME}.bundle.css`,
         inlineDynamicImports: true,
       },
     },

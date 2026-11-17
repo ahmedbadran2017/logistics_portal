@@ -24,7 +24,7 @@
         <div v-if="!data.queue.length" class="p-6 text-center text-[12.5px] text-stone-500">{{ t('souk.studioNone') }}</div>
         <router-link v-for="q in data.queue" :key="q.name" :to="{ name: 'SoukStudio', params: { name: q.name } }"
                      class="flex items-center gap-2.5 px-3 py-2.5 border-b border-stone-100 last:border-0"
-                     :class="d && d.name === q.name ? 'bg-[#fdf5f3]' : 'hover:bg-stone-50'">
+                     :class="d && d.name === q.name ? 'bg-[var(--accent-50)]' : 'hover:bg-stone-50'">
           <img v-if="q.image" :src="q.image" class="w-10 h-10 rounded-lg object-cover ring-1 ring-stone-200" alt="" />
           <div v-else class="w-10 h-10 rounded-lg bg-stone-100" />
           <div class="min-w-0 flex-1">
@@ -101,7 +101,7 @@
               <div class="relative aspect-square bg-stone-100">
                 <img :src="f.url" class="w-full h-full object-cover" alt="" loading="lazy" />
                 <span class="absolute top-1.5 start-1.5 text-[10.5px] font-bold rounded-full px-2 py-0.5"
-                      :class="i === 0 ? 'bg-[#c4301c] text-white' : 'bg-white/90 text-stone-700'">{{ i === 0 ? t('souk.mainPhoto') : i + 1 }}</span>
+                      :class="i === 0 ? 'bg-[var(--accent-600)] text-white' : 'bg-white/90 text-stone-700'">{{ i === 0 ? t('souk.mainPhoto') : i + 1 }}</span>
               </div>
               <div class="p-2 space-y-1.5">
                 <select v-if="d.colors.length > 1" :value="f.color" :disabled="!d.canEdit || busy"
