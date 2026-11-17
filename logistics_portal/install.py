@@ -544,7 +544,7 @@ def ensure_role_field_options():
     field still carried only the floor roles, so the Desk's own form (and any
     doc-level save) would reject the new values."""
     import frappe
-    wanted = "\nmanager\ndispatcher\npicker\npacker\nreturns\nconfirmation\ncs\ntracking\nnone"
+    wanted = "\nmanager\ndispatcher\npicker\npacker\nreturns\nconfirmation\ncs\ntracking\nsourcing\naccountant\nnone"
     cf = frappe.db.get_value(
         "Custom Field", {"dt": "User", "fieldname": "custom_logistics_role"},
         ["name", "options"], as_dict=True)

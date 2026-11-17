@@ -167,6 +167,8 @@ after_migrate = [
     "logistics_portal.api.cs.ensure_doctype",
     "logistics_portal.api.stop.ensure_doctype",
     "logistics_portal.api.crossdock_pickup.ensure_doctype",
+    # Souk sourcing: trips (custody), products, PO fields, stall group.
+    "logistics_portal.api.souk.ensure_doctype",
     "logistics_portal.install.ensure_rescue_fields",
     # Saved bonus settings froze the rescue lane's old click prices; carry
     # them onto the outcome prices, leaving any deliberate value untouched.

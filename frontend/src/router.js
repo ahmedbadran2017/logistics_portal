@@ -157,6 +157,11 @@ const routes = [
       { path: "move", name: "MoveStock", component: () => import("@/pages/MoveStock.vue") },
       // A product assembled from others (MCH09178): Repack + labels.
       { path: "kits", name: "Kits", component: () => import("@/pages/Kits.vue") },
+      // Souk sourcing: custody, buying (Shopify Draft at purchase), launch board.
+      { path: "souk", name: "SoukBoard", component: () => import("@/pages/SoukBoard.vue") },
+      { path: "souk/buy", name: "SoukBuy", component: () => import("@/pages/SoukBuy.vue") },
+      { path: "souk/custody", name: "SoukTrip", component: () => import("@/pages/SoukTrip.vue") },
+      { path: "souk/p/:name", name: "SoukProduct", component: () => import("@/pages/SoukProduct.vue") },
       { path: "goods-in", name: "GoodsIn", component: () => import("@/pages/GoodsIn.vue") },
       { path: "crossdock-in", name: "CrossdockIn", component: () => import("@/pages/CrossdockIn.vue") },
       { path: "supplier-pickup", name: "SupplierPickup", component: () => import("@/pages/SupplierPickup.vue") },

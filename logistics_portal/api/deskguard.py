@@ -81,6 +81,10 @@ def block_desk_for_portal_team():
         role = frappe.db.get_value("User", user, "custom_logistics_role")
         if not role:
             return
+        # The accountant's job is in the Desk (books, invoices); the portal
+        # role only adds the souk custody screen. Never bounce them.
+        if role == "accountant":
+            return
 
         # Per-user escape valve an admin can grant/revoke with no deploy.
         if _OVERRIDE_ROLE in (frappe.get_roles(user) or []):

@@ -81,6 +81,15 @@ export const ROLE_CONFIG = {
         ],
       },
       {
+        // Souk sourcing: buying in the wholesale market → Live.
+        section: "nav.souk",
+        items: [
+          { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
+          { to: "SoukBuy", label: "nav.soukBuy", icon: "shopping-bag" },
+          { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
+        ],
+      },
+      {
         // Utilities and repair benches — reached on purpose, not passed daily.
         section: "nav.tools",
         items: [
@@ -362,6 +371,35 @@ export const ROLE_CONFIG = {
           { to: "Performance", label: "nav.performance", icon: "trending-up" },
           { to: "Bonus", label: "nav.bonus", icon: "wallet" },
           { href: "/hrms", label: "nav.attendance", icon: "clock" },
+        ],
+      },
+    ],
+  },
+  sourcing: {
+    // The souk buyer, on the phone in the market (2026-11-17): the custody
+    // is the landing screen because the day starts with the cash.
+    home: "SoukTrip",
+    mobile: true,
+    nav: [
+      {
+        section: "nav.souk",
+        items: [
+          { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
+          { to: "SoukBuy", label: "nav.soukBuy", icon: "shopping-bag" },
+          { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
+        ],
+      },
+    ],
+  },
+  accountant: {
+    // Hands out the custody and counts it back; approves substitute receipts.
+    home: "SoukTrip",
+    nav: [
+      {
+        section: "nav.souk",
+        items: [
+          { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
+          { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
         ],
       },
     ],

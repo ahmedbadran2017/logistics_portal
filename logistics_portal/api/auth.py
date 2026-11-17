@@ -40,8 +40,10 @@ SEED_ROLES = {
 
 # cs = customer service & complaints (tickets lane); tracking = shipment
 # follow-up (rescue lane + tracking). Both live in the /confirmation portal.
+# sourcing = souk buyer; accountant = hands out and counts the buyer's custody
+# (both on the floor portal, souk screens only — 2026-11-17).
 VALID_ROLES = {"manager", "dispatcher", "picker", "packer", "returns",
-               "confirmation", "cs", "tracking"}
+               "confirmation", "cs", "tracking", "sourcing", "accountant"}
 
 
 def resolve_role(user):
