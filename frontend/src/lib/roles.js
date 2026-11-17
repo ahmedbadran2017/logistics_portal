@@ -89,6 +89,8 @@ export const ROLE_CONFIG = {
           { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
           { to: "SoukPhoto", label: "nav.soukPhoto", icon: "camera" },
           { to: "SoukStudio", label: "nav.soukStudio", icon: "image" },
+          { to: "SoukContent", label: "nav.soukContent", icon: "file-text" },
+          { to: "SoukReview", label: "nav.soukReview", icon: "check" },
           { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
         ],
       },
@@ -420,6 +422,23 @@ export const ROLE_CONFIG = {
         section: "nav.souk",
         items: [
           { to: "SoukStudio", label: "nav.soukStudio", icon: "image" },
+          { to: "SoukContent", label: "nav.soukContent", icon: "file-text" },
+          { to: "SoukReview", label: "nav.soukReview", icon: "check" },
+          { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
+        ],
+      },
+    ],
+  },
+  content: {
+    // Writes the souk products' pages (FR/AR, SEO, price) and reviews the
+    // pages somebody else wrote (2026-11-17).
+    home: "SoukContent",
+    nav: [
+      {
+        section: "nav.souk",
+        items: [
+          { to: "SoukContent", label: "nav.soukContent", icon: "file-text" },
+          { to: "SoukReview", label: "nav.soukReview", icon: "check" },
           { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
         ],
       },

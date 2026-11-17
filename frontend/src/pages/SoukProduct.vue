@@ -27,6 +27,12 @@
                        class="h-9 px-3 rounded-lg bg-stone-900 text-white text-[12.5px] font-bold inline-flex items-center">{{ t('souk.shootBtn') }}</router-link>
           <router-link v-if="d.canStudio && d.stage === 'studio'" :to="{ name: 'SoukStudio', params: { name: d.name } }"
                        class="h-9 px-3 rounded-lg bg-stone-900 text-white text-[12.5px] font-bold inline-flex items-center">{{ t('souk.finalsBtn') }}</router-link>
+          <router-link v-if="d.canContent && d.stage === 'content'" :to="{ name: 'SoukContent', params: { name: d.name } }"
+                       class="h-9 px-3 rounded-lg bg-stone-900 text-white text-[12.5px] font-bold inline-flex items-center">{{ t('souk.contentBtn') }}</router-link>
+          <router-link v-if="d.canReview && d.stage === 'review'" :to="{ name: 'SoukReview', params: { name: d.name } }"
+                       class="h-9 px-3 rounded-lg bg-[#c4301c] text-white text-[12.5px] font-bold inline-flex items-center">{{ t('souk.reviewBtn') }}</router-link>
+          <a v-if="d.shopifyAdmin" :href="d.shopifyAdmin" target="_blank" rel="noopener"
+             class="h-9 px-3 rounded-lg bg-white ring-1 ring-stone-300 text-[12.5px] font-semibold inline-flex items-center">Shopify</a>
           <router-link v-if="d.canBuy && d.stage !== 'buying'" :to="{ name: 'SoukBuy', query: { again: d.name, kind: 'souk' } }"
                        class="h-9 px-3 rounded-lg bg-white ring-1 ring-stone-300 text-[12.5px] font-semibold inline-flex items-center">{{ t('souk.buyAgain') }}</router-link>
         </div>
@@ -117,7 +123,10 @@
             <div class="flex justify-between"><span class="text-stone-500">{{ t('souk.paid') }}</span><b class="tabular-nums">{{ fmt(d.cost) }} MAD</b></div>
             <div class="flex justify-between"><span class="text-stone-500">{{ t('souk.units') }}</span><b class="tabular-nums">{{ d.units }}</b></div>
             <div class="flex justify-between"><span class="text-stone-500">{{ t('souk.buyerLbl') }}</span><span>{{ d.buyer }}</span></div>
-            <div class="flex justify-between"><span class="text-stone-500">Shopify</span><span class="font-mono">{{ d.shopifyId ? 'Draft · ' + d.shopifyId : '—' }}</span></div>
+            <div class="flex justify-between"><span class="text-stone-500">Shopify</span><span class="font-mono">{{ d.shopifyId ? (d.stage === 'live' ? 'Active' : 'Draft') + ' · ' + d.shopifyId : '—' }}</span></div>
+            <div v-if="d.contentBy" class="flex justify-between"><span class="text-stone-500">{{ t('souk.contentLbl') }}</span><span>{{ d.contentBy }}</span></div>
+            <div v-if="d.publishedAt" class="flex justify-between"><span class="text-stone-500">{{ t('souk.publishedLbl') }}</span><span class="text-end">{{ d.publishedBy }} · {{ d.publishedAt }}</span></div>
+            <div v-if="d.rejects" class="flex justify-between"><span class="text-stone-500">{{ t('souk.rejectsLbl') }}</span><b class="tabular-nums text-amber-800">{{ d.rejects }}</b></div>
           </section>
           <section class="bg-white ring-1 ring-stone-200/70 rounded-2xl p-4 space-y-2 text-[12px]">
             <h2 class="font-bold text-[12.5px]">{{ t('souk.purchases') }}</h2>

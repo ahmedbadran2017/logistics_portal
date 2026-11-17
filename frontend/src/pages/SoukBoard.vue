@@ -75,6 +75,10 @@
                        class="flex h-8 rounded-lg bg-stone-900 text-white text-[11.5px] font-bold items-center justify-center">{{ t('souk.shootBtn') }}</router-link>
           <router-link v-if="c.stage === 'studio' && data.canStudio" :to="{ name: 'SoukStudio', params: { name: c.name } }"
                        class="flex h-8 rounded-lg bg-stone-900 text-white text-[11.5px] font-bold items-center justify-center">{{ t('souk.finalsBtn') }}</router-link>
+          <router-link v-if="c.stage === 'content' && data.canContent" :to="{ name: 'SoukContent', params: { name: c.name } }"
+                       class="flex h-8 rounded-lg bg-stone-900 text-white text-[11.5px] font-bold items-center justify-center">{{ t('souk.contentBtn') }}</router-link>
+          <router-link v-if="c.stage === 'review' && data.canReview" :to="{ name: 'SoukReview', params: { name: c.name } }"
+                       class="flex h-8 rounded-lg bg-[#c4301c] text-white text-[11.5px] font-bold items-center justify-center">{{ t('souk.reviewBtn') }}</router-link>
           </div>
           <div v-if="!col(s).length" class="text-center text-[11px] text-stone-400 py-4">—</div>
         </section>

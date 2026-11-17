@@ -98,6 +98,9 @@ DEFAULT_SETTINGS = {
     "escalateDays": 21,
     # Receiving: pieces of each new product that go to the studio first.
     "studioSamples": 3,
+    # Sales channels a souk product is published to; empty = whatever the
+    # last product published on Shopify uses. Remembered at each publish.
+    "publishChannels": [],
     # Breakage that is OURS, each in its own account (Ahmed, 2026-11-17).
     # Empty = the pieces wait in Defective Items as stock until the
     # accountant names the account; nothing is guessed.
@@ -214,6 +217,14 @@ PRODUCT_LATER_FIELDS = [
     {"fieldname": "finals_json", "fieldtype": "Long Text", "label": "Final photos"},
     {"fieldname": "specs", "fieldtype": "Small Text", "label": "Measurements & material"},
     {"fieldname": "shopify_media", "fieldtype": "Long Text", "label": "Shopify media we pushed"},
+    {"fieldname": "content_json", "fieldtype": "Long Text", "label": "Content (FR/AR, SEO, prices)"},
+    {"fieldname": "shopify_collections", "fieldtype": "Long Text", "label": "Collections we joined"},
+    {"fieldname": "content_by", "fieldtype": "Data", "label": "Content written by"},
+    {"fieldname": "content_at", "fieldtype": "Datetime", "label": "Content sent at"},
+    {"fieldname": "reject_count", "fieldtype": "Int", "label": "Times sent back by review"},
+    {"fieldname": "reviewed_by", "fieldtype": "Data", "label": "Published by"},
+    {"fieldname": "published_at", "fieldtype": "Datetime", "label": "Published at"},
+    {"fieldname": "review_note", "fieldtype": "Small Text", "label": "Last review note"},
 ]
 
 
@@ -287,7 +298,7 @@ def _is_accountant():
 
 
 def _gate_view():
-    if _role() not in ("manager", "sourcing", "accountant", "marketing") and not _is_accountant():
+    if _role() not in ("manager", "sourcing", "accountant", "marketing", "content") and not _is_accountant():
         frappe.throw("Not authorized for souk sourcing.", frappe.PermissionError)
 
 
@@ -1180,7 +1191,8 @@ def board():
     dropped = frappe.db.count(DT_PRODUCT, {"stage": "dropped"})
     return {"stages": STAGES[:-1], "cards": cards, "late": late, "notLive": round(tied, 2),
             "dropped": dropped, "stageDays": s.get("stageDays"), "canBuy": _role() in ("manager", "sourcing"),
-            "canReceive": _can_receive(), "canPhoto": _can_photo(), "canStudio": _can_studio()}
+            "canReceive": _can_receive(), "canPhoto": _can_photo(), "canStudio": _can_studio(),
+            "canContent": _can_content(), "canReview": _can_review()}
 
 
 @frappe.whitelist()
@@ -1226,6 +1238,10 @@ def product(name):
         "canBuy": _role() in ("manager", "sourcing"),
         "canReceive": _can_receive(),
         "canPhoto": _can_photo(), "canStudio": _can_studio(),
+        "canContent": _can_content(), "canReview": _can_review(),
+        "content": _loads(doc.content_json) or {}, "contentBy": _user_name(doc.content_by),
+        "rejects": cint(doc.reject_count), "publishedBy": _user_name(doc.reviewed_by),
+        "publishedAt": str(doc.published_at or "")[:16], "shopifyAdmin": _shopify_admin_url(doc.shopify_product_id),
         "photos": _loads(doc.photos_json) or [], "finals": _loads(doc.finals_json) or [],
         "specs": doc.specs or "",
     }
@@ -2093,3 +2109,731 @@ def studio_send(name):
                                f"{_user_name(frappe.session.user)} · to content.")
     frappe.db.commit()
     return {"ok": True, "media": len(mine)}
+
+
+# --- content, review, live -------------------------------------------------------
+#
+# Content (2 days): French first (the storefront's primary language), Arabic
+# as the shop's translation, product type, collections, tags, the final price
+# per variant, SEO. The specs from the buy and the floor come ready. Sending
+# to review writes it all onto the Shopify Draft.
+#
+# Review (1 day, never by the writer): the system checks what it can measure
+# (a photo per colour, price above the cost WITH transport, weights, Shopify's
+# quantity = what ee pushes from Next, vendor = house brand, French colour
+# names); the reviewer ticks what only an eye sees. Sending back goes to the
+# responsible step with a note and is counted; "won't publish" drops the card.
+#
+# Live: published to the chosen channels (default: what the last published
+# product uses), status ACTIVE, the studio samples back onto their shelf.
+
+TITLE_MAX = 70
+META_TITLE_MAX = 60
+META_DESC_MAX = 160
+MANUAL_CHECKS = ("photos", "text", "sizes", "arabic")
+REJECT_TO = ("content", "studio", "photos")
+DROP_WHY = ("return", "clearance")
+_HANDLE_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def _can_content():
+    return _role() in ("manager", "content", "marketing")
+
+
+def _can_review():
+    return _role() in ("manager", "content", "marketing")
+
+
+def _gate_content():
+    if not _can_content():
+        frappe.throw("Not authorized to write souk content.", frappe.PermissionError)
+
+
+def _gate_review():
+    if not _can_review():
+        frappe.throw("Not authorized to review souk products.", frappe.PermissionError)
+
+
+def _shopify_admin_url(pid):
+    if not pid:
+        return ""
+    shop = (frappe.db.get_single_value("Shopify Setting", "shopify_url") or "")
+    shop = shop.replace("https://", "").replace("http://", "").split(".")[0]
+    return f"https://admin.shopify.com/store/{shop}/products/{pid}" if shop else ""
+
+
+def _gql():
+    from logistics_portal.api.catalog_hub.sync import shopify_graphql
+    return shopify_graphql
+
+
+def _costs(doc, variants):
+    """Per item: what we paid, and the cost WITH transport once the trip's
+    transport is spread (the receipt row's valuation rate after the LCV)."""
+    out = {v["itemCode"]: {"paid": flt(v.get("cost")), "landed": flt(v.get("cost")), "allocated": False}
+           for v in variants if v.get("itemCode")}
+    if not out:
+        return out
+    seen = set()
+    for r in frappe.db.sql(
+            """SELECT pri.item_code, pri.valuation_rate, pri.landed_cost_voucher_amount AS lcv
+               FROM `tabPurchase Receipt Item` pri
+               JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
+               JOIN `tabPurchase Order` po ON po.name = pri.purchase_order
+               WHERE po.custom_souk_product = %s AND pr.docstatus = 1 AND pri.item_code IN %s
+               ORDER BY pr.posting_date DESC, pr.creation DESC""",
+            (doc.name, tuple(out)), as_dict=True):
+        if r.item_code in seen:
+            continue
+        seen.add(r.item_code)
+        if flt(r.valuation_rate):
+            out[r.item_code]["landed"] = flt(r.valuation_rate)
+        out[r.item_code]["allocated"] = flt(r.lcv) > 0
+    return out
+
+
+def _next_qty(code, loc):
+    """Exactly what ee pushes to Shopify for one item and location
+    (ecommerce_integrations.shopify.inventory.get_total_stock_for_location)."""
+    r = frappe.db.sql(
+        """SELECT SUM(b.actual_qty - b.reserved_stock) FROM `tabBin` b
+           WHERE b.item_code = %s AND b.warehouse IN (
+               SELECT m.erpnext_warehouse FROM `tabShopify Warehouse Mapping` m
+               WHERE m.shopify_location_id = %s)""", (code, str(loc)))
+    return cint(r[0][0]) if r and r[0][0] is not None else 0
+
+
+def _weights(variants):
+    codes = [v["itemCode"] for v in variants if v.get("itemCode")]
+    out = {}
+    if codes:
+        for r in frappe.get_all("Item", filters={"name": ["in", codes]},
+                                fields=["name", "weight_per_unit", "weight_uom"]):
+            if flt(r.weight_per_unit):
+                out[r.name] = round(flt(r.weight_per_unit) * (1000 if (r.weight_uom or "").lower() in ("kg", "kilogram") else 1))
+    return out
+
+
+def _content_of(doc, variants):
+    c = _loads(doc.content_json) or {}
+    fr = c.get("fr") or {}
+    ar = c.get("ar") or {}
+    prices = c.get("prices") or {}
+    for v in variants:
+        prices.setdefault(v["sku"], flt(v.get("price")))
+    return {
+        "fr": {"title": fr.get("title") if fr.get("title") is not None else (doc.title or ""),
+               "description": fr.get("description") or ""},
+        "ar": {"title": ar.get("title") or "", "description": ar.get("description") or ""},
+        "productType": c.get("productType") if c.get("productType") is not None else (doc.product_type or ""),
+        "collections": c.get("collections") or [], "tags": c.get("tags") or [],
+        "handle": c.get("handle") or "", "metaTitle": c.get("metaTitle") or "",
+        "metaDescription": c.get("metaDescription") or "", "prices": prices,
+        "pushed": c.get("pushed") or {},
+    }
+
+
+def _content_checks(c, variants, costs):
+    below = [v["sku"] for v in variants
+             if flt(c["prices"].get(v["sku"])) <= flt((costs.get(v.get("itemCode")) or {}).get("landed"))]
+    return [
+        {"key": "frTitle", "ok": bool(c["fr"]["title"].strip()) and len(c["fr"]["title"]) <= TITLE_MAX},
+        {"key": "frDesc", "ok": len(c["fr"]["description"].strip()) >= 40},
+        {"key": "arText", "ok": bool(c["ar"]["title"].strip() and c["ar"]["description"].strip())},
+        {"key": "prices", "ok": not below, "detail": ", ".join(below)},
+        {"key": "collection", "ok": len(c["collections"]) >= 1},
+        {"key": "seo", "ok": bool(c["metaTitle"].strip()) and len(c["metaTitle"]) <= META_TITLE_MAX
+            and bool(c["metaDescription"].strip()) and len(c["metaDescription"]) <= META_DESC_MAX
+            and bool(_HANDLE_RE.match(c["handle"] or ""))},
+    ]
+
+
+def _desc_html(text):
+    """Plain text from the portal → the storefront's HTML: lines starting
+    with •, - or * become a list, the rest paragraphs. Everything escaped."""
+    from html import escape
+    out, items = [], []
+
+    def flush():
+        if items:
+            out.append("<ul>" + "".join(f"<li>{escape(i)}</li>" for i in items) + "</ul>")
+            items.clear()
+
+    for line in (text or "").splitlines():
+        t = line.strip()
+        if not t:
+            flush()
+            continue
+        if t[:1] in ("•", "-", "*"):
+            items.append(t[1:].strip())
+            continue
+        flush()
+        out.append(f"<p>{escape(t)}</p>")
+    flush()
+    return "".join(out)
+
+
+_COLLECTIONS_Q = """
+query($after: String) {
+  collections(first: 250, after: $after, query: "collection_type:custom") {
+    nodes { id title } pageInfo { hasNextPage endCursor }
+  }
+}
+"""
+
+
+def _collections():
+    """Shopify's manual collections (a smart one fills itself from its rules)."""
+    key = "lp_souk_collections"
+    hit = frappe.cache().get_value(key)
+    if hit:
+        return hit
+    out, after = [], None
+    for _i in range(8):
+        con = ((_gql()(_COLLECTIONS_Q, {"after": after}).get("data") or {}).get("collections") or {})
+        out += [{"id": n["id"], "title": n["title"]} for n in (con.get("nodes") or [])]
+        pi = con.get("pageInfo") or {}
+        if not pi.get("hasNextPage"):
+            break
+        after = pi.get("endCursor")
+    out.sort(key=lambda x: (x["title"] or "").lower())
+    frappe.cache().set_value(key, out, expires_in_sec=3600)
+    return out
+
+
+def _stock_split(variants):
+    """Pieces on sellable (Shopify-mapped) shelves vs in the studio."""
+    codes = [v["itemCode"] for v in variants if v.get("itemCode")]
+    if not codes:
+        return 0, 0
+    r = frappe.db.sql(
+        """SELECT
+             SUM(CASE WHEN b.warehouse IN (SELECT erpnext_warehouse FROM `tabShopify Warehouse Mapping`)
+                      THEN b.actual_qty ELSE 0 END),
+             SUM(CASE WHEN b.warehouse = %s THEN b.actual_qty ELSE 0 END)
+           FROM `tabBin` b WHERE b.item_code IN %s""", (STUDIO_WH, tuple(codes)))
+    return cint(r[0][0]), cint(r[0][1])
+
+
+def _content_detail(name, with_collections=True):
+    doc = frappe.get_doc(DT_PRODUCT, name)
+    variants = _loads(doc.variants_json) or []
+    c = _content_of(doc, variants)
+    costs = _costs(doc, variants)
+    grams = _weights(variants)
+    shelf, studio = _stock_split(variants)
+    cols, cols_err = [], ""
+    if with_collections:
+        try:
+            cols = _collections()
+        except Exception as e:
+            cols_err = str(e)[:300]
+    return {
+        "name": doc.name, "title": doc.title, "stage": doc.stage, "image": doc.ref_image or "",
+        "brand": doc.brand, "stall": doc.supplier, "category": doc.category, "specs": doc.specs or "",
+        "finals": _loads(doc.finals_json) or [], "colors": _colors(variants),
+        "variants": [{"sku": v["sku"], "itemCode": v.get("itemCode"), "color": v.get("color") or "",
+                      "colorFr": v.get("colorFr") or "", "size": v.get("sizeLabel") or "",
+                      "grams": grams.get(v.get("itemCode")), **(costs.get(v.get("itemCode")) or {})}
+                     for v in variants],
+        "content": c, "checks": _content_checks(c, variants, costs),
+        "stock": {"shelf": shelf, "studio": studio},
+        "collections": cols, "collectionsError": cols_err,
+        "canEdit": doc.stage == "content",
+        "hoursLeft": _hours_left(doc.stage_at, doc.stage) if doc.stage in ("content", "review") else None,
+        "rejects": cint(doc.reject_count), "reviewNote": doc.review_note or "",
+        "shopifyAdmin": _shopify_admin_url(doc.shopify_product_id),
+    }
+
+
+def _queue(stage):
+    limit = cint((settings().get("stageDays") or {}).get(stage)) or 0
+    out = []
+    for r in frappe.get_all(DT_PRODUCT, filters={"stage": stage},
+                            fields=["name", "title", "stage_at", "ref_image", "finals_json", "reject_count",
+                                    "content_by"],
+                            order_by="stage_at asc", limit=200):
+        finals = _loads(r.finals_json) or []
+        age = _age_days(r.stage_at)
+        out.append({"name": r.name, "title": r.title, "age": age, "late": bool(limit and age > limit),
+                    "image": (finals[0]["url"] if finals else "") or r.ref_image or "",
+                    "rejects": cint(r.reject_count), "writer": _user_name(r.content_by),
+                    "mine": r.content_by == frappe.session.user})
+    return out, limit
+
+
+@frappe.whitelist()
+def content_boot(name=None):
+    _gate_content()
+    queue, limit = _queue("content")
+    sel = name or (queue[0]["name"] if queue else None)
+    return {"queue": queue, "limit": limit,
+            "detail": _content_detail(sel) if sel and frappe.db.exists(DT_PRODUCT, sel) else None}
+
+
+def _clean_content(raw, variants):
+    def txt(x, n):
+        return str(x or "").strip()[:n]
+
+    fr = raw.get("fr") or {}
+    ar = raw.get("ar") or {}
+    cols = [str(x) for x in (raw.get("collections") or []) if str(x).startswith("gid://shopify/Collection/")][:20]
+    tags = []
+    for t in raw.get("tags") or []:
+        t = txt(t, 40)
+        if t and t not in tags:
+            tags.append(t)
+    prices = {}
+    given = raw.get("prices") or {}
+    for v in variants:
+        p = flt(given.get(v["sku"]))
+        if p <= 0:
+            frappe.throw(f"Price missing for {v['sku']}.")
+        prices[v["sku"]] = round(p, 2)
+    handle = re.sub(r"[^a-z0-9-]+", "-", txt(raw.get("handle"), 200).lower()).strip("-")
+    handle = re.sub(r"-{2,}", "-", handle)
+    return {"fr": {"title": txt(fr.get("title"), 255), "description": txt(fr.get("description"), 6000)},
+            "ar": {"title": txt(ar.get("title"), 255), "description": txt(ar.get("description"), 6000)},
+            "productType": txt(raw.get("productType"), 120), "collections": cols, "tags": tags[:20],
+            "handle": handle, "metaTitle": txt(raw.get("metaTitle"), 120),
+            "metaDescription": txt(raw.get("metaDescription"), 320), "prices": prices}
+
+
+@frappe.whitelist(methods=["POST"])
+def content_save(name, content):
+    _gate_content()
+    raw = json.loads(content) if isinstance(content, str) else (content or {})
+    doc = _lock_product(name)
+    if doc.stage != "content":
+        frappe.throw("This product is not waiting for its content.")
+    variants = _loads(doc.variants_json) or []
+    c = _clean_content(raw, variants)
+    c["pushed"] = (_loads(doc.content_json) or {}).get("pushed") or {}
+    doc.db_set("content_json", json.dumps(c, ensure_ascii=False), update_modified=False)
+    frappe.db.commit()
+    return _content_detail(doc.name, with_collections=False)
+
+
+_PRODUCT_UPDATE = """
+mutation($product: ProductUpdateInput!) {
+  productUpdate(product: $product) { product { id handle } userErrors { field message } }
+}
+"""
+_VARIANT_PRICES = """
+mutation($pid: ID!, $variants: [ProductVariantsBulkInput!]!) {
+  productVariantsBulkUpdate(productId: $pid, variants: $variants) { userErrors { field message } }
+}
+"""
+_TRANSLATABLE = """
+query($id: ID!) { translatableResource(resourceId: $id) { translatableContent { key digest } } }
+"""
+_TRANSLATE = """
+mutation($id: ID!, $t: [TranslationInput!]!) {
+  translationsRegister(resourceId: $id, translations: $t) { userErrors { field message } }
+}
+"""
+
+
+def _push_arabic(pid, c):
+    data = _gql()(_TRANSLATABLE, {"id": pid})
+    digest = {x["key"]: x["digest"] for x in
+              ((((data.get("data") or {}).get("translatableResource") or {}).get("translatableContent")) or [])}
+    vals = {"title": c["ar"]["title"], "body_html": _desc_html(c["ar"]["description"])}
+    t = [{"key": k, "value": v, "locale": "ar", "translatableContentDigest": digest[k]}
+         for k, v in vals.items() if v and digest.get(k)]
+    if not t:
+        raise Exception("Shopify offered nothing to translate")
+    _gql_errors(_gql()(_TRANSLATE, {"id": pid, "t": t}), "translationsRegister")
+
+
+def _push_content(doc, c, variants):
+    """The content onto the Shopify Draft (still DRAFT: nobody sees it)."""
+    pid = f"gid://shopify/Product/{doc.shopify_product_id}"
+    joined = set(_loads(doc.shopify_collections) or [])
+    want = set(c["collections"])
+    tags = []
+    for t in ["souk", f"souk-trip-{doc.trip}", doc.sku_base] + c["tags"]:
+        if t and t not in tags:
+            tags.append(t)
+    prod = {"id": pid, "title": c["fr"]["title"], "descriptionHtml": _desc_html(c["fr"]["description"]),
+            "productType": c["productType"] or doc.product_type or "", "tags": tags,
+            "seo": {"title": c["metaTitle"], "description": c["metaDescription"]}}
+    if c["handle"]:
+        prod["handle"] = c["handle"]
+    if want - joined:
+        prod["collectionsToJoin"] = sorted(want - joined)
+    if joined - want:
+        prod["collectionsToLeave"] = sorted(joined - want)
+    data = _gql()(_PRODUCT_UPDATE, {"product": prod})
+    _gql_errors(data, "productUpdate")
+    handle = ((((data.get("data") or {}).get("productUpdate") or {}).get("product")) or {}).get("handle")
+    doc.db_set("shopify_collections", json.dumps(sorted(want)), update_modified=False)
+    vin = [{"id": f"gid://shopify/ProductVariant/{v['variantId']}", "price": str(c["prices"][v["sku"]])}
+           for v in variants if v.get("variantId")]
+    if vin:
+        _gql_errors(_gql()(_VARIANT_PRICES, {"pid": pid, "variants": vin}), "productVariantsBulkUpdate")
+    try:
+        _push_arabic(pid, c)
+        arabic = {"ok": True, "error": ""}
+    except Exception as e:
+        # The French page stands on its own; review sees the Arabic gap.
+        arabic = {"ok": False, "error": str(e)[:300]}
+    return handle, arabic
+
+
+@frappe.whitelist(methods=["POST"])
+def content_send(name):
+    """Content done → onto the Shopify Draft → review."""
+    _gate_content()
+    doc = _lock_product(name)
+    if doc.stage != "content":
+        frappe.throw("This product is not waiting for its content.")
+    variants = _loads(doc.variants_json) or []
+    c = _content_of(doc, variants)
+    failed = [x["key"] for x in _content_checks(c, variants, _costs(doc, variants)) if not x["ok"]]
+    if failed:
+        frappe.throw("Not complete yet: " + ", ".join(failed))
+    if not doc.shopify_product_id:
+        frappe.throw("This product has no Shopify Draft.")
+    try:
+        handle, arabic = _push_content(doc, c, variants)
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(frappe.get_traceback()[:3000], f"souk.content_send {name}")
+        frappe.db.set_value(DT_PRODUCT, name, "error", f"Shopify content: {str(e)[:400]}", update_modified=False)
+        frappe.db.commit()
+        frappe.throw(f"Shopify did not take the content: {str(e)[:300]}")
+    c["pushed"] = {"at": str(now_datetime())[:16], "handle": handle or c["handle"], "arabic": arabic}
+    if handle:
+        c["handle"] = handle
+    for v in variants:
+        v["price"] = c["prices"][v["sku"]]
+    doc.db_set({"content_json": json.dumps(c, ensure_ascii=False),
+                "variants_json": json.dumps(variants, ensure_ascii=False),
+                "title": c["fr"]["title"], "content_by": frappe.session.user, "content_at": now_datetime(),
+                "stage": "review", "stage_at": now_datetime(), "error": ""})
+    doc.add_comment("Comment", f"Souk: content on the Shopify Draft by {_user_name(frappe.session.user)}"
+                               + ("" if arabic["ok"] else f" · Arabic NOT on Shopify ({arabic['error'][:120]})")
+                               + " · to review.")
+    frappe.db.commit()
+    return {"ok": True, "arabic": arabic}
+
+
+_SHOPIFY_STATE = """
+query($id: ID!, $loc: ID!) {
+  product(id: $id) {
+    status vendor onlineStorePreviewUrl
+    options { name optionValues { name } }
+    variants(first: 100) { nodes { id sku price
+      inventoryItem { inventoryLevel(locationId: $loc) { quantities(names: ["available"]) { name quantity } } } } }
+  }
+  translatableResource(resourceId: $id) { translations(locale: "ar") { key } }
+}
+"""
+_PUBLICATIONS = """
+{ publications(first: 30) { nodes { id catalog { title } } } }
+"""
+_LAST_PUBLISHED = """
+{ products(first: 1, sortKey: CREATED_AT, reverse: true, query: "status:active") {
+    nodes { resourcePublications(first: 30, onlyPublished: true) { nodes { publication { id } } } } } }
+"""
+_PUBLISH = """
+mutation($id: ID!, $input: [PublicationInput!]!) {
+  publishablePublish(id: $id, input: $input) { userErrors { field message } }
+}
+"""
+
+
+def _channels():
+    """Sales channels + the default ticks (the last publish's, else what the
+    newest active product on Shopify is published to)."""
+    key = "lp_souk_publications"
+    pubs = frappe.cache().get_value(key)
+    if not pubs:
+        nodes = (((_gql()(_PUBLICATIONS).get("data") or {}).get("publications") or {}).get("nodes")) or []
+        pubs = []
+        for n in nodes:
+            title = ((n.get("catalog") or {}).get("title")) or ""
+            m = re.search(r" for (.+)$", title)
+            pubs.append({"id": n["id"], "name": m.group(1) if m else (title or n["id"].rsplit("/", 1)[-1])})
+        frappe.cache().set_value(key, pubs, expires_in_sec=3600)
+    ids = {p["id"] for p in pubs}
+    chosen = [c for c in (settings().get("publishChannels") or []) if c in ids]
+    if not chosen:
+        try:
+            prods = (((_gql()(_LAST_PUBLISHED).get("data") or {}).get("products") or {}).get("nodes")) or []
+            if prods:
+                chosen = [x["publication"]["id"] for x in
+                          ((prods[0].get("resourcePublications") or {}).get("nodes") or [])
+                          if x["publication"]["id"] in ids]
+        except Exception:
+            chosen = []
+    return pubs, chosen or sorted(ids)
+
+
+def _review_checks(doc, variants, c, costs):
+    """What the system can measure. hard = blocks the publish."""
+    checks = []
+    colors = _colors(variants)
+    finals = _loads(doc.finals_json) or []
+    tied = {f.get("color") for f in finals}
+    need = [x["code"] for x in colors if x["code"]] if len(colors) > 1 else []
+    have = [x for x in need if x in tied]
+    checks.append({"key": "colorPhotos", "hard": True, "ok": bool(finals) and len(have) == len(need),
+                   "detail": f"{len(have)}/{len(need)}" if need else str(len(finals))})
+    margins, low = [], []
+    allocated = True
+    for v in variants:
+        k = costs.get(v.get("itemCode")) or {}
+        landed = flt(k.get("landed"))
+        price = flt(c["prices"].get(v["sku"]))
+        allocated = allocated and bool(k.get("allocated"))
+        if price <= landed:
+            low.append(v["sku"])
+        elif price:
+            margins.append((price - landed) / price * 100)
+    checks.append({"key": "margin", "hard": True, "ok": not low,
+                   "detail": ", ".join(low) if low else (f"{round(min(margins))}%" if margins else "")})
+    checks.append({"key": "transport", "hard": False, "ok": allocated})
+    grams = _weights(variants)
+    w = len([v for v in variants if grams.get(v.get("itemCode"))])
+    checks.append({"key": "weights", "hard": True, "ok": w == len(variants), "detail": f"{w}/{len(variants)}"})
+    checks.append({"key": "supplier", "hard": True,
+                   "ok": bool(doc.supplier and frappe.db.exists("Supplier", doc.supplier)), "detail": doc.supplier or ""})
+
+    loc = _shopify_location()
+    try:
+        data = _gql()(_SHOPIFY_STATE, {"id": f"gid://shopify/Product/{doc.shopify_product_id}",
+                                       "loc": f"gid://shopify/Location/{loc}"})
+    except Exception as e:
+        checks.append({"key": "shopify", "hard": True, "ok": False, "detail": str(e)[:200]})
+        return checks, {}
+    prod = (data.get("data") or {}).get("product") or {}
+    if not prod:
+        checks.append({"key": "shopify", "hard": True, "ok": False, "detail": "product not found"})
+        return checks, {}
+    by_id = {}
+    for n in ((prod.get("variants") or {}).get("nodes") or []):
+        lvl = ((n.get("inventoryItem") or {}).get("inventoryLevel") or {})
+        q = 0
+        for x in (lvl.get("quantities") or []):
+            if x.get("name") == "available":
+                q = cint(x.get("quantity"))
+        by_id[n["id"].rsplit("/", 1)[-1]] = {"sku": n.get("sku"), "price": flt(n.get("price")), "qty": q}
+    off, rows = [], []
+    for v in variants:
+        sv = by_id.get(str(v.get("variantId") or "")) or {}
+        nq = _next_qty(v.get("itemCode"), loc) if v.get("itemCode") else 0
+        rows.append({"sku": v["sku"], "shopify": sv.get("qty", 0), "next": nq})
+        if not sv or sv.get("qty", 0) != nq:
+            off.append(f"{v['sku']} {sv.get('qty', 0)}≠{nq}")
+    tot_s = sum(r["shopify"] for r in rows)
+    tot_n = sum(r["next"] for r in rows)
+    checks.append({"key": "qty", "hard": True, "ok": not off,
+                   "detail": "; ".join(off) if off else f"{tot_s} = {tot_n}"})
+    checks.append({"key": "vendor", "hard": True, "ok": (prod.get("vendor") or "") == (doc.brand or ""),
+                   "detail": prod.get("vendor") or ""})
+    if any(v.get("color") for v in variants):
+        opt = next((o for o in (prod.get("options") or []) if o.get("name") == "Color"), None)
+        got = sorted(x["name"] for x in ((opt or {}).get("optionValues") or []))
+        want = sorted({v.get("colorFr") for v in variants if v.get("colorFr")})
+        checks.append({"key": "frColors", "hard": True, "ok": got == want, "detail": " · ".join(got)})
+    wrong = [v["sku"] for v in variants
+             if abs((by_id.get(str(v.get("variantId") or "")) or {}).get("price", 0) - flt(c["prices"].get(v["sku"]))) > 0.009]
+    checks.append({"key": "priceOnShopify", "hard": True, "ok": not wrong, "detail": ", ".join(wrong)})
+    ar = {t["key"] for t in ((((data.get("data") or {}).get("translatableResource")) or {}).get("translations") or [])}
+    checks.append({"key": "arabicOnShopify", "hard": False, "ok": "title" in ar and "body_html" in ar})
+    return checks, {"preview": prod.get("onlineStorePreviewUrl") or "", "status": prod.get("status") or "",
+                    "qty": rows}
+
+
+def _review_detail(name):
+    det = _content_detail(name, with_collections=False)
+    doc = frappe.get_doc(DT_PRODUCT, name)
+    variants = _loads(doc.variants_json) or []
+    c = _content_of(doc, variants)
+    costs = _costs(doc, variants)
+    checks, shop = _review_checks(doc, variants, c, costs) if doc.stage == "review" else ([], {})
+    try:
+        pubs, chosen = _channels()
+        pub_err = ""
+    except Exception as e:
+        pubs, chosen, pub_err = [], [], str(e)[:300]
+    same = doc.content_by == frappe.session.user
+    det.update({
+        "checks": checks, "shopify": shop, "channels": pubs, "chosen": chosen, "channelsError": pub_err,
+        "writer": _user_name(doc.content_by), "sameWriter": same, "manual": list(MANUAL_CHECKS),
+        "descHtml": {"fr": _desc_html(c["fr"]["description"]), "ar": _desc_html(c["ar"]["description"])},
+        "canPublish": doc.stage == "review" and not same,
+        "samples": _samples(variants),
+    })
+    return det
+
+
+@frappe.whitelist()
+def review_boot(name=None):
+    _gate_review()
+    queue, limit = _queue("review")
+    sel = name or next((q["name"] for q in queue if not q["mine"]), None) or (queue[0]["name"] if queue else None)
+    return {"queue": queue, "limit": limit,
+            "detail": _review_detail(sel) if sel and frappe.db.exists(DT_PRODUCT, sel) else None}
+
+
+def _gate_not_writer(doc):
+    if doc.content_by and doc.content_by == frappe.session.user:
+        frappe.throw("You wrote this content — another person reviews it.")
+
+
+@frappe.whitelist(methods=["POST"])
+def review_reject(name, to, note):
+    """Back to the step that owns the problem, with a note; counted."""
+    _gate_review()
+    note = (note or "").strip()
+    if to not in REJECT_TO:
+        frappe.throw("Unknown step.")
+    if not note:
+        frappe.throw("Write what is wrong.")
+    doc = _lock_product(name)
+    if doc.stage != "review":
+        frappe.throw("This product is not in review.")
+    _gate_not_writer(doc)
+    doc.db_set({"stage": to, "stage_at": now_datetime(), "reject_count": cint(doc.reject_count) + 1,
+                "review_note": note[:500]})
+    doc.add_comment("Comment", f"Souk: review sent it back to {to} ({cint(doc.reject_count)}×) by "
+                               f"{_user_name(frappe.session.user)} · {note[:280]}")
+    frappe.db.commit()
+    return {"ok": True}
+
+
+@frappe.whitelist(methods=["POST"])
+def review_drop(name, why, note):
+    """Won't be published: poor quality or does not photograph well. The
+    goods go back to the stall or to clearance — decided here, done by hand."""
+    _gate_review()
+    note = (note or "").strip()
+    if why not in DROP_WHY:
+        frappe.throw("Unknown reason.")
+    if not note:
+        frappe.throw("Write why.")
+    doc = _lock_product(name)
+    if doc.stage != "review":
+        frappe.throw("This product is not in review.")
+    _gate_not_writer(doc)
+    doc.db_set({"stage": "dropped", "stage_at": now_datetime(), "review_note": f"{why}: {note[:480]}"})
+    doc.add_comment("Comment", f"Souk: will NOT be published ({'back to the stall' if why == 'return' else 'clearance'}) "
+                               f"by {_user_name(frappe.session.user)} · {note[:280]}")
+    frappe.db.commit()
+    return {"ok": True}
+
+
+def _samples_home(doc, variants):
+    """The studio samples back onto the shelf holding most of that item."""
+    st = _studio_stock(variants)
+    if not st:
+        return None, 0
+    shelves = set(_shelves())
+    items, skipped = [], []
+    for v in variants:
+        code = v.get("itemCode")
+        q = cint(st.get(code))
+        if not q:
+            continue
+        dest = None
+        for (wh,) in frappe.db.sql("""SELECT warehouse FROM `tabBin` WHERE item_code = %s AND actual_qty > 0
+                                       ORDER BY actual_qty DESC""", (code,)):
+            if wh in shelves:
+                dest = wh
+                break
+        if not dest:
+            skipped.append(v["sku"])
+            continue
+        items.append({"item_code": code, "qty": q, "s_warehouse": STUDIO_WH, "t_warehouse": dest})
+    if skipped:
+        doc.add_comment("Comment", "Souk: samples left in the studio (no shelf holds this item): " + ", ".join(skipped))
+    if not items:
+        return None, 0
+    se = frappe.get_doc({"doctype": "Stock Entry", "stock_entry_type": "Material Transfer", "company": COMPANY,
+                         "remarks": f"Souk {doc.name}: studio samples back on the shelf at publish", "items": items})
+    se.flags.ignore_permissions = True
+    se.insert(ignore_permissions=True)
+    se.submit()
+    try:
+        from logistics_portal.api.labelprint import queue_items
+        queue_items([(i["item_code"], i["qty"]) for i in items], LABEL_STATION)
+    except Exception:
+        pass
+    for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    return se.name, sum(i["qty"] for i in items)
+
+
+@frappe.whitelist(methods=["POST"])
+def publish(name, channels, manual):
+    """Review passed → published to the chosen channels → ACTIVE → samples
+    back on the shelf."""
+    _gate_review()
+    channels = json.loads(channels) if isinstance(channels, str) else (channels or [])
+    manual = json.loads(manual) if isinstance(manual, str) else (manual or [])
+    doc = _lock_product(name)
+    if doc.stage != "review":
+        frappe.throw("This product is not in review.")
+    _gate_not_writer(doc)
+    if sorted(set(manual)) != sorted(MANUAL_CHECKS):
+        frappe.throw("Tick every eye check first.")
+    variants = _loads(doc.variants_json) or []
+    c = _content_of(doc, variants)
+    checks, _shop = _review_checks(doc, variants, c, _costs(doc, variants))
+    failed = [x["key"] for x in checks if x.get("hard") and not x["ok"]]
+    if failed:
+        frappe.throw("System checks failing: " + ", ".join(failed))
+    pubs, _chosen = _channels()
+    ids = {p["id"] for p in pubs}
+    channels = [x for x in channels if x in ids]
+    if not channels:
+        frappe.throw("Choose at least one sales channel.")
+    pid = f"gid://shopify/Product/{doc.shopify_product_id}"
+    try:
+        _gql_errors(_gql()(_PUBLISH, {"id": pid, "input": [{"publicationId": x} for x in channels]}),
+                    "publishablePublish")
+        _gql_errors(_gql()(_PRODUCT_UPDATE, {"product": {"id": pid, "status": "ACTIVE"}}), "productUpdate")
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(frappe.get_traceback()[:3000], f"souk.publish {name}")
+        frappe.db.set_value(DT_PRODUCT, name, "error", f"Shopify publish: {str(e)[:400]}", update_modified=False)
+        frappe.db.commit()
+        frappe.throw(f"Shopify did not publish it: {str(e)[:300]}")
+    cur = settings()
+    cur["publishChannels"] = channels
+    frappe.db.set_default(SETTINGS_KEY, json.dumps(cur, ensure_ascii=False))
+    doc.db_set({"stage": "live", "stage_at": now_datetime(), "reviewed_by": frappe.session.user,
+                "published_at": now_datetime(), "error": "", "review_note": ""})
+    names = {p["id"]: p["name"] for p in pubs}
+    doc.add_comment("Comment", f"Souk: LIVE by {_user_name(frappe.session.user)} on "
+                               + ", ".join(names.get(x, x) for x in channels) + ".")
+    frappe.db.commit()
+    moved, se = 0, None
+    try:
+        se, moved = _samples_home(doc, variants)
+        if se:
+            doc.add_comment("Comment", f"Souk: {moved} studio sample(s) back on the shelf · {se}.")
+        frappe.db.commit()
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(frappe.get_traceback()[:3000], f"souk.publish samples {name}")
+        doc.add_comment("Comment", f"Souk: samples still in the studio — move them by hand ({str(e)[:160]}).")
+        frappe.db.commit()
+    return {"ok": True, "samples": moved, "stockEntry": se or "", "channels": len(channels)}
+
+
+@frappe.whitelist(methods=["POST"])
+def qty_nudge(name):
+    """Shopify's quantity differs from Next: mark the items so ee's next
+    inventory run (every few minutes) pushes them again."""
+    _gate_review()
+    doc = frappe.get_doc(DT_PRODUCT, name)
+    codes = [v["itemCode"] for v in (_loads(doc.variants_json) or []) if v.get("itemCode")]
+    if codes:
+        frappe.db.sql("""UPDATE `tabEcommerce Item` SET inventory_synced_on = '2000-01-01 00:00:00'
+                         WHERE integration = 'shopify' AND erpnext_item_code IN %s""", (tuple(codes),))
+        frappe.db.commit()
+    return {"ok": True, "items": len(codes)}
