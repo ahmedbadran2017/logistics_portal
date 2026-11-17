@@ -50,7 +50,8 @@
               {{ col(s).length }}<span v-if="data.stageDays?.[s]"> · {{ t('souk.daysMax').replace('{n}', data.stageDays[s]) }}</span>
             </span>
           </div>
-          <router-link v-for="c in col(s)" :key="c.name" :to="{ name: 'SoukProduct', params: { name: c.name } }"
+          <div v-for="c in col(s)" :key="c.name" class="space-y-1">
+          <router-link :to="{ name: 'SoukProduct', params: { name: c.name } }"
                        class="block bg-white rounded-xl ring-1 p-2.5 space-y-1.5 hover:ring-stone-400"
                        :class="c.late || c.escalate ? 'ring-rose-300' : 'ring-stone-200'">
             <div class="flex gap-2">
@@ -68,6 +69,9 @@
             <div v-if="c.error" class="text-[10.5px] text-rose-700 truncate">{{ c.error }}</div>
             <div v-else-if="c.escalate" class="text-[10.5px] font-bold text-rose-700">{{ t('souk.escalate') }}</div>
           </router-link>
+          <router-link v-if="c.stage === 'bought' && c.po && data.canReceive" :to="{ name: 'SoukReceive', params: { po: c.po } }"
+                       class="flex h-8 rounded-lg bg-emerald-600 text-white text-[11.5px] font-bold items-center justify-center">{{ t('souk.receiveBtn') }}</router-link>
+          </div>
           <div v-if="!col(s).length" class="text-center text-[11px] text-stone-400 py-4">—</div>
         </section>
       </div>

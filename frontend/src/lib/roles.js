@@ -86,6 +86,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
           { to: "SoukBuy", label: "nav.soukBuy", icon: "shopping-bag" },
+          { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
           { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
         ],
       },
@@ -157,6 +158,7 @@ export const ROLE_CONFIG = {
           { to: "Warehouse", label: "nav.warehouse", icon: "warehouse" },
           { to: "Inventory", label: "nav.stock", icon: "boxes" },
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
+          { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
           { to: "CrossdockIn", label: "nav.crossdockIn", icon: "truck" },
           { to: "SupplierPickup", label: "nav.supplierPickup", icon: "rotate-ccw" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
@@ -246,6 +248,7 @@ export const ROLE_CONFIG = {
         section: "nav.inventoryGrp",
         items: [
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
+          { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
           { to: "CrossdockIn", label: "nav.crossdockIn", icon: "truck" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
           { to: "Kits", label: "nav.kits", icon: "boxes" },
@@ -424,6 +427,7 @@ export const ROLE_CONFIG = {
         section: "nav.inventoryGrp",
         items: [
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
+          { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
           { to: "CrossdockIn", label: "nav.crossdockIn", icon: "truck" },
           { to: "SupplierPickup", label: "nav.supplierPickup", icon: "rotate-ccw" },
           { to: "MoveStock", label: "nav.move", icon: "route" },

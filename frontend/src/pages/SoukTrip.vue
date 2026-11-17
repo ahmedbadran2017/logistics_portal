@@ -74,6 +74,12 @@
           <div class="min-w-0 flex-1">
             <div class="text-[12.5px] font-semibold truncate">{{ b.title || b.po }}</div>
             <div class="text-[11px] text-stone-500 truncate">{{ b.supplier }} · {{ b.units }} {{ t('souk.pcs') }} · <span class="font-mono">{{ b.po }}</span></div>
+            <div class="text-[11px] mt-0.5">
+              <span v-if="b.received" class="text-emerald-700 font-semibold">{{ t('souk.receivedAs').replace('{pr}', b.received) }}</span>
+              <router-link v-else-if="data.canReceive" :to="{ name: 'SoukReceive', params: { po: b.po } }" class="font-bold text-emerald-700">{{ t('souk.receiveBtn') }}</router-link>
+              <span v-else class="text-stone-400">{{ t('souk.notReceived') }}</span>
+              <span v-if="b.owed" class="ms-2 font-semibold text-amber-800">{{ t('souk.owesShort').replace('{n}', fmt(b.owed)) }}<span v-if="b.debitNote" class="font-mono"> · {{ b.debitNote }}</span></span>
+            </div>
           </div>
           <div class="flex flex-col items-end gap-1">
             <span class="text-[12.5px] font-bold tabular-nums">{{ fmt(b.amount) }}</span>
@@ -105,6 +111,16 @@
       </div>
       <p v-if="tr.status === 'Open'" class="px-4 pb-2 text-[11px] text-stone-500">{{ t('souk.taxiHint') }}</p>
 
+      <!-- transport by weight (accountant), once everything is received -->
+      <div v-if="data.isAccountant && tr.transport > 0" class="px-4 py-2 border-t border-stone-100 flex items-center gap-2 text-[12px]">
+        <span v-if="tr.transportLcv" class="text-emerald-700 font-semibold">{{ t('souk.transportDone').replace('{v}', tr.transportLcv) }}</span>
+        <template v-else>
+          <span class="flex-1 text-stone-600">{{ tr.allReceived ? t('souk.transportReady') : t('souk.transportWait') }}</span>
+          <button class="h-8 px-3 rounded-lg bg-stone-900 text-white text-[11.5px] font-bold disabled:opacity-40"
+                  :disabled="busy || !tr.allReceived || !data.accounts?.custody" @click="allocate(tr)">{{ t('souk.transportBtn') }}</button>
+        </template>
+      </div>
+
       <!-- close (buyer) -->
       <div v-if="tr.status === 'Open' && tr.buyer === data.me" class="px-4 pb-4 pt-1 space-y-1">
         <p v-if="tr.missingReceipts" class="text-[11.5px] text-amber-800 text-center">{{ t('souk.missingN').replace('{n}', tr.missingReceipts) }}</p>
@@ -132,6 +148,26 @@
       </div>
     </section>
 
+    <!-- the accountant's accounts -->
+    <section v-if="data?.accounts" class="bg-white ring-1 ring-stone-200/70 rounded-2xl overflow-hidden">
+      <button class="w-full px-4 py-3 flex items-center gap-2 text-[12.5px] font-bold" @click="acctOpen = !acctOpen">
+        <Icon name="settings" :size="14" class="text-stone-400" />{{ t('souk.accounts') }}
+        <span v-if="!data.accounts.custody" class="text-[11px] font-semibold text-amber-700">· {{ t('souk.noBooks') }}</span>
+        <Icon :name="acctOpen ? 'chevron-up' : 'chevron-down'" :size="14" class="ms-auto text-stone-400" />
+      </button>
+      <div v-if="acctOpen" class="px-4 pb-4 space-y-3 border-t border-stone-100 pt-3">
+        <p class="text-[11.5px] text-stone-500">{{ t('souk.accountsHint') }}</p>
+        <div v-for="k in ['custody', 'transportLoss', 'warehouseLoss']" :key="k" class="space-y-1">
+          <label class="text-[12px] font-semibold text-stone-700">{{ t('souk.acct_' + k) }}</label>
+          <input v-model="acct[k]" :list="k === 'custody' ? 'souk-cash' : 'souk-exp'" dir="ltr"
+                 class="w-full h-10 rounded-lg ring-1 ring-stone-300 px-3 text-[12.5px]" />
+        </div>
+        <datalist id="souk-cash"><option v-for="a in data.accounts.cashOptions" :key="a" :value="a" /></datalist>
+        <datalist id="souk-exp"><option v-for="a in data.accounts.expenseOptions" :key="a" :value="a" /></datalist>
+        <button class="h-10 px-4 rounded-lg bg-stone-900 text-white text-[12.5px] font-bold disabled:opacity-40" :disabled="busy" @click="saveAccounts">{{ t('souk.save') }}</button>
+      </div>
+    </section>
+
     <!-- counted -->
     <section v-if="data?.counted?.length" class="bg-white ring-1 ring-stone-200/70 rounded-2xl overflow-hidden">
       <div class="px-4 py-2.5 border-b border-stone-100 text-[12.5px] font-bold">{{ t('souk.counted') }}</div>
@@ -144,6 +180,10 @@
             {{ Math.round(tr.counted - tr.expectedBack) === 0 ? '✓' : fmt(tr.counted - tr.expectedBack) }}
           </span>
           <span class="text-stone-400">{{ tr.countedBy }}</span>
+          <button v-if="data.isAccountant && tr.transport > 0 && !tr.transportLcv"
+                  class="h-7 px-2 rounded-md bg-stone-900 text-white text-[11px] font-bold disabled:opacity-40"
+                  :disabled="busy || !tr.allReceived || !data.accounts?.custody"
+                  :title="tr.allReceived ? '' : t('souk.transportWait')" @click="allocate(tr)">{{ t('souk.transportBtn') }}</button>
         </div>
       </div>
     </section>
@@ -167,6 +207,8 @@ const give = reactive({ buyer: "", cash: null, place: "Derb Omar" });
 const transport = reactive({});
 const count = reactive({});
 const countNote = reactive({});
+const acctOpen = ref(false);
+const acct = reactive({ custody: "", transportLoss: "", warehouseLoss: "" });
 
 const fmt = (n) => Math.round(Number(n || 0)).toLocaleString("fr-FR");
 const diff = (tr) => Math.round((Number(count[tr.name]) || 0) - tr.expectedBack);
@@ -205,6 +247,10 @@ function voucher(b) {
   if (phone) run(() => apiPost("souk.set_voucher", { po: b.po, phone }));
 }
 const approve = (b) => run(() => apiPost("souk.approve_voucher", { po: b.po }));
+const allocate = (tr) => run(() => apiPost("souk.allocate_transport", { trip: tr.name }), t("souk.transportOk"));
+const saveAccounts = () => run(() => apiPost("souk.save_settings", { settings_json: JSON.stringify({
+  custodyAccount: acct.custody, transportLossAccount: acct.transportLoss, warehouseLossAccount: acct.warehouseLoss,
+}) }), t("souk.saved"));
 function close(tr) {
   if (!window.confirm(t("souk.closeConfirm").replace("{n}", fmt(tr.expected)))) return;
   run(() => apiPost("souk.close_trip", { trip: tr.name }), t("souk.closed"));
@@ -219,6 +265,11 @@ async function load() {
   try {
     data.value = await api("souk.trips_boot");
     for (const tr of data.value.open) if (transport[tr.name] === undefined) transport[tr.name] = tr.transport || null;
+    if (data.value.accounts) {
+      acct.custody = data.value.accounts.custody;
+      acct.transportLoss = data.value.accounts.transportLoss;
+      acct.warehouseLoss = data.value.accounts.warehouseLoss;
+    }
   } catch (e) {
     warn(t("souk.failed"), String(e.message || e));
   } finally {

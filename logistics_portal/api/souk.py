@@ -95,7 +95,18 @@ DEFAULT_SETTINGS = {
     "stageDays": {"bought": 2, "received": 1, "photographed": 3, "studio": 3,
                   "content": 2, "review": 1},
     "escalateDays": 21,
+    # Receiving: pieces of each new product that go to the studio first.
+    "studioSamples": 3,
+    # Breakage that is OURS, each in its own account (Ahmed, 2026-11-17).
+    # Empty = the pieces wait in Defective Items as stock until the
+    # accountant names the account; nothing is guessed.
+    "transportLossAccount": "",
+    "warehouseLossAccount": "",
 }
+STUDIO_WH = "Studio - JM"
+DEFECTIVE_WH = "Defective Items - JM"
+SOFT_PARENT = "Soft Warehouse - JM"
+LABEL_STATION = "souk"
 
 
 # --- schema ------------------------------------------------------------------
@@ -106,7 +117,9 @@ def ensure_doctype():
     try:
         _ensure_trip()
         _ensure_product()
+        _add_missing_fields(DT_TRIP, TRIP_LATER_FIELDS)
         _ensure_po_fields()
+        _ensure_studio()
         if not frappe.db.exists("Supplier Group", SUPPLIER_GROUP):
             frappe.get_doc({"doctype": "Supplier Group", "supplier_group_name": SUPPLIER_GROUP,
                             "parent_supplier_group": "All Supplier Groups"}).insert(ignore_permissions=True)
@@ -140,6 +153,23 @@ def _ensure_trip():
         ],
         "permissions": [{"role": "System Manager", "read": 1, "write": 1, "create": 1}],
     }).insert(ignore_permissions=True)
+
+
+# Fields added after the doctype first shipped: appended on migrate.
+TRIP_LATER_FIELDS = [
+    {"fieldname": "transport_lcv", "fieldtype": "Data", "label": "Transport landed cost voucher"},
+]
+
+
+def _add_missing_fields(dt, fields):
+    doc = frappe.get_doc("DocType", dt)
+    have = {f.fieldname for f in doc.fields}
+    missing = [f for f in fields if f["fieldname"] not in have]
+    if not missing:
+        return
+    for f in missing:
+        doc.append("fields", f)
+    doc.save(ignore_permissions=True)
 
 
 def _ensure_product():
@@ -191,7 +221,27 @@ def _ensure_po_fields():
          "insert_after": "custom_souk_receipt_image", "no_copy": 1},
         {"fieldname": "custom_souk_voucher_ok", "fieldtype": "Data", "label": "Voucher approved by",
          "insert_after": "custom_souk_voucher_phone", "read_only": 1, "no_copy": 1},
+        # Receiving outcome: what arrived, what the stall owes us, the papers.
+        {"fieldname": "custom_souk_received", "fieldtype": "Data", "label": "Souk receipt (PR)",
+         "insert_after": "custom_souk_voucher_ok", "read_only": 1, "no_copy": 1},
+        {"fieldname": "custom_souk_owed", "fieldtype": "Currency", "label": "Owed by the stall",
+         "insert_after": "custom_souk_received", "read_only": 1, "no_copy": 1},
+        {"fieldname": "custom_souk_debit_note", "fieldtype": "Data", "label": "Souk debit note",
+         "insert_after": "custom_souk_owed", "read_only": 1, "no_copy": 1},
+        {"fieldname": "custom_souk_outcome", "fieldtype": "Long Text", "label": "Souk receiving outcome",
+         "insert_after": "custom_souk_debit_note", "read_only": 1, "no_copy": 1},
     ]}, ignore_validate=True)
+
+
+def _ensure_studio():
+    """Studio - JM: where the samples sit while they are photographed. Like
+    Defective Items: rejected (ee's pick controller vetoes it) and never in
+    the Shopify Warehouse Mapping (its pieces are not for sale)."""
+    if frappe.db.exists("Warehouse", STUDIO_WH):
+        return
+    frappe.get_doc({"doctype": "Warehouse", "warehouse_name": "Studio", "company": COMPANY,
+                    "parent_warehouse": SOFT_PARENT if frappe.db.exists("Warehouse", SOFT_PARENT) else None,
+                    "is_group": 0, "is_rejected_warehouse": 1}).insert(ignore_permissions=True)
 
 
 # --- gates & settings --------------------------------------------------------
@@ -241,14 +291,22 @@ def settings():
 
 @frappe.whitelist(methods=["POST"])
 def save_settings(settings_json):
-    if _role() != "manager":
-        frappe.throw("Managers only.", frappe.PermissionError)
+    """Managers set everything; the accountant sets the accounts."""
+    _gate_accountant()
     s = json.loads(settings_json or "{}")
     if not isinstance(s, dict):
         frappe.throw("Bad settings.")
+    if _role() != "manager":
+        s = {k: v for k, v in s.items() if k in ("custodyAccount", "transportLossAccount", "warehouseLossAccount")}
     acct = (s.get("custodyAccount") or "").strip()
-    if acct and frappe.db.get_value("Account", acct, "account_type") not in ("Cash", "Bank"):
-        frappe.throw(f"{acct} is not a cash account.")
+    if acct and frappe.db.get_value("Account", {"name": acct, "company": COMPANY, "is_group": 0},
+                                    "account_type") not in ("Cash", "Bank"):
+        frappe.throw(f"{acct} is not a cash account of {COMPANY}.")
+    for key in ("transportLossAccount", "warehouseLossAccount"):
+        a = (s.get(key) or "").strip()
+        if a and frappe.db.get_value("Account", {"name": a, "company": COMPANY, "is_group": 0},
+                                     "root_type") != "Expense":
+            frappe.throw(f"{a} is not an expense account of {COMPANY}.")
     cur = settings()
     cur.update({k: v for k, v in s.items() if k in DEFAULT_SETTINGS})
     frappe.db.set_default(SETTINGS_KEY, json.dumps(cur, ensure_ascii=False))
@@ -271,6 +329,8 @@ def _trip_buys(trip):
                   po.custom_souk_product AS product, po.custom_souk_receipt AS receipt,
                   po.custom_souk_receipt_image AS receipt_image,
                   po.custom_souk_voucher_phone AS phone, po.custom_souk_voucher_ok AS voucher_ok,
+                  po.custom_souk_received AS received, po.custom_souk_owed AS owed,
+                  po.custom_souk_debit_note AS debit_note,
                   (SELECT SUM(qty) FROM `tabPurchase Order Item` WHERE parent = po.name) AS units
            FROM `tabPurchase Order` po
            WHERE po.custom_souk_trip = %s AND po.docstatus = 1
@@ -309,6 +369,7 @@ def _trip_card(t):
             "po": b.name, "supplier": b.supplier, "amount": flt(b.grand_total), "units": cint(b.units),
             "product": b.product or "", "title": p.get("title") or "", "image": p.get("ref_image") or "",
             "receipt": _receipt_state(b), "receiptImage": b.receipt_image or "", "phone": b.phone or "",
+            "received": b.received or "", "owed": flt(b.owed), "debitNote": b.debit_note or "",
         })
     missing = [r for r in rows if r["receipt"] == "missing"]
     return {
@@ -322,6 +383,9 @@ def _trip_card(t):
         "buys": rows, "missingReceipts": len([r for r in rows if r["receipt"] == "missing"]),
         "pendingVouchers": len([r for r in rows if r["receipt"] == "voucher_pending"]),
         "canClose": t.status == "Open" and not missing,
+        "transportLcv": t.get("transport_lcv") or "",
+        "allReceived": bool(rows) and all(r["received"] for r in rows),
+        "owed": round(sum(r["owed"] for r in rows), 2),
     }
 
 
@@ -350,7 +414,23 @@ def trips_boot():
             """SELECT name, full_name FROM `tabUser`
                WHERE enabled = 1 AND custom_logistics_role IN ('sourcing', 'manager')
                ORDER BY full_name""", as_dict=True)]
+    accounts = None
+    if acc:
+        s = settings()
+        accounts = {
+            "custody": s.get("custodyAccount") or "",
+            "transportLoss": s.get("transportLossAccount") or "",
+            "warehouseLoss": s.get("warehouseLossAccount") or "",
+            "cashOptions": frappe.get_all("Account", filters={"company": COMPANY, "is_group": 0,
+                                                              "account_type": ["in", ["Cash", "Bank"]],
+                                                              "account_currency": "MAD"},
+                                          pluck="name", order_by="name"),
+            "expenseOptions": frappe.get_all("Account", filters={"company": COMPANY, "is_group": 0,
+                                                                 "root_type": "Expense"},
+                                             pluck="name", order_by="name", limit=600),
+        }
     return {
+        "accounts": accounts, "canReceive": _can_receive(),
         "isAccountant": acc, "canBuy": _role() in ("manager", "sourcing"), "me": frappe.session.user,
         "open": [_trip_card(t) for t in rows],
         "counted": [_trip_card(t) for t in done],
@@ -490,6 +570,10 @@ def upload_photo(kind, target):
     elif kind == "ref":
         _gate_buy()
         dt, dn, field = DT_PRODUCT, target, "ref_image"
+    elif kind == "broken":
+        # Proof for the stall (Debit Note) or for our loss accounts.
+        _gate_receive()
+        dt, dn, field = "Purchase Order", target, None
     elif kind == "receipt":
         if frappe.db.exists("Purchase Order", target):
             _souk_po(target)
@@ -511,6 +595,9 @@ def upload_photo(kind, target):
         "doctype": "File", "file_name": f"souk-{kind}-{frappe.generate_hash(length=16)}.{ext}",
         "content": content, "attached_to_doctype": dt, "attached_to_name": str(dn), "is_private": 0,
     }).insert(ignore_permissions=True)
+    if not field:
+        frappe.db.commit()
+        return {"url": fdoc.file_url}
     frappe.db.set_value(dt, dn, field, fdoc.file_url, update_modified=False)
     po = dn if dt == "Purchase Order" else None
     if dt == DT_PRODUCT and field == "receipt_image":
@@ -1036,7 +1123,7 @@ def board():
     rows = frappe.get_all(DT_PRODUCT, filters={"stage": ["!=", "dropped"]},
                           fields=["name", "title", "stage", "stage_at", "supplier", "brand", "trip",
                                   "units", "total_cost", "ref_image", "bought_at", "creation", "error",
-                                  "shopify_product_id"],
+                                  "shopify_product_id", "purchase_order"],
                           order_by="stage_at asc", limit=500)
     cards = []
     late = 0
@@ -1053,11 +1140,13 @@ def board():
             "limit": limit, "stall": r.supplier or "", "brand": r.brand or "", "trip": r.trip or "",
             "units": cint(r.units), "cost": flt(r.total_cost), "image": r.ref_image or "",
             "error": r.error or "", "sinceBuy": _age_days(r.bought_at or r.creation),
+            "po": r.purchase_order or "",
             "escalate": _age_days(r.bought_at or r.creation) > cint(s.get("escalateDays") or 21) and r.stage != "live",
         })
     dropped = frappe.db.count(DT_PRODUCT, {"stage": "dropped"})
     return {"stages": STAGES[:-1], "cards": cards, "late": late, "notLive": round(tied, 2),
-            "dropped": dropped, "stageDays": s.get("stageDays"), "canBuy": _role() in ("manager", "sourcing")}
+            "dropped": dropped, "stageDays": s.get("stageDays"), "canBuy": _role() in ("manager", "sourcing"),
+            "canReceive": _can_receive()}
 
 
 @frappe.whitelist()
@@ -1074,7 +1163,8 @@ def product(name):
             stock.setdefault(b.item_code, []).append({"warehouse": b.warehouse, "qty": flt(b.actual_qty)})
     pos = frappe.db.sql(
         """SELECT po.name, po.supplier, po.grand_total, po.status, po.per_received, po.transaction_date,
-                  po.custom_souk_trip AS trip
+                  po.custom_souk_trip AS trip, po.custom_souk_received AS pr, po.custom_souk_owed AS owed,
+                  po.custom_souk_debit_note AS debit_note, po.custom_souk_outcome AS outcome
            FROM `tabPurchase Order` po
            WHERE po.custom_souk_product = %s AND po.docstatus = 1 ORDER BY po.creation""",
         (doc.name,), as_dict=True)
@@ -1093,8 +1183,418 @@ def product(name):
         "error": doc.error or "",
         "variants": [{**v, "stock": stock.get(v.get("itemCode"), [])} for v in variants],
         "purchases": [{"po": p.name, "stall": p.supplier, "amount": flt(p.grand_total), "status": p.status,
-                       "received": flt(p.per_received), "date": str(p.transaction_date), "trip": p.trip}
+                       "received": flt(p.per_received), "date": str(p.transaction_date), "trip": p.trip,
+                       "pr": p.pr or "", "owed": flt(p.owed), "debitNote": p.debit_note or "",
+                       "outcome": _loads(p.outcome)}
                       for p in pos],
+        "owed": round(sum(flt(p.owed) for p in pos), 2),
         "events": events,
         "canBuy": _role() in ("manager", "sourcing"),
+        "canReceive": _can_receive(),
     }
+
+
+# --- receiving ----------------------------------------------------------------
+#
+# One delivery per purchase: the taxi brings the trip's goods the same day,
+# so a souk PO is received ONCE and then closed. Per variant the floor counts
+#   good    — onto a real shelf (mapped to Shopify, pickable), minus the
+#             studio samples, which go to Studio - JM;
+#   broken  — by where it broke (Ahmed, 2026-11-17):
+#               at the stall      → not ours: not received, the stall owes it;
+#               in transport      → ours: Defective Items, transport-loss account;
+#               in our warehouse  → ours: Defective Items, warehouse-loss account;
+#   short   — ordered − good − broken: the stall owes it.
+# The stall's debt = (short + broken at the stall) × the price paid. With a
+# paid invoice it is a Debit Note (a return invoice that is NOT paid: the
+# stall owes the money, nothing came back into the custody); without one
+# (no custody account in the books yet) it is recorded on the PO for the
+# accountant. The PO is then closed: nothing else is coming.
+#
+# Never Receiving Zone - JM: it is a rejected warehouse (picking vetoes it)
+# and has no Shopify mapping, so the Draft would never get its quantity.
+
+BROKEN_WHERE = ("supplier", "transport", "warehouse")
+
+
+def _can_receive():
+    return _role() in ("manager", "dispatcher", "returns", "packer")
+
+
+def _gate_receive():
+    if not _can_receive():
+        frappe.throw("Not authorized to receive stock.", frappe.PermissionError)
+
+
+def _loads(raw):
+    try:
+        return json.loads(raw) if raw else None
+    except Exception:
+        return None
+
+
+def _shelves():
+    """Shelves a souk product can be received onto: movable, not rejected
+    (pickable), and mapped to Shopify (sellable). Never a consignment section
+    (CN - <supplier> / Consignment Receiving): souk goods are OURS, and a
+    consignment shelf means the supplier owns what sits on it."""
+    from logistics_portal.api.stock_moves import _movable_condition
+    cond, args = _movable_condition("w.name")
+    return [r[0] for r in frappe.db.sql(
+        f"""SELECT w.name FROM `tabWarehouse` w
+            WHERE w.is_group = 0 AND w.disabled = 0 AND IFNULL(w.is_rejected_warehouse, 0) = 0
+              AND w.name NOT LIKE 'CN - %%' AND w.name NOT LIKE 'Consignment%%'
+              AND {cond}
+              AND EXISTS (SELECT 1 FROM `tabShopify Warehouse Mapping` m WHERE m.erpnext_warehouse = w.name)
+            ORDER BY w.name""", tuple(args))]
+
+
+def _po_lines_for(po):
+    return frappe.db.sql(
+        """SELECT poi.name AS po_item, poi.item_code, poi.item_name, poi.qty, poi.received_qty,
+                  poi.rate, poi.uom, poi.conversion_factor AS cf, i.custom_sku AS sku,
+                  i.weight_per_unit AS kg, i.weight_uom
+           FROM `tabPurchase Order Item` poi JOIN `tabItem` i ON i.name = poi.item_code
+           WHERE poi.parent = %s ORDER BY poi.idx""", (po,), as_dict=True)
+
+
+def _po_invoice(po):
+    r = frappe.db.sql(
+        """SELECT DISTINCT pi.name FROM `tabPurchase Invoice` pi
+           JOIN `tabPurchase Invoice Item` pii ON pii.parent = pi.name
+           WHERE pii.purchase_order = %s AND pi.docstatus = 1 AND pi.is_return = 0
+           ORDER BY pi.creation LIMIT 1""", (po,))
+    return r[0][0] if r else None
+
+
+@frappe.whitelist()
+def receive_queue():
+    """Souk purchases waiting for the taxi: submitted, not yet received."""
+    _gate_receive()
+    rows = frappe.db.sql(
+        f"""SELECT po.name, po.supplier, po.grand_total, po.transaction_date, po.custom_souk_trip AS trip,
+                   po.custom_souk_product AS product, p.title, p.ref_image,
+                   (SELECT SUM(qty) FROM `tabPurchase Order Item` WHERE parent = po.name) AS units
+            FROM `tabPurchase Order` po
+            LEFT JOIN `tab{DT_PRODUCT}` p ON p.name = po.custom_souk_product
+            WHERE po.docstatus = 1 AND IFNULL(po.custom_souk_trip, '') != ''
+              AND IFNULL(po.custom_souk_received, '') = ''
+              AND po.status NOT IN ('Closed', 'Completed', 'Cancelled')
+            ORDER BY po.creation""", as_dict=True)
+    return {"rows": [{"po": r.name, "stall": r.supplier, "amount": flt(r.grand_total),
+                      "date": str(r.transaction_date), "trip": r.trip or "", "product": r.product or "",
+                      "title": r.title or "", "image": r.ref_image or "", "units": cint(r.units)}
+                     for r in rows]}
+
+
+@frappe.whitelist()
+def receive_boot(po):
+    _gate_receive()
+    h = frappe.db.get_value("Purchase Order", po, ["name", "supplier", "docstatus", "status",
+                                                    "custom_souk_trip", "custom_souk_product",
+                                                    "custom_souk_received"], as_dict=True)
+    if not h or not h.custom_souk_trip:
+        frappe.throw("Not a souk purchase.")
+    prod = frappe.db.get_value(DT_PRODUCT, h.custom_souk_product,
+                               ["name", "title", "ref_image", "stage", "variants_json"], as_dict=True) \
+        if h.custom_souk_product else None
+    labels = {}
+    if prod:
+        for v in json.loads(prod.variants_json or "[]"):
+            labels[v.get("itemCode")] = " · ".join(x for x in (v.get("colorFr"), v.get("sizeLabel")) if x)
+    s = settings()
+    lines = []
+    for l in _po_lines_for(po):
+        kg = flt(l.kg) if (l.weight_uom or "Kg").lower() in ("kg", "") else 0
+        lines.append({"itemCode": l.item_code, "sku": l.sku or l.item_code, "label": labels.get(l.item_code) or l.item_name,
+                      "ordered": flt(l.qty), "already": flt(l.received_qty), "rate": flt(l.rate),
+                      "grams": round(kg * 1000) if kg else None})
+    first_variant = lines[0]["itemCode"] if lines else ""
+    return {
+        "po": h.name, "stall": h.supplier, "trip": h.custom_souk_trip, "done": h.custom_souk_received or "",
+        "closed": h.status in ("Closed", "Completed"),
+        "product": prod.name if prod else "", "title": prod.title if prod else "",
+        "image": prod.ref_image if prod else "", "isNew": bool(prod and prod.stage == "bought"),
+        "lines": lines, "shelves": _shelves(),
+        "studioSamples": cint(s.get("studioSamples")) if prod and prod.stage == "bought" else 0,
+        "studioDefault": first_variant,
+        "lossAccounts": {"transport": bool(s.get("transportLossAccount")),
+                         "warehouse": bool(s.get("warehouseLossAccount"))},
+        "hasInvoice": bool(_po_invoice(po)),
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def receive(po, payload):
+    """Post the one receiving of a souk purchase. payload:
+    {target, lines: [{itemCode, good, broken: {supplier, transport, warehouse}, grams}],
+     studio: {itemCode: n}, labels: 1, note}"""
+    _gate_receive()
+    p = json.loads(payload) if isinstance(payload, str) else (payload or {})
+    h = frappe.get_doc("Purchase Order", po)
+    if not h.get("custom_souk_trip"):
+        frappe.throw("Not a souk purchase.")
+    if h.get("custom_souk_received"):
+        frappe.throw(f"Already received ({h.custom_souk_received}).")
+    if h.docstatus != 1 or h.status in ("Closed", "Completed", "Cancelled"):
+        frappe.throw("That PO is not open.")
+    target = (p.get("target") or "").strip()
+    if target and target not in _shelves():
+        frappe.throw("Choose a shelf: a sellable bin that is on Shopify.")
+    studio = {k: cint(v) for k, v in (p.get("studio") or {}).items() if cint(v) > 0}
+
+    po_lines = {l.item_code: l for l in _po_lines_for(po)}
+    counted = {}
+    for ln in p.get("lines") or []:
+        code = ln.get("itemCode")
+        if code not in po_lines:
+            frappe.throw(f"{code} is not on this purchase.")
+        br = ln.get("broken") or {}
+        c = {"good": cint(ln.get("good")), **{w: cint(br.get(w)) for w in BROKEN_WHERE},
+             "grams": flt(ln.get("grams"))}
+        if min(c["good"], *(c[w] for w in BROKEN_WHERE)) < 0:
+            frappe.throw("Counts cannot be negative.")
+        counted[code] = c
+    if not counted:
+        frappe.throw("Count the pieces first.")
+    nothing_came = not any(c["good"] + c["transport"] + c["warehouse"] + c["supplier"] for c in counted.values())
+    if nothing_came and not cint(p.get("nothingCame")):
+        frappe.throw("Nothing counted. If nothing arrived at all, confirm it as fully short.")
+
+    rows, outcome, owed, owed_lines = [], [], 0.0, {}
+    for code, l in po_lines.items():
+        c = counted.get(code) or {"good": 0, "supplier": 0, "transport": 0, "warehouse": 0, "grams": 0}
+        pending = flt(l.qty) - flt(l.received_qty)
+        arrived = c["good"] + c["supplier"] + c["transport"] + c["warehouse"]
+        if arrived > pending:
+            frappe.throw(f"{l.sku or code}: {arrived} counted, only {int(pending)} were bought.")
+        smp = studio.get(code, 0)
+        if smp > c["good"]:
+            frappe.throw(f"{l.sku or code}: more studio samples than good pieces.")
+        short = int(pending - arrived)
+        base = {"rate": flt(l.rate), "uom": l.uom, "conversion_factor": flt(l.cf or 1),
+                "purchase_order": po, "purchase_order_item": l.po_item, "item_code": code}
+        if c["good"] - smp > 0:
+            rows.append({**base, "qty": c["good"] - smp, "warehouse": target})
+        if smp:
+            rows.append({**base, "qty": smp, "warehouse": STUDIO_WH})
+        if c["transport"] + c["warehouse"]:
+            rows.append({**base, "qty": c["transport"] + c["warehouse"], "warehouse": DEFECTIVE_WH})
+        stall_qty = short + c["supplier"]
+        if stall_qty:
+            owed += stall_qty * flt(l.rate)
+            owed_lines[code] = stall_qty
+        outcome.append({"itemCode": code, "sku": l.sku or code, "ordered": int(pending), "good": c["good"],
+                        "studio": smp, "short": short, "brokenSupplier": c["supplier"],
+                        "brokenTransport": c["transport"], "brokenWarehouse": c["warehouse"],
+                        "rate": flt(l.rate)})
+    owed = round(owed, 2)
+
+    pr = None
+    if rows and not target:
+        frappe.throw("Choose a shelf: a sellable bin that is on Shopify.")
+    if rows:
+        pr = _post_receipt(h, po, target, rows, p.get("note"))
+    s = settings()
+    notes = []
+    if not rows:
+        notes.append("Nothing of ours arrived: no receipt, the stall owes the whole purchase.")
+    return _after_receive(h, po, pr, target, rows, outcome, owed, owed_lines, counted, studio, s, notes,
+                          cint(p.get("labels", 1)))
+
+
+def _post_receipt(h, po, target, rows, note):
+    pr = frappe.get_doc({
+        "doctype": "Purchase Receipt", "supplier": h.supplier, "company": COMPANY,
+        "currency": h.currency or "MAD", "conversion_rate": flt(h.conversion_rate or 1),
+        # Header warehouse only when every row agrees (as Goods In does): rows
+        # here are split between the shelf, the studio and Defective Items.
+        "set_warehouse": rows[0]["warehouse"] if len({r["warehouse"] for r in rows}) == 1 else None,
+        "remarks": f"Portal souk receiving by {frappe.session.user} — PO {po} (trip {h.custom_souk_trip})"
+                   + (f" — {note.strip()[:200]}" if (note or "").strip() else ""),
+        "items": rows,
+    })
+    pr.flags.ignore_permissions = True
+    pr.insert(ignore_permissions=True)
+    pr.submit()
+    return pr
+
+
+def _after_receive(h, po, pr, target, rows, outcome, owed, owed_lines, counted, studio, s, notes, want_labels):
+    pr_name = pr.name if pr else "NONE"
+    # Our breakage leaves the books into its own account — or waits for one.
+    write_offs = []
+    for where, key in (("transport", "transportLossAccount"), ("warehouse", "warehouseLossAccount")):
+        qty_by = {o["itemCode"]: o["broken" + where.capitalize()] for o in outcome if o["broken" + where.capitalize()]}
+        if not qty_by:
+            continue
+        acct = s.get(key)
+        if not acct:
+            notes.append(f"{sum(qty_by.values())} broken in {where} wait in {DEFECTIVE_WH}: "
+                         f"no {where}-loss account set yet.")
+            continue
+        se = frappe.get_doc({
+            "doctype": "Stock Entry", "stock_entry_type": "Material Issue", "purpose": "Material Issue",
+            "company": COMPANY,
+            "remarks": f"Souk breakage in {where} — PO {po} / {pr_name}",
+            "items": [{"item_code": code, "qty": q, "s_warehouse": DEFECTIVE_WH, "expense_account": acct}
+                      for code, q in qty_by.items()],
+        })
+        se.insert(ignore_permissions=True)
+        se.submit()
+        write_offs.append(se.name)
+
+    debit_note = ""
+    if owed_lines:
+        pi = _po_invoice(po)
+        if pi:
+            debit_note = _make_debit_note(pi, owed_lines, po)
+        else:
+            notes.append(f"The stall owes {owed:,.2f} MAD — no invoice in the books yet, "
+                         "the accountant posts the Debit Note with the invoice.")
+        h.reload()
+        if h.status not in ("Closed", "Completed"):
+            h.update_status("Closed")
+
+    # Weights: entered in grams, stored in kg (the catalogue is Kg).
+    for code, c in counted.items():
+        if c["grams"] and 1 <= c["grams"] <= 100000:
+            frappe.db.set_value("Item", code, {"weight_per_unit": round(c["grams"] / 1000.0, 4),
+                                               "weight_uom": "Kg"})
+
+    frappe.db.set_value("Purchase Order", po, {
+        "custom_souk_received": pr_name, "custom_souk_owed": owed, "custom_souk_debit_note": debit_note,
+        "custom_souk_outcome": json.dumps({"lines": outcome, "target": target, "writeOffs": write_offs,
+                                           "notes": notes, "by": frappe.session.user,
+                                           "at": str(now_datetime())[:16]}, ensure_ascii=False),
+    }, update_modified=False)
+
+    labels = 0
+    if want_labels:
+        from logistics_portal.api.labelprint import queue_items
+        labels = queue_items([(o["itemCode"], o["good"]) for o in outcome if o["good"]], LABEL_STATION)
+
+    good = sum(o["good"] for o in outcome)
+    summary = (f"Souk: received {good} good on {target.replace(' - JM', '')}"
+               + (f" ({sum(studio.values())} to the studio)" if studio else "")
+               + "".join(f" · {n} broken {w}" for w, n in (
+                   ("at the stall", sum(o["brokenSupplier"] for o in outcome)),
+                   ("in transport", sum(o["brokenTransport"] for o in outcome)),
+                   ("in the warehouse", sum(o["brokenWarehouse"] for o in outcome))) if n)
+               + (f" · {sum(o['short'] for o in outcome)} short" if any(o["short"] for o in outcome) else "")
+               + (f" · {pr.name}" if pr else " · nothing of ours arrived")
+               + (f" · the stall owes {owed:,.2f} MAD" + (f" ({debit_note})" if debit_note else "") if owed else "")
+               + (f" · {labels} labels" if labels else ""))
+    product = h.get("custom_souk_product")
+    if product and frappe.db.exists(DT_PRODUCT, product):
+        d = frappe.get_doc(DT_PRODUCT, product)
+        d.add_comment("Comment", summary)
+        for n in notes:
+            d.add_comment("Comment", "Souk: " + n)
+        if d.stage == "bought" and pr:
+            d.db_set({"stage": "received", "stage_at": now_datetime()})
+        elif d.stage == "bought":
+            # Nothing of ours ever arrived: the card leaves the cycle; the
+            # stall's debt stays on the PO.
+            d.db_set({"stage": "dropped", "stage_at": now_datetime()})
+    else:
+        frappe.get_doc("Purchase Order", po).add_comment("Comment", summary)
+    frappe.db.commit()
+    for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
+        frappe.cache().delete_value(k)
+    return {"ok": True, "receipt": pr_name, "good": good, "owed": owed, "debitNote": debit_note,
+            "writeOffs": write_offs, "notes": notes, "labels": labels, "product": product or ""}
+
+
+def _make_debit_note(pi_name, qty_by_item, po):
+    """A return invoice for what the stall owes — NOT paid: no cash came back
+    into the custody, the stall's account carries the debt."""
+    from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import make_debit_note
+    dn = make_debit_note(pi_name)
+    left = dict(qty_by_item)
+    keep = []
+    for it in dn.items:
+        q = left.get(it.item_code, 0)
+        if q <= 0:
+            continue
+        take = min(q, abs(flt(it.qty)))
+        it.qty = -take
+        it.received_qty = 0
+        left[it.item_code] = q - take
+        keep.append(it)
+    if not keep:
+        return ""
+    dn.set("items", keep)
+    dn.update_stock = 0
+    dn.is_paid = 0
+    dn.paid_amount = 0
+    dn.base_paid_amount = 0
+    dn.cash_bank_account = None
+    dn.mode_of_payment = None
+    dn.set("taxes", [])
+    dn.remarks = f"Souk: short / broken at the stall on {po}"
+    dn.run_method("calculate_taxes_and_totals")
+    dn.insert(ignore_permissions=True)
+    dn.submit()
+    return dn.name
+
+
+# --- transport by weight ------------------------------------------------------
+
+@frappe.whitelist(methods=["POST"])
+def allocate_transport(trip):
+    """Spread the trip's taxi over what it carried, by weight (by value for a
+    piece with no weight), as a Landed Cost Voucher credited to the custody
+    account: the cash left the custody, the pieces carry it in their cost."""
+    _gate_accountant()
+    t = frappe.get_doc(DT_TRIP, cint(trip))
+    amount = flt(t.transport_cost)
+    if amount <= 0:
+        frappe.throw("No transport on this trip.")
+    acct = settings().get("custodyAccount")
+    if not acct:
+        frappe.throw("Name the custody cash account in the souk settings first.")
+    if t.get("transport_lcv") and frappe.db.get_value("Landed Cost Voucher", t.transport_lcv, "docstatus") == 1:
+        frappe.throw(f"Transport already spread on this trip ({t.transport_lcv}).")
+    prs = [r[0] for r in frappe.db.sql(
+        """SELECT custom_souk_received FROM `tabPurchase Order`
+           WHERE custom_souk_trip = %s AND docstatus = 1 AND IFNULL(custom_souk_received, '') != ''""",
+        (str(t.name),))]
+    if not prs:
+        frappe.throw("Nothing received on this trip yet.")
+    waiting = frappe.db.sql(
+        """SELECT COUNT(*) FROM `tabPurchase Order` WHERE custom_souk_trip = %s AND docstatus = 1
+           AND IFNULL(custom_souk_received, '') = '' AND status NOT IN ('Closed', 'Cancelled')""",
+        (str(t.name),))[0][0]
+    if waiting:
+        frappe.throw(f"{waiting} purchase(s) of this trip are not received yet.")
+    lcv = frappe.new_doc("Landed Cost Voucher")
+    lcv.company = COMPANY
+    lcv.distribute_charges_based_on = "Distribute Manually"
+    for pr in prs:
+        lcv.append("purchase_receipts", {"receipt_document_type": "Purchase Receipt", "receipt_document": pr,
+                                         "supplier": frappe.db.get_value("Purchase Receipt", pr, "supplier")})
+    lcv.get_items_from_purchase_receipts()
+    weights = []
+    for it in lcv.items:
+        w = frappe.db.get_value("Item", it.item_code, ["weight_per_unit", "weight_uom"], as_dict=True) or {}
+        kg = flt(w.get("weight_per_unit")) if (w.get("weight_uom") or "Kg").lower() == "kg" else 0
+        weights.append(kg * flt(it.qty))
+    total_w = sum(weights)
+    total_v = sum(flt(it.amount) for it in lcv.items) or 1
+    use_weight = total_w > 0 and all(weights)
+    shares = [(w / total_w) if use_weight else (flt(it.amount) / total_v) for w, it in zip(weights, lcv.items)]
+    run = 0.0
+    for i, it in enumerate(lcv.items):
+        part = round(amount * shares[i], 2) if i < len(lcv.items) - 1 else round(amount - run, 2)
+        it.applicable_charges = part
+        run += part
+    lcv.append("taxes", {"description": f"Souk taxi — trip {t.name}", "expense_account": acct,
+                         "amount": amount})
+    lcv.insert(ignore_permissions=True)
+    lcv.submit()
+    t.db_set("transport_lcv", lcv.name)
+    t.add_comment("Comment", f"Transport {amount:,.2f} MAD spread {'by weight' if use_weight else 'by value'} "
+                             f"over {len(prs)} receipt(s): {lcv.name}.")
+    frappe.db.commit()
+    return {"lcv": lcv.name, "byWeight": use_weight}

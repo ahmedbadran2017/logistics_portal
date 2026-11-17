@@ -21,6 +21,8 @@
         </div>
         <div class="flex gap-2">
           <button v-if="d.stage === 'buying'" class="h-9 px-3 rounded-lg bg-stone-900 text-white text-[12.5px] font-bold disabled:opacity-40" :disabled="busy" @click="finish">{{ t('souk.retry') }}</button>
+          <router-link v-if="d.canReceive && d.stage === 'bought' && d.po" :to="{ name: 'SoukReceive', params: { po: d.po } }"
+                       class="h-9 px-3 rounded-lg bg-emerald-600 text-white text-[12.5px] font-bold inline-flex items-center">{{ t('souk.receiveBtn') }}</router-link>
           <router-link v-if="d.canBuy && d.stage !== 'buying'" :to="{ name: 'SoukBuy', query: { again: d.name, kind: 'souk' } }"
                        class="h-9 px-3 rounded-lg bg-white ring-1 ring-stone-300 text-[12.5px] font-semibold inline-flex items-center">{{ t('souk.buyAgain') }}</router-link>
         </div>
@@ -94,11 +96,25 @@
           </section>
           <section class="bg-white ring-1 ring-stone-200/70 rounded-2xl p-4 space-y-2 text-[12px]">
             <h2 class="font-bold text-[12.5px]">{{ t('souk.purchases') }}</h2>
-            <div v-for="p in d.purchases" :key="p.po" class="flex justify-between gap-2">
-              <span class="font-mono">{{ p.po }}</span>
-              <span class="text-stone-500 truncate">{{ p.stall }}</span>
-              <span class="tabular-nums font-semibold">{{ fmt(p.amount) }}</span>
-              <span class="tabular-nums text-stone-500">{{ Math.round(p.received) }}%</span>
+            <div v-for="p in d.purchases" :key="p.po" class="space-y-1 pb-2 border-b border-stone-100 last:border-0">
+              <div class="flex justify-between gap-2">
+                <span class="font-mono">{{ p.po }}</span>
+                <span class="text-stone-500 truncate">{{ p.stall }}</span>
+                <span class="tabular-nums font-semibold">{{ fmt(p.amount) }}</span>
+                <span class="tabular-nums text-stone-500">{{ Math.round(p.received) }}%</span>
+              </div>
+              <div v-if="p.outcome" class="text-[11px] text-stone-600 tabular-nums">
+                {{ t('souk.outcomeLine')
+                  .replace('{g}', sum(p.outcome.lines, 'good'))
+                  .replace('{st}', sum(p.outcome.lines, 'studio'))
+                  .replace('{b}', sum(p.outcome.lines, 'brokenSupplier') + sum(p.outcome.lines, 'brokenTransport') + sum(p.outcome.lines, 'brokenWarehouse'))
+                  .replace('{s}', sum(p.outcome.lines, 'short')) }}
+                · <span class="font-mono">{{ p.pr }}</span>
+              </div>
+              <div v-if="p.owed" class="text-[11px] font-semibold text-amber-800">
+                {{ t('souk.owesShort').replace('{n}', fmt(p.owed)) }}<span v-if="p.debitNote" class="font-mono"> · {{ p.debitNote }}</span>
+                <span v-else> · {{ t('souk.noDebitYet') }}</span>
+              </div>
             </div>
             <div v-if="!d.purchases.length" class="text-stone-400">—</div>
           </section>
@@ -131,6 +147,7 @@ const loading = ref(true);
 const busy = ref(false);
 const fmt = (n) => Math.round(Number(n || 0)).toLocaleString("fr-FR");
 const shortWh = (w) => (w || "").replace(/ - JM$/, "");
+const sum = (rows, k) => (rows || []).reduce((s, r) => s + (Number(r[k]) || 0), 0);
 const stageIdx = computed(() => STAGES.indexOf(d.value?.stage));
 // Comments may come back wrapped in markup; show their text only.
 const plain = (s) => String(s || "").replace(/<[^>]*>/g, "").replace(/&amp;/g, "&");
