@@ -21,9 +21,9 @@ function apply(next) {
 }
 
 /** Called once at boot (main.js) before first paint. */
-export function initTheme() {
+export function initTheme(fallback = "dark") {
   const saved = localStorage.getItem(THEME_KEY);
-  apply(saved === "dark" || saved === "light" ? saved : "dark");
+  apply(saved === "dark" || saved === "light" ? saved : fallback);
 }
 
 export function useTheme() {

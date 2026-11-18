@@ -9,6 +9,7 @@ import SoukApp from "./SoukApp.vue";
 import router from "./router";
 import { initTheme } from "@/composables/useTheme";
 import { initLocale } from "@/composables/useI18n";
+import { startPwa } from "@/lib/soukPwa";
 import "@/index.css";
 import "./souk.css";
 
@@ -16,8 +17,10 @@ import "./souk.css";
 // shared components' accent utilities turn green here and stay rust on the
 // floor without a line changing in them.
 document.documentElement.dataset.portal = "souk";
-initTheme();
+// The buyer reads the phone in the market's daylight: light unless chosen.
+initTheme("light");
 initLocale();
+startPwa();
 
 const app = createApp(SoukApp);
 app.use(router);

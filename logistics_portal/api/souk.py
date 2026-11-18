@@ -42,7 +42,7 @@ import json
 import re
 
 import frappe
-from frappe.utils import cint, flt, now_datetime, nowdate, time_diff_in_hours
+from frappe.utils import add_days, cint, flt, get_datetime, now_datetime, nowdate, time_diff_in_hours
 
 COMPANY = "Justyol Morocco"
 DT_TRIP = "LP Souk Trip"
@@ -96,6 +96,8 @@ DEFAULT_SETTINGS = {
     # Days a card may sit in a stage before it is late (alerts repeat daily).
     "stageDays": {"bought": 2, "photos": 1, "studio": 3, "content": 2, "review": 1},
     "escalateDays": 21,
+    # Target from receipt to Live, in days (the board's headline number).
+    "launchDays": 5,
     # Receiving: pieces of each new product that go to the studio first.
     "studioSamples": 3,
     # Sales channels a souk product is published to; empty = whatever the
@@ -225,6 +227,15 @@ PRODUCT_LATER_FIELDS = [
     {"fieldname": "reviewed_by", "fieldtype": "Data", "label": "Published by"},
     {"fieldname": "published_at", "fieldtype": "Datetime", "label": "Published at"},
     {"fieldname": "review_note", "fieldtype": "Small Text", "label": "Last review note"},
+    # Every stage the card went through, [{s, at, by}] — stage_at alone
+    # forgets the past, and the board's timings need it.
+    {"fieldname": "stage_log", "fieldtype": "Long Text", "label": "Stage history"},
+    # Who took the card in its current stage ("mine" on the board).
+    {"fieldname": "claimed_by", "fieldtype": "Data", "label": "Claimed by"},
+    # The phone's id for the purchase: a retry after a dropped connection
+    # finds the product it already made instead of buying it twice.
+    {"fieldname": "client_key", "fieldtype": "Data", "label": "Client request id", "unique": 1},
+    {"fieldname": "dropped_from", "fieldtype": "Data", "label": "Dropped from stage"},
 ]
 
 
@@ -265,6 +276,14 @@ def _ensure_po_fields():
          "insert_after": "custom_souk_owed", "read_only": 1, "no_copy": 1},
         {"fieldname": "custom_souk_outcome", "fieldtype": "Long Text", "label": "Souk receiving outcome",
          "insert_after": "custom_souk_debit_note", "read_only": 1, "no_copy": 1},
+        # The substitute for a missing receipt: the goods' photo and the
+        # stall's name as the buyer wrote them, for the accountant.
+        {"fieldname": "custom_souk_voucher_photo", "fieldtype": "Attach Image", "label": "Substitute: goods photo",
+         "insert_after": "custom_souk_outcome", "no_copy": 1},
+        {"fieldname": "custom_souk_voucher_stall", "fieldtype": "Data", "label": "Substitute: stall name",
+         "insert_after": "custom_souk_voucher_photo", "no_copy": 1},
+        {"fieldname": "custom_souk_client_key", "fieldtype": "Data", "label": "Souk client request id",
+         "insert_after": "custom_souk_voucher_stall", "read_only": 1, "no_copy": 1},
     ]}, ignore_validate=True)
 
 
@@ -355,6 +374,40 @@ def _user_name(user):
     return frappe.db.get_value("User", user, "full_name") or user.split("@")[0]
 
 
+def _has_col(dt, col):
+    """A field added by this release exists only after migrate; reads and
+    writes of it must not break the deploy window between code and migrate."""
+    key = f"{dt}.{col}"
+    cache = frappe.local.__dict__.setdefault("_souk_cols", {})
+    if key not in cache:
+        cache[key] = bool(frappe.db.has_column(dt, col))
+    return cache[key]
+
+
+def _stage_log(doc_or_raw):
+    raw = doc_or_raw.get("stage_log") if hasattr(doc_or_raw, "get") else doc_or_raw
+    log = _loads(raw) if isinstance(raw, str) else raw
+    return log if isinstance(log, list) else []
+
+
+def _set_stage(doc, stage, **extra):
+    """Every stage change goes through here: it appends the card's history
+    (who, when) so the board can time each stage after the card left it.
+    A stage change also frees the card: the next stage's people claim it."""
+    now = now_datetime()
+    vals = {"stage": stage, "stage_at": now, **extra}
+    if _has_col(DT_PRODUCT, "stage_log"):
+        log = _stage_log(doc)
+        if not log and doc.get("stage_at"):
+            # A card from before the history: its current stage, as known.
+            log.append({"s": doc.stage, "at": str(doc.stage_at)[:19], "by": ""})
+        log.append({"s": stage, "at": str(now)[:19], "by": frappe.session.user})
+        vals["stage_log"] = json.dumps(log[-80:])
+    if _has_col(DT_PRODUCT, "claimed_by"):
+        vals["claimed_by"] = ""
+    doc.db_set(vals)
+
+
 # --- custody (trips) ---------------------------------------------------------
 
 def _trip_buys(trip):
@@ -365,11 +418,14 @@ def _trip_buys(trip):
                   po.custom_souk_receipt_image AS receipt_image,
                   po.custom_souk_voucher_phone AS phone, po.custom_souk_voucher_ok AS voucher_ok,
                   po.custom_souk_received AS received, po.custom_souk_owed AS owed,
-                  po.custom_souk_debit_note AS debit_note,
+                  po.custom_souk_debit_note AS debit_note, {extra}
                   (SELECT SUM(qty) FROM `tabPurchase Order Item` WHERE parent = po.name) AS units
            FROM `tabPurchase Order` po
            WHERE po.custom_souk_trip = %s AND po.docstatus = 1
-           ORDER BY po.creation DESC""", (str(trip),), as_dict=True)
+           ORDER BY po.creation DESC""".format(
+            extra="po.custom_souk_voucher_photo AS voucher_photo, po.custom_souk_voucher_stall AS voucher_stall,"
+            if _has_col("Purchase Order", "custom_souk_voucher_photo") else ""),
+        (str(trip),), as_dict=True)
 
 
 def _receipt_state(b):
@@ -405,6 +461,9 @@ def _trip_card(t):
             "product": b.product or "", "title": p.get("title") or "", "image": p.get("ref_image") or "",
             "receipt": _receipt_state(b), "receiptImage": b.receipt_image or "", "phone": b.phone or "",
             "received": b.received or "", "owed": flt(b.owed), "debitNote": b.debit_note or "",
+            "voucherPhoto": b.get("voucher_photo") or p.get("ref_image") or "",
+            "voucherStall": b.get("voucher_stall") or "", "voucherBy": _user_name(b.voucher_ok) if b.voucher_ok else "",
+            "at": str(b.creation)[:16],
         })
     missing = [r for r in rows if r["receipt"] == "missing"]
     return {
@@ -417,7 +476,8 @@ def _trip_card(t):
         "closedAt": str(t.closed_at or "")[:16], "note": t.note or "",
         "buys": rows, "missingReceipts": len([r for r in rows if r["receipt"] == "missing"]),
         "pendingVouchers": len([r for r in rows if r["receipt"] == "voucher_pending"]),
-        "canClose": t.status == "Open" and not missing,
+        "canClose": t.status == "Open" and not missing and not flt(pending),
+        "creating": frappe.db.count(DT_PRODUCT, {"trip": str(t.name), "stage": "buying"}),
         "transportLcv": t.get("transport_lcv") or "",
         "allReceived": bool(rows) and all(r["received"] for r in rows),
         "owed": round(sum(r["owed"] for r in rows), 2),
@@ -510,16 +570,39 @@ def set_transport(trip, amount):
 
 
 @frappe.whitelist(methods=["POST"])
-def set_voucher(po, phone):
-    """No receipt from the stall: the substitute is a photo of the goods (the
-    product's reference photo) + the stall's phone; the accountant approves."""
+def set_voucher(po, phone, stall_name="", photo=""):
+    """No receipt from the stall: the substitute is a photo of the goods +
+    the stall's name and phone; the accountant approves. The photo is
+    uploaded first (upload_photo kind=voucher); without one, the product's
+    reference photo stands in, as before."""
     po_doc = _souk_po(po)
     phone = re.sub(r"[^\d+]", "", phone or "")
     if len(phone) < 9:
         frappe.throw("Write the stall's phone number.")
-    frappe.db.set_value("Purchase Order", po_doc.name, {
-        "custom_souk_receipt": "voucher", "custom_souk_voucher_phone": phone,
-        "custom_souk_voucher_ok": ""}, update_modified=False)
+    vals = {"custom_souk_receipt": "voucher", "custom_souk_voucher_phone": phone,
+            "custom_souk_voucher_ok": ""}
+    if _has_col("Purchase Order", "custom_souk_voucher_stall"):
+        vals["custom_souk_voucher_stall"] = re.sub(r"\s+", " ", stall_name or "").strip()[:120]
+        if photo and str(photo).startswith("/files/"):
+            vals["custom_souk_voucher_photo"] = photo
+    frappe.db.set_value("Purchase Order", po_doc.name, vals, update_modified=False)
+    frappe.db.commit()
+    return {"ok": True}
+
+
+@frappe.whitelist(methods=["POST"])
+def refuse_voucher(po, note=""):
+    """The substitute does not hold up: the purchase goes back to 'receipt
+    missing' and the buyer brings a real receipt or a better substitute."""
+    _gate_accountant()
+    po_doc = _souk_po(po)
+    if po_doc.get("custom_souk_receipt") != "voucher":
+        frappe.throw("No substitute receipt to refuse.")
+    frappe.db.set_value("Purchase Order", po_doc.name, {"custom_souk_receipt": "", "custom_souk_voucher_ok": ""},
+                        update_modified=False)
+    frappe.get_doc("Purchase Order", po_doc.name).add_comment(
+        "Comment", f"Souk: substitute receipt REFUSED by {_user_name(frappe.session.user)}"
+                   + (f" · {(note or '').strip()[:200]}" if (note or "").strip() else "") + ".")
     frappe.db.commit()
     return {"ok": True}
 
@@ -624,6 +707,11 @@ def upload_photo(kind, target):
     elif kind == "ref":
         _gate_buy()
         dt, dn, field = DT_PRODUCT, target, "ref_image"
+    elif kind == "voucher":
+        # The substitute receipt: a photo of the goods at the stall.
+        _souk_po(target)
+        dt, dn, field = "Purchase Order", target, (
+            "custom_souk_voucher_photo" if _has_col("Purchase Order", "custom_souk_voucher_photo") else None)
     elif kind == "broken":
         # Proof for the stall (Debit Note) or for our loss accounts.
         _gate_receive()
@@ -724,18 +812,49 @@ def similar(q=""):
     like = f"%{q}%"
     out = []
     for p in frappe.db.sql(
-            f"""SELECT name, title, stage, supplier, ref_image FROM `tab{DT_PRODUCT}`
+            f"""SELECT name, title, stage, supplier, ref_image, variants_json FROM `tab{DT_PRODUCT}`
                 WHERE (title LIKE %s OR name LIKE %s) AND stage != 'dropped'
                 ORDER BY creation DESC LIMIT 5""", (like, like), as_dict=True):
+        codes = [v.get("itemCode") for v in (_loads(p.variants_json) or []) if v.get("itemCode")]
         out.append({"kind": "souk", "key": p.name, "sku": p.name, "title": p.title,
-                    "stage": p.stage, "stall": p.supplier or "", "image": p.ref_image or ""})
+                    "stage": p.stage, "stall": p.supplier or "", "image": p.ref_image or "", "codes": codes})
     for i in frappe.db.sql(
             """SELECT name, custom_sku, item_name, image FROM `tabItem`
                WHERE disabled = 0 AND has_variants = 0 AND (item_name LIKE %s OR custom_sku LIKE %s)
                ORDER BY modified DESC LIMIT 6""", (like, like), as_dict=True):
+        last = _last_stall(i.name)
         out.append({"kind": "item", "key": i.name, "sku": i.custom_sku or i.name,
-                    "title": i.item_name, "stage": "", "stall": "", "image": i.image or ""})
-    return {"rows": out[:10]}
+                    "title": i.item_name, "stage": "", "stall": (last or {}).get("supplier") or "",
+                    "image": i.image or "", "codes": [i.name]})
+    out = out[:10]
+    # On the shelf now, and when it last sold: "we have 12" and "sold out
+    # since March" are different reasons not to buy it again.
+    codes = sorted({c for r in out for c in r["codes"]})
+    stock, sold = {}, {}
+    if codes:
+        for code, qty in frappe.db.sql(
+                """SELECT item_code, SUM(actual_qty) FROM `tabBin`
+                   WHERE item_code IN %s AND warehouse IN (SELECT erpnext_warehouse FROM `tabShopify Warehouse Mapping`)
+                   GROUP BY item_code""", (tuple(codes),)):
+            stock[code] = flt(qty)
+        for code, last in frappe.db.sql(
+                """SELECT soi.item_code, MAX(so.transaction_date) FROM `tabSales Order Item` soi
+                   JOIN `tabSales Order` so ON so.name = soi.parent
+                   WHERE soi.item_code IN %s AND so.docstatus = 1
+                   GROUP BY soi.item_code""", (tuple(codes),)):
+            sold[code] = str(last or "")
+    for r in out:
+        r["stock"] = cint(sum(stock.get(c, 0) for c in r["codes"]))
+        r["lastSold"] = max((sold.get(c, "") for c in r["codes"]), default="")
+        r.pop("codes")
+    return {"rows": out}
+
+
+def _client_key(p):
+    """The phone's id for one request (a uuid). Only letters, digits and
+    dashes; empty when an old bundle sends none."""
+    k = re.sub(r"[^A-Za-z0-9-]", "", str((p or {}).get("clientKey") or ""))[:64]
+    return k if len(k) >= 8 else ""
 
 
 def _resolve_stall(stall, new_stall):
@@ -769,7 +888,10 @@ def _validate_variants(base, colors, sizes, lines, color_map):
     out = []
     for ln in lines:
         color = (ln.get("color") or "").upper()
-        size = (ln.get("size") or "").strip()
+        size = re.sub(r"\s+", " ", (ln.get("size") or "")).strip()[:40]
+        # The size the customer reads ("24 cm") and the short code in the
+        # SKU ("S"); without a code the label's own letters are the code.
+        scode = _size_code(ln.get("sizeCode") or size)
         if colors and color not in color_map:
             frappe.throw(f"Unknown colour {color}.")
         if not colors:
@@ -785,7 +907,7 @@ def _validate_variants(base, colors, sizes, lines, color_map):
             frappe.throw("Every line needs a cost and a selling price.")
         if price <= cost:
             frappe.throw("The selling price must be above the cost.")
-        sku = _variant_sku(base, color, size)
+        sku = "-".join(x for x in (base, color, scode if size else "") if x)
         if len(sku) > SKU_MAX:
             frappe.throw(f"{sku} is longer than {SKU_MAX} characters — the shelf label can't scan it. "
                          "Use a shorter size code (S, M, L, XL, 2XL, 28…).")
@@ -793,7 +915,7 @@ def _validate_variants(base, colors, sizes, lines, color_map):
             frappe.throw(f"{sku} appears twice.")
         seen.add(sku)
         out.append({"sku": sku, "color": color, "colorFr": color_map.get(color, {}).get("fr", ""),
-                    "size": _size_code(size) if size else "", "sizeLabel": size, "qty": qty,
+                    "size": scode if size else "", "sizeLabel": size, "qty": qty,
                     "cost": cost, "price": price, "itemCode": ""})
     if not out:
         frappe.throw("Enter at least one quantity.")
@@ -808,6 +930,13 @@ def create_buy(payload):
     _gate_buy()
     p = json.loads(payload) if isinstance(payload, str) else (payload or {})
     s = settings()
+    ckey = _client_key(p)
+    if ckey and _has_col(DT_PRODUCT, "client_key"):
+        # The phone retried a purchase whose answer it never got (Derb Omar
+        # drops the line): finish the one already made, never a second.
+        done = frappe.db.get_value(DT_PRODUCT, {"client_key": ckey}, "name")
+        if done:
+            return finish_buy(done)
     trip = _my_open_trip()
     if not trip:
         frappe.throw("No open custody. The accountant opens the trip and hands you the cash first.")
@@ -840,11 +969,20 @@ def create_buy(payload):
                 "supplier": stall, "trip": str(trip.name), "buyer": frappe.session.user,
                 "units": sum(v["qty"] for v in variants), "total_cost": total,
                 "variants_json": json.dumps(variants, ensure_ascii=False),
+                **({"client_key": ckey} if ckey and _has_col(DT_PRODUCT, "client_key") else {}),
+                **({"stage_log": json.dumps([{"s": "buying", "at": str(now_datetime())[:19],
+                                               "by": frappe.session.user}])}
+                   if _has_col(DT_PRODUCT, "stage_log") else {}),
             }).insert(ignore_permissions=True)
             frappe.db.commit()
             break
         except frappe.DuplicateEntryError:
             frappe.db.rollback()
+            if ckey and _has_col(DT_PRODUCT, "client_key"):
+                # Two copies of the same request raced: the other one won.
+                done = frappe.db.get_value(DT_PRODUCT, {"client_key": ckey}, "name")
+                if done:
+                    return finish_buy(done)
             continue
     if not doc:
         frappe.throw("Could not reserve a SKU, retry.")
@@ -1011,6 +1149,12 @@ def finish_buy(name):
     doc.db_set("variants_json", json.dumps(variants, ensure_ascii=False))
 
     try:
+        # Two calls at once (the phone's outbox and a manual retry) must not
+        # make two POs: hold the row, then look again under the lock.
+        doc = _lock_product(doc.name)
+        if doc.stage != "buying":
+            frappe.db.commit()
+            return {"name": doc.name, "pending": False, "stage": doc.stage, "po": doc.purchase_order}
         if not doc.purchase_order:
             po = _make_po(doc.supplier, doc.trip, doc.name,
                           [(v["itemCode"], v["qty"], v["cost"]) for v in variants],
@@ -1030,7 +1174,7 @@ def finish_buy(name):
         frappe.log_error(frappe.get_traceback()[:3000], f"souk.finish_buy {doc.name}")
         return {"name": doc.name, "pending": True, "error": doc.error}
 
-    doc.db_set({"stage": "bought", "stage_at": now_datetime(), "bought_at": now_datetime(), "error": ""})
+    _set_stage(doc, "bought", bought_at=now_datetime(), error="")
     doc.add_comment("Comment", f"Souk: {doc.purchase_order}"
                                + (f" + paid {doc.purchase_invoice}" if doc.purchase_invoice else "")
                                + " · waiting for receiving.")
@@ -1040,7 +1184,7 @@ def finish_buy(name):
             "left": _trip_card(frappe.get_doc(DT_TRIP, cint(doc.trip)))["expected"]}
 
 
-def _make_po(supplier, trip, product, lines, receipt_image=""):
+def _make_po(supplier, trip, product, lines, receipt_image="", client_key=""):
     today = nowdate()
     po = frappe.new_doc("Purchase Order")
     po.update({
@@ -1048,6 +1192,8 @@ def _make_po(supplier, trip, product, lines, receipt_image=""):
         "set_warehouse": RECEIVING_WH, "currency": "MAD", "taxes_and_charges": "",
         "custom_souk_trip": str(trip), "custom_souk_product": product or "",
     })
+    if client_key:
+        po.custom_souk_client_key = client_key
     if receipt_image:
         po.custom_souk_receipt = "receipt"
         po.custom_souk_receipt_image = receipt_image
@@ -1123,6 +1269,14 @@ def create_rebuy(payload):
     Shopify. Linked to its souk card when there is one."""
     _gate_buy()
     p = json.loads(payload) if isinstance(payload, str) else (payload or {})
+    ckey = _client_key(p)
+    keyed = ckey and _has_col("Purchase Order", "custom_souk_client_key")
+    if keyed:
+        done = frappe.db.get_value("Purchase Order", {"custom_souk_client_key": ckey, "docstatus": 1},
+                                   ["name", "custom_souk_trip"], as_dict=True)
+        if done:
+            return {"po": done.name, "pi": "", "repeat": True,
+                    "left": _trip_card(frappe.get_doc(DT_TRIP, cint(done.custom_souk_trip)))["expected"]}
     trip = _my_open_trip()
     if not trip:
         frappe.throw("No open custody. The accountant opens the trip and hands you the cash first.")
@@ -1143,7 +1297,7 @@ def create_rebuy(payload):
     if total > _trip_card(trip)["expected"] + 0.01:
         frappe.throw(f"This costs {total:,.0f} MAD and you have {_trip_card(trip)['expected']:,.0f} MAD of custody left.")
     product = p.get("product") if p.get("kind") == "souk" else ""
-    po = _make_po(stall, trip.name, product, lines)
+    po = _make_po(stall, trip.name, product, lines, client_key=ckey if keyed else "")
     pi = _make_paid_invoice(po.name)
     if product and frappe.db.exists(DT_PRODUCT, product):
         frappe.get_doc(DT_PRODUCT, product).add_comment(
@@ -1161,38 +1315,180 @@ def _age_days(dt):
     return round(time_diff_in_hours(now_datetime(), dt) / 24, 1)
 
 
+def _variant_counts(variants):
+    colors = {v.get("color") for v in variants if v.get("color")}
+    sizes = {v.get("sizeLabel") for v in variants if v.get("sizeLabel")}
+    return {"variants": len(variants), "colors": len(colors), "sizes": len(sizes)}
+
+
+def _sold_since(products):
+    """Units customers ordered of each product since it went live: Sales
+    Order Item rows of submitted orders (cancelled ones are docstatus 2).
+    One row per order line — no Delivery Note join, no basket fan-out."""
+    by_code, since = {}, {}
+    for p in products:
+        for code in p["codes"]:
+            by_code[code] = p["name"]
+        since[p["name"]] = p["since"]
+    if not by_code:
+        return {}
+    first = min(x for x in since.values() if x) if any(since.values()) else nowdate()
+    out = {}
+    for code, day, qty in frappe.db.sql(
+            """SELECT soi.item_code, so.transaction_date, SUM(soi.qty) FROM `tabSales Order Item` soi
+               JOIN `tabSales Order` so ON so.name = soi.parent
+               WHERE soi.item_code IN %s AND so.docstatus = 1 AND so.transaction_date >= %s
+               GROUP BY soi.item_code, so.transaction_date""", (tuple(by_code), str(first)[:10])):
+        name = by_code[code]
+        if not since[name] or str(day) >= str(since[name])[:10]:
+            out[name] = out.get(name, 0) + cint(qty)
+    return out
+
+
+def _durations(log, upto=None):
+    """[(stage, days)] for each stage the card finished; the open one last,
+    measured up to now."""
+    out = []
+    for i, e in enumerate(log):
+        try:
+            a = get_datetime(e["at"])
+            b = get_datetime(log[i + 1]["at"]) if i + 1 < len(log) else (upto or now_datetime())
+        except Exception:
+            continue
+        out.append((e.get("s"), round(time_diff_in_hours(b, a) / 24, 2), i + 1 < len(log)))
+    return out
+
+
 @frappe.whitelist()
 def board():
+    """The launch board. Every card in the cycle (no cap — a missing card is
+    a card nobody chases), Live of the last 7 days, and the cards that left
+    the cycle in the last 30 for the 'dropped' filter."""
     _gate_view()
     s = settings()
-    rows = frappe.get_all(DT_PRODUCT, filters={"stage": ["!=", "dropped"]},
-                          fields=["name", "title", "stage", "stage_at", "supplier", "brand", "trip",
-                                  "units", "total_cost", "ref_image", "bought_at", "creation", "error",
-                                  "shopify_product_id", "purchase_order"],
-                          order_by="stage_at asc", limit=500)
-    cards = []
-    late = 0
-    tied = 0.0
-    for r in rows:
+    stage_days = s.get("stageDays") or {}
+    me = frappe.session.user
+    fields = ["name", "title", "stage", "stage_at", "supplier", "brand", "trip", "buyer", "category",
+              "units", "total_cost", "ref_image", "bought_at", "creation", "error", "variants_json",
+              "shopify_product_id", "purchase_order", "published_at", "review_note", "content_by",
+              "finals_json"]
+    for f in ("stage_log", "claimed_by", "dropped_from"):
+        if _has_col(DT_PRODUCT, f):
+            fields.append(f)
+    active = frappe.get_all(DT_PRODUCT, filters={"stage": ["not in", ["live", "dropped"]]},
+                            fields=fields, order_by="stage_at asc", limit_page_length=0)
+    week = add_days(nowdate(), -6)
+    live = frappe.get_all(DT_PRODUCT, filters={"stage": "live", "stage_at": [">=", week]},
+                          fields=fields, order_by="stage_at desc", limit_page_length=0)
+    gone = frappe.get_all(DT_PRODUCT, filters={"stage": "dropped", "stage_at": [">=", add_days(nowdate(), -30)]},
+                          fields=fields, order_by="stage_at desc", limit_page_length=0)
+    # Launched in the last 30 days: the timings and the sell-through.
+    month = frappe.get_all(DT_PRODUCT, filters={"stage": "live", "published_at": [">=", add_days(nowdate(), -30)]},
+                           fields=["name", "units", "variants_json", "published_at"]
+                           + (["stage_log"] if _has_col(DT_PRODUCT, "stage_log") else []),
+                           limit_page_length=0)
+
+    names = {}
+
+    def who(u):
+        if u and u not in names:
+            names[u] = _user_name(u)
+        return names.get(u, "") if u else ""
+
+    sold = _sold_since(
+        [{"name": r.name, "since": r.published_at,
+          "codes": [v.get("itemCode") for v in (_loads(r.variants_json) or []) if v.get("itemCode")]}
+         for r in live + [m for m in month if m.name not in {x.name for x in live}]])
+
+    def card(r):
+        variants = _loads(r.variants_json) or []
         age = _age_days(r.stage_at)
-        limit = cint((s.get("stageDays") or {}).get(r.stage)) or 0
-        is_late = bool(limit and age > limit) or bool(r.error)
-        late += 1 if is_late else 0
-        if r.stage != "live":
-            tied += flt(r.total_cost)
-        cards.append({
-            "name": r.name, "title": r.title, "stage": r.stage, "age": age, "late": is_late,
+        limit = cint(stage_days.get(r.stage)) or 0
+        claimed = r.get("claimed_by") or ""
+        finals = _loads(r.finals_json) or []
+        return {
+            "name": r.name, "title": r.title, "stage": r.stage, "age": age,
+            "late": bool(limit and age > limit) or bool(r.error and r.stage not in ("live", "dropped")),
             "limit": limit, "stall": r.supplier or "", "brand": r.brand or "", "trip": r.trip or "",
-            "units": cint(r.units), "cost": flt(r.total_cost), "image": r.ref_image or "",
+            "category": r.category or "", "buyer": r.buyer or "", "buyerName": who(r.buyer),
+            "claimedBy": claimed, "claimedName": who(claimed),
+            "mine": me in (r.buyer, claimed, r.content_by),
+            "units": cint(r.units), "cost": flt(r.total_cost),
+            "image": (finals[0].get("url") if finals and r.stage in ("review", "live") else "") or r.ref_image or "",
             "error": r.error or "", "sinceBuy": _age_days(r.bought_at or r.creation),
-            "po": r.purchase_order or "",
-            "escalate": _age_days(r.bought_at or r.creation) > cint(s.get("escalateDays") or 21) and r.stage != "live",
-        })
-    dropped = frappe.db.count(DT_PRODUCT, {"stage": "dropped"})
-    return {"stages": STAGES[:-1], "cards": cards, "late": late, "notLive": round(tied, 2),
-            "dropped": dropped, "stageDays": s.get("stageDays"), "canBuy": _role() in ("manager", "sourcing"),
-            "canReceive": _can_receive(), "canPhoto": _can_photo(), "canStudio": _can_studio(),
-            "canContent": _can_content(), "canReview": _can_review()}
+            "po": r.purchase_order or "", **_variant_counts(variants),
+            "escalate": _age_days(r.bought_at or r.creation) > cint(s.get("escalateDays") or 21)
+                        and r.stage not in ("live", "dropped"),
+            "sold": sold.get(r.name) if r.stage == "live" else None,
+            "publishedAt": str(r.published_at or "")[:16],
+            "droppedFrom": r.get("dropped_from") or "", "note": (r.review_note or "") if r.stage == "dropped" else "",
+        }
+
+    cards = [card(r) for r in active] + [card(r) for r in live]
+    dropped = [card(r) for r in gone]
+    late = sum(1 for c in cards if c["late"])
+    tied = sum(c["cost"] for c in cards if c["stage"] != "live")
+
+    # Receipt → Live, and the time each stage really takes, from the cards'
+    # history. Cards launched before the history existed are not counted.
+    spans, per_stage = [], {}
+    for m in month:
+        log = _stage_log(m.get("stage_log"))
+        rec = next((e["at"] for e in log if e.get("s") == "photos"), None)
+        lv = next((e["at"] for e in reversed(log) if e.get("s") == "live"), None)
+        if rec and lv:
+            spans.append(time_diff_in_hours(get_datetime(lv), get_datetime(rec)) / 24)
+        for st, d, done in _durations(log):
+            if done and st in stage_days:
+                per_stage.setdefault(st, []).append(d)
+    for r in active:
+        for st, d, done in _durations(_stage_log(r.get("stage_log"))):
+            if done and st in stage_days:
+                per_stage.setdefault(st, []).append(d)
+    bought_m = sum(cint(m.units) for m in month)
+    sold_m = sum(sold.get(m.name, 0) for m in month)
+    return {
+        "stages": STAGES[:-1], "cards": cards, "droppedCards": dropped, "late": late,
+        "notLive": round(tied, 2), "dropped": len(dropped), "stageDays": stage_days,
+        "kpi": {
+            "launchDays": cint(s.get("launchDays") or 5),
+            "receiptToLive": round(sum(spans) / len(spans), 1) if spans else None,
+            "receiptToLiveN": len(spans),
+            "stageTime": {k: {"avg": round(sum(v) / len(v), 1), "n": len(v)} for k, v in per_stage.items()},
+            "liveWeek": len(live), "launchedMonth": len(month),
+            "sellThrough": round(sold_m * 100.0 / bought_m) if bought_m else None,
+            "soldMonth": sold_m, "boughtMonth": bought_m,
+            "inCycle": len(active), "units": sum(cint(r.units) for r in active),
+        },
+        "openTrips": frappe.db.count(DT_TRIP, {"status": "Open"}),
+        "escalateDays": cint(s.get("escalateDays") or 21),
+        "me": me, "isManager": _role() == "manager",
+        "canBuy": _role() in ("manager", "sourcing"),
+        "canReceive": _can_receive(), "canPhoto": _can_photo(), "canStudio": _can_studio(),
+        "canContent": _can_content(), "canReview": _can_review()}
+
+
+@frappe.whitelist(methods=["POST"])
+def claim(name, release=0):
+    """'This one is mine' in the card's current stage; a stage change frees it."""
+    _gate_view()
+    if not _has_col(DT_PRODUCT, "claimed_by"):
+        frappe.throw("Update in progress — try again in a minute.")
+    doc = _lock_product(name)
+    if doc.stage in ("live", "dropped"):
+        frappe.throw("This card left the cycle.")
+    cur = doc.get("claimed_by") or ""
+    if cint(release):
+        if cur and cur != frappe.session.user and _role() != "manager":
+            frappe.throw(f"{_user_name(cur)} has it.")
+        doc.db_set("claimed_by", "", update_modified=False)
+    else:
+        if cur and cur != frappe.session.user and _role() != "manager":
+            frappe.throw(f"{_user_name(cur)} already took it.")
+        doc.db_set("claimed_by", frappe.session.user, update_modified=False)
+        doc.add_comment("Comment", f"Souk: {_user_name(frappe.session.user)} took it ({doc.stage}).")
+    frappe.db.commit()
+    return {"claimedBy": doc.get("claimed_by") or "", "claimedName": _user_name(doc.get("claimed_by"))}
 
 
 @frappe.whitelist()
@@ -1244,7 +1540,70 @@ def product(name):
         "publishedAt": str(doc.published_at or "")[:16], "shopifyAdmin": _shopify_admin_url(doc.shopify_product_id),
         "photos": _loads(doc.photos_json) or [], "finals": _loads(doc.finals_json) or [],
         "specs": doc.specs or "",
+        "money": _money(doc, variants, pos),
+        "stockSplit": _stock_block(variants),
+        "stages": _stage_rows(doc),
+        "claimedBy": doc.get("claimed_by") or "", "claimedName": _user_name(doc.get("claimed_by")),
+        "droppedFrom": doc.get("dropped_from") or "", "reviewNote": doc.review_note or "",
+        "canDrop": _role() == "manager" and doc.stage not in ("live", "dropped", "buying"),
+        "me": frappe.session.user, "isManager": _role() == "manager",
+        "canClaim": doc.stage not in ("live", "dropped"),
     }
+
+
+def _money(doc, variants, pos):
+    """Where the money went, per piece: what we paid the stall, the share
+    of the taxi, what broke on our side, and what the stall owes back."""
+    costs = _costs(doc, variants) if any(v.get("itemCode") for v in variants) else {}
+    units = sum(cint(v.get("qty")) for v in variants) or cint(doc.units)
+    paid = sum(flt(v.get("cost")) * cint(v.get("qty")) for v in variants) or flt(doc.total_cost)
+    landed = sum(flt((costs.get(v.get("itemCode")) or {}).get("landed") or v.get("cost")) * cint(v.get("qty"))
+                 for v in variants)
+    allocated = bool(costs) and all(k.get("allocated") for k in costs.values())
+    broken_ours, broken_units = 0.0, 0
+    for p in pos:
+        out = _loads(p.outcome) or {}
+        for ln in out.get("lines") or []:
+            n = cint(ln.get("brokenTransport")) + cint(ln.get("brokenWarehouse"))
+            broken_units += n
+            broken_ours += n * flt(ln.get("rate"))
+    owed = sum(flt(p.owed) for p in pos)
+    return {
+        "paid": round(paid, 2), "units": units,
+        "perPiece": round(paid / units, 2) if units else 0,
+        "transport": round(landed - paid, 2) if allocated else None,
+        "landedPerPiece": round(landed / units, 2) if units and allocated else None,
+        "allocated": allocated,
+        "brokenOurs": round(broken_ours, 2), "brokenUnits": broken_units,
+        "owed": round(owed, 2),
+    }
+
+
+def _stock_block(variants):
+    codes = [v["itemCode"] for v in variants if v.get("itemCode")]
+    if not codes:
+        return {"shelf": 0, "studio": 0, "defective": 0, "receiving": 0}
+    shelf, studio = _stock_split(variants)
+    r = frappe.db.sql("""SELECT SUM(CASE WHEN warehouse = %s THEN actual_qty ELSE 0 END),
+                                SUM(CASE WHEN warehouse = %s THEN actual_qty ELSE 0 END)
+                         FROM `tabBin` WHERE item_code IN %s""", (DEFECTIVE_WH, RECEIVING_WH, tuple(codes)))
+    return {"shelf": shelf, "studio": studio, "defective": cint(r[0][0]), "receiving": cint(r[0][1])}
+
+
+def _stage_rows(doc):
+    """Each stage the card went through: when, by whom, how long, late."""
+    days = settings().get("stageDays") or {}
+    log = _stage_log(doc)
+    if not log:
+        log = [{"s": doc.stage, "at": str(doc.stage_at or doc.creation)[:19], "by": ""}]
+    out = []
+    rows = _durations(log)
+    for i, e in enumerate(log):
+        st, d, done = rows[i] if i < len(rows) else (e.get("s"), 0, False)
+        limit = cint(days.get(st)) or 0
+        out.append({"stage": st, "at": str(e.get("at") or "")[:16], "by": _user_name(e.get("by")),
+                    "days": d, "limit": limit, "late": bool(limit and d > limit), "current": not done})
+    return out
 
 
 # --- receiving ----------------------------------------------------------------
@@ -1351,17 +1710,23 @@ def receive_boot(po):
     prod = frappe.db.get_value(DT_PRODUCT, h.custom_souk_product,
                                ["name", "title", "ref_image", "stage", "variants_json"], as_dict=True) \
         if h.custom_souk_product else None
-    labels = {}
+    labels, colors, sizes = {}, {}, {}
     if prod:
         for v in json.loads(prod.variants_json or "[]"):
             labels[v.get("itemCode")] = " · ".join(x for x in (v.get("colorFr"), v.get("sizeLabel")) if x)
+            colors[v.get("itemCode")] = v.get("color") or ""
+            sizes[v.get("itemCode")] = v.get("sizeLabel") or ""
     s = settings()
     lines = []
     for l in _po_lines_for(po):
-        kg = flt(l.kg) if (l.weight_uom or "Kg").lower() in ("kg", "") else 0
+        uom = (l.weight_uom or "Kg").lower()
+        # Grams for the screen, whatever unit the item was weighed in (the
+        # server takes any weight > 0 as already weighed).
+        kg = flt(l.kg) * {"kg": 1, "kilogram": 1, "": 1, "g": 0.001, "gram": 0.001, "gm": 0.001}.get(uom, 0)
         lines.append({"itemCode": l.item_code, "sku": l.sku or l.item_code, "label": labels.get(l.item_code) or l.item_name,
                       "ordered": flt(l.qty), "already": flt(l.received_qty), "rate": flt(l.rate),
-                      "grams": round(kg * 1000) if kg else None})
+                      "grams": round(kg * 1000) if kg else None, "color": colors.get(l.item_code, ""),
+                      "size": sizes.get(l.item_code, "")})
     first_variant = lines[0]["itemCode"] if lines else ""
     return {
         "po": h.name, "stall": h.supplier, "trip": h.custom_souk_trip, "done": h.custom_souk_received or "",
@@ -1371,6 +1736,10 @@ def receive_boot(po):
         "lines": lines, "shelves": _shelves(),
         "studioSamples": cint(s.get("studioSamples")) if prod and prod.stage == "bought" else 0,
         "studioDefault": first_variant,
+        # One sample of each colour (the studio shoots every colour), the
+        # first size of it.
+        "studioPerColor": list(dict.fromkeys(
+            next(x["itemCode"] for x in lines if x["color"] == c) for c in [x["color"] for x in lines])),
         "lossAccounts": {"transport": bool(s.get("transportLossAccount")),
                          "warehouse": bool(s.get("warehouseLossAccount"))},
         "hasInvoice": bool(_po_invoice(po)),
@@ -1410,6 +1779,12 @@ def receive(po, payload):
         counted[code] = c
     if not counted:
         frappe.throw("Count the pieces first.")
+    weighed = set(frappe.get_all("Item", filters={"name": ["in", list(counted)], "weight_per_unit": [">", 0]},
+                                 pluck="name"))
+    unweighed = [po_lines[c].sku or c for c, v in counted.items()
+                 if v["good"] and c not in weighed and not (1 <= v["grams"] <= 100000)]
+    if unweighed:
+        frappe.throw("Weigh one piece of each size first (grams): " + ", ".join(unweighed))
     nothing_came = not any(c["good"] + c["transport"] + c["warehouse"] + c["supplier"] for c in counted.values())
     if nothing_came and not cint(p.get("nothingCame")):
         frappe.throw("Nothing counted. If nothing arrived at all, confirm it as fully short.")
@@ -1546,11 +1921,11 @@ def _after_receive(h, po, pr, target, rows, outcome, owed, owed_lines, counted, 
             d.add_comment("Comment", "Souk: " + n)
         if d.stage == "bought" and pr:
             # Waiting for the in-house photos: the samples are in the studio.
-            d.db_set({"stage": "photos", "stage_at": now_datetime()})
+            _set_stage(d, "photos")
         elif d.stage == "bought":
             # Nothing of ours ever arrived: the card leaves the cycle; the
             # stall's debt stays on the PO.
-            d.db_set({"stage": "dropped", "stage_at": now_datetime()})
+            _set_stage(d, "dropped", review_note="nothing arrived: the stall owes the whole purchase")
     else:
         frappe.get_doc("Purchase Order", po).add_comment("Comment", summary)
     frappe.db.commit()
@@ -1864,7 +2239,7 @@ def photos_send(name, specs=""):
     if miss:
         frappe.throw(f"{len(miss)} required photo(s) still missing.")
     specs = (specs or "").strip()[:1000]
-    doc.db_set({"specs": specs, "stage": "studio", "stage_at": now_datetime()})
+    _set_stage(doc, "studio", specs=specs)
     doc.add_comment("Comment", f"Souk: {len(photos)} in-house photos by {_user_name(frappe.session.user)}"
                                + (f" · {specs}" if specs else "") + " · to marketing.")
     frappe.db.commit()
@@ -1922,6 +2297,7 @@ def _studio_detail(name):
         "colorsWithout": [c["code"] for c in colors if c["code"] and c["code"] not in tied]
         if len(colors) > 1 else [],
         "canEdit": doc.stage == "studio",
+        "deadline": _deadline(doc),
     }
 
 
@@ -2000,7 +2376,7 @@ def studio_return(name, reason):
     doc = _lock_product(name)
     if doc.stage != "studio":
         frappe.throw("This product is not with marketing.")
-    doc.db_set({"stage": "photos", "stage_at": now_datetime()})
+    _set_stage(doc, "photos")
     doc.add_comment("Comment", f"Souk: sent back to in-house photos by {_user_name(frappe.session.user)} · {reason[:280]}")
     frappe.db.commit()
     return {"ok": True}
@@ -2104,7 +2480,7 @@ def studio_send(name):
         frappe.db.set_value(DT_PRODUCT, name, "error", f"Shopify photos: {str(e)[:400]}", update_modified=False)
         frappe.db.commit()
         frappe.throw(f"Shopify did not take the photos: {str(e)[:300]}")
-    doc.db_set({"shopify_media": json.dumps(mine), "stage": "content", "stage_at": now_datetime(), "error": ""})
+    _set_stage(doc, "content", shopify_media=json.dumps(mine), error="")
     doc.add_comment("Comment", f"Souk: {len(finals)} final photos on the Shopify Draft by "
                                f"{_user_name(frappe.session.user)} · to content.")
     frappe.db.commit()
@@ -2239,7 +2615,9 @@ def _content_checks(c, variants, costs):
     return [
         {"key": "frTitle", "ok": bool(c["fr"]["title"].strip()) and len(c["fr"]["title"]) <= TITLE_MAX},
         {"key": "frDesc", "ok": len(c["fr"]["description"].strip()) >= 40},
-        {"key": "arText", "ok": bool(c["ar"]["title"].strip() and c["ar"]["description"].strip())},
+        # A warning, as the design has it: the French page sells; the Arabic
+        # one is wanted, and review sees it missing.
+        {"key": "arText", "soft": True, "ok": bool(c["ar"]["title"].strip() and c["ar"]["description"].strip())},
         {"key": "prices", "ok": not below, "detail": ", ".join(below)},
         {"key": "collection", "ok": len(c["collections"]) >= 1},
         {"key": "seo", "ok": bool(c["metaTitle"].strip()) and len(c["metaTitle"]) <= META_TITLE_MAX
@@ -2343,7 +2721,27 @@ def _content_detail(name, with_collections=True):
         "hoursLeft": _hours_left(doc.stage_at, doc.stage) if doc.stage in ("content", "review") else None,
         "rejects": cint(doc.reject_count), "reviewNote": doc.review_note or "",
         "shopifyAdmin": _shopify_admin_url(doc.shopify_product_id),
+        "productTypes": _product_types(c.get("productType")),
+        "writer": _user_name(doc.content_by), "deadline": _deadline(doc), "age": _age_days(doc.stage_at),
     }
+
+
+def _product_types(current=""):
+    out = []
+    for c in settings().get("categories") or []:
+        t = (c.get("productType") or "").strip()
+        if t and t not in out:
+            out.append(t)
+    if current and current not in out:
+        out.append(current)
+    return out
+
+
+def _deadline(doc):
+    days = cint((settings().get("stageDays") or {}).get(doc.stage)) or 0
+    if not days or not doc.stage_at:
+        return ""
+    return str(add_days(get_datetime(doc.stage_at), days))[:16]
 
 
 def _queue(stage):
@@ -2397,6 +2795,55 @@ def _clean_content(raw, variants):
             "productType": txt(raw.get("productType"), 120), "collections": cols, "tags": tags[:20],
             "handle": handle, "metaTitle": txt(raw.get("metaTitle"), 120),
             "metaDescription": txt(raw.get("metaDescription"), 320), "prices": prices}
+
+
+@frappe.whitelist()
+def content_draft(name):
+    """A first draft from what the cycle already knows — the buyer's name for
+    it, the category, the colours and sizes, the floor's measurements. No AI:
+    nothing leaves the server. The screen fills only the fields still empty."""
+    _gate_content()
+    doc = frappe.get_doc(DT_PRODUCT, name)
+    variants = _loads(doc.variants_json) or []
+    s = settings()
+    cat = next((c for c in s.get("categories") or [] if c.get("key") == doc.category), {}) or {}
+    cmap = {c["code"]: c for c in s.get("colors") or []}
+    title = re.sub(r"\s+", " ", doc.title or "").strip()
+    title = title[:1].upper() + title[1:]
+    cols = [x for x in dict.fromkeys(v.get("color") for v in variants) if x]
+    sizes = [x for x in dict.fromkeys(v.get("sizeLabel") for v in variants) if x]
+    fr_cols = [cmap.get(c, {}).get("fr") or c for c in cols]
+    ar_cols = [cmap.get(c, {}).get("ar") or c for c in cols]
+    specs = [ln.strip(" -•\t") for ln in (doc.specs or "").splitlines() if ln.strip(" -•\t")]
+    fr = [f"{title}."]
+    if specs:
+        fr.append("\n".join(f"• {x}" for x in specs))
+    if fr_cols:
+        fr.append(("Couleurs disponibles : " if len(fr_cols) > 1 else "Couleur : ") + ", ".join(fr_cols) + ".")
+    if sizes:
+        fr.append(("Tailles : " if len(sizes) > 1 else "Taille : ") + ", ".join(sizes) + ".")
+    fr.append("Livraison partout au Maroc · paiement à la livraison.")
+    ar = []
+    if cat.get("ar"):
+        ar.append(f"{cat['ar']} — {title}")
+    if specs:
+        ar.append("\n".join(f"• {x}" for x in specs))
+    if ar_cols:
+        ar.append("الألوان المتوفرة: " + "، ".join(ar_cols))
+    if sizes:
+        ar.append("المقاسات: " + "، ".join(sizes))
+    ar.append("التوصيل لجميع مدن المغرب · الدفع عند الاستلام")
+    fr_desc = "\n\n".join(fr)
+    tags = [x for x in dict.fromkeys(["souk", cat.get("fr") or doc.category, doc.brand] + fr_cols) if x]
+    handle = re.sub(r"-{2,}", "-", re.sub(r"[^a-z0-9]+", "-", frappe.scrub(title).replace("_", "-").lower())).strip("-")
+    return {
+        "fr": {"title": title[:TITLE_MAX], "description": fr_desc},
+        "ar": {"title": "", "description": "\n\n".join(ar)},
+        "tags": tags[:20], "productType": cat.get("productType") or doc.product_type or "",
+        "handle": f"{handle}-{doc.name.lower()}"[:200],
+        "metaTitle": f"{title} | {doc.brand}"[:META_TITLE_MAX] if doc.brand else title[:META_TITLE_MAX],
+        "metaDescription": re.sub(r"\s+", " ", fr_desc.replace("•", ""))[:META_DESC_MAX].strip(),
+    }
 
 
 @frappe.whitelist(methods=["POST"])
@@ -2490,7 +2937,8 @@ def content_send(name):
         frappe.throw("This product is not waiting for its content.")
     variants = _loads(doc.variants_json) or []
     c = _content_of(doc, variants)
-    failed = [x["key"] for x in _content_checks(c, variants, _costs(doc, variants)) if not x["ok"]]
+    failed = [x["key"] for x in _content_checks(c, variants, _costs(doc, variants))
+              if not x["ok"] and not x.get("soft")]
     if failed:
         frappe.throw("Not complete yet: " + ", ".join(failed))
     if not doc.shopify_product_id:
@@ -2508,10 +2956,9 @@ def content_send(name):
         c["handle"] = handle
     for v in variants:
         v["price"] = c["prices"][v["sku"]]
-    doc.db_set({"content_json": json.dumps(c, ensure_ascii=False),
-                "variants_json": json.dumps(variants, ensure_ascii=False),
-                "title": c["fr"]["title"], "content_by": frappe.session.user, "content_at": now_datetime(),
-                "stage": "review", "stage_at": now_datetime(), "error": ""})
+    _set_stage(doc, "review", content_json=json.dumps(c, ensure_ascii=False),
+               variants_json=json.dumps(variants, ensure_ascii=False),
+               title=c["fr"]["title"], content_by=frappe.session.user, content_at=now_datetime(), error="")
     doc.add_comment("Comment", f"Souk: content on the Shopify Draft by {_user_name(frappe.session.user)}"
                                + ("" if arabic["ok"] else f" · Arabic NOT on Shopify ({arabic['error'][:120]})")
                                + " · to review.")
@@ -2697,8 +3144,7 @@ def review_reject(name, to, note):
     if doc.stage != "review":
         frappe.throw("This product is not in review.")
     _gate_not_writer(doc)
-    doc.db_set({"stage": to, "stage_at": now_datetime(), "reject_count": cint(doc.reject_count) + 1,
-                "review_note": note[:500]})
+    _set_stage(doc, to, reject_count=cint(doc.reject_count) + 1, review_note=note[:500])
     doc.add_comment("Comment", f"Souk: review sent it back to {to} ({cint(doc.reject_count)}×) by "
                                f"{_user_name(frappe.session.user)} · {note[:280]}")
     frappe.db.commit()
@@ -2708,18 +3154,26 @@ def review_reject(name, to, note):
 @frappe.whitelist(methods=["POST"])
 def review_drop(name, why, note):
     """Won't be published: poor quality or does not photograph well. The
-    goods go back to the stall or to clearance — decided here, done by hand."""
-    _gate_review()
+    goods go back to the stall or to clearance — decided here, done by hand.
+    Review drops it at review; the manager can stop it at any stage."""
+    if _role() != "manager":
+        _gate_review()
     note = (note or "").strip()
     if why not in DROP_WHY:
         frappe.throw("Unknown reason.")
     if not note:
         frappe.throw("Write why.")
     doc = _lock_product(name)
-    if doc.stage != "review":
+    if doc.stage in ("live", "dropped", "buying"):
+        frappe.throw("Only a card still in the cycle can be dropped.")
+    if doc.stage != "review" and _role() != "manager":
+        # Before review only the manager stops a product: the goods are
+        # bought, and somebody has to own sending them back.
         frappe.throw("This product is not in review.")
-    _gate_not_writer(doc)
-    doc.db_set({"stage": "dropped", "stage_at": now_datetime(), "review_note": f"{why}: {note[:480]}"})
+    if doc.stage == "review":
+        _gate_not_writer(doc)
+    extra = {"dropped_from": doc.stage} if _has_col(DT_PRODUCT, "dropped_from") else {}
+    _set_stage(doc, "dropped", review_note=f"{why}: {note[:480]}", **extra)
     doc.add_comment("Comment", f"Souk: will NOT be published ({'back to the stall' if why == 'return' else 'clearance'}) "
                                f"by {_user_name(frappe.session.user)} · {note[:280]}")
     frappe.db.commit()
@@ -2805,8 +3259,8 @@ def publish(name, channels, manual):
     cur = settings()
     cur["publishChannels"] = channels
     frappe.db.set_default(SETTINGS_KEY, json.dumps(cur, ensure_ascii=False))
-    doc.db_set({"stage": "live", "stage_at": now_datetime(), "reviewed_by": frappe.session.user,
-                "published_at": now_datetime(), "error": "", "review_note": ""})
+    _set_stage(doc, "live", reviewed_by=frappe.session.user, published_at=now_datetime(),
+               error="", review_note="")
     names = {p["id"]: p["name"] for p in pubs}
     doc.add_comment("Comment", f"Souk: LIVE by {_user_name(frappe.session.user)} on "
                                + ", ".join(names.get(x, x) for x in channels) + ".")
@@ -2837,3 +3291,79 @@ def qty_nudge(name):
                          WHERE integration = 'shopify' AND erpnext_item_code IN %s""", (tuple(codes),))
         frappe.db.commit()
     return {"ok": True, "items": len(codes)}
+
+
+# --- late alerts ---------------------------------------------------------------
+#
+# A late card pages the people of its stage EVERY day it stays late. The
+# floor alerts went silent once (alerts-silenced-by-unread): they deduped on
+# "an unread row exists" at any age, so one unread bell muted a standing
+# problem forever. Here the dedupe is the DAY: at most one row per person per
+# day, read or not.
+
+STAGE_OWNERS = {
+    "bought": ("dispatcher",),            # receiving: the floor leads
+    "photos": ("dispatcher",),            # in-house photos: the floor
+    "studio": ("marketing",),             # finals
+    "content": ("content", "marketing"),
+    "review": ("content", "marketing"),
+}
+
+
+def _users_with(roles):
+    return frappe.get_all("User", filters={"enabled": 1, "custom_logistics_role": ["in", list(roles)]},
+                          pluck="name")
+
+
+def run_late_alerts():
+    """Daily: one bell per person with the souk cards late in their stage;
+    the manager gets the escalations (past escalateDays since purchase)."""
+    if not frappe.db.exists("DocType", DT_PRODUCT):
+        return
+    s = settings()
+    days = s.get("stageDays") or {}
+    fields = ["name", "title", "stage", "stage_at", "bought_at", "creation", "content_by"]
+    if _has_col(DT_PRODUCT, "claimed_by"):
+        fields.append("claimed_by")
+    rows = frappe.get_all(DT_PRODUCT, filters={"stage": ["in", list(STAGE_OWNERS)]}, fields=fields,
+                          limit_page_length=0)
+    per_user = {}
+    managers = _users_with(("manager",))
+    for r in rows:
+        limit = cint(days.get(r.stage)) or 0
+        age = _age_days(r.stage_at)
+        if not limit or age <= limit:
+            continue
+        who = [r.get("claimed_by")] if r.get("claimed_by") else _users_with(STAGE_OWNERS[r.stage])
+        if r.stage == "review" and r.content_by:
+            who = [u for u in who if u != r.content_by] or who
+        # Nobody holds the stage's role yet (prod 2026-11-18: no marketing or
+        # content user): the managers hear it rather than nobody.
+        who = who or managers
+        for u in who:
+            per_user.setdefault(u, []).append(r)
+        if _age_days(r.bought_at or r.creation) > cint(s.get("escalateDays") or 21):
+            for u in managers:
+                per_user.setdefault(u, []).append(r)
+    today = nowdate()
+    for user, cards in per_user.items():
+        if frappe.db.sql("""SELECT 1 FROM `tabNotification Log` WHERE for_user = %s AND subject LIKE %s
+                            AND creation >= %s LIMIT 1""", (user, "Souk:%late%", today + " 00:00:00")):
+            continue
+        seen, uniq = set(), []
+        for c in cards:
+            if c.name not in seen:
+                seen.add(c.name)
+                uniq.append(c)
+        stages = sorted({c.stage for c in uniq})
+        subject = (f"Souk: {len(uniq)} late in " + ", ".join(stages) + " · "
+                   + ", ".join(c.name for c in uniq[:4]) + ("…" if len(uniq) > 4 else ""))
+        body = "<br>".join(f"{c.name} · {frappe.utils.escape_html(c.title or '')} · {c.stage} "
+                           f"{_age_days(c.stage_at)} d" for c in uniq[:30])
+        try:
+            frappe.get_doc({"doctype": "Notification Log", "for_user": user, "type": "Alert",
+                            "subject": subject[:140], "email_content": body,
+                            "document_type": DT_PRODUCT, "document_name": uniq[0].name}).insert(ignore_permissions=True)
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:2000], "souk.run_late_alerts")
+    frappe.db.commit()

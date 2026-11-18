@@ -211,6 +211,9 @@ after_migrate = [
     "logistics_portal.api.short_shelf.seed_from_comments",
 ]
 
+# The souk app's service worker may control /souk/ (api/souk_pwa.py).
+after_request = ["logistics_portal.api.souk_pwa.after_request"]
+
 scheduler_events = {
     "cron": {
         # Sendit: the pull behind the status webhook (api/sendit.py). No-op
@@ -252,6 +255,12 @@ scheduler_events = {
         ],
         # Carrier status pull: the Cathedis resync the team used to run by
         # hand, hourly at :20, so 'Pending' means the carrier said so.
+        # Souk: every late card pages its stage's people once a day, read or
+        # not, until it moves (souk.run_late_alerts). The site clock is
+        # Istanbul: 11:00 there is 09:00 on the Casablanca floor.
+        "0 11 * * *": [
+            "logistics_portal.api.souk.run_late_alerts",
+        ],
         "20 * * * *": [
             "logistics_portal.api.carrier_sync.run",
             # ...and copy "the parcel is back" onto the orders the carrier

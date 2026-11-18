@@ -6,6 +6,7 @@
   <div
     v-if="mobileRole"
     class="h-screen bg-stone-100 flex flex-col items-center relative overflow-hidden"
+    style="--lp-bottombar: calc(60px + env(safe-area-inset-bottom))"
   >
     <!-- Compact header: logo + role switcher -->
     <div class="w-full max-w-[480px] flex items-center gap-3 px-3 py-2 bg-white border-b border-stone-200/70 relative z-10">
@@ -127,7 +128,7 @@
   </div>
 
   <!-- ── Desktop shell ───────────────────────────────────────────── -->
-  <div v-else class="h-screen flex overflow-hidden bg-[rgb(var(--bg))]">
+  <div v-else class="floor-desk h-screen flex overflow-hidden bg-[rgb(var(--bg))]">
     <!-- Desktop sidebar -->
     <Sidebar class="hidden lg:flex" @open-search="cmdOpen = true" />
 

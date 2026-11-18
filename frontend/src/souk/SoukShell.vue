@@ -1,5 +1,5 @@
 <template>
-  <div class="h-[100dvh] flex overflow-hidden bg-[rgb(var(--bg))]">
+  <div class="souk-root h-[100dvh] flex overflow-hidden bg-[rgb(var(--bg))]" :data-tabs="tabs.length ? 1 : 0">
     <!-- ── Sidebar (desktop) ─────────────────────────────────────────── -->
     <aside class="hidden lg:flex w-[244px] flex-shrink-0 flex-col bg-white border-e border-stone-200/70">
       <div class="px-5 pt-5 pb-4">
@@ -55,7 +55,33 @@
         </button>
       </div>
 
-      <header class="h-14 flex-shrink-0 flex items-center gap-3 px-4 sm:px-6 bg-white/90 backdrop-blur border-b border-stone-200/70">
+      <!-- No line: what the buyer enters is kept on the phone and sent when
+           it returns (lib/soukOutbox). Say so, or they will enter it twice. -->
+      <div v-if="!outbox.online || waiting || failed"
+           class="flex items-center gap-2 px-4 py-1.5 text-[12px] font-semibold"
+           :class="failed ? 'bg-rose-600 text-white' : !outbox.online ? 'bg-stone-800 text-white' : 'bg-amber-100 text-amber-900'">
+        <Icon :name="!outbox.online ? 'wifi-off' : failed ? 'alert-triangle' : 'upload-cloud'" :size="14" />
+        <span class="truncate">
+          <template v-if="!outbox.online">{{ t('souk.offline.banner') }}</template>
+          <template v-else-if="failed">{{ t('souk.offline.failed').replace('{n}', failed) }}</template>
+          <template v-else>{{ t('souk.offline.sending').replace('{n}', waiting) }}</template>
+        </span>
+        <span v-if="waiting && !outbox.online" class="ms-auto shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-[11px]">
+          {{ t('souk.offline.saved').replace('{n}', waiting) }}
+        </span>
+        <button v-if="failed" type="button" class="ms-auto shrink-0 h-6 px-2.5 rounded-md bg-white/20 text-[11px] font-bold"
+                @click="queueOpen = true">{{ t('souk.offline.see') }}</button>
+      </div>
+
+      <!-- A deploy shipped a new version: one tap, never mid-purchase by force. -->
+      <button v-if="pwa.updated" type="button"
+              class="flex items-center justify-center gap-2 px-4 py-2 bg-[var(--accent-600)] text-white text-[12.5px] font-semibold"
+              @click="reload">
+        <Icon name="refresh-cw" :size="14" /> {{ t('souk.pwa.updated') }}
+      </button>
+
+      <header class="souk-glass souk-safe-top flex-shrink-0 border-b border-stone-200/60 relative z-10">
+       <div class="h-14 flex items-center gap-3 px-4 sm:px-6">
         <!-- On a phone the brand rides the header; the sidebar has it on a desk. -->
         <div class="lg:hidden flex items-center gap-2 min-w-0">
           <img :src="logoSrc" alt="Justyol" class="h-[13px]" />
@@ -74,39 +100,52 @@
                   :title="theme === 'dark' ? 'Light' : 'Dark'" @click="toggle">
             <Icon :name="theme === 'dark' ? 'sun' : 'moon'" :size="17" />
           </button>
-          <button type="button" class="lg:hidden w-9 h-9 rounded-lg bg-[var(--accent-50)] text-[var(--accent-700)] text-[11px] font-bold flex items-center justify-center"
+          <button v-if="pwa.canInstall || pwa.ios" type="button"
+                  class="h-9 ps-2.5 pe-3 rounded-full bg-[var(--accent-600)] text-white text-[12px] font-semibold flex items-center gap-1.5 shadow-sm"
+                  @click="askInstall">
+            <Icon name="download" :size="14" /> {{ t('souk.pwa.install') }}
+          </button>
+          <button type="button" class="lg:hidden w-10 h-10 rounded-full bg-[var(--accent-50)] text-[var(--accent-700)] text-[12px] font-bold flex items-center justify-center ring-2 ring-white"
                   @click="menu = !menu">{{ initials }}</button>
         </div>
+       </div>
       </header>
 
       <main class="flex-1 overflow-y-auto overscroll-contain" :class="tabs.length ? 'pb-[76px] lg:pb-0' : ''">
         <router-view v-slot="{ Component }">
-          <component :is="Component" :key="$route.name + JSON.stringify($route.params)" />
+          <transition name="souk-page" appear>
+            <component :is="Component" :key="$route.name + JSON.stringify($route.params)" />
+          </transition>
         </router-view>
       </main>
 
       <!-- ── Bottom tabs (phone / tablet) ─────────────────────────────── -->
       <nav v-if="tabs.length"
-           class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-stone-200/70 flex items-stretch h-[64px]"
-           style="padding-bottom: env(safe-area-inset-bottom)">
+           class="souk-glass lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-stone-200/60 flex items-stretch"
+           style="height: calc(64px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom)">
         <router-link v-for="item in tabs" :key="item.to" :to="{ name: item.to }"
-                     class="flex-1 flex flex-col items-center justify-center gap-1 transition-colors"
-                     :class="isActive(item) ? 'text-[var(--accent-600)]' : 'text-stone-400'"
+                     class="flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors"
+                     :class="isActive(item) ? 'text-[var(--accent-700)]' : 'text-stone-400'"
                      @click="more = false">
-          <Icon :name="item.icon" :size="21" />
-          <span class="text-[10px] font-medium truncate max-w-full px-1">{{ t(item.label) }}</span>
+          <span class="h-8 w-14 rounded-full flex items-center justify-center transition-colors"
+                :class="isActive(item) ? 'bg-[var(--accent-100)]' : ''">
+            <Icon :name="item.icon" :size="20" :stroke-width="isActive(item) ? 2.1 : 1.75" />
+          </span>
+          <span class="text-[10.5px] truncate max-w-full px-1" :class="isActive(item) ? 'font-bold' : 'font-medium'">{{ t(item.label) }}</span>
         </router-link>
         <button v-if="moreItems.length" type="button"
-                class="flex-1 flex flex-col items-center justify-center gap-1"
-                :class="more || moreItems.some(isActive) ? 'text-[var(--accent-600)]' : 'text-stone-400'"
+                class="flex-1 flex flex-col items-center justify-center gap-0.5"
+                :class="more || moreItems.some(isActive) ? 'text-[var(--accent-700)]' : 'text-stone-400'"
                 @click="more = !more">
-          <Icon name="layout-grid" :size="21" />
-          <span class="text-[10px] font-medium">{{ t('nav.more') }}</span>
+          <span class="h-8 w-14 rounded-full flex items-center justify-center" :class="more || moreItems.some(isActive) ? 'bg-[var(--accent-100)]' : ''">
+            <Icon name="layout-grid" :size="20" />
+          </span>
+          <span class="text-[10.5px] font-medium">{{ t('nav.more') }}</span>
         </button>
       </nav>
       <div v-if="more" class="lg:hidden fixed inset-0 z-20" @click="more = false">
         <div class="absolute inset-0 bg-stone-900/30" />
-        <div class="absolute bottom-[64px] inset-x-0 bg-white rounded-t-2xl p-4 shadow-2xl" @click.stop>
+        <div class="absolute inset-x-0 bg-white rounded-t-3xl p-4 shadow-2xl" style="bottom: calc(64px + env(safe-area-inset-bottom))" @click.stop>
           <div class="grid grid-cols-4 gap-3">
             <template v-for="item in moreItems" :key="item.to || item.href">
               <a v-if="item.href" :href="item.href" class="flex flex-col items-center gap-1.5 py-2 rounded-xl text-stone-600 active:bg-stone-100">
@@ -120,6 +159,54 @@
                 <span class="text-[10px] font-semibold text-center leading-tight">{{ t(item.label) }}</span>
               </router-link>
             </template>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── iPhone: no install prompt exists, so say where the button is ── -->
+    <div v-if="iosHint" class="fixed inset-0 z-40 flex items-end justify-center" @click="iosHint = false">
+      <div class="absolute inset-0 bg-stone-900/30" />
+      <div class="relative w-full bg-white rounded-t-3xl p-5 shadow-2xl" style="padding-bottom: max(1.25rem, env(safe-area-inset-bottom))" @click.stop>
+        <div class="flex items-center gap-3">
+          <img :src="iconSrc" alt="" class="w-12 h-12 rounded-xl" />
+          <div class="min-w-0">
+            <div class="text-[15px] font-bold text-stone-900">{{ t('souk.pwa.iosTitle') }}</div>
+            <div class="text-[12.5px] text-stone-500">{{ t('souk.pwa.iosWhy') }}</div>
+          </div>
+        </div>
+        <ol class="mt-4 space-y-2 text-[13.5px] text-stone-700">
+          <li class="flex items-center gap-2"><span class="w-6 h-6 rounded-full bg-[var(--accent-50)] text-[var(--accent-700)] text-[12px] font-bold flex items-center justify-center">1</span>{{ t('souk.pwa.iosStep1') }}</li>
+          <li class="flex items-center gap-2"><span class="w-6 h-6 rounded-full bg-[var(--accent-50)] text-[var(--accent-700)] text-[12px] font-bold flex items-center justify-center">2</span>{{ t('souk.pwa.iosStep2') }}</li>
+        </ol>
+        <div class="mt-5 flex gap-2">
+          <button type="button" class="flex-1 h-12 rounded-xl bg-[var(--accent-600)] text-white text-[14px] font-semibold" @click="iosHint = false">{{ t('souk.pwa.ok') }}</button>
+          <button type="button" class="h-12 px-4 rounded-xl ring-1 ring-stone-200 text-stone-600 text-[13px] font-semibold" @click="notNow">{{ t('souk.pwa.notNow') }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── What is waiting on the phone ─────────────────────────────── -->
+    <div v-if="queueOpen" class="fixed inset-0 z-40 flex items-end sm:items-center justify-center" @click="queueOpen = false">
+      <div class="absolute inset-0 bg-stone-900/30" />
+      <div class="relative w-full sm:max-w-[420px] bg-white rounded-t-2xl sm:rounded-2xl p-4 shadow-2xl max-h-[80dvh] overflow-y-auto" @click.stop>
+        <div class="flex items-center mb-3">
+          <h3 class="text-[15px] font-bold text-stone-900">{{ t('souk.offline.title') }}</h3>
+          <button type="button" class="ms-auto w-9 h-9 rounded-lg flex items-center justify-center text-stone-400 hover:bg-stone-100" @click="queueOpen = false">
+            <Icon name="x" :size="17" />
+          </button>
+        </div>
+        <p v-if="!outbox.jobs.length" class="text-[13px] text-stone-500">{{ t('souk.offline.empty') }}</p>
+        <div v-for="j in outbox.jobs" :key="j.id" class="py-2.5 border-t border-stone-100 first:border-0">
+          <div class="flex items-center gap-2">
+            <Icon :name="j.failed ? 'alert-triangle' : 'clock'" :size="15" :class="j.failed ? 'text-rose-600' : 'text-amber-600'" />
+            <span class="text-[13px] font-semibold text-stone-900 truncate">{{ j.label || t('souk.offline.kind.' + j.kind, j.kind) }}</span>
+            <span class="ms-auto text-[11px] text-stone-400 shrink-0">{{ new Date(j.created).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</span>
+          </div>
+          <p v-if="j.error" class="mt-1 text-[12px]" :class="j.failed ? 'text-rose-700' : 'text-stone-500'">{{ j.error }}</p>
+          <div v-if="j.failed" class="mt-2 flex gap-2">
+            <button type="button" class="h-11 px-4 rounded-xl bg-[var(--accent-600)] text-white text-[13px] font-semibold" @click="retryJob(j.id)">{{ t('souk.offline.retry') }}</button>
+            <button type="button" class="h-11 px-4 rounded-xl ring-1 ring-stone-200 text-stone-600 text-[13px] font-semibold" @click="discardJob(j.id)">{{ t('souk.offline.discard') }}</button>
           </div>
         </div>
       </div>
@@ -160,13 +247,16 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { useAuth } from "@/composables/useAuth";
 import { useI18n } from "@/composables/useI18n";
 import { useTheme } from "@/composables/useTheme";
 import { navFor } from "@/lib/roles";
+import { outbox, startOutbox, retry, discard } from "@/lib/soukOutbox";
+import { pwa, install, dismissInstall, forgetOffline } from "@/lib/soukPwa";
+import { useToast } from "@/composables/useToast";
 
 const route = useRoute();
 const { user, fullName, role, roles, hiddenPages, logout, setActiveRole, viewAs, setViewAs } = useAuth();
@@ -174,6 +264,7 @@ const { t, locale, setLocale } = useI18n();
 const { theme, toggle } = useTheme();
 
 const logoSrc = "/assets/logistics_portal/justyol-logo.png";
+const iconSrc = "/assets/logistics_portal/icon-192.png";
 const LOCALES = [{ k: "en", label: "EN" }, { k: "fr", label: "FR" }, { k: "ar", label: "ع" }];
 
 const nav = computed(() => navFor(role.value, hiddenPages.value, "souk"));
@@ -203,10 +294,29 @@ const initials = computed(() =>
 
 const menu = ref(false);
 const more = ref(false);
+const queueOpen = ref(false);
+const iosHint = ref(false);
+async function askInstall() {
+  if (pwa.canInstall) { await install(); return; }
+  iosHint.value = true;
+}
+function notNow() { iosHint.value = false; dismissInstall(); }
+function reload() { window.location.reload(); }
+const waiting = computed(() => outbox.jobs.filter((j) => !j.failed).length);
+const failed = computed(() => outbox.jobs.filter((j) => j.failed).length);
+onMounted(startOutbox);
+async function retryJob(id) {
+  try { await retry(id); } catch (e) { useToast().warn(t("souk.failed"), String(e.message || e)); }
+}
+async function discardJob(id) {
+  if (!window.confirm(t("souk.offline.discardConfirm"))) return;
+  await discard(id);
+}
 watch(() => route.fullPath, () => { menu.value = false; more.value = false; });
 
 async function doLogout() {
   menu.value = false;
+  forgetOffline();
   try { await logout(); } catch (_) { /* clear locally regardless */ }
   window.location.href = "/souk/login";
 }

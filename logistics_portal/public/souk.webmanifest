@@ -7,8 +7,8 @@
   "scope": "/souk/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#1c1917",
-  "theme_color": "#1c1917",
+  "background_color": "#f6f5f1",
+  "theme_color": "#0a7d55",
   "lang": "en",
   "dir": "auto",
   "icons": [
@@ -33,16 +33,46 @@
   ],
   "shortcuts": [
     {
-      "name": "Custody",
-      "url": "/souk/custody"
+      "name": "Buy",
+      "short_name": "Buy",
+      "url": "/souk/buy",
+      "icons": [
+        {
+          "src": "/assets/logistics_portal/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
     {
-      "name": "Buy",
-      "url": "/souk/buy"
+      "name": "Custody",
+      "short_name": "Custody",
+      "url": "/souk/custody",
+      "icons": [
+        {
+          "src": "/assets/logistics_portal/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
     {
       "name": "Launch board",
-      "url": "/souk/launch"
+      "short_name": "Board",
+      "url": "/souk/launch",
+      "icons": [
+        {
+          "src": "/assets/logistics_portal/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
-  ]
+  ],
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "prefer_related_applications": false
 }

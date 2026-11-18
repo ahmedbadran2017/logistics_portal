@@ -2,7 +2,7 @@
   <div class="min-h-[100dvh] flex bg-[rgb(var(--bg))]">
     <!-- The story panel (desktop): what this app is for, in one look. -->
     <div class="hidden lg:flex w-[46%] max-w-[620px] flex-col justify-between p-10 text-white relative overflow-hidden"
-         style="background: radial-gradient(120% 90% at 0% 0%, #0f5132 0%, #0b3b26 45%, #071f15 100%)">
+         style="background: radial-gradient(120% 90% at 0% 0%, #0d6b48 0%, #08442f 48%, #04261a 100%)">
       <div class="absolute -bottom-24 -end-24 w-[360px] h-[360px] rounded-full blur-3xl opacity-25 bg-emerald-400 pointer-events-none" />
       <span class="inline-flex items-center self-start h-11 px-4 rounded-xl bg-white">
         <img :src="logoSrc" alt="Justyol" class="h-4" />
@@ -89,10 +89,10 @@ const year = new Date().getFullYear();
 // The cycle the app runs, the way the team says it.
 const STEPS = [
   { k: "nav.soukBuy", icon: "shopping-bag" },
-  { k: "nav.soukReceive", icon: "archive" },
+  { k: "nav.soukReceive", icon: "package-check" },
   { k: "nav.soukStudio", icon: "image" },
-  { k: "nav.soukContent", icon: "file-text" },
-  { k: "nav.soukReview", icon: "check" },
+  { k: "nav.soukContent", icon: "notebook-pen" },
+  { k: "nav.soukReview", icon: "clipboard-check" },
 ];
 
 const usr = ref("");

@@ -1,18 +1,97 @@
-/* The souk portal's colour: a market green instead of the floor's rust, so
-   nobody mistakes which app they are in. Same token names as index.css —
-   every shared component that says var(--accent-*) follows. Higher
-   specificity than index.css's html[data-theme="dark"] on purpose. */
+/* ==========================================================================
+   SOUK — the souk app's own look (scoped to html[data-portal="souk"], so the
+   floor app is untouched). Same token names as index.css: every shared
+   component that says var(--accent-*) or rgb(var(--bg)) follows.
+
+   Colour: a market green instead of the floor's rust, so nobody mistakes
+   which app they are in. 600 (buttons, white text on it) is #0a7d55 —
+   5.1:1 against white; the old emerald #059669 was 3.8:1, below AA for
+   the 13px button labels. 700 (accent text) is 7:1.
+   Type: Plus Jakarta Sans (Latin; friendly, wide, clear figures) and IBM
+   Plex Sans Arabic (Arabic; same rhythm, legible at 12px in a moving taxi).
+   ========================================================================== */
 html[data-portal="souk"] {
-  --accent-50: #ecfdf5;  --accent-100: #d1fae5; --accent-200: #a7f3d0;
-  --accent-300: #6ee7b7; --accent-400: #34d399; --accent-500: #10b981;
-  --accent-600: #059669; --accent-700: #047857; --accent-800: #065f46;
-  --accent-900: #064e3b;
+  --accent-50: #ecfaf3;  --accent-100: #d3f3e3; --accent-200: #a8e6c8;
+  --accent-300: #6fd2a6; --accent-400: #34b886; --accent-500: #149a6c;
+  --accent-600: #0a7d55; --accent-700: #076646; --accent-800: #065239;
+  --accent-900: #053f2d;
+  /* Warm sand page, white cards: the market, not an office. */
+  --bg: 246 245 241;  --bg2: 234 232 226;
+  --souk-shadow: 0 1px 2px rgba(28, 25, 23, .04), 0 4px 14px -6px rgba(28, 25, 23, .08);
+  --souk-glass: rgba(255, 255, 255, .82);
 }
 html[data-portal="souk"][data-theme="dark"] {
   /* Dark: the light end becomes deep green tints (selected chips), the
      high end brightens so accent text stays legible on near-black. */
   --accent-50: #11261f;  --accent-100: #133328; --accent-200: #184434;
   --accent-300: #2f8f6c; --accent-400: #34b583; --accent-500: #3ccf95;
-  --accent-600: #22a974; --accent-700: #5fd9a8; --accent-800: #1f7a56;
+  --accent-600: #1f9a6a; --accent-700: #5fd9a8; --accent-800: #1f7a56;
   --accent-900: #a7f0cf;
+  --bg: 22 21 19;  --bg2: 36 33 31;
+  --souk-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  --souk-glass: rgba(28, 25, 23, .82);
+}
+
+html[data-portal="souk"], html[data-portal="souk"] body {
+  font-family: "Plus Jakarta Sans", "IBM Plex Sans Arabic", ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: normal;
+  background: rgb(var(--bg));
+}
+html[data-portal="souk"][dir="rtl"], html[data-portal="souk"][dir="rtl"] body {
+  font-family: "IBM Plex Sans Arabic", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+}
+/* Money and counts line up in columns. */
+html[data-portal="souk"] input[type="number"] { font-variant-numeric: tabular-nums; }
+
+/* Phones: no 300 ms tap delay, no rubber-band behind the app, no iOS zoom
+   on focus (inputs ≥16px), no accidental text selection on buttons. */
+html[data-portal="souk"] { touch-action: manipulation; overscroll-behavior-y: none; }
+html[data-portal="souk"] button { -webkit-user-select: none; user-select: none; }
+@media (max-width: 1023px) {
+  html[data-portal="souk"] input:not([type="checkbox"]):not([type="radio"]),
+  html[data-portal="souk"] select, html[data-portal="souk"] textarea { font-size: 16px; }
+}
+/* A pressed thing visibly gives under the thumb. */
+html[data-portal="souk"] button:not(:disabled):active { transform: scale(.97); transition: transform 60ms; }
+
+/* Shared components, souk flavour: softer cards, a lifted primary button. */
+html[data-portal="souk"] .lp-card { border-radius: 16px; box-shadow: var(--souk-shadow); }
+html[data-portal="souk"] .btn-primary { box-shadow: 0 6px 16px -8px var(--accent-600); }
+
+/* Glass header / tab bar / footers. */
+.souk-glass { background: var(--souk-glass); -webkit-backdrop-filter: saturate(1.6) blur(14px); backdrop-filter: saturate(1.6) blur(14px); }
+
+/* Installed app on an iPhone: the page runs under the status bar. */
+html[data-standalone="1"] .souk-safe-top { padding-top: env(safe-area-inset-top); }
+
+/* Page change: a quick rise, never a wait. */
+.souk-page-enter-active { transition: opacity 160ms ease, transform 160ms ease; }
+.souk-page-enter-from { opacity: 0; transform: translateY(6px); }
+@media (prefers-reduced-motion: reduce) {
+  .souk-page-enter-active { transition: none; }
+  html[data-portal="souk"] button:active { transform: none; }
+}
+
+/* Skeleton shimmer for loading lists (class="souk-skel h-16 rounded-2xl"). */
+.souk-skel { background: linear-gradient(90deg, rgb(var(--bg2)) 0%, rgba(255,255,255,.65) 50%, rgb(var(--bg2)) 100%);
+             background-size: 200% 100%; animation: souk-shimmer 1.2s linear infinite; }
+html[data-theme="dark"] .souk-skel { background: linear-gradient(90deg, rgb(var(--bg2)) 0%, rgba(255,255,255,.06) 50%, rgb(var(--bg2)) 100%); background-size: 200% 100%; }
+@keyframes souk-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* Fixed action footers (.lp-footer, index.css) sit ABOVE the phone tab bar
+   and beside the desktop sidebar, not under / over them. */
+.souk-root { --lp-bottombar: 0px; --lp-sidebar: 0px; }
+.souk-root[data-tabs="1"] { --lp-bottombar: calc(64px + env(safe-area-inset-bottom)); }
+@media (min-width: 1024px) {
+  .souk-root, .souk-root[data-tabs="1"] { --lp-bottombar: 0px; --lp-sidebar: 244px; }
+}
+html[data-portal="souk"] .lp-footer { background: var(--souk-glass); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  box-shadow: 0 -8px 24px -16px rgba(28, 25, 23, .25); }
+.souk-root[data-tabs="0"] .lp-footer { padding-bottom: max(1.25rem, env(safe-area-inset-bottom)); }
+
+/* Touch screens scroll sideways with the thumb: no grey bar under every
+   chip row and every column strip. A mouse keeps its scrollbar. */
+@media (pointer: coarse) {
+  html[data-portal="souk"] * { scrollbar-width: none; }
+  html[data-portal="souk"] *::-webkit-scrollbar { display: none; }
 }

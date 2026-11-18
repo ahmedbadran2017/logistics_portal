@@ -5,6 +5,28 @@ import ar from "@/locales/ar";
 
 const LOCALE_KEY = "lp.locale";
 const dicts = { en, fr, ar };
+
+// Souk screens keep their words beside them: each locales/souk/<area>.js
+// exports { en: {...}, fr: {...}, ar: {...} }, merged under `souk.` — one
+// file per screen group, so two screens never edit the same dictionary.
+function deepMerge(into, from) {
+  for (const [k, v] of Object.entries(from || {})) {
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      if (!into[k] || typeof into[k] !== "object") into[k] = {};
+      deepMerge(into[k], v);
+    } else {
+      into[k] = v;
+    }
+  }
+}
+for (const mod of Object.values(import.meta.glob("../locales/souk/*.js", { eager: true }))) {
+  const pack = mod.default || mod;
+  for (const lang of Object.keys(dicts)) {
+    if (!pack[lang]) continue;
+    if (!dicts[lang].souk) dicts[lang].souk = {};
+    deepMerge(dicts[lang].souk, pack[lang]);
+  }
+}
 const locale = ref("en");
 
 function apply(next) {

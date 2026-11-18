@@ -73,7 +73,7 @@ export const ROLE_CONFIG = {
           { to: "SupplierPickup", label: "nav.supplierPickup", icon: "rotate-ccw" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
           { to: "Kits", label: "nav.kits", icon: "boxes" },
-          { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
+          { to: "SoukReceive", label: "nav.soukReceive", icon: "package-check" },
           { to: "SoukPhoto", label: "nav.soukPhoto", icon: "camera" },
           { to: "CycleCount", label: "nav.count", icon: "list-checks" },
           { to: "ZoneSurvey", label: "nav.zoneSurvey", icon: "map-pin" },
@@ -159,7 +159,7 @@ export const ROLE_CONFIG = {
           { to: "Warehouse", label: "nav.warehouse", icon: "warehouse" },
           { to: "Inventory", label: "nav.stock", icon: "boxes" },
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
-          { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
+          { to: "SoukReceive", label: "nav.soukReceive", icon: "package-check" },
           { to: "SoukPhoto", label: "nav.soukPhoto", icon: "camera" },
           { to: "CrossdockIn", label: "nav.crossdockIn", icon: "truck" },
           { to: "SupplierPickup", label: "nav.supplierPickup", icon: "rotate-ccw" },
@@ -250,7 +250,7 @@ export const ROLE_CONFIG = {
         section: "nav.inventoryGrp",
         items: [
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
-          { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
+          { to: "SoukReceive", label: "nav.soukReceive", icon: "package-check" },
           { to: "SoukPhoto", label: "nav.soukPhoto", icon: "camera" },
           { to: "CrossdockIn", label: "nav.crossdockIn", icon: "truck" },
           { to: "MoveStock", label: "nav.move", icon: "route" },
@@ -419,8 +419,8 @@ export const ROLE_CONFIG = {
         section: "nav.souk",
         items: [
           { to: "SoukStudio", label: "nav.soukStudio", icon: "image" },
-          { to: "SoukContent", label: "nav.soukContent", icon: "file-text" },
-          { to: "SoukReview", label: "nav.soukReview", icon: "check" },
+          { to: "SoukContent", label: "nav.soukContent", icon: "notebook-pen" },
+          { to: "SoukReview", label: "nav.soukReview", icon: "clipboard-check" },
           { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
         ],
       },
@@ -434,8 +434,8 @@ export const ROLE_CONFIG = {
       {
         section: "nav.souk",
         items: [
-          { to: "SoukContent", label: "nav.soukContent", icon: "file-text" },
-          { to: "SoukReview", label: "nav.soukReview", icon: "check" },
+          { to: "SoukContent", label: "nav.soukContent", icon: "notebook-pen" },
+          { to: "SoukReview", label: "nav.soukReview", icon: "clipboard-check" },
           { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
         ],
       },
@@ -461,7 +461,7 @@ export const ROLE_CONFIG = {
         section: "nav.inventoryGrp",
         items: [
           { to: "GoodsIn", label: "nav.goodsIn", icon: "archive" },
-          { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
+          { to: "SoukReceive", label: "nav.soukReceive", icon: "package-check" },
           { to: "SoukPhoto", label: "nav.soukPhoto", icon: "camera" },
           { to: "CrossdockIn", label: "nav.crossdockIn", icon: "truck" },
           { to: "SupplierPickup", label: "nav.supplierPickup", icon: "rotate-ccw" },
@@ -582,7 +582,7 @@ const SOUK_MANAGER = {
     {
       section: "nav.soukWarehouse",
       items: [
-        { to: "SoukReceive", label: "nav.soukReceive", icon: "archive" },
+        { to: "SoukReceive", label: "nav.soukReceive", icon: "package-check" },
         { to: "SoukPhoto", label: "nav.soukPhoto", icon: "camera" },
       ],
     },
@@ -590,8 +590,8 @@ const SOUK_MANAGER = {
       section: "nav.soukPublish",
       items: [
         { to: "SoukStudio", label: "nav.soukStudio", icon: "image" },
-        { to: "SoukContent", label: "nav.soukContent", icon: "file-text" },
-        { to: "SoukReview", label: "nav.soukReview", icon: "check" },
+        { to: "SoukContent", label: "nav.soukContent", icon: "notebook-pen" },
+        { to: "SoukReview", label: "nav.soukReview", icon: "clipboard-check" },
       ],
     },
     {

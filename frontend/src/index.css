@@ -280,6 +280,15 @@ html[data-theme="dark"] .rsel-search { border-color: #3a3530 !important; }
    (stone/accent) to match the handoff; these are convenience wrappers.
    ========================================================================== */
 @layer components {
+  /* A page's fixed action bar (Buy / Receive / Photo). It rides above the
+     phone tab bar and starts after the desktop sidebar: each shell sets
+     --lp-bottombar / --lp-sidebar (SoukShell via souk.css, AppLayout inline). */
+  .lp-footer {
+    position: fixed; z-index: 20;
+    bottom: var(--lp-bottombar, 0px);
+    inset-inline-start: var(--lp-sidebar, 0px); inset-inline-end: 0;
+  }
+  @media (min-width: 1024px) { .floor-desk { --lp-sidebar: 236px; } }
   .lp-card { @apply bg-white ring-1 ring-stone-200/70 rounded-xl; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
   .lp-card-pad { @apply lp-card p-4; }
 
