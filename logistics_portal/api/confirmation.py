@@ -275,6 +275,26 @@ def _not_cold():
 # The hold binds ONLY a brand-new order nobody has touched or been given. A
 # retry, a call-back promise, or anything already somebody's work is never
 # delayed by it.
+#
+# STOPPED 2026-11-18, two days in. The mechanism worked: in working hours the
+# share of held orders a human reached within 30 minutes fell from ~70% to
+# ~13% while the free arm stayed ~55%, and the share the automation closed
+# unaided doubled (13.0% against 6.5%). The outcome did not follow. On 165 vs
+# 193 settled orders the held arm confirmed 80.6% against 83.9% free — 3.3
+# points DOWN, 95% CI [-11.3, +4.6], unreadable in either direction, and
+# separating a 3-point effect needs ~2,400 settled orders an arm (~10 days).
+#
+# It was stopped rather than finished because the cost — half the orders
+# delayed half an hour — is certain while the gain is not, and because the
+# likeliest reading of the 90.4%-vs-64.3% gap that motivated it is SELECTION,
+# not cause: the orders the automation reaches first are the ones whose
+# customer answered fast, and that is the same customer who confirms anyway.
+# Holding an order does not make a slow customer fast. It only makes the
+# human later.
+#
+# Worth re-running only if something changes what the automation can do with
+# the half it is handed. Auto-confirming the customers who reply in free text
+# instead of pressing a button would be exactly that.
 def _ab_arm(a="so."):
     return f"MOD(CONV(RIGHT(MD5({a}name), 1), 16, 10), 2)"
 
@@ -1820,10 +1840,12 @@ _CF_DEFAULTS = {
     # Give the automation its turn before the queue sees a new order.
     # 0 switches the whole thing off without a deploy — the one control that
     # has to work from the settings page at the moment somebody doubts it.
-    "botHoldMins": 30,
+    # OFF since 2026-11-18: the test ran two days and was stopped. The note
+    # above _ab_arm says what it measured. Raise this only to run it again.
+    "botHoldMins": 0,
     # True = half the orders (by name hash), which is the test. False would
     # hold every order, which is the policy once the test says so.
-    "botHoldHalf": True,
+    "botHoldHalf": False,
     "retryDna": 4,        # hours before a Did-not-Answer resurfaces
     "retryFollowup": 24,
     "retryOnhold": 48,
