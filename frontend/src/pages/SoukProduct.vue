@@ -235,6 +235,10 @@
                 <span class="tabular-nums font-semibold">{{ fmt(p.amount) }}</span>
                 <span class="tabular-nums text-stone-600">{{ Math.round(p.received) }}%</span>
               </div>
+              <div v-if="p.pay" class="text-[12px] text-stone-600 flex items-center gap-1.5">
+                <Icon :name="PAY_ICON[p.pay] || 'wallet'" :size="13" class="shrink-0 text-stone-500" />
+                <span>{{ t('souk.buy.pay.' + p.pay) }}<span v-if="p.payRef" class="mono" dir="ltr"> · {{ p.payRef }}</span><span v-if="p.payDue" dir="ltr"> · {{ p.payDue }}</span></span>
+              </div>
               <div v-if="p.outcome" class="text-[12px] text-stone-600 tabular-nums">
                 {{ t('souk.outcomeLine')
                   .replace('{g}', sum(p.outcome.lines, 'good'))
@@ -320,6 +324,7 @@ const stepNav = ref(null);
 const me = computed(() => user.value || "");
 
 const fmt = (n) => Math.round(Number(n || 0)).toLocaleString("fr-FR");
+const PAY_ICON = { cash: "wallet", cheque: "notebook-pen", transfer: "send", credit: "clock" };
 const money = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 }) + " MAD";
 const round1 = (n) => Math.round(Number(n || 0) * 10) / 10;
 const fill = (s, vars) => Object.entries(vars).reduce((o, [k, v]) => o.split("{" + k + "}").join(String(v)), String(s));
@@ -378,7 +383,7 @@ const moneyRows = computed(() => {
   const m = d.value?.money;
   if (!m) {
     return [
-      { k: t("souk.paid"), v: money(d.value?.cost) },
+      { k: t("souk.pd.boughtFor"), v: money(d.value?.cost) },
       { k: t("souk.units"), v: fmt(d.value?.units) },
     ];
   }
@@ -386,7 +391,7 @@ const moneyRows = computed(() => {
   // Design order: what we paid, the trip's transport share, what the stall
   // owes back (green, a credit), what broke on our side, then per piece.
   return [
-    { k: t("souk.paid"), v: money(m.paid) },
+    { k: t("souk.pd.boughtFor"), v: money(m.paid) },
     { k: t("souk.units"), v: fmt(m.units) },
     { k: t("souk.pd.transport"), v: m.transport == null ? na : money(m.transport), cls: m.transport == null ? "text-stone-500 italic" : "" },
     { k: t("souk.pd.owed"), v: (m.owed ? "\u2212" : "") + money(m.owed), cls: m.owed ? "font-semibold text-emerald-700" : "text-stone-500" },
