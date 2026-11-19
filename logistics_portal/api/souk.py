@@ -378,7 +378,11 @@ def _has_col(dt, col):
     """A field added by this release exists only after migrate; reads and
     writes of it must not break the deploy window between code and migrate."""
     key = f"{dt}.{col}"
-    cache = frappe.local.__dict__.setdefault("_souk_cols", {})
+    # frappe.local is a werkzeug Local: no __dict__, plain attributes only.
+    cache = getattr(frappe.local, "souk_cols", None)
+    if cache is None:
+        cache = {}
+        frappe.local.souk_cols = cache
     if key not in cache:
         cache[key] = bool(frappe.db.has_column(dt, col))
     return cache[key]
