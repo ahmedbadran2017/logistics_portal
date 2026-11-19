@@ -25,13 +25,19 @@ Who is who on the paper (Ahmed, 2026-11-17):
   own stock, never consignment (consignment keys on the item's supplier
   model, see consignment.py).
 
-The custody (العهدة): the accountant hands the buyer cash and opens the
-trip; every purchase is deducted; at close the buyer hands back what is
-left and the accountant counts it on the portal. A purchase with no
-receipt carries a substitute (photo of the goods + the stall's phone) that
-the accountant approves. If settings name a custody cash account, each
-purchase also posts a PAID Purchase Invoice on it; until the accountant has
-that account, the PO is the record and the books are his to post.
+The cycle (Ahmed, 2026-11-19): the souk makes the Purchase Order and says
+how the stall is paid — cash, cheque (number, date), bank transfer or on
+credit (due date). Receiving makes the Purchase Receipt; the Purchase
+Invoice and the payment are the accountant's, on his own portal. Accounting
+closes the loop, so a purchase is never blocked on a custody.
+
+The custody (العهدة) is optional: the accountant hands the buyer cash and
+opens a trip; a CASH purchase is linked to the buyer's open trip (if any)
+and deducted from it; at close the buyer hands back what is left and the
+accountant counts it. Cash beyond the custody, or cash with no trip, is
+allowed — accounting settles the difference. A purchase with no receipt
+carries a substitute (photo of the goods + the stall's phone) that the
+accountant approves.
 
 Storage follows the app's pattern: two custom doctypes created on migrate
 (no fixture files), a few custom fields on Purchase Order, settings in
@@ -42,7 +48,7 @@ import json
 import re
 
 import frappe
-from frappe.utils import add_days, cint, flt, get_datetime, now_datetime, nowdate, time_diff_in_hours
+from frappe.utils import add_days, cint, flt, get_datetime, getdate, now_datetime, nowdate, time_diff_in_hours
 
 COMPANY = "Justyol Morocco"
 DT_TRIP = "LP Souk Trip"
@@ -50,7 +56,6 @@ DT_PRODUCT = "LP Souk Product"
 SETTINGS_KEY = "lp_souk_settings"
 SUPPLIER_GROUP = "Souk Suppliers"
 RECEIVING_WH = "Receiving Zone - JM"
-MODE_OF_PAYMENT = "Cash MAD"
 # A 13-character Code128B SKU on the 50 mm shelf label prints a ≈0.25 mm
 # module — the smallest the floor scanners read (shelf-label work, 2026-10).
 SKU_MAX = 13
@@ -236,6 +241,9 @@ PRODUCT_LATER_FIELDS = [
     # finds the product it already made instead of buying it twice.
     {"fieldname": "client_key", "fieldtype": "Data", "label": "Client request id", "unique": 1},
     {"fieldname": "dropped_from", "fieldtype": "Data", "label": "Dropped from stage"},
+    # How the stall is paid, as the buyer chose it ({method, ref, due}) —
+    # kept until finish_buy writes it on the PO.
+    {"fieldname": "pay_json", "fieldtype": "Small Text", "label": "Payment (buyer's choice)"},
 ]
 
 
@@ -284,6 +292,17 @@ def _ensure_po_fields():
          "insert_after": "custom_souk_voucher_photo", "no_copy": 1},
         {"fieldname": "custom_souk_client_key", "fieldtype": "Data", "label": "Souk client request id",
          "insert_after": "custom_souk_voucher_stall", "read_only": 1, "no_copy": 1},
+        # The purchase is not tied to a custody (2026-11-19): the souk makes
+        # the PO and says how the stall is paid; receiving makes the PR and
+        # the accountant makes the PI and the payment from his own screens.
+        {"fieldname": "custom_souk_buyer", "fieldtype": "Data", "label": "Souk buyer",
+         "insert_after": "custom_souk_client_key", "read_only": 1, "no_copy": 1},
+        {"fieldname": "custom_souk_pay", "fieldtype": "Select", "label": "Souk payment",
+         "options": "\ncash\ncheque\ntransfer\ncredit", "insert_after": "custom_souk_buyer", "no_copy": 1},
+        {"fieldname": "custom_souk_pay_ref", "fieldtype": "Data", "label": "Cheque / transfer reference",
+         "insert_after": "custom_souk_pay", "no_copy": 1},
+        {"fieldname": "custom_souk_pay_due", "fieldtype": "Date", "label": "Payment due",
+         "insert_after": "custom_souk_pay_ref", "no_copy": 1},
     ]}, ignore_validate=True)
 
 
@@ -884,10 +903,16 @@ def approve_voucher(po):
 
 
 def _souk_po(po):
-    d = frappe.db.get_value("Purchase Order", po, ["name", "custom_souk_trip", "custom_souk_receipt"], as_dict=True)
-    if not d or not d.custom_souk_trip:
+    fields = ["name", "custom_souk_trip", "custom_souk_receipt"]
+    if _has_col("Purchase Order", "custom_souk_buyer"):
+        fields.append("custom_souk_buyer")
+    d = frappe.db.get_value("Purchase Order", po, fields, as_dict=True)
+    if not d or not _is_souk_po(d):
         frappe.throw("Not a souk purchase.")
-    _trip_for_write(d.custom_souk_trip)
+    if d.custom_souk_trip:
+        _trip_for_write(d.custom_souk_trip)
+    elif d.get("custom_souk_buyer") != frappe.session.user and not _is_accountant() and _role() != "manager":
+        frappe.throw("Not your purchase.", frappe.PermissionError)
     return d
 
 
@@ -1060,7 +1085,21 @@ def buy_boot():
         "nextSku": f"{s['skuPrefix']}{_next_sku_number(s['skuPrefix'])}",
         "stalls": [{"name": r.name, "label": r.supplier_name or r.name} for r in stalls],
         "books": bool(s.get("custodyAccount")),
+        # The way each stall was paid last time: the buyer's default for it.
+        "lastPay": _last_pay_by_stall(),
     }
+
+
+def _last_pay_by_stall():
+    if not _has_col("Purchase Order", "custom_souk_pay"):
+        return {}
+    out = {}
+    for r in frappe.db.sql(
+            """SELECT supplier, custom_souk_pay FROM `tabPurchase Order`
+               WHERE docstatus = 1 AND IFNULL(custom_souk_pay, '') != ''
+               ORDER BY creation DESC LIMIT 500""", as_dict=True):
+        out.setdefault(r.supplier, r.custom_souk_pay)
+    return out
 
 
 @frappe.whitelist()
@@ -1117,6 +1156,39 @@ def _client_key(p):
     dashes; empty when an old bundle sends none."""
     k = re.sub(r"[^A-Za-z0-9-]", "", str((p or {}).get("clientKey") or ""))[:64]
     return k if len(k) >= 8 else ""
+
+
+PAY_METHODS = ("cash", "cheque", "transfer", "credit")
+
+
+def _clean_pay(v):
+    """How the stall is paid: cash (on the buyer's custody when one is open,
+    else the books settle it), cheque, transfer or credit. The reference and
+    the due date are optional — a cheque is often written later."""
+    v = v or {}
+    m = str(v.get("method") or "").strip()
+    if m not in PAY_METHODS:
+        frappe.throw("Choose how the stall is paid.")
+    ref = re.sub(r"\s+", " ", str(v.get("ref") or "")).strip()[:60] if m in ("cheque", "transfer") else ""
+    due = str(v.get("due") or "").strip()[:10] if m in ("cheque", "credit") else ""
+    if due:
+        try:
+            due = str(getdate(due))
+        except Exception:
+            frappe.throw("The due date is not a date.")
+    return {"method": m, "ref": ref, "due": due}
+
+
+def _is_souk_po(h):
+    """Before 2026-11-19 every souk PO carried its trip; now the buyer."""
+    return bool(h.get("custom_souk_trip") or h.get("custom_souk_buyer"))
+
+
+def _souk_po_sql(alias="po"):
+    cond = f"IFNULL({alias}.custom_souk_trip, '') != ''"
+    if _has_col("Purchase Order", "custom_souk_buyer"):
+        cond = f"({cond} OR IFNULL({alias}.custom_souk_buyer, '') != '')"
+    return cond
 
 
 def _resolve_stall(stall, new_stall):
@@ -1199,9 +1271,10 @@ def create_buy(payload):
         done = frappe.db.get_value(DT_PRODUCT, {"client_key": ckey}, "name")
         if done:
             return finish_buy(done)
-    trip = _my_open_trip()
-    if not trip:
-        frappe.throw("No open custody. The accountant opens the trip and hands you the cash first.")
+    pay = _clean_pay(p.get("payment") or {"method": "cash"})
+    # Cash counts against the buyer's custody when one is open; without one,
+    # or paid another way, the purchase stands alone and the books settle it.
+    trip = _my_open_trip() if pay["method"] == "cash" else None
     title = re.sub(r"\s+", " ", (p.get("title") or "")).strip()
     if len(title) < 3:
         frappe.throw("Write the product's name.")
@@ -1220,18 +1293,16 @@ def create_buy(payload):
         base = f"{prefix}{_next_sku_number(prefix)}"
         variants = _validate_variants(base, colors, sizes, p.get("lines") or [], color_map)
         total = round(sum(v["qty"] * v["cost"] for v in variants), 2)
-        card = _trip_card(trip)
-        if total > card["expected"] + 0.01:
-            frappe.throw(f"This costs {total:,.0f} MAD and you have {card['expected']:,.0f} MAD of custody left.")
         try:
             doc = frappe.get_doc({
                 "doctype": DT_PRODUCT, "sku_base": base, "title": title[:140],
                 "stage": "buying", "stage_at": now_datetime(),
                 "category": cat["key"], "product_type": cat["productType"], "brand": cat["brand"],
-                "supplier": stall, "trip": str(trip.name), "buyer": frappe.session.user,
+                "supplier": stall, "trip": str(trip.name) if trip else "", "buyer": frappe.session.user,
                 "units": sum(v["qty"] for v in variants), "total_cost": total,
                 "variants_json": json.dumps(variants, ensure_ascii=False),
                 **({"client_key": ckey} if ckey and _has_col(DT_PRODUCT, "client_key") else {}),
+                **({"pay_json": json.dumps(pay)} if _has_col(DT_PRODUCT, "pay_json") else {}),
                 **({"stage_log": json.dumps([{"s": "buying", "at": str(now_datetime())[:19],
                                                "by": frappe.session.user}])}
                    if _has_col(DT_PRODUCT, "stage_log") else {}),
@@ -1249,7 +1320,8 @@ def create_buy(payload):
     if not doc:
         frappe.throw("Could not reserve a SKU, retry.")
     doc.add_comment("Comment", f"Souk: bought from {stall} · {doc.units} pcs · {doc.total_cost:,.2f} MAD "
-                               f"· trip {trip.name} · by {_user_name(frappe.session.user)}.")
+                               f"· {_pay_text(pay)}" + (f" · trip {trip.name}" if trip else "")
+                               + f" · by {_user_name(frappe.session.user)}.")
     frappe.db.commit()
 
     try:
@@ -1418,16 +1490,15 @@ def finish_buy(name):
             frappe.db.commit()
             return {"name": doc.name, "pending": False, "stage": doc.stage, "po": doc.purchase_order}
         if not doc.purchase_order:
+            pay = _loads(doc.get("pay_json")) if _has_col(DT_PRODUCT, "pay_json") else None
             po = _make_po(doc.supplier, doc.trip, doc.name,
                           [(v["itemCode"], v["qty"], v["cost"]) for v in variants],
-                          receipt_image=doc.receipt_image)
+                          receipt_image=doc.receipt_image,
+                          pay=pay or {"method": "cash"}, buyer=doc.buyer)
             doc.db_set("purchase_order", po.name)
             frappe.db.commit()
-        if not doc.purchase_invoice:
-            pi = _make_paid_invoice(doc.purchase_order)
-            if pi:
-                doc.db_set("purchase_invoice", pi)
-                frappe.db.commit()
+        # No invoice here: PO → PR (receiving) → PI, and the PI and the
+        # payment are the accountant's (Ahmed, 2026-11-19).
     except Exception as e:
         frappe.db.rollback()
         doc.reload()
@@ -1437,23 +1508,26 @@ def finish_buy(name):
         return {"name": doc.name, "pending": True, "error": doc.error}
 
     _set_stage(doc, "bought", bought_at=now_datetime(), error="")
-    doc.add_comment("Comment", f"Souk: {doc.purchase_order}"
-                               + (f" + paid {doc.purchase_invoice}" if doc.purchase_invoice else "")
-                               + " · waiting for receiving.")
+    doc.add_comment("Comment", f"Souk: {doc.purchase_order} · waiting for receiving.")
     frappe.db.commit()
     return {"name": doc.name, "pending": False, "stage": "bought", "po": doc.purchase_order,
-            "pi": doc.purchase_invoice or "", "variants": variants,
-            "left": _trip_card(frappe.get_doc(DT_TRIP, cint(doc.trip)))["expected"]}
+            "pi": "", "variants": variants, "left": _trip_left(doc.trip)}
 
 
-def _make_po(supplier, trip, product, lines, receipt_image="", client_key=""):
+def _make_po(supplier, trip, product, lines, receipt_image="", client_key="", pay=None, buyer=None):
     today = nowdate()
+    pay = pay or {}
     po = frappe.new_doc("Purchase Order")
     po.update({
         "company": COMPANY, "supplier": supplier, "transaction_date": today, "schedule_date": today,
         "set_warehouse": RECEIVING_WH, "currency": "MAD", "taxes_and_charges": "",
-        "custom_souk_trip": str(trip), "custom_souk_product": product or "",
+        "custom_souk_trip": str(trip or ""), "custom_souk_product": product or "",
     })
+    if _has_col("Purchase Order", "custom_souk_buyer"):
+        po.custom_souk_buyer = buyer or frappe.session.user
+        po.custom_souk_pay = pay.get("method") or ""
+        po.custom_souk_pay_ref = pay.get("ref") or ""
+        po.custom_souk_pay_due = pay.get("due") or None
     if client_key:
         po.custom_souk_client_key = client_key
     if receipt_image:
@@ -1468,25 +1542,19 @@ def _make_po(supplier, trip, product, lines, receipt_image="", client_key=""):
     return po
 
 
-def _make_paid_invoice(po_name):
-    """Paid on the custody account — only once the accountant has named it."""
-    acct = settings().get("custodyAccount")
-    if not acct:
-        return None
-    from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_invoice
-    pi = make_purchase_invoice(po_name)
-    pi.update_stock = 0
-    pi.is_paid = 1
-    pi.mode_of_payment = MODE_OF_PAYMENT
-    pi.cash_bank_account = acct
-    pi.set("taxes", [])
-    pi.run_method("set_missing_values")
-    pi.run_method("calculate_taxes_and_totals")
-    pi.paid_amount = pi.grand_total
-    pi.base_paid_amount = pi.base_grand_total
-    pi.insert(ignore_permissions=True)
-    pi.submit()
-    return pi.name
+def _trip_left(trip):
+    """Custody left on the trip a cash purchase counted against, else None."""
+    return _trip_card(frappe.get_doc(DT_TRIP, cint(trip)))["expected"] if trip else None
+
+
+def _pay_text(pay):
+    m = (pay or {}).get("method") or "cash"
+    out = {"cash": "cash", "cheque": "cheque", "transfer": "transfer", "credit": "on credit"}[m]
+    if pay.get("ref"):
+        out += f" {pay['ref']}"
+    if pay.get("due"):
+        out += f" due {pay['due']}"
+    return out
 
 
 # --- buy again ----------------------------------------------------------------
@@ -1537,11 +1605,9 @@ def create_rebuy(payload):
         done = frappe.db.get_value("Purchase Order", {"custom_souk_client_key": ckey, "docstatus": 1},
                                    ["name", "custom_souk_trip"], as_dict=True)
         if done:
-            return {"po": done.name, "pi": "", "repeat": True,
-                    "left": _trip_card(frappe.get_doc(DT_TRIP, cint(done.custom_souk_trip)))["expected"]}
-    trip = _my_open_trip()
-    if not trip:
-        frappe.throw("No open custody. The accountant opens the trip and hands you the cash first.")
+            return {"po": done.name, "pi": "", "repeat": True, "left": _trip_left(done.custom_souk_trip)}
+    pay = _clean_pay(p.get("payment") or {"method": "cash"})
+    trip = _my_open_trip() if pay["method"] == "cash" else None
     stall = _resolve_stall(p.get("stall"), p.get("newStall"))
     lines = []
     for ln in p.get("lines") or []:
@@ -1556,17 +1622,15 @@ def create_rebuy(payload):
     if not lines:
         frappe.throw("Enter at least one quantity.")
     total = sum(q * c for _, q, c in lines)
-    if total > _trip_card(trip)["expected"] + 0.01:
-        frappe.throw(f"This costs {total:,.0f} MAD and you have {_trip_card(trip)['expected']:,.0f} MAD of custody left.")
     product = p.get("product") if p.get("kind") == "souk" else ""
-    po = _make_po(stall, trip.name, product, lines, client_key=ckey if keyed else "")
-    pi = _make_paid_invoice(po.name)
+    po = _make_po(stall, trip.name if trip else "", product, lines, client_key=ckey if keyed else "",
+                  pay=pay, buyer=frappe.session.user)
     if product and frappe.db.exists(DT_PRODUCT, product):
         frappe.get_doc(DT_PRODUCT, product).add_comment(
             "Comment", f"Souk: bought again from {stall} · {sum(q for _, q, _ in lines)} pcs · "
-                       f"{total:,.2f} MAD · {po.name} · trip {trip.name}.")
+                       f"{total:,.2f} MAD · {_pay_text(pay)} · {po.name}" + (f" · trip {trip.name}" if trip else "") + ".")
     frappe.db.commit()
-    return {"po": po.name, "pi": pi or "", "left": _trip_card(frappe.get_doc(DT_TRIP, trip.name))["expected"]}
+    return {"po": po.name, "pi": "", "left": _trip_left(trip.name if trip else "")}
 
 
 # --- launch board --------------------------------------------------------------
@@ -1768,9 +1832,11 @@ def product(name):
     pos = frappe.db.sql(
         """SELECT po.name, po.supplier, po.grand_total, po.status, po.per_received, po.transaction_date,
                   po.custom_souk_trip AS trip, po.custom_souk_received AS pr, po.custom_souk_owed AS owed,
-                  po.custom_souk_debit_note AS debit_note, po.custom_souk_outcome AS outcome
+                  po.custom_souk_debit_note AS debit_note, po.custom_souk_outcome AS outcome{pay}
            FROM `tabPurchase Order` po
-           WHERE po.custom_souk_product = %s AND po.docstatus = 1 ORDER BY po.creation""",
+           WHERE po.custom_souk_product = %s AND po.docstatus = 1 ORDER BY po.creation""".format(
+            pay=", po.custom_souk_pay AS pay, po.custom_souk_pay_ref AS pay_ref, po.custom_souk_pay_due AS pay_due"
+            if _has_col("Purchase Order", "custom_souk_pay") else ""),
         (doc.name,), as_dict=True)
     events = [{"at": str(c.creation)[:16], "text": c.content, "by": _user_name(c.owner)}
               for c in frappe.get_all("Comment", filters={"reference_doctype": DT_PRODUCT,
@@ -1789,7 +1855,8 @@ def product(name):
         "purchases": [{"po": p.name, "stall": p.supplier, "amount": flt(p.grand_total), "status": p.status,
                        "received": flt(p.per_received), "date": str(p.transaction_date), "trip": p.trip,
                        "pr": p.pr or "", "owed": flt(p.owed), "debitNote": p.debit_note or "",
-                       "outcome": _loads(p.outcome)}
+                       "outcome": _loads(p.outcome), "pay": p.get("pay") or "",
+                       "payRef": p.get("pay_ref") or "", "payDue": str(p.get("pay_due") or "")}
                       for p in pos],
         "owed": round(sum(flt(p.owed) for p in pos), 2),
         "events": events,
@@ -1951,7 +2018,7 @@ def receive_queue():
                    (SELECT SUM(qty) FROM `tabPurchase Order Item` WHERE parent = po.name) AS units
             FROM `tabPurchase Order` po
             LEFT JOIN `tab{DT_PRODUCT}` p ON p.name = po.custom_souk_product
-            WHERE po.docstatus = 1 AND IFNULL(po.custom_souk_trip, '') != ''
+            WHERE po.docstatus = 1 AND {_souk_po_sql()}
               AND IFNULL(po.custom_souk_received, '') = ''
               AND po.status NOT IN ('Closed', 'Completed', 'Cancelled')
             ORDER BY po.creation""", as_dict=True)
@@ -1966,8 +2033,10 @@ def receive_boot(po):
     _gate_receive()
     h = frappe.db.get_value("Purchase Order", po, ["name", "supplier", "docstatus", "status",
                                                     "custom_souk_trip", "custom_souk_product",
-                                                    "custom_souk_received"], as_dict=True)
-    if not h or not h.custom_souk_trip:
+                                                    "custom_souk_received"]
+                            + (["custom_souk_buyer"] if _has_col("Purchase Order", "custom_souk_buyer") else []),
+                            as_dict=True)
+    if not h or not _is_souk_po(h):
         frappe.throw("Not a souk purchase.")
     prod = frappe.db.get_value(DT_PRODUCT, h.custom_souk_product,
                                ["name", "title", "ref_image", "stage", "variants_json"], as_dict=True) \
@@ -2016,7 +2085,7 @@ def receive(po, payload):
     _gate_receive()
     p = json.loads(payload) if isinstance(payload, str) else (payload or {})
     h = frappe.get_doc("Purchase Order", po)
-    if not h.get("custom_souk_trip"):
+    if not _is_souk_po(h):
         frappe.throw("Not a souk purchase.")
     if h.get("custom_souk_received"):
         frappe.throw(f"Already received ({h.custom_souk_received}).")

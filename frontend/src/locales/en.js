@@ -2465,7 +2465,7 @@ export default {
     confirmRebuy: "Confirm buy-again",
     failed: "Didn't work",
     custodyTitle: "Custody",
-    custodyIntro: "The accountant hands out the cash and counts it back. Every purchase is deducted.",
+    custodyIntro: "The accountant hands out the cash and counts it back. Purchases paid in cash are deducted; cheques, transfers and credit go straight to accounting.",
     product: "Product",
     board: "Launch board",
     handOut: "Hand out a custody",

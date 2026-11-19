@@ -21,6 +21,7 @@ const W = {
     live: "EN LIGNE par {1} sur {2}", samplesBack: "{1} échantillon(s) du studio remis en rayon",
     samplesLeft: "échantillons restés au studio (aucun rayon pour cet article) : {1}",
     samplesStuck: "échantillons encore au studio — à déplacer à la main ({1})",
+    cash: "espèces", cheque: "chèque", transfer: "virement", credit: "à crédit", due: "échéance",
   },
   ar: {
     bought: "اتشرى من {1}", boughtAgain: "اتشرى تاني من {1}", pcs: "{1} قطعة", trip: "رحلة {1}", by: "بواسطة {1}",
@@ -37,6 +38,7 @@ const W = {
     live: "اتنشر بواسطة {1} على {2}", samplesBack: "{1} عينة رجعت من الاستوديو للرف",
     samplesLeft: "عينات فضلت في الاستوديو (مفيش رف للصنف ده): {1}",
     samplesStuck: "العينات لسه في الاستوديو — انقلها بإيدك ({1})",
+    cash: "كاش", cheque: "شيك", transfer: "تحويل", credit: "آجل", due: "يستحق",
   },
 };
 
@@ -76,6 +78,8 @@ const P = [
   [/^samples left in the studio \(no shelf holds this item\): (.+)$/, "samplesLeft"],
   [/^samples still in the studio — move them by hand \((.*)\)$/, "samplesStuck"],
   [/^by (.+)$/, "by"],
+  // how the stall is paid (api/souk.py _pay_text): method [ref] [due date]
+  [/^(cash|cheque|transfer|on credit)(?: (?!due )(\S+))?(?: due (\S+))?$/, "pay"],
 ];
 
 function fragment(f, words, stageName) {
@@ -83,6 +87,10 @@ function fragment(f, words, stageName) {
   for (const [re, key] of P) {
     const m = re.exec(s);
     if (!m) continue;
+    if (key === "pay") {
+      const meth = words[m[1] === "on credit" ? "credit" : m[1]];
+      return [meth, m[2], m[3] ? `${words.due} ${m[3]}` : ""].filter(Boolean).join(" ");
+    }
     let out = words[key];
     for (let i = 1; i <= 3; i++) {
       let v = m[i] == null ? "" : m[i];

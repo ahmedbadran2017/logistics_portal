@@ -40,11 +40,6 @@
     <div class="max-w-[520px] mx-auto px-4 flex flex-col gap-3.5" :class="done ? 'pt-7 pb-6' : formMode ? 'pt-3.5 pb-48' : 'pt-3.5 pb-6'">
       <div v-if="loading && !boot" class="h-[320px] lp-card animate-pulse" />
 
-      <div v-else-if="boot && !boot.trip && !done && !sent"
-           class="rounded-xl bg-amber-50 ring-1 ring-inset ring-amber-200 p-4 text-[14px] text-amber-800 leading-relaxed">
-        {{ t('souk.noTrip') }}
-      </div>
-
       <!-- ── done (BuyDone) ───────────────────────────────────────────────── -->
       <template v-else-if="done">
         <div class="flex flex-col items-center gap-2 text-center pt-2 pb-1">
@@ -77,7 +72,7 @@
             <span class="w-2 h-2 rounded-full bg-emerald-700 shrink-0" />
             <div class="flex-1 min-w-0 flex flex-col">
               <span class="text-[14px] font-semibold text-stone-900">
-                {{ tt(done.pi ? 'souk.buy.done.po' : 'souk.buy.done.poOnly', { stall: done.stall || '—' }) }}
+                {{ tt('souk.buy.done.poPay', { stall: done.stall || '—', pay: payLabel(done.pay) }) }}
               </span>
               <span class="text-start text-[12px] text-stone-600 tabular-nums break-words">
                 <span class="mono" dir="ltr"><template v-if="done.po">{{ done.po }}<template v-if="done.pi"> · {{ done.pi }}</template> · </template>{{ fmt(done.amount) }} MAD</span>
@@ -95,9 +90,9 @@
           </div>
         </section>
 
-        <div class="rounded-xl bg-stone-900 text-white px-3.5 py-3 flex items-center justify-between gap-2">
+        <div v-if="done.left != null" class="rounded-xl bg-stone-900 text-white px-3.5 py-3 flex items-center justify-between gap-2">
           <span class="text-[13px] text-stone-300">{{ t('souk.leftWithYou') }}</span>
-          <span class="text-[16px] font-extrabold tabular-nums">{{ fmt(done.left ?? left) }} MAD</span>
+          <span class="text-[16px] font-extrabold tabular-nums">{{ fmt(done.left) }} MAD</span>
         </div>
 
         <div class="flex flex-col gap-2 pt-2">
@@ -125,7 +120,7 @@
           <div v-if="sent.pending" class="mono text-[12px] text-stone-500" dir="ltr">{{ sent.pending }}</div>
         </section>
 
-        <div v-if="boot?.trip" class="rounded-xl bg-stone-900 text-white px-3.5 py-3 flex items-center justify-between gap-2">
+        <div v-if="boot?.trip && sent.summary.pay === 'cash'" class="rounded-xl bg-stone-900 text-white px-3.5 py-3 flex items-center justify-between gap-2">
           <span class="text-[13px] text-stone-300">{{ t('souk.leftWithYou') }}</span>
           <span class="text-[16px] font-extrabold tabular-nums">{{ fmt(left) }} MAD</span>
         </div>
@@ -397,16 +392,6 @@
               </div>
             </div>
             <p class="text-[12px] text-stone-600 leading-normal">{{ t('souk.marginHint') }}</p>
-            <div class="flex items-center gap-2">
-              <span aria-hidden="true" class="w-5 h-5 rounded-md bg-[var(--accent-600)] text-white flex items-center justify-center shrink-0"><Icon name="check" :size="13" :stroke-width="3" /></span>
-              <span class="flex-1 min-w-0 text-[13px] font-semibold text-stone-900">{{ t('souk.paidFromCustody') }}</span>
-              <img v-if="receiptPreview" :src="receiptPreview" class="w-11 h-11 rounded-lg object-cover ring-1 ring-stone-200 shrink-0" alt="" />
-              <label class="shrink-0 h-11 px-2.5 rounded-lg bg-stone-100 ring-1 ring-inset ring-stone-200 text-[13px] font-semibold text-stone-700 inline-flex items-center cursor-pointer">
-                {{ receiptPreview ? t('souk.buy.retake') : t('souk.buy.receiptTake') }}
-                <input type="file" accept="image/*" capture="environment" class="hidden" @change="pickReceipt" />
-              </label>
-            </div>
-            <p v-if="!receiptPreview" class="text-[12px] text-stone-500 leading-normal -mt-1.5">{{ t('souk.receiptHint') }}</p>
           </section>
         </template>
 
@@ -461,19 +446,66 @@
             </div>
             <p v-if="again.lastStall" class="text-[12px] text-stone-600">{{ t('souk.lastStall').replace('{s}', again.lastStall) }}</p>
           </section>
-          <section class="lp-card p-3.5 flex flex-col gap-1.5">
-            <div class="flex items-center gap-2">
-              <span aria-hidden="true" class="w-5 h-5 rounded-md bg-[var(--accent-600)] text-white flex items-center justify-center shrink-0"><Icon name="check" :size="13" :stroke-width="3" /></span>
-              <span class="flex-1 min-w-0 text-[13px] font-semibold text-stone-900">{{ t('souk.paidFromCustody') }}</span>
-              <img v-if="receiptPreview" :src="receiptPreview" class="w-11 h-11 rounded-lg object-cover ring-1 ring-stone-200 shrink-0" alt="" />
-              <label class="shrink-0 h-11 px-2.5 rounded-lg bg-stone-100 ring-1 ring-inset ring-stone-200 text-[13px] font-semibold text-stone-700 inline-flex items-center cursor-pointer">
-                {{ receiptPreview ? t('souk.buy.retake') : t('souk.buy.receiptTake') }}
-                <input type="file" accept="image/*" capture="environment" class="hidden" @change="pickReceipt" />
-              </label>
-            </div>
-            <p v-if="!receiptPreview" class="text-[12px] text-stone-500 leading-normal">{{ t('souk.receiptHint') }}</p>
-          </section>
         </template>
+
+        <!-- PAYMENT: how the stall is paid. The purchase is a PO; receiving
+             makes the PR and the accountant the PI and the payment — this
+             only tells him how (cash on the custody, cheque, transfer,
+             credit). Not tied to a custody (Ahmed, 2026-11-19). -->
+        <section class="lp-card p-3.5 flex flex-col gap-3" aria-labelledby="sb-pay-h">
+          <h2 id="sb-pay-h" class="text-[14px] font-bold text-stone-900">{{ t('souk.buy.pay.title') }}</h2>
+          <div role="radiogroup" :aria-labelledby="'sb-pay-h'" class="grid grid-cols-2 gap-2">
+            <button v-for="m in PAY" :key="m.k" type="button" role="radio" :aria-checked="pay.method === m.k"
+                    class="min-h-[52px] rounded-[10px] px-3 py-2 flex items-center gap-2.5 text-start ring-1 ring-inset transition-colors"
+                    :class="pay.method === m.k ? 'bg-[var(--accent-50)] ring-[var(--accent-600)] text-[var(--accent-700)]' : 'bg-white ring-stone-300 text-stone-800 hover:bg-stone-50'"
+                    @click="choosePay(m.k)">
+              <Icon :name="m.icon" :size="18" class="shrink-0" />
+              <span class="flex flex-col min-w-0">
+                <span class="text-[14px] font-semibold leading-tight">{{ t('souk.buy.pay.' + m.k) }}</span>
+                <span v-if="m.k === 'cash'" class="text-[11px] leading-snug mt-0.5"
+                      :class="pay.method === 'cash' ? 'text-[var(--accent-700)]' : 'text-stone-500'">
+                  {{ boot.trip ? tt('souk.buy.pay.cashTrip', { n: fmt(left) }) : t('souk.buy.pay.cashNoTrip') }}
+                </span>
+              </span>
+            </button>
+          </div>
+
+          <div v-if="pay.method === 'cheque' || pay.method === 'transfer' || pay.method === 'credit'" class="grid grid-cols-2 gap-2.5">
+            <div v-if="pay.method !== 'credit'" class="flex flex-col gap-1" :class="pay.method === 'transfer' ? 'col-span-2' : ''">
+              <label for="sb-pay-ref" class="text-[12px] font-semibold text-stone-700">
+                {{ t(pay.method === 'cheque' ? 'souk.buy.pay.chequeNo' : 'souk.buy.pay.transferRef') }}
+                <span class="font-normal text-stone-500">· {{ t('souk.buy.pay.optional') }}</span>
+              </label>
+              <input id="sb-pay-ref" v-model="pay.ref" dir="ltr" inputmode="text" autocomplete="off" maxlength="60"
+                     class="h-11 rounded-lg ring-1 ring-inset ring-stone-300 bg-white px-3 text-[16px] tabular-nums" />
+            </div>
+            <div v-if="pay.method !== 'transfer'" class="flex flex-col gap-1" :class="pay.method === 'credit' ? 'col-span-2' : ''">
+              <label for="sb-pay-due" class="text-[12px] font-semibold text-stone-700">
+                {{ t(pay.method === 'cheque' ? 'souk.buy.pay.chequeDue' : 'souk.buy.pay.creditDue') }}
+                <span class="font-normal text-stone-500">· {{ t('souk.buy.pay.optional') }}</span>
+              </label>
+              <input id="sb-pay-due" v-model="pay.due" type="date" dir="ltr"
+                     class="h-11 rounded-lg ring-1 ring-inset ring-stone-300 bg-white px-3 text-[16px]" />
+            </div>
+          </div>
+
+          <p v-if="pay.method === 'cash' && boot.trip && total > left + 0.01"
+             class="text-[12px] text-amber-800 bg-amber-50 rounded-lg px-3 py-2 flex items-start gap-1.5">
+            <Icon name="info" :size="13" class="mt-[2px] shrink-0" />{{ tt('souk.buy.pay.over', { n: fmt(total - left) }) }}
+          </p>
+          <p v-else class="text-[12px] text-stone-600 leading-normal">{{ t('souk.buy.pay.books') }}</p>
+
+          <!-- the stall's paper: the accountant's proof, whatever the payment -->
+          <div class="flex items-center gap-2 pt-2.5 border-t border-stone-100">
+            <Icon name="ticket" :size="16" class="text-stone-500 shrink-0" />
+            <span class="flex-1 min-w-0 text-[13px] font-semibold text-stone-900">{{ t('souk.buy.pay.receipt') }}</span>
+            <img v-if="receiptPreview" :src="receiptPreview" class="w-11 h-11 rounded-lg object-cover ring-1 ring-stone-200 shrink-0" alt="" />
+            <label class="shrink-0 h-11 px-2.5 rounded-lg bg-stone-100 ring-1 ring-inset ring-stone-200 text-[13px] font-semibold text-stone-700 inline-flex items-center cursor-pointer">
+              {{ receiptPreview ? t('souk.buy.retake') : t('souk.buy.receiptTake') }}
+              <input type="file" accept="image/*" capture="environment" class="hidden" @change="pickReceipt" />
+            </label>
+          </div>
+        </section>
 
         <div v-if="sendError" class="rounded-xl bg-rose-50 ring-1 ring-inset ring-rose-200 p-3.5 space-y-1" role="alert">
           <div class="text-[13px] font-bold text-rose-800">{{ t('souk.buy.refused') }}</div>
@@ -487,7 +519,7 @@
       <div class="max-w-[520px] mx-auto flex flex-col gap-2">
         <div class="flex items-center justify-between gap-2 text-[13px] text-stone-700 tabular-nums">
           <span class="min-w-0 truncate">{{ tt(tab === 'new' ? 'souk.buy.summary' : 'souk.buy.summaryAgain', { v: lineCount, n: units }) }}</span>
-          <span class="shrink-0 font-bold" :class="total > left + 0.01 ? 'text-rose-600' : 'text-stone-900'">{{ fmt(total) }} MAD</span>
+          <span class="shrink-0 font-bold text-stone-900">{{ fmt(total) }} MAD</span>
         </div>
         <p v-if="why" class="text-[12px] font-semibold text-amber-800 flex items-start gap-1.5" aria-live="polite">
           <Icon name="info" :size="13" class="mt-[2px] shrink-0" />{{ why }}
@@ -600,7 +632,29 @@ const queued = ref(readJSON(QUEUED_KEY, {}) || {});
 
 const fmt = (n) => Math.round(Number(n || 0)).toLocaleString("fr-FR");
 const cat = computed(() => boot.value?.categories.find((c) => c.key === f.category));
-const formMode = computed(() => !!(boot.value?.trip && !done.value && !sent.value));
+const formMode = computed(() => !!(boot.value && !done.value && !sent.value));
+
+// ── payment ──────────────────────────────────────────────────────────────────
+const PAY = [
+  { k: "cash", icon: "wallet" }, { k: "cheque", icon: "notebook-pen" },
+  { k: "transfer", icon: "send" }, { k: "credit", icon: "clock" },
+];
+const pay = reactive({ method: "", ref: "", due: "", picked: false });
+const payLabel = (m) => (m ? t("souk.buy.pay." + m) : "—");
+function choosePay(m) {
+  pay.method = m;
+  pay.picked = true;
+  if (m === "cash") { pay.ref = ""; pay.due = ""; }
+  if (m === "transfer") pay.due = "";
+  if (m === "credit") pay.ref = "";
+}
+// Until the buyer picks: the way this stall was paid last time, else cash
+// when a custody is open.
+function defaultPay() {
+  if (pay.picked) return;
+  const last = (boot.value?.lastPay || {})[f.stall];
+  pay.method = last || (boot.value?.trip ? "cash" : "");
+}
 
 // ── colours ──────────────────────────────────────────────────────────────────
 const SWATCH = {
@@ -761,7 +815,7 @@ const stallOk = computed(() => !!f.stall || (f.newStall.name || "").replace(/[^A
 
 // Why the button is grey — the first thing to fix, in words.
 const why = computed(() => {
-  if (!boot.value?.trip) return "";
+  if (!boot.value) return "";
   const W = (k, v) => tt("souk.buy.why." + k, v);
   if (tab.value === "again") {
     if (!again.value) return W("pick");
@@ -789,7 +843,7 @@ const why = computed(() => {
     if (long) return W("skuLong", { sku: long.sku, n: boot.value.skuMax });
   }
   if (total.value <= 0) return W("qty");
-  if (total.value > left.value + 0.01) return W("over", { n: fmt(left.value) });
+  if (!pay.method) return W("pay");
   return "";
 });
 
@@ -869,6 +923,7 @@ function saveDraft() {
     sizes: sizes.value.map((s) => ({ ...s })),
     qty: { ...qty }, cost: { ...cost }, price: { ...price },
     clientKey: clientKey.value, again: again.value,
+    pay: { ...pay },
   });
 }
 function loadDraft() {
@@ -898,8 +953,10 @@ function loadDraft() {
   clientKey.value = d.clientKey || "";
   if (d.tab === "again" || d.tab === "new") tab.value = d.tab;
   if (d.again && Array.isArray(d.again.rows)) again.value = d.again;
+  if (d.pay && PAY.some((m) => m.k === d.pay.method)) Object.assign(pay, { ref: "", due: "", ...d.pay });
 }
-watch([f, sizes, qty, cost, price, tab, again, clientKey], saveDraft, { deep: true });
+watch([f, sizes, qty, cost, price, tab, again, clientKey, pay], saveDraft, { deep: true });
+watch([() => f.stall, boot], defaultPay);
 watch(() => f.category, (c) => { if (c) { lastCat.value = c; writeJSON(CAT_KEY, c); } });
 
 function clearForm() {
@@ -918,6 +975,8 @@ function clearForm() {
   again.value = null; againQ.value = ""; againRows.value = [];
   clientKey.value = "";
   sendError.value = "";
+  Object.assign(pay, { method: "", ref: "", due: "", picked: false });
+  defaultPay();
   tab.value = "new";
   writeJSON(DRAFT_KEY, null);
 }
@@ -941,7 +1000,7 @@ function finish(summary, r) {
   done.value = {
     again: summary.again, title: summary.title, stall: summary.stall, brand: summary.brand,
     amount: summary.total, units: summary.units,
-    po: r?.po || "", pi: r?.pi || "", left: r?.left ?? null,
+    po: r?.po || "", pi: r?.pi || "", left: summary.pay === "cash" ? (r?.left ?? null) : null, pay: summary.pay,
     variants: (r?.variants?.length ? r.variants : summary.lines || []).map((v) => ({ sku: v.sku, qty: v.qty, cost: v.cost })),
   };
   if (summary.again) done.value.variants = summary.lines || [];
@@ -974,7 +1033,7 @@ async function submit() {
   const summary = {
     again: !isNew, title: isNew ? f.title.trim() : again.value.title, stall: stallLabel(),
     brand: isNew ? cat.value?.brand || "" : "", total: total.value, units: units.value,
-    hasRef: isNew && !!refFile.value, hasReceipt: !!receiptFile.value,
+    hasRef: isNew && !!refFile.value, hasReceipt: !!receiptFile.value, pay: pay.method,
     lines: isNew ? lines.value.map((l) => ({ sku: l.sku, qty: l.qty, cost: l.cost }))
       : againLines.value.map((r) => ({ sku: r.sku, qty: Number(r.qty), cost: Number(r.cost) })),
   };
@@ -991,6 +1050,7 @@ async function submit() {
           stall: f.stall, newStall: { ...f.newStall },
           lines: lines.value.map((l) => ({ color: l.color, size: l.size, ...(l.sizeCode ? { sizeCode: l.sizeCode } : {}),
                                            qty: l.qty, cost: l.cost, price: l.price })),
+          payment: { method: pay.method, ref: pay.ref.trim(), due: pay.due },
           clientKey: clientKey.value,
         },
       };
@@ -1000,11 +1060,12 @@ async function submit() {
         payload: {
           kind: again.value.kind, product: again.value.key, stall: f.stall, newStall: { ...f.newStall },
           lines: againLines.value.map((x) => ({ itemCode: x.itemCode, qty: Number(x.qty), cost: Number(x.cost) })),
+          payment: { method: pay.method, ref: pay.ref.trim(), due: pay.due },
           clientKey: clientKey.value,
         },
       };
     }
-    setQueued(jobId, summary.total);
+    setQueued(jobId, pay.method === "cash" ? summary.total : 0);
     const r = await enqueue(job);
     clearForm();
     if (r && r.queued) {

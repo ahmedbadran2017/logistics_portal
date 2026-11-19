@@ -2461,7 +2461,7 @@ export default {
     confirmRebuy: "Confirmer le rachat",
     failed: "Échec",
     custodyTitle: "Caisse",
-    custodyIntro: "Le comptable remet l'argent et le recompte. Chaque achat est déduit.",
+    custodyIntro: "Le comptable remet l'argent et le recompte. Les achats payés en espèces sont déduits ; chèques, virements et crédit vont directement à la comptabilité.",
     product: "Produit",
     board: "Tableau de lancement",
     handOut: "Remettre une caisse",
