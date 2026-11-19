@@ -8,7 +8,7 @@
         <img :src="logoSrc" alt="Justyol" class="h-4" />
       </span>
       <div class="relative">
-        <span class="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-[#f6ccbf] bg-white/10 ring-1 ring-white/15 rounded-full px-3 py-1">
+        <span class="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#f6ccbf] bg-white/10 ring-1 ring-white/15 rounded-full px-3 py-1">
           <span class="w-1.5 h-1.5 rounded-full bg-[#e17f62]" />{{ t('nav.soukPortalShort') }}
         </span>
         <h2 class="mt-5 text-[30px] font-bold leading-tight tracking-[-0.01em]">{{ t('auth.soukHero') }}</h2>
@@ -17,11 +17,11 @@
             <span class="w-8 h-8 rounded-lg bg-white/10 ring-1 ring-white/15 flex items-center justify-center flex-shrink-0">
               <Icon :name="s.icon" :size="15" class="text-[#eea894]" />
             </span>
-            <span class="text-[13.5px] text-white/85"><span class="text-white/40 me-1.5 tabular-nums">{{ i + 1 }}</span>{{ t(s.k) }}</span>
+            <span class="text-[14px] text-white/85"><span class="text-white/40 me-1.5 tabular-nums">{{ i + 1 }}</span>{{ t(s.k) }}</span>
           </li>
         </ol>
       </div>
-      <div class="text-[11.5px] text-white/40">© {{ year }} Justyol</div>
+      <div class="text-[12px] text-white/40">© {{ year }} Justyol</div>
     </div>
 
     <!-- The form -->
@@ -29,7 +29,7 @@
       <div class="flex justify-end p-4">
         <div class="flex items-center rounded-lg ring-1 ring-stone-200 bg-white p-0.5">
           <button v-for="l in LOCALES" :key="l.k" type="button"
-                  class="h-7 min-w-[34px] px-2 rounded-md text-[11.5px] font-semibold"
+                  class="h-7 min-w-[34px] px-2 rounded-md text-[12px] font-semibold"
                   :class="locale === l.k ? 'bg-stone-900 text-white' : 'text-stone-500 hover:text-stone-900'"
                   @click="setLocale(l.k)">{{ l.label }}</button>
         </div>
@@ -42,10 +42,10 @@
         <div class="w-full max-w-[360px]">
           <div class="lg:hidden mb-8 flex items-center gap-2">
             <img :src="logoSrc" alt="Justyol" class="h-4" />
-            <span class="text-[11.5px] font-semibold text-[var(--accent-700)] bg-[var(--accent-50)] rounded-full px-2 py-0.5">{{ t('nav.soukPortalShort') }}</span>
+            <span class="text-[12px] font-semibold text-[var(--accent-700)] bg-[var(--accent-50)] rounded-full px-2 py-0.5">{{ t('nav.soukPortalShort') }}</span>
           </div>
           <h1 class="text-[24px] font-bold text-stone-900 tracking-[-0.01em]">{{ t('auth.soukWelcome') }}</h1>
-          <p class="text-[13px] text-stone-500 mt-1">{{ t('auth.soukSub') }}</p>
+          <p class="text-[14px] text-stone-500 mt-1">{{ t('auth.soukSub') }}</p>
 
           <form class="mt-7 space-y-4" @submit.prevent="submit">
             <div>

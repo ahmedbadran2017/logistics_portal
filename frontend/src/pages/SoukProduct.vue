@@ -15,12 +15,12 @@
             <Icon :name="isRTL ? 'chevron-right' : 'chevron-left'" :size="18" :stroke-width="2" />
           </router-link>
           <img v-if="d.image" :src="d.image" class="w-[52px] h-[52px] shrink-0 rounded-[10px] object-cover bg-stone-100" alt="" />
-          <div v-else class="w-[52px] h-[52px] shrink-0 rounded-[10px] bg-stone-100 ring-1 ring-inset ring-stone-200 flex items-center justify-center text-stone-400">
+          <div v-else class="w-[52px] h-[52px] shrink-0 rounded-[10px] bg-stone-100 ring-1 ring-inset ring-stone-200 flex items-center justify-center text-stone-500">
             <Icon name="image" :size="20" />
           </div>
           <div class="min-w-0 flex flex-col gap-0.5">
             <h1 class="text-[20px] font-bold text-stone-900 leading-tight line-clamp-2">{{ d.title }}</h1>
-            <div class="text-[11.5px] text-stone-600 break-words">
+            <div class="text-[12px] text-stone-600 break-words">
               <bdi class="mono" dir="ltr">{{ d.name }}</bdi>
               <span v-if="d.stall"> · {{ t('souk.stallShort') }} {{ d.stall }}</span>
               <span v-if="d.brand"> · {{ t('souk.siteShort') }} {{ d.brand }}</span>
@@ -28,7 +28,9 @@
             </div>
           </div>
         </div>
-        <div class="flex gap-2 flex-wrap">
+        <!-- Phone: one swipeable row under the title (wrapping left a lone
+             button on a second line); desk: wraps beside the title. -->
+        <div class="w-full sm:w-auto -mx-4 px-4 sm:mx-0 sm:px-0 flex gap-2 overflow-x-auto sm:overflow-visible sm:flex-wrap">
           <button v-if="d.stage === 'buying'" class="btn bg-stone-900 text-white disabled:opacity-40" :disabled="busy" @click="finish">{{ t('souk.retry') }}</button>
           <router-link v-if="d.canReceive && d.stage === 'bought' && d.po" :to="{ name: 'SoukReceive', params: { po: d.po } }"
                        class="btn btn-accent">{{ t('souk.receiveBtn') }}</router-link>
@@ -58,9 +60,9 @@
         </div>
       </header>
 
-      <div v-if="d.error" class="bg-rose-50 ring-1 ring-inset ring-rose-200 rounded-xl px-4 py-3 text-[12px] text-rose-800 mono break-words">{{ d.error }}</div>
+      <div v-if="d.error" class="bg-rose-50 ring-1 ring-inset ring-rose-200 rounded-xl px-4 py-3 text-[13px] text-rose-800 mono break-words">{{ d.error }}</div>
 
-      <div v-if="d.stage === 'dropped'" class="bg-stone-50 ring-1 ring-inset ring-stone-200 rounded-xl px-4 py-3 text-[12.5px] text-stone-800 flex flex-col gap-0.5">
+      <div v-if="d.stage === 'dropped'" class="bg-stone-50 ring-1 ring-inset ring-stone-200 rounded-xl px-4 py-3 text-[13px] text-stone-800 flex flex-col gap-0.5">
         <div class="font-bold">
           {{ d.droppedFrom ? fill(t('souk.pd.droppedBanner'), { s: t('souk.st_' + d.droppedFrom) }) : t('souk.st_dropped') }}
           <span v-if="whyOf(d.reviewNote)" class="font-semibold text-stone-600"> · {{ t('souk.lb.why_' + whyOf(d.reviewNote)) }}</span>
@@ -74,9 +76,9 @@
           <li v-for="st in stepper" :key="st.s" class="flex-1 flex flex-col gap-1.5" :data-here="st.here ? 1 : undefined" :aria-current="st.here ? 'step' : undefined">
             <div class="h-1.5 rounded-full"
                  :class="{ done: 'bg-emerald-700', current: 'bg-stone-900', late: 'bg-rose-600', todo: 'bg-stone-200' }[st.state]" />
-            <span class="text-[12px] font-bold"
+            <span class="text-[13px] font-bold"
                   :class="st.state === 'late' ? 'text-rose-700' : st.state === 'todo' ? 'text-stone-600' : 'text-stone-900'">{{ t('souk.st_' + st.s) }}</span>
-            <span class="text-[11px] text-stone-600 tabular-nums">{{ st.sub }}</span>
+            <span class="text-[12px] text-stone-600 tabular-nums">{{ st.sub }}</span>
           </li>
         </ol>
       </nav>
@@ -85,25 +87,25 @@
         <div class="flex-[999_1_560px] min-w-0 flex flex-col gap-4">
           <!-- what happened -->
           <section class="bg-white rounded-xl ring-1 ring-inset ring-stone-200 p-4 flex flex-col gap-1">
-            <h2 class="text-[13.5px] font-bold text-stone-900 mb-2">{{ t('souk.pd.happened') }}</h2>
+            <h2 class="text-[14px] font-bold text-stone-900 mb-2">{{ t('souk.pd.happened') }}</h2>
             <div v-for="(e, i) in d.events" :key="i"
                  class="grid grid-cols-[76px_10px_minmax(0,1fr)] sm:grid-cols-[96px_14px_minmax(0,1fr)] gap-2.5 items-start py-1.5">
-              <span class="text-[11.5px] text-stone-600 tabular-nums pt-px">{{ stamp(e.at) }}</span>
+              <span class="text-[12px] text-stone-600 tabular-nums pt-px">{{ stamp(e.at) }}</span>
               <span class="w-2.5 h-2.5 rounded-full mt-1 bg-stone-400" />
               <div class="min-w-0 flex flex-col gap-px">
-                <span class="text-[12.5px] font-semibold text-stone-900 break-words">{{ eventText(e.text) }}</span>
-                <span v-if="e.by" class="text-[11.5px] text-stone-600">{{ e.by }}</span>
+                <span class="text-[13px] font-semibold text-stone-900 break-words">{{ eventText(e.text) }}</span>
+                <span v-if="e.by" class="text-[12px] text-stone-600">{{ e.by }}</span>
               </div>
             </div>
-            <div v-if="!d.events.length" class="text-[12px] text-stone-400 py-1">{{ t('souk.pd.noLog') }}</div>
+            <div v-if="!d.events.length" class="text-[13px] text-stone-500 py-1">{{ t('souk.pd.noLog') }}</div>
           </section>
 
           <!-- variants -->
           <section class="bg-white rounded-xl ring-1 ring-inset ring-stone-200 overflow-hidden">
-            <h2 class="px-4 pt-3.5 pb-2 text-[13px] font-bold text-stone-900">{{ t('souk.variants') }} · {{ d.variants.length }}</h2>
+            <h2 class="px-4 pt-3.5 pb-2 text-[14px] font-bold text-stone-900">{{ t('souk.variants') }} · {{ d.variants.length }}</h2>
             <div class="overflow-x-auto">
-              <table class="w-full min-w-[520px] text-[12px]">
-                <thead class="text-stone-500 text-[11.5px]">
+              <table class="w-full min-w-[520px] text-[13px]">
+                <thead class="text-stone-500 text-[12px]">
                   <tr class="border-b border-stone-100">
                     <th class="text-start font-semibold px-4 py-1.5">SKU</th>
                     <th class="text-start font-semibold px-2">{{ t('souk.variant') }}</th>
@@ -115,13 +117,13 @@
                 </thead>
                 <tbody class="divide-y divide-stone-100">
                   <tr v-for="v in d.variants" :key="v.sku">
-                    <td class="px-4 py-2 mono text-[11.5px] font-medium text-stone-900" dir="ltr">{{ v.sku }}</td>
+                    <td class="px-4 py-2 mono text-[12px] font-medium text-stone-900 whitespace-nowrap" dir="ltr">{{ v.sku }}</td>
                     <td class="px-2 text-stone-600">{{ [v.colorFr, v.sizeLabel].filter(Boolean).join(' · ') || '—' }}</td>
                     <td class="px-2 text-center tabular-nums">{{ v.qty }}</td>
                     <td class="px-2 text-center tabular-nums">{{ v.cost }}</td>
                     <td class="px-2 text-center tabular-nums">{{ v.price }}</td>
                     <td class="px-4 text-stone-600">
-                      <span v-if="!v.stock.length" class="text-stone-400">—</span>
+                      <span v-if="!v.stock.length" class="text-stone-500">—</span>
                       <span v-for="s in v.stock" :key="s.warehouse" class="me-2 tabular-nums whitespace-nowrap">{{ shortWh(s.warehouse) }} {{ s.qty }}</span>
                     </td>
                   </tr>
@@ -133,7 +135,7 @@
           <!-- photos -->
           <section v-if="d.finals.length || d.photos.length || d.specs" class="bg-white rounded-xl ring-1 ring-inset ring-stone-200 p-4 flex flex-col gap-3">
             <div v-if="d.finals.length" class="flex flex-col gap-1.5">
-              <h2 class="text-[13px] font-bold text-stone-900">{{ t('souk.finals') }} · {{ d.finals.length }}</h2>
+              <h2 class="text-[14px] font-bold text-stone-900">{{ t('souk.finals') }} · {{ d.finals.length }}</h2>
               <div class="flex gap-2 flex-wrap">
                 <a v-for="f in d.finals" :key="f.url" :href="f.url" target="_blank" rel="noopener" class="block w-[86px] h-[86px] rounded-lg overflow-hidden bg-stone-100">
                   <img :src="f.url" class="w-full h-full object-cover" alt="" loading="lazy" />
@@ -141,19 +143,19 @@
               </div>
             </div>
             <div v-if="d.photos.length" class="flex flex-col gap-1.5">
-              <h2 class="text-[13px] font-bold text-stone-900">{{ t('souk.rawPhotos') }} · {{ d.photos.length }}</h2>
+              <h2 class="text-[14px] font-bold text-stone-900">{{ t('souk.rawPhotos') }} · {{ d.photos.length }}</h2>
               <div class="flex gap-2 flex-wrap">
                 <a v-for="p in d.photos" :key="p.url" :href="p.url" target="_blank" rel="noopener" class="block w-16 h-16 rounded-lg overflow-hidden bg-stone-100">
                   <img :src="p.url" class="w-full h-full object-cover" alt="" loading="lazy" />
                 </a>
               </div>
             </div>
-            <div v-if="d.specs" class="text-[12px] text-stone-700"><b class="text-stone-900">{{ t('souk.specs') }}:</b> {{ d.specs }}</div>
+            <div v-if="d.specs" class="text-[13px] text-stone-700"><b class="text-stone-900">{{ t('souk.specs') }}:</b> {{ d.specs }}</div>
           </section>
 
           <!-- stage by stage: who moved it and how long each stage took -->
           <details class="bg-white rounded-xl ring-1 ring-inset ring-stone-200 group">
-            <summary class="min-h-[44px] px-4 flex items-center justify-between gap-2 cursor-pointer select-none text-[13px] font-bold text-stone-900 list-none">
+            <summary class="min-h-[44px] px-4 flex items-center justify-between gap-2 cursor-pointer select-none text-[14px] font-bold text-stone-900 list-none">
               <span>{{ t('souk.pd.timeline') }}</span>
               <Icon name="chevron-down" :size="16" class="text-stone-500 transition-transform group-open:rotate-180" />
             </summary>
@@ -164,18 +166,18 @@
                 <span class="w-2.5 h-2.5 rounded-full mt-1"
                       :class="r.late ? 'bg-rose-600' : r.current ? 'bg-stone-900' : 'bg-emerald-700'" />
                 <div class="min-w-0">
-                  <div class="text-[12.5px] font-semibold" :class="r.late ? 'text-rose-700' : 'text-stone-900'">
+                  <div class="text-[13px] font-semibold" :class="r.late ? 'text-rose-700' : 'text-stone-900'">
                     {{ t('souk.st_' + r.stage) }}
-                    <span v-if="r.current && !['live', 'dropped'].includes(r.stage)" class="ms-1 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-stone-900 text-white">{{ t('souk.pd.now') }}</span>
+                    <span v-if="r.current && !['live', 'dropped'].includes(r.stage)" class="ms-1 text-[11px] font-bold uppercase px-1.5 py-0.5 rounded bg-stone-900 text-white">{{ t('souk.pd.now') }}</span>
                   </div>
-                  <div class="text-[11.5px] text-stone-600 tabular-nums">
+                  <div class="text-[12px] text-stone-600 tabular-nums">
                     {{ stamp(r.at) }}<span v-if="r.by"> · {{ fill(t('souk.pd.byWho'), { n: r.by }) }}</span>
                   </div>
                 </div>
-                <div v-if="!['live', 'dropped'].includes(r.stage)" class="text-[11.5px] font-semibold tabular-nums text-end whitespace-nowrap"
+                <div v-if="!['live', 'dropped'].includes(r.stage)" class="text-[12px] font-semibold tabular-nums text-end whitespace-nowrap"
                      :class="r.late ? 'text-rose-700' : 'text-stone-600'">
                   <div>{{ r.limit ? fill(t('souk.pd.daysOf'), { d: dur(r.days), l: dur(r.limit) }) : dur(r.days) }}</div>
-                  <div v-if="r.late" class="text-[10.5px]">{{ fill(t('souk.pd.lateBy'), { d: dur(r.days - r.limit) }) }}</div>
+                  <div v-if="r.late" class="text-[11px]">{{ fill(t('souk.pd.lateBy'), { d: dur(r.days - r.limit) }) }}</div>
                 </div>
               </li>
             </ol>
@@ -200,7 +202,7 @@
             <dl>
               <div v-for="k in ['shelf', 'studio', 'defective', 'receiving']" :key="k" class="row">
                 <dt class="text-stone-600">{{ t('souk.pd.' + k) }}</dt>
-                <dd class="tabular-nums font-semibold" :class="!d.stockSplit[k] ? 'text-stone-400' : k === 'defective' ? 'text-rose-700' : 'text-stone-900'">{{ fmt(d.stockSplit[k]) }}</dd>
+                <dd class="tabular-nums font-semibold" :class="!d.stockSplit[k] ? 'text-stone-500' : k === 'defective' ? 'text-rose-700' : 'text-stone-900'">{{ fmt(d.stockSplit[k]) }}</dd>
               </div>
             </dl>
           </section>
@@ -212,11 +214,11 @@
               <div class="row"><dt class="text-stone-600">{{ t('souk.buyerLbl') }}</dt><dd class="text-end">{{ d.buyer || '—' }}</dd></div>
               <div v-if="d.canClaim || d.claimedBy" class="row">
                 <dt class="text-stone-600">{{ t('souk.pd.whoHas') }}</dt>
-                <dd class="text-end font-semibold" :class="d.claimedBy === me ? 'text-[var(--accent-700)]' : d.claimedBy ? 'text-stone-900' : 'text-stone-400 font-normal'">
+                <dd class="text-end font-semibold" :class="d.claimedBy === me ? 'text-[var(--accent-700)]' : d.claimedBy ? 'text-stone-900' : 'text-stone-500 font-normal'">
                   {{ !d.claimedBy ? t('souk.pd.nobody') : d.claimedBy === me ? t('souk.pd.youHaveIt') : (d.claimedName || d.claimedBy) }}
                 </dd>
               </div>
-              <div class="row"><dt class="text-stone-600">Shopify</dt><dd class="mono text-[11.5px] text-end break-all">{{ d.shopifyId ? (d.stage === 'live' ? 'Active' : 'Draft') + ' · ' + d.shopifyId : '—' }}</dd></div>
+              <div class="row"><dt class="text-stone-600">Shopify</dt><dd class="mono text-[12px] text-end break-all">{{ d.shopifyId ? (d.stage === 'live' ? t('souk.pd.shopActive') : t('souk.pd.shopDraft')) + ' · ' + d.shopifyId : '—' }}</dd></div>
               <div v-if="d.contentBy" class="row"><dt class="text-stone-600">{{ t('souk.contentLbl') }}</dt><dd class="text-end">{{ d.contentBy }}</dd></div>
               <div v-if="d.publishedAt" class="row"><dt class="text-stone-600">{{ t('souk.publishedLbl') }}</dt><dd class="text-end tabular-nums">{{ d.publishedBy }} · {{ stamp(d.publishedAt) }}</dd></div>
               <div v-if="d.rejects" class="row"><dt class="text-stone-600">{{ t('souk.rejectsLbl') }}</dt><dd class="tabular-nums font-bold text-amber-700">{{ d.rejects }}</dd></div>
@@ -224,16 +226,16 @@
           </section>
 
           <!-- purchases -->
-          <section class="side text-[12px]">
+          <section class="side text-[13px]">
             <h2 class="side-h">{{ t('souk.purchases') }}</h2>
             <div v-for="p in d.purchases" :key="p.po" class="flex flex-col gap-1 py-1.5 border-b border-stone-100 last:border-0">
               <div class="flex justify-between gap-2">
-                <span class="mono text-[11.5px]" dir="ltr">{{ p.po }}</span>
+                <span class="mono text-[12px]" dir="ltr">{{ p.po }}</span>
                 <span class="text-stone-600 truncate">{{ p.stall }}</span>
                 <span class="tabular-nums font-semibold">{{ fmt(p.amount) }}</span>
                 <span class="tabular-nums text-stone-600">{{ Math.round(p.received) }}%</span>
               </div>
-              <div v-if="p.outcome" class="text-[11px] text-stone-600 tabular-nums">
+              <div v-if="p.outcome" class="text-[12px] text-stone-600 tabular-nums">
                 {{ t('souk.outcomeLine')
                   .replace('{g}', sum(p.outcome.lines, 'good'))
                   .replace('{st}', sum(p.outcome.lines, 'studio'))
@@ -241,12 +243,12 @@
                   .replace('{s}', sum(p.outcome.lines, 'short')) }}
                 · <span class="mono">{{ p.pr }}</span>
               </div>
-              <div v-if="p.owed" class="text-[11px] font-semibold text-amber-700">
+              <div v-if="p.owed" class="text-[12px] font-semibold text-amber-700">
                 {{ t('souk.owesShort').replace('{n}', fmt(p.owed)) }}<span v-if="p.debitNote" class="mono"> · {{ p.debitNote }}</span>
                 <span v-else> · {{ t('souk.noDebitYet') }}</span>
               </div>
             </div>
-            <div v-if="!d.purchases.length" class="text-stone-400">—</div>
+            <div v-if="!d.purchases.length" class="text-stone-500">—</div>
           </section>
           <section v-if="d.receipt" class="side !p-3">
             <a :href="d.receipt" target="_blank" rel="noopener"><img :src="d.receipt" class="w-full rounded-lg" :alt="t('souk.receipt')" /></a>
@@ -254,8 +256,8 @@
 
           <!-- the exit rule -->
           <section class="bg-stone-50 rounded-xl ring-1 ring-inset ring-stone-200 p-3.5 flex flex-col gap-1.5">
-            <h2 class="text-[13px] font-bold text-stone-900">{{ t('souk.pd.exitTitle') }}</h2>
-            <p class="text-[12px] text-stone-700 leading-[1.6]">{{ exitBody }}</p>
+            <h2 class="text-[14px] font-bold text-stone-900">{{ t('souk.pd.exitTitle') }}</h2>
+            <p class="text-[13px] text-stone-700 leading-[1.6]">{{ exitBody }}</p>
           </section>
         </aside>
       </div>
@@ -268,7 +270,7 @@
         <div class="flex items-start justify-between gap-3">
           <div>
             <h2 class="text-[15px] font-bold text-stone-900">{{ t('souk.pd.dropTitle') }}</h2>
-            <p class="text-[12px] text-stone-600 mt-0.5">{{ t('souk.pd.dropIntro') }}</p>
+            <p class="text-[13px] text-stone-600 mt-0.5">{{ t('souk.pd.dropIntro') }}</p>
           </div>
           <button type="button" class="w-11 h-11 -me-2 -mt-2 shrink-0 rounded-lg flex items-center justify-center text-stone-500" :aria-label="t('souk.cancel')" @click="dropOpen = false">
             <Icon name="x" :size="18" />
@@ -279,12 +281,12 @@
                  class="min-h-[56px] rounded-xl p-3 cursor-pointer ring-inset flex flex-col gap-0.5"
                  :class="why === w ? 'ring-[1.5px] ring-rose-600 bg-rose-50' : 'ring-1 ring-stone-200 bg-white'">
             <input v-model="why" type="radio" name="why" :value="w" class="sr-only" />
-            <span class="text-[12.5px] font-bold text-stone-900">{{ w === 'return' ? t('souk.pd.whyReturn') : t('souk.pd.whyClearance') }}</span>
-            <span class="text-[11px] text-stone-600">{{ w === 'return' ? t('souk.pd.whyReturnHint') : t('souk.pd.whyClearanceHint') }}</span>
+            <span class="text-[13px] font-bold text-stone-900">{{ w === 'return' ? t('souk.pd.whyReturn') : t('souk.pd.whyClearance') }}</span>
+            <span class="text-[12px] text-stone-600">{{ w === 'return' ? t('souk.pd.whyReturnHint') : t('souk.pd.whyClearanceHint') }}</span>
           </label>
         </div>
         <textarea ref="noteEl" v-model="note" rows="3" required
-                  class="w-full rounded-lg border border-stone-200 p-3 text-[13px] focus:outline-none focus:ring-2 focus:ring-rose-400"
+                  class="w-full rounded-lg border border-stone-200 p-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-rose-400"
                   :placeholder="t('souk.pd.notePh')" />
         <div class="flex gap-2">
           <button type="button" class="btn btn-line flex-1 justify-center" @click="dropOpen = false">{{ t('souk.cancel') }}</button>
@@ -302,11 +304,12 @@ import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { local } from "@/lib/clock";
 import { useI18n } from "@/composables/useI18n";
+import { eventText as souEvent } from "@/lib/soukEvents";
 import { useToast } from "@/composables/useToast";
 import { useAuth } from "@/composables/useAuth";
 
 const STAGES = ["buying", "bought", "photos", "studio", "content", "review", "live"];
-const { t, isRTL } = useI18n();
+const { t, isRTL, locale } = useI18n();
 const { warn, success } = useToast();
 const { user } = useAuth();
 const route = useRoute();
@@ -325,7 +328,7 @@ const sum = (rows, k) => (rows || []).reduce((s, r) => s + (Number(r[k]) || 0), 
 // Comments may come back wrapped in markup; show their text only.
 const plain = (s) => String(s || "").replace(/<[^>]*>/g, "").replace(/&amp;/g, "&");
 // Every souk comment starts "Souk: " so the desk can find them; the page doesn't need it.
-const eventText = (s) => plain(s).replace(/^\s*Souk:\s*/, "");
+const eventText = (s) => souEvent(plain(s), locale.value, (st) => t("souk.st_" + st, st));
 /** A stored site-clock stamp on the reader's clock, as "17/11 16:05". */
 function stamp(s) {
   const v = local(s);
@@ -385,12 +388,12 @@ const moneyRows = computed(() => {
   return [
     { k: t("souk.paid"), v: money(m.paid) },
     { k: t("souk.units"), v: fmt(m.units) },
-    { k: t("souk.pd.transport"), v: m.transport == null ? na : money(m.transport), cls: m.transport == null ? "text-stone-400 italic" : "" },
-    { k: t("souk.pd.owed"), v: (m.owed ? "\u2212" : "") + money(m.owed), cls: m.owed ? "font-semibold text-emerald-700" : "text-stone-400" },
+    { k: t("souk.pd.transport"), v: m.transport == null ? na : money(m.transport), cls: m.transport == null ? "text-stone-500 italic" : "" },
+    { k: t("souk.pd.owed"), v: (m.owed ? "\u2212" : "") + money(m.owed), cls: m.owed ? "font-semibold text-emerald-700" : "text-stone-500" },
     { k: fill(t("souk.pd.brokenOurs"), { n: m.brokenUnits || 0 }), v: money(m.brokenOurs),
-      cls: m.brokenOurs ? "font-semibold text-rose-700" : "text-stone-400" },
+      cls: m.brokenOurs ? "font-semibold text-rose-700" : "text-stone-500" },
     { k: t("souk.pd.perPiece"), v: money(m.perPiece) },
-    { k: t("souk.pd.landed"), v: m.landedPerPiece == null ? na : money(m.landedPerPiece), cls: m.landedPerPiece == null ? "text-stone-400 italic" : "" },
+    { k: t("souk.pd.landed"), v: m.landedPerPiece == null ? na : money(m.landedPerPiece), cls: m.landedPerPiece == null ? "text-stone-500 italic" : "" },
   ];
 });
 
@@ -468,10 +471,11 @@ onMounted(load);
 <style scoped>
 /* Header action — design: 36px, radius 8, 12.5px/600; 44px on touch. */
 .btn {
+  flex-shrink: 0;
   height: 2.75rem;
   padding-inline: 0.75rem;
   border-radius: 0.5rem;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -489,9 +493,9 @@ onMounted(load);
    a #f5f5f4 hairline under each. */
 .side {
   display: flex; flex-direction: column; gap: 6px; padding: 14px; border-radius: 12px;
-  background: #fff; box-shadow: inset 0 0 0 1px rgb(231 229 228); font-size: 12.5px;
+  background: #fff; box-shadow: inset 0 0 0 1px rgb(231 229 228); font-size: 13px;
 }
-.side-h { margin-bottom: 4px; font-size: 13px; font-weight: 700; color: rgb(28 25 23); }
+.side-h { margin-bottom: 4px; font-size: 14px; font-weight: 700; color: rgb(28 25 23); }
 .row { display: flex; justify-content: space-between; gap: 10px; padding-block: 3px; box-shadow: inset 0 -1px 0 rgb(245 245 244); }
 .row:last-child { box-shadow: none; }
 :global(html[data-theme="dark"]) .side { background: #292524; box-shadow: inset 0 0 0 1px rgb(68 64 60); }

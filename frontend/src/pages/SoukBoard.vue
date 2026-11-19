@@ -8,21 +8,21 @@
     <header class="flex items-start justify-between gap-3 flex-wrap">
       <div class="min-w-0 flex flex-col gap-0.5">
         <h1 class="text-[20px] font-bold tracking-[-0.01em] text-stone-900">{{ t('souk.boardTitle') }}</h1>
-        <p class="text-[12.5px] text-stone-500 max-w-[680px]">{{ t('souk.boardIntro') }}</p>
+        <p class="text-[13px] text-stone-500 max-w-[680px]">{{ t('souk.boardIntro') }}</p>
       </div>
       <div class="flex gap-2 items-center flex-wrap w-full sm:w-auto">
         <label class="basis-full sm:basis-auto sm:flex-none">
           <span class="sr-only">{{ t('souk.lb.searchLbl') }}</span>
           <input v-model="q" type="search" :placeholder="t('souk.lb.search')"
-                 class="h-11 lg:h-9 w-full sm:w-[220px] rounded-lg bg-white border border-stone-200 px-3 text-[13px] text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[var(--accent-500)]" />
+                 class="h-11 lg:h-9 w-full sm:w-[220px] rounded-lg bg-white border border-stone-200 px-3 text-[14px] text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[var(--accent-500)]" />
         </label>
         <router-link :to="{ name: 'SoukTrip' }"
-                     class="h-11 lg:h-9 px-3 flex-1 sm:flex-none justify-center rounded-lg bg-white ring-1 ring-inset ring-stone-300 text-stone-900 text-[13px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap hover:bg-stone-50">
+                     class="h-11 lg:h-9 px-3 flex-1 sm:flex-none justify-center rounded-lg bg-white ring-1 ring-inset ring-stone-300 text-stone-900 text-[14px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap hover:bg-stone-50">
           <span v-if="data">{{ fill(t('souk.lb.tripsOpen'), { n: data.openTrips || 0 }) }}</span>
           <span v-else>{{ t('souk.lb.trips') }}</span>
         </router-link>
         <router-link v-if="data?.canBuy" :to="{ name: 'SoukBuy' }"
-                     class="h-11 lg:h-9 px-3.5 flex-1 sm:flex-none justify-center rounded-lg bg-[var(--accent-600)] hover:bg-[var(--accent-700)] text-white text-[13px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
+                     class="h-11 lg:h-9 px-3.5 flex-1 sm:flex-none justify-center rounded-lg bg-[var(--accent-600)] hover:bg-[var(--accent-700)] text-white text-[14px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
           <Icon name="plus" :size="14" :stroke-width="2.5" />{{ t('souk.lb.newProduct') }}
         </router-link>
         <button type="button" class="h-11 w-11 lg:h-9 lg:w-9 shrink-0 rounded-lg bg-white ring-1 ring-inset ring-stone-200 text-stone-600 inline-flex items-center justify-center hover:bg-stone-50 disabled:opacity-50"
@@ -44,7 +44,7 @@
         <span v-if="kpi.receiptToLive != null" class="tile-v" :class="kpi.receiptToLive > target ? 'text-rose-800' : ''">
           {{ kpi.receiptToLive }} <small class="tile-u">{{ t('souk.lb.days').replace('{n}', '').trim() }}</small>
         </span>
-        <span v-else class="text-[15px] font-bold text-stone-400 leading-8">{{ t('souk.lb.noData') }}</span>
+        <span v-else class="text-[15px] font-bold text-stone-500 leading-8">{{ t('souk.lb.noData') }}</span>
         <span class="tile-s">
           {{ kpi.receiptToLive != null
             ? fill(t('souk.lb.kR2LSub'), { t: target, n: kpi.receiptToLiveN || 0 })
@@ -52,7 +52,11 @@
         </span>
       </div>
       <div class="tile" :class="data.late ? 'tile-late' : ''">
-        <span class="tile-k" :class="data.late ? 'text-rose-700' : ''">{{ t('souk.lb.kLate') }}</span>
+        <!-- A problem carries a mark, not only a colour: the late rose sits too
+             close to the terracotta of the actions to be read by hue alone. -->
+        <span class="tile-k inline-flex items-center gap-1" :class="data.late ? 'text-rose-700' : ''">
+          <Icon v-if="data.late" name="alert-triangle" :size="13" />{{ t('souk.lb.kLate') }}
+        </span>
         <span class="tile-v" :class="data.late ? 'text-rose-800' : ''">{{ data.late }}</span>
         <span class="tile-s" :class="data.late ? 'text-rose-800' : ''">
           {{ lateTop ? fill(t('souk.lb.kLateSub'), { s: t('souk.st_' + lateTop.s), n: lateTop.n }) : t('souk.lb.kLateNone') }}
@@ -61,7 +65,7 @@
       <div class="tile">
         <span class="tile-k">{{ t('souk.lb.kSell') }}</span>
         <span v-if="kpi.sellThrough != null" class="tile-v">{{ kpi.sellThrough }}%</span>
-        <span v-else class="text-[15px] font-bold text-stone-400 leading-8">{{ t('souk.lb.noData') }}</span>
+        <span v-else class="text-[15px] font-bold text-stone-500 leading-8">{{ t('souk.lb.noData') }}</span>
         <span class="tile-s">
           {{ fill(t('souk.lb.kSellSub'), { s: fmt(kpi.soldMonth), b: fmt(kpi.boughtMonth), n: kpi.launchedMonth || 0 }) }}
         </span>
@@ -70,12 +74,12 @@
 
     <!-- where the time goes -->
     <section v-if="data" :aria-label="t('souk.lb.timeTitle')" class="bg-white rounded-xl ring-1 ring-inset ring-stone-200 px-4 py-3 flex flex-col gap-2">
-      <div class="flex justify-between gap-x-3 gap-y-0.5 text-[12px] flex-wrap">
+      <div class="flex justify-between gap-x-3 gap-y-0.5 text-[13px] flex-wrap">
         <span class="font-semibold text-stone-700">{{ t('souk.lb.timeTitle') }}</span>
         <span v-if="timeSegs.length" class="text-stone-500 tabular-nums">{{ fill(t('souk.lb.timeTotal'), { n: round1(timeTotal) }) }}</span>
       </div>
       <template v-if="timeSegs.length">
-        <div class="flex h-[26px] rounded-md overflow-hidden text-[11.5px] font-semibold">
+        <div class="flex h-[26px] rounded-md overflow-hidden text-[12px] font-semibold">
           <div v-for="g in timeSegs" :key="g.s"
                class="flex items-center justify-center min-w-[4px] overflow-hidden whitespace-nowrap px-1 tabular-nums"
                :class="g.cls" :style="{ width: (g.avg / timeTotal * 100) + '%' }"
@@ -84,14 +88,14 @@
             <span v-else-if="g.avg / timeTotal >= 0.07">{{ g.avg }}</span>
           </div>
         </div>
-        <div class="flex gap-x-4 gap-y-1 text-[11.5px] flex-wrap">
+        <div class="flex gap-x-4 gap-y-1 text-[12px] flex-wrap">
           <span v-for="g in timeSegs" :key="g.s" class="tabular-nums"
                 :class="g.over ? 'text-rose-700 font-semibold' : 'text-stone-600'" :title="fill(t('souk.lb.timeN'), { n: g.n })">
             {{ t('souk.st_' + g.s) }} {{ g.over ? fill(t('souk.lb.timeOf'), { a: g.avg, l: g.limit }) : g.avg }}
           </span>
         </div>
       </template>
-      <div v-else class="text-[12px] text-stone-400">{{ t('souk.lb.noData') }}</div>
+      <div v-else class="text-[13px] text-stone-500">{{ t('souk.lb.noData') }}</div>
     </section>
 
     <!-- filters: design order — all, late, trip, buyer, stall, mine, left the cycle -->
@@ -131,19 +135,19 @@
         <div class="flex gap-2 items-start">
           <Thumb :src="c.image" />
           <div class="min-w-0 flex-1 flex flex-col gap-px">
-            <span class="text-[12.5px] font-semibold text-stone-900 leading-[1.35] line-clamp-2">{{ c.title }}</span>
-            <span class="mono text-[10.5px] text-stone-600 truncate"><bdi dir="ltr">{{ c.name }}</bdi></span>
+            <span class="text-[13px] font-semibold text-stone-900 leading-[1.35] line-clamp-2">{{ c.title }}</span>
+            <span class="mono text-[11px] text-stone-600 truncate"><bdi dir="ltr">{{ c.name }}</bdi></span>
           </div>
-          <span class="text-[10.5px] font-bold px-[7px] py-0.5 h-fit rounded-md bg-stone-100 text-stone-700 whitespace-nowrap">{{ whyLabel(c.note) }}</span>
+          <span class="text-[11px] font-bold px-[7px] py-0.5 h-fit rounded-md bg-stone-100 text-stone-700 whitespace-nowrap">{{ whyLabel(c.note) }}</span>
         </div>
-        <div class="text-[11px] text-stone-600 flex justify-between gap-2 tabular-nums">
+        <div class="text-[12px] text-stone-600 flex justify-between gap-2 tabular-nums">
           <span class="truncate">{{ c.droppedFrom ? fill(t('souk.lb.leftAt'), { s: t('souk.st_' + c.droppedFrom) }) : t('souk.st_dropped') }}</span>
           <span class="whitespace-nowrap">{{ c.units }} {{ t('souk.pcs') }} · {{ fmt(c.cost) }} MAD</span>
         </div>
-        <div v-if="noteText(c.note)" class="text-[12px] text-stone-800 bg-stone-50 rounded-lg px-2.5 py-1.5 break-words">{{ noteText(c.note) }}</div>
-        <div class="text-[11px] text-stone-500 truncate">{{ [c.stall, c.buyerName].filter(Boolean).join(' · ') }}</div>
+        <div v-if="noteText(c.note)" class="text-[13px] text-stone-800 bg-stone-50 rounded-lg px-2.5 py-1.5 break-words">{{ noteText(c.note) }}</div>
+        <div class="text-[12px] text-stone-500 truncate">{{ [c.stall, c.buyerName].filter(Boolean).join(' · ') }}</div>
       </router-link>
-      <div v-if="!shown.length" class="col-span-full text-center text-[12.5px] text-stone-400 py-10">
+      <div v-if="!shown.length" class="col-span-full text-center text-[13px] text-stone-500 py-10">
         {{ data.droppedCards?.length ? t('souk.lb.none') : t('souk.lb.noneDropped') }}
       </div>
     </section>
@@ -154,11 +158,11 @@
           jumps to any stage (with its count, and a red dot when late). -->
      <div ref="stageBar" class="sm:hidden sticky top-0 z-10 -mx-4 px-4 py-2 mb-2 souk-glass border-b border-stone-200 flex gap-1.5 overflow-x-auto">
        <button v-for="(s, i) in data.stages" :key="s" type="button"
-               class="h-10 ps-3 pe-2 rounded-full text-[12px] font-semibold whitespace-nowrap flex items-center gap-1.5 shrink-0 transition-colors"
+               class="h-10 ps-3 pe-2 rounded-full text-[13px] font-semibold whitespace-nowrap flex items-center gap-1.5 shrink-0 transition-colors"
                :class="activeCol === i ? 'bg-stone-900 text-white' : 'bg-white ring-1 ring-inset ring-stone-200 text-stone-700'"
                :aria-current="activeCol === i ? 'true' : undefined" @click="goCol(i)">
          {{ s === 'live' ? t('souk.lb.colLive') : t('souk.st_' + s) }}
-         <span class="min-w-[20px] h-5 px-1 rounded-full text-[11px] tabular-nums flex items-center justify-center"
+         <span class="min-w-[20px] h-5 px-1 rounded-full text-[12px] tabular-nums flex items-center justify-center"
                :class="activeCol === i ? 'bg-white/20' : 'bg-stone-100 text-stone-600'">{{ col(s).length }}</span>
          <span v-if="col(s).some((c) => c.late || c.error)" class="w-1.5 h-1.5 -ms-0.5 rounded-full bg-rose-600" />
        </button>
@@ -170,10 +174,10 @@
                  class="w-[80vw] max-w-[300px] sm:w-auto sm:max-w-none shrink-0 snap-start bg-stone-200 rounded-xl p-2 flex flex-col gap-2">
           <div class="px-1.5 pt-1 pb-0.5 flex flex-col gap-px">
             <div class="flex items-baseline justify-between gap-2">
-              <span class="text-[12.5px] font-bold text-stone-900 truncate">{{ s === 'live' ? t('souk.lb.colLive') : t('souk.st_' + s) }}</span>
-              <span class="text-[11.5px] font-semibold text-stone-600 tabular-nums">{{ col(s).length }}</span>
+              <span class="text-[13px] font-bold text-stone-900 truncate">{{ s === 'live' ? t('souk.lb.colLive') : t('souk.st_' + s) }}</span>
+              <span class="text-[12px] font-semibold text-stone-600 tabular-nums">{{ col(s).length }}</span>
             </div>
-            <span class="text-[11px] text-stone-600 tabular-nums">
+            <span class="text-[12px] text-stone-600 tabular-nums">
               <template v-if="s === 'live'">{{ fill(t('souk.lb.colSold'), { n: fmt(colSold(s)) }) }}</template>
               <template v-else>{{ fmt(colSum(s)) }} MAD</template>
               <template v-if="data.stageDays?.[s]"> · {{ fill(t('souk.lb.colDeadline'), { n: data.stageDays[s] }) }}</template>
@@ -186,25 +190,25 @@
               <div class="flex gap-2 items-start">
                 <Thumb :src="c.image" />
                 <div class="min-w-0 flex-1 flex flex-col gap-px">
-                  <span class="text-[12.5px] font-semibold leading-[1.35] line-clamp-2">{{ c.title }}</span>
-                  <span class="mono text-[10.5px] text-stone-600 truncate"><bdi dir="ltr">{{ c.name }}</bdi></span>
+                  <span class="text-[13px] font-semibold leading-[1.35] line-clamp-2">{{ c.title }}</span>
+                  <span class="mono text-[11px] text-stone-600 truncate"><bdi dir="ltr">{{ c.name }}</bdi></span>
                 </div>
               </div>
-              <div class="flex justify-between gap-2 text-[11px] text-stone-600 tabular-nums">
+              <div class="flex justify-between gap-2 text-[12px] text-stone-600 tabular-nums">
                 <span class="min-w-0">{{ c.stage === 'live' ? fill(t('souk.lb.soldOf'), { s: c.sold ?? 0, u: c.units }) : variantLine(c) }}</span>
                 <span class="whitespace-nowrap">{{ fmt(c.cost) }} MAD</span>
               </div>
               <div class="flex items-center justify-between gap-2">
-                <span class="text-[10.5px] font-bold px-[7px] py-0.5 rounded-md tabular-nums whitespace-nowrap truncate"
+                <span class="text-[11px] font-bold px-[7px] py-0.5 rounded-md tabular-nums whitespace-nowrap truncate"
                       :class="c.error || c.late ? 'bg-rose-50 text-rose-700' : 'bg-stone-100 text-stone-700'">{{ agePill(c) }}</span>
                 <span v-if="c.claimedBy" role="img"
-                      class="w-[22px] h-[22px] shrink-0 rounded-full ring-1 ring-inset text-[10px] font-bold flex items-center justify-center"
+                      class="w-[22px] h-[22px] shrink-0 rounded-full ring-1 ring-inset text-[11px] font-bold flex items-center justify-center"
                       :class="c.claimedBy === data.me ? 'bg-[var(--accent-50)] ring-[var(--accent-300)] text-[var(--accent-700)]' : 'bg-stone-100 ring-stone-300 text-stone-700'"
                       :title="c.claimedBy === data.me ? t('souk.lb.youHaveIt') : fill(t('souk.lb.hasIt'), { n: c.claimedName || c.claimedBy })"
                       :aria-label="c.claimedBy === data.me ? t('souk.lb.youHaveIt') : fill(t('souk.lb.hasIt'), { n: c.claimedName || c.claimedBy })">{{ initial(c.claimedName || c.claimedBy) }}</span>
               </div>
-              <div v-if="c.error" class="text-[10.5px] text-rose-700 line-clamp-2 break-words">{{ c.error }}</div>
-              <div v-if="c.escalate" class="text-[10.5px] font-bold text-rose-700 inline-flex items-center gap-1">
+              <div v-if="c.error" class="text-[11px] text-rose-700 line-clamp-2 break-words">{{ c.error }}</div>
+              <div v-if="c.escalate" class="text-[11px] font-bold text-rose-700 inline-flex items-center gap-1">
                 <Icon name="alert-triangle" :size="12" />{{ fill(t('souk.lb.escalated'), { n: Math.floor(c.sinceBuy) }) }}
               </div>
             </router-link>
@@ -219,10 +223,10 @@
             <router-link v-if="c.stage === 'review' && data.canReview" :to="{ name: 'SoukReview', params: { name: c.name } }"
                          class="act bg-[var(--accent-600)] hover:bg-[var(--accent-700)]">{{ t('souk.reviewBtn') }}</router-link>
           </div>
-          <div v-if="!col(s).length" class="text-center text-[11px] text-stone-500 py-4">—</div>
+          <div v-if="!col(s).length" class="text-center text-[12px] text-stone-500 py-4">—</div>
         </section>
       </div>
-      <p v-if="filtered && !shown.length" class="text-center text-[12.5px] text-stone-400 py-3">{{ t('souk.lb.none') }}</p>
+      <p v-if="filtered && !shown.length" class="text-center text-[13px] text-stone-500 py-3">{{ t('souk.lb.none') }}</p>
      </div>
     </div>
   </div>
@@ -254,7 +258,7 @@ const firstName = (n) => String(n || "").split(/[\s@]/)[0];
 // A card's thumbnail, or a quiet placeholder when there is none yet.
 const Thumb = (props) => props.src
   ? h("img", { src: props.src, alt: "", loading: "lazy", class: "w-[38px] h-[38px] shrink-0 rounded-lg object-cover bg-stone-100" })
-  : h("div", { class: "w-[38px] h-[38px] shrink-0 rounded-lg bg-stone-100 flex items-center justify-center text-stone-400" },
+  : h("div", { class: "w-[38px] h-[38px] shrink-0 rounded-lg bg-stone-100 flex items-center justify-center text-stone-500" },
       [h(Icon, { name: "image", size: 15 })]);
 Thumb.props = ["src"];
 
@@ -404,10 +408,10 @@ onMounted(load);
   box-shadow: inset 0 0 0 1px rgb(231 229 228);
 }
 .tile-late { background: rgb(255 241 242); box-shadow: inset 0 0 0 1px rgb(254 205 211); }
-.tile-k { font-size: 11.5px; font-weight: 600; color: rgb(120 113 108); }
+.tile-k { font-size: 12px; font-weight: 600; color: rgb(120 113 108); }
 .tile-v { font-size: 24px; font-weight: 800; line-height: 1.33; font-variant-numeric: tabular-nums; }
-.tile-u { font-size: 13px; font-weight: 600; color: rgb(120 113 108); }
-.tile-s { font-size: 11.5px; color: rgb(87 83 78); font-variant-numeric: tabular-nums; }
+.tile-u { font-size: 14px; font-weight: 600; color: rgb(120 113 108); }
+.tile-s { font-size: 12px; color: rgb(87 83 78); font-variant-numeric: tabular-nums; }
 @media (max-width: 639px) {
   .tile { padding: 12px 14px; }
   .tile-v { font-size: 21px; }
@@ -421,7 +425,7 @@ onMounted(load);
    touch screens keep a 44px target. */
 .chip {
   height: 2.75rem; flex-shrink: 0; padding-inline: 12px; border-radius: 9999px; border: 0;
-  white-space: nowrap; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+  white-space: nowrap; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;
   background: #fff; color: rgb(68 64 60); box-shadow: inset 0 0 0 1px rgb(231 229 228);
 }
 .chip-on { background: rgb(28 25 23); color: #fff; box-shadow: none; }
@@ -434,7 +438,7 @@ onMounted(load);
 /* The next-step button under a card. */
 .act {
   display: flex; align-items: center; justify-content: center; height: 2.75rem;
-  border-radius: 8px; color: #fff; font-size: 12px; font-weight: 700;
+  border-radius: 8px; color: #fff; font-size: 13px; font-weight: 700;
 }
 @media (min-width: 1024px) { .act { height: 2rem; } }
 </style>

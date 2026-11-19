@@ -5,10 +5,25 @@
        overwritten). The manager edits everything; the accountant only the
        accounts. The server validates every rule again; the checks here only
        say it before the round trip. -->
-  <div class="max-w-[760px] mx-auto px-4 pt-3 lg:pt-6 space-y-4" :class="dirty ? 'pb-44 lg:pb-32' : 'pb-10'">
+  <!-- Desk (lg): the section list stands in a sticky column beside the form
+       and follows the scroll; a phone keeps the swipeable jump row. -->
+  <div class="max-w-[1040px] mx-auto px-4 pt-3 lg:pt-6 lg:flex lg:gap-8" :class="dirty ? 'pb-44 lg:pb-32' : 'pb-10'">
+    <aside v-if="boot && boot.isManager" class="hidden lg:block w-[200px] shrink-0">
+      <nav class="sticky top-6 flex flex-col gap-0.5" :aria-label="t('souk.set.title')">
+        <button v-for="j in JUMPS" :key="j" type="button"
+                class="h-9 px-3 rounded-lg text-start text-[14px] font-semibold inline-flex items-center gap-2 transition-colors"
+                :class="active === j ? 'bg-white ring-1 ring-stone-200 text-stone-900' : 'text-stone-500 hover:text-stone-900 hover:bg-stone-100'"
+                @click="jump(j)">
+          <Icon :name="JUMP_ICON[j]" :size="15" :class="active === j ? 'text-[var(--accent-600)]' : ''" />
+          <span class="flex-1 truncate">{{ t('souk.set.jump.' + j) }}</span>
+          <span v-if="sectionDirty(j)" class="w-1.5 h-1.5 rounded-full bg-[var(--accent-600)]" />
+        </button>
+      </nav>
+    </aside>
+   <div class="flex-1 min-w-0 max-w-[760px] mx-auto lg:mx-0 space-y-4">
     <header>
       <h1 class="text-[17px] lg:text-[20px] font-bold text-stone-900 leading-tight">{{ t('souk.set.title') }}</h1>
-      <p class="text-[11.5px] lg:text-[12.5px] text-stone-500 mt-0.5">
+      <p class="text-[12px] lg:text-[13px] text-stone-500 mt-0.5">
         {{ boot && !boot.isManager ? t('souk.set.subAcct') : t('souk.set.sub') }}
       </p>
     </header>
@@ -20,22 +35,22 @@
 
     <div v-else-if="loadErr && !boot" class="lp-card p-5 text-center space-y-3" role="alert">
       <Icon name="alert-circle" :size="22" class="mx-auto text-rose-500" />
-      <p class="text-[13px] font-semibold text-stone-900">{{ t('souk.set.loadFail') }}</p>
-      <p class="text-[11.5px] text-stone-500 break-words">{{ loadErr }}</p>
-      <button type="button" class="h-11 px-5 rounded-lg ring-1 ring-stone-300 bg-white text-[13px] font-semibold text-stone-700"
+      <p class="text-[14px] font-semibold text-stone-900">{{ t('souk.set.loadFail') }}</p>
+      <p class="text-[12px] text-stone-500 break-words">{{ loadErr }}</p>
+      <button type="button" class="h-11 px-5 rounded-lg ring-1 ring-stone-300 bg-white text-[14px] font-semibold text-stone-700"
               @click="load">{{ t('souk.set.retry') }}</button>
     </div>
 
     <template v-else-if="boot">
       <p v-if="!boot.isManager"
-         class="rounded-xl bg-stone-100 px-3.5 py-2.5 text-[12px] text-stone-700 flex items-start gap-2">
+         class="rounded-xl bg-stone-100 px-3.5 py-2.5 text-[13px] text-stone-700 flex items-start gap-2">
         <Icon name="info" :size="14" class="mt-[2px] shrink-0 text-stone-500" />{{ t('souk.set.acctOnly') }}
       </p>
 
       <!-- jump row: the page is long on a phone -->
-      <nav v-if="boot.isManager" class="-mx-4 px-4 flex gap-1.5 overflow-x-auto" :aria-label="t('souk.set.title')">
+      <nav v-if="boot.isManager" class="lg:hidden -mx-4 px-4 flex gap-1.5 overflow-x-auto" :aria-label="t('souk.set.title')">
         <button v-for="j in JUMPS" :key="j" type="button"
-                class="shrink-0 h-9 px-3 rounded-full bg-white ring-1 ring-stone-200 text-[12px] font-semibold text-stone-600 hover:text-stone-900 inline-flex items-center gap-1.5"
+                class="shrink-0 h-9 px-3 rounded-full bg-white ring-1 ring-stone-200 text-[13px] font-semibold text-stone-600 hover:text-stone-900 inline-flex items-center gap-1.5"
                 @click="jump(j)">
           {{ t('souk.set.jump.' + j) }}
           <span v-if="sectionDirty(j)" class="w-1.5 h-1.5 rounded-full bg-[var(--accent-600)]" />
@@ -47,40 +62,40 @@
         <SecHead icon="tag" :title="t('souk.set.sku.title')" :hint="t('souk.set.sku.hint')" />
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label for="ss-prefix" class="block text-[12px] font-semibold text-stone-700 mb-1">{{ t('souk.set.sku.prefix') }}</label>
+            <label for="ss-prefix" class="block text-[13px] font-semibold text-stone-700 mb-1">{{ t('souk.set.sku.prefix') }}</label>
             <input id="ss-prefix" :value="form.skuPrefix" dir="ltr" autocomplete="off" autocapitalize="characters" spellcheck="false"
                    maxlength="4" :class="[inp, 'mono uppercase tracking-wide', errs.prefix ? bad : '']"
                    @input="onPrefix" />
-            <p class="text-[11px] text-stone-500 mt-1">{{ t('souk.set.sku.prefixHint') }}</p>
+            <p class="text-[12px] text-stone-500 mt-1">{{ t('souk.set.sku.prefixHint') }}</p>
           </div>
           <div>
-            <label for="ss-start" class="block text-[12px] font-semibold text-stone-700 mb-1">{{ t('souk.set.sku.start') }}</label>
+            <label for="ss-start" class="block text-[13px] font-semibold text-stone-700 mb-1">{{ t('souk.set.sku.start') }}</label>
             <input id="ss-start" v-model.number="form.skuStart" type="number" inputmode="numeric" min="1" dir="ltr"
                    :class="[inp, 'tabular-nums', errs.start ? bad : '']" />
-            <p class="text-[11px] text-stone-500 mt-1">{{ t('souk.set.sku.startHint') }}</p>
+            <p class="text-[12px] text-stone-500 mt-1">{{ t('souk.set.sku.startHint') }}</p>
           </div>
         </div>
         <div class="rounded-lg bg-stone-50 ring-1 ring-stone-200/70 p-3 space-y-2">
           <div class="flex items-baseline justify-between gap-3">
-            <span class="text-[11.5px] text-stone-500">{{ t('souk.set.sku.next') }}</span>
+            <span class="text-[12px] text-stone-500">{{ t('souk.set.sku.next') }}</span>
             <span class="mono text-[15px] font-bold text-stone-900 whitespace-nowrap" dir="ltr">{{ preview.sku }}</span>
           </div>
           <div class="flex items-baseline justify-between gap-3">
-            <span class="text-[11.5px] text-stone-500 min-w-0">
+            <span class="text-[12px] text-stone-500 min-w-0">
               {{ t('souk.set.sku.longest') }}
-              <span class="block text-[10.5px] text-stone-400">{{ t('souk.set.sku.longestHint') }}</span>
+              <span class="block text-[11px] text-stone-500">{{ t('souk.set.sku.longestHint') }}</span>
             </span>
-            <span class="mono text-[13px] font-semibold whitespace-nowrap shrink-0" :class="preview.over ? 'text-rose-700' : 'text-stone-800'" dir="ltr">{{ preview.longest }}</span>
+            <span class="mono text-[14px] font-semibold whitespace-nowrap shrink-0" :class="preview.over ? 'text-rose-700' : 'text-stone-800'" dir="ltr">{{ preview.longest }}</span>
           </div>
           <div class="h-1.5 rounded-full bg-stone-200 overflow-hidden" role="meter" :aria-valuenow="preview.len" aria-valuemin="0" :aria-valuemax="boot.skuMax">
             <div class="h-full rounded-full" :class="preview.over ? 'bg-rose-600' : 'bg-emerald-600'"
                  :style="{ width: Math.min(100, (preview.len / boot.skuMax) * 100) + '%' }" />
           </div>
-          <div class="flex items-center justify-between gap-2 text-[11px] tabular-nums">
+          <div class="flex items-center justify-between gap-2 text-[12px] tabular-nums">
             <span :class="preview.over ? 'text-rose-700 font-semibold' : 'text-stone-500'">{{ tt('souk.set.sku.len', { n: preview.len, max: boot.skuMax }) }}</span>
           </div>
-          <p v-if="preview.over" class="text-[11.5px] font-semibold text-rose-700">{{ t('souk.set.sku.tooLong') }}</p>
-          <p v-else-if="form.skuPrefix !== orig.skuPrefix && !errs.prefix" class="text-[11px] text-stone-500">{{ t('souk.set.sku.newPrefix') }}</p>
+          <p v-if="preview.over" class="text-[12px] font-semibold text-rose-700">{{ t('souk.set.sku.tooLong') }}</p>
+          <p v-else-if="form.skuPrefix !== orig.skuPrefix && !errs.prefix" class="text-[12px] text-stone-500">{{ t('souk.set.sku.newPrefix') }}</p>
         </div>
       </section>
 
@@ -98,43 +113,43 @@
               <input :id="'ss-ck-' + c._id" :value="c.key" dir="ltr" autocomplete="off" autocapitalize="none" spellcheck="false"
                      maxlength="30" :placeholder="t('souk.set.cats.key')"
                      :class="[inp, 'mono !w-40 lowercase', errs.cats[i] === 'key' ? bad : '']" @input="onKey(c, $event)" />
-              <span class="text-[10.5px] text-stone-400 leading-tight hidden sm:block">{{ t('souk.set.cats.keyHint') }}</span>
+              <span class="text-[11px] text-stone-500 leading-tight hidden sm:block">{{ t('souk.set.cats.keyHint') }}</span>
             </template>
-            <span v-else class="mono text-[12px] font-semibold text-stone-700 bg-stone-100 rounded-md px-2 py-1" dir="ltr">{{ c.key }}</span>
-            <span v-if="usedCat(c)" class="text-[11px] text-stone-500 tabular-nums">· {{ tt('souk.set.used', { n: usedCat(c) }) }}</span>
-            <button type="button" class="ms-auto shrink-0 w-11 h-11 -me-1.5 rounded-lg inline-flex items-center justify-center text-stone-400 hover:text-rose-600 hover:bg-rose-50"
+            <span v-else class="mono text-[13px] font-semibold text-stone-700 bg-stone-100 rounded-md px-2 py-1" dir="ltr">{{ c.key }}</span>
+            <span v-if="usedCat(c)" class="text-[12px] text-stone-500 tabular-nums">· {{ tt('souk.set.used', { n: usedCat(c) }) }}</span>
+            <button type="button" class="ms-auto shrink-0 w-11 h-11 -me-1.5 rounded-lg inline-flex items-center justify-center text-stone-500 hover:text-rose-600 hover:bg-rose-50"
                     :aria-label="t('souk.set.remove') + ' ' + (c.fr || c.key)" @click="askRemove('categories', c, usedCat(c))">
               <Icon name="trash-2" :size="17" />
             </button>
           </div>
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
             <div>
-              <label :for="'ss-car-' + c._id" class="block text-[11.5px] font-semibold text-stone-700 mb-1">{{ t('souk.set.cats.ar') }}</label>
+              <label :for="'ss-car-' + c._id" class="block text-[12px] font-semibold text-stone-700 mb-1">{{ t('souk.set.cats.ar') }}</label>
               <input :id="'ss-car-' + c._id" v-model="c.ar" dir="rtl" lang="ar" autocomplete="off" :class="[inp, !c.ar.trim() && errs.cats[i] === 'fields' ? bad : '']" />
             </div>
             <div>
-              <label :for="'ss-cfr-' + c._id" class="block text-[11.5px] font-semibold text-stone-700 mb-1">{{ t('souk.set.cats.fr') }}</label>
+              <label :for="'ss-cfr-' + c._id" class="block text-[12px] font-semibold text-stone-700 mb-1">{{ t('souk.set.cats.fr') }}</label>
               <input :id="'ss-cfr-' + c._id" :value="c.fr" dir="ltr" lang="fr" autocomplete="off" :class="[inp, !c.fr.trim() && errs.cats[i] === 'fields' ? bad : '']"
                      @input="onCatFr(c, $event)" />
             </div>
             <div>
-              <label :for="'ss-cty-' + c._id" class="block text-[11.5px] font-semibold text-stone-700 mb-1">{{ t('souk.set.cats.type') }}</label>
+              <label :for="'ss-cty-' + c._id" class="block text-[12px] font-semibold text-stone-700 mb-1">{{ t('souk.set.cats.type') }}</label>
               <input :id="'ss-cty-' + c._id" v-model="c.productType" dir="ltr" list="ss-types" autocomplete="off"
                      :class="[inp, !c.productType.trim() && errs.cats[i] === 'fields' ? bad : '']" />
             </div>
             <div>
-              <label :for="'ss-cbr-' + c._id" class="block text-[11.5px] font-semibold text-stone-700 mb-1">{{ t('souk.set.cats.brand') }}</label>
+              <label :for="'ss-cbr-' + c._id" class="block text-[12px] font-semibold text-stone-700 mb-1">{{ t('souk.set.cats.brand') }}</label>
               <input :id="'ss-cbr-' + c._id" v-model="c.brand" dir="ltr" list="ss-brands" autocomplete="off"
                      :class="[inp, !c.brand.trim() && errs.cats[i] === 'fields' ? bad : '']" />
             </div>
           </div>
-          <p v-if="c.brand.trim() && !brandKnown(c.brand)" class="text-[11px] font-medium text-amber-800 flex items-start gap-1.5">
+          <p v-if="c.brand.trim() && !brandKnown(c.brand)" class="text-[12px] font-medium text-amber-800 flex items-start gap-1.5">
             <Icon name="alert-triangle" :size="12" class="mt-[2px] shrink-0" />{{ t('souk.set.cats.newBrand') }}
           </p>
           <RemoveWarn v-if="pending === c._id" :n="usedCat(c)" :name="c.fr || c.key"
                       @yes="remove('categories', c)" @no="pending = null" />
         </div>
-        <button type="button" class="w-full h-11 rounded-lg border border-dashed border-stone-300 text-[13px] font-semibold text-[var(--accent-700)] inline-flex items-center justify-center gap-1.5 hover:bg-stone-50"
+        <button type="button" class="w-full h-11 rounded-lg border border-dashed border-stone-300 text-[14px] font-semibold text-[var(--accent-700)] inline-flex items-center justify-center gap-1.5 hover:bg-stone-50"
                 @click="addCat">
           <Icon name="plus" :size="15" />{{ t('souk.set.cats.add') }}
         </button>
@@ -144,7 +159,7 @@
       <section v-if="boot.isManager" id="set-colors" class="lp-card p-4 space-y-3 scroll-mt-3">
         <SecHead icon="sparkles" :title="t('souk.set.colors.title')" :hint="t('souk.set.colors.hint')" />
         <div class="space-y-1.5">
-          <div class="grid grid-cols-[60px_1fr_1fr_40px] gap-1.5 text-[11px] font-semibold text-stone-500 px-0.5" aria-hidden="true">
+          <div class="grid grid-cols-[60px_1fr_1fr_40px] gap-1.5 text-[12px] font-semibold text-stone-500 px-0.5" aria-hidden="true">
             <span>{{ t('souk.set.colors.code') }}</span><span>{{ t('souk.set.colors.fr') }}</span><span>{{ t('souk.set.colors.ar') }}</span><span />
           </div>
           <template v-for="(c, i) in form.colors" :key="c._id">
@@ -154,14 +169,14 @@
                 <input v-if="c._new" :value="c.code" dir="ltr" maxlength="3" autocapitalize="characters" autocomplete="off" spellcheck="false"
                        :aria-label="t('souk.set.colors.code')"
                        :class="[inp, 'mono uppercase !px-2 text-center', errs.colors[i] === 'code' ? bad : '']" @input="onCode(c, $event)" />
-                <div v-else class="h-11 rounded-lg bg-stone-100 mono text-[13px] font-bold text-stone-800 flex items-center justify-center" dir="ltr">{{ c.code }}</div>
-                <div v-if="usedColor(c)" class="text-[10px] text-stone-500 text-center mt-0.5 tabular-nums">{{ tt('souk.set.used', { n: usedColor(c) }) }}</div>
+                <div v-else class="h-11 rounded-lg bg-stone-100 mono text-[14px] font-bold text-stone-800 flex items-center justify-center" dir="ltr">{{ c.code }}</div>
+                <div v-if="usedColor(c)" class="text-[11px] text-stone-500 text-center mt-0.5 tabular-nums">{{ tt('souk.set.used', { n: usedColor(c) }) }}</div>
               </div>
               <input v-model="c.fr" dir="ltr" lang="fr" autocomplete="off" :aria-label="t('souk.set.colors.fr') + ' ' + c.code"
                      :class="[inp, '!px-2', !c.fr.trim() && errs.colors[i] === 'names' ? bad : '']" />
               <input v-model="c.ar" dir="rtl" lang="ar" autocomplete="off" :aria-label="t('souk.set.colors.ar') + ' ' + c.code"
                      :class="[inp, '!px-2', !c.ar.trim() && errs.colors[i] === 'names' ? bad : '']" />
-              <button type="button" class="w-10 h-11 rounded-lg inline-flex items-center justify-center text-stone-400 hover:text-rose-600 hover:bg-rose-50"
+              <button type="button" class="w-10 h-11 rounded-lg inline-flex items-center justify-center text-stone-500 hover:text-rose-600 hover:bg-rose-50"
                       :aria-label="t('souk.set.remove') + ' ' + (c.code || c.fr)" @click="askRemove('colors', c, usedColor(c))">
                 <Icon name="trash-2" :size="16" />
               </button>
@@ -170,7 +185,7 @@
                         @yes="remove('colors', c)" @no="pending = null" />
           </template>
         </div>
-        <button type="button" class="w-full h-11 rounded-lg ring-1 ring-stone-300 text-[13px] font-semibold text-[var(--accent-700)] inline-flex items-center justify-center gap-1.5 hover:bg-stone-50"
+        <button type="button" class="w-full h-11 rounded-lg ring-1 ring-stone-300 text-[14px] font-semibold text-[var(--accent-700)] inline-flex items-center justify-center gap-1.5 hover:bg-stone-50"
                 @click="addColor">
           <Icon name="plus" :size="15" />{{ t('souk.set.colors.add') }}
         </button>
@@ -203,11 +218,11 @@
       <section v-if="boot.isManager" id="set-publish" class="lp-card p-4 space-y-3 scroll-mt-3">
         <SecHead icon="send" :title="t('souk.set.publish.title')" :hint="t('souk.set.publish.hint')" />
         <div v-if="boot.channelsError" class="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 space-y-1">
-          <p class="text-[12px] font-semibold text-amber-900 flex items-start gap-1.5">
+          <p class="text-[13px] font-semibold text-amber-900 flex items-start gap-1.5">
             <Icon name="alert-triangle" :size="13" class="mt-[2px] shrink-0" />{{ t('souk.set.publish.unreachable') }}
           </p>
-          <p class="text-[11px] text-amber-800 break-words" dir="ltr">{{ boot.channelsError }}</p>
-          <p class="text-[11.5px] text-amber-900 tabular-nums">{{ tt('souk.set.publish.current', { n: form.publishChannels.length }) }}</p>
+          <p class="text-[12px] text-amber-800 break-words" dir="ltr">{{ boot.channelsError }}</p>
+          <p class="text-[12px] text-amber-900 tabular-nums">{{ tt('souk.set.publish.current', { n: form.publishChannels.length }) }}</p>
         </div>
         <div v-else class="space-y-1.5">
           <label v-for="ch in channelRows" :key="ch.id"
@@ -216,11 +231,11 @@
             <input type="checkbox" class="w-5 h-5 shrink-0" style="accent-color: var(--accent-600)"
                    :checked="form.publishChannels.includes(ch.id)" @change="toggleChannel(ch.id)" />
             <span class="flex-1 min-w-0">
-              <span class="block text-[13.5px] font-semibold text-stone-900 truncate">{{ ch.name }}</span>
-              <span v-if="ch.unknown" class="block text-[11px] text-amber-800">{{ t('souk.set.publish.unknown') }}</span>
+              <span class="block text-[14px] font-semibold text-stone-900 truncate">{{ ch.name }}</span>
+              <span v-if="ch.unknown" class="block text-[12px] text-amber-800">{{ t('souk.set.publish.unknown') }}</span>
             </span>
           </label>
-          <p v-if="!form.publishChannels.length" class="text-[11.5px] text-stone-500 flex items-start gap-1.5 pt-1">
+          <p v-if="!form.publishChannels.length" class="text-[12px] text-stone-500 flex items-start gap-1.5 pt-1">
             <Icon name="info" :size="13" class="mt-[2px] shrink-0" />{{ t('souk.set.publish.none') }}
           </p>
         </div>
@@ -230,14 +245,14 @@
       <section id="set-accounts" class="lp-card p-4 space-y-4 scroll-mt-3">
         <SecHead icon="wallet" :title="t('souk.set.acct.title')" :hint="t('souk.set.acct.hint')" />
         <div v-for="a in ACCTS" :key="a.key">
-          <div :id="'ss-al-' + a.key" class="block text-[12px] font-semibold text-stone-700 mb-1">{{ t(a.label) }}</div>
+          <div :id="'ss-al-' + a.key" class="block text-[13px] font-semibold text-stone-700 mb-1">{{ t(a.label) }}</div>
           <button type="button" :aria-expanded="openAcct === a.key" :aria-labelledby="'ss-al-' + a.key + ' ss-av-' + a.key"
                   class="w-full h-11 rounded-lg bg-white ring-1 px-3 flex items-center gap-2 text-start"
                   :class="openAcct === a.key ? 'ring-2 ring-[var(--accent-500)]' : 'ring-stone-300'"
                   @click="toggleAcct(a.key)">
-            <span :id="'ss-av-' + a.key" class="flex-1 min-w-0 truncate text-[14px]" :class="form[a.key] ? 'text-stone-900' : 'text-stone-400'"
+            <span :id="'ss-av-' + a.key" class="flex-1 min-w-0 truncate text-[15px]" :class="form[a.key] ? 'text-stone-900' : 'text-stone-500'"
                   dir="auto">{{ form[a.key] || t('souk.set.acct.none') }}</span>
-            <Icon name="chevron-down" :size="16" class="shrink-0 text-stone-400 transition-transform" :class="openAcct === a.key ? 'rotate-180' : ''" />
+            <Icon name="chevron-down" :size="16" class="shrink-0 text-stone-500 transition-transform" :class="openAcct === a.key ? 'rotate-180' : ''" />
           </button>
           <div v-if="openAcct === a.key" class="mt-1.5 rounded-lg ring-1 ring-stone-200 bg-white overflow-hidden">
             <div class="p-2 border-b border-stone-100">
@@ -245,68 +260,69 @@
               <div class="relative" dir="ltr">
                 <input ref="acctSearch" v-model="acctQ" type="search" autocomplete="off" :placeholder="t('souk.set.acct.search')"
                        :class="[inp, '!ps-9']" @keydown.esc="openAcct = null" />
-                <Icon name="search" :size="15" class="absolute top-1/2 -translate-y-1/2 start-3 text-stone-400 pointer-events-none" />
+                <Icon name="search" :size="15" class="absolute top-1/2 -translate-y-1/2 start-3 text-stone-500 pointer-events-none" />
               </div>
             </div>
             <ul class="max-h-[264px] overflow-y-auto overscroll-contain py-1" role="listbox" :aria-labelledby="'ss-al-' + a.key">
               <li role="option" :aria-selected="!form[a.key]">
-                <button type="button" class="w-full min-h-[44px] px-3 text-start text-[13px] text-stone-500 hover:bg-stone-50 flex items-center gap-2"
+                <button type="button" class="w-full min-h-[44px] px-3 text-start text-[14px] text-stone-500 hover:bg-stone-50 flex items-center gap-2"
                         @click="pickAcct(a.key, '')">
                   <span class="flex-1">{{ t('souk.set.acct.none') }}</span>
                   <Icon v-if="!form[a.key]" name="check" :size="15" class="text-[var(--accent-600)]" />
                 </button>
               </li>
               <li v-for="name in acctMatches(a.list).rows" :key="name" role="option" :aria-selected="form[a.key] === name">
-                <button type="button" class="w-full min-h-[44px] px-3 text-start text-[13px] hover:bg-stone-50 flex items-center gap-2"
+                <button type="button" class="w-full min-h-[44px] px-3 text-start text-[14px] hover:bg-stone-50 flex items-center gap-2"
                         :class="form[a.key] === name ? 'text-[var(--accent-700)] font-semibold' : 'text-stone-800'"
                         @click="pickAcct(a.key, name)">
                   <span class="flex-1 min-w-0 break-words" dir="ltr">{{ name }}</span>
                   <Icon v-if="form[a.key] === name" name="check" :size="15" class="shrink-0 text-[var(--accent-600)]" />
                 </button>
               </li>
-              <li v-if="!acctMatches(a.list).rows.length" class="px-3 py-3 text-[12px] text-stone-500">{{ t('souk.set.acct.noMatch') }}</li>
-              <li v-else-if="acctMatches(a.list).more" class="px-3 py-2 text-[11px] text-stone-400">{{ tt('souk.set.acct.more', { n: acctMatches(a.list).more }) }}</li>
+              <li v-if="!acctMatches(a.list).rows.length" class="px-3 py-3 text-[13px] text-stone-500">{{ t('souk.set.acct.noMatch') }}</li>
+              <li v-else-if="acctMatches(a.list).more" class="px-3 py-2 text-[12px] text-stone-500">{{ tt('souk.set.acct.more', { n: acctMatches(a.list).more }) }}</li>
             </ul>
           </div>
-          <p v-if="form[a.key] && !(boot.accounts[a.list] || []).includes(form[a.key])" class="text-[11px] font-medium text-amber-800 mt-1">
+          <p v-if="form[a.key] && !(boot.accounts[a.list] || []).includes(form[a.key])" class="text-[12px] font-medium text-amber-800 mt-1">
             {{ t('souk.set.acct.notListed') }}
           </p>
-          <p class="text-[11px] text-stone-500 mt-1">{{ t(a.hint) }}</p>
+          <p class="text-[12px] text-stone-500 mt-1">{{ t(a.hint) }}</p>
         </div>
       </section>
 
       <!-- ── last changes ───────────────────────────────────────────── -->
       <section id="set-log" class="lp-card p-4 scroll-mt-3">
         <SecHead icon="history" :title="t('souk.set.log.title')" />
-        <p v-if="!boot.log?.length" class="text-[12px] text-stone-500 mt-2">{{ t('souk.set.log.empty') }}</p>
+        <p v-if="!boot.log?.length" class="text-[13px] text-stone-500 mt-2">{{ t('souk.set.log.empty') }}</p>
         <ul v-else class="mt-1 divide-y divide-stone-100">
           <li v-for="(e, i) in boot.log" :key="i" class="py-2.5 flex items-start gap-3">
             <span class="mt-1.5 w-1.5 h-1.5 rounded-full bg-stone-300 shrink-0" />
             <div class="min-w-0">
-              <div class="text-[12.5px] text-stone-800">
+              <div class="text-[13px] text-stone-800">
                 <span class="font-semibold">{{ e.byName || e.by }}</span> {{ tt('souk.set.log.changed', { what: keysText(e.keys) }) }}
               </div>
-              <div class="text-[11px] text-stone-500 tabular-nums" dir="ltr">{{ when(e.at) }}</div>
+              <div class="text-[12px] text-stone-500 tabular-nums" dir="ltr">{{ when(e.at) }}</div>
             </div>
           </li>
         </ul>
       </section>
     </template>
+   </div>
 
     <!-- ── sticky save bar ─────────────────────────────────────────── -->
     <footer v-if="dirty" class="lp-footer px-4 pt-3 pb-3">
       <div class="max-w-[760px] mx-auto space-y-2">
-        <p v-if="saveErr" class="text-[12px] font-semibold text-rose-700 flex items-start gap-1.5" role="alert">
+        <p v-if="saveErr" class="text-[13px] font-semibold text-rose-700 flex items-start gap-1.5" role="alert">
           <Icon name="alert-circle" :size="14" class="mt-[1px] shrink-0" /><span class="break-words min-w-0">{{ saveErr }}</span>
         </p>
-        <p v-else-if="problem" class="text-[11.5px] font-semibold text-amber-800 flex items-start gap-1.5" aria-live="polite">
+        <p v-else-if="problem" class="text-[12px] font-semibold text-amber-800 flex items-start gap-1.5" aria-live="polite">
           <Icon name="info" :size="13" class="mt-[2px] shrink-0" />{{ problem }}
         </p>
         <div class="flex items-center gap-2">
-          <span class="flex-1 min-w-0 text-[12px] text-stone-600 leading-tight">{{ tt('souk.set.bar.n', { n: changed.length }) }}</span>
-          <button type="button" class="shrink-0 h-11 px-4 rounded-xl ring-1 ring-stone-300 bg-white text-[13.5px] font-semibold text-stone-700 disabled:opacity-40"
+          <span class="flex-1 min-w-0 text-[13px] text-stone-600 leading-tight">{{ tt('souk.set.bar.n', { n: changed.length }) }}</span>
+          <button type="button" class="shrink-0 h-11 px-4 rounded-xl ring-1 ring-stone-300 bg-white text-[14px] font-semibold text-stone-700 disabled:opacity-40"
                   :disabled="saving" @click="discard">{{ t('souk.set.bar.discard') }}</button>
-          <button type="button" class="shrink-0 h-11 px-5 rounded-xl bg-[var(--accent-600)] hover:bg-[var(--accent-700)] text-white text-[14px] font-bold disabled:opacity-40"
+          <button type="button" class="shrink-0 h-11 px-5 rounded-xl bg-[var(--accent-600)] hover:bg-[var(--accent-700)] text-white text-[15px] font-bold disabled:opacity-40"
                   :disabled="saving || !!problem" @click="save">
             {{ saving ? t('souk.set.bar.saving') : t('souk.set.bar.save') }}
           </button>
@@ -333,10 +349,26 @@ const tt = (k, vars = {}) => {
   return s;
 };
 
-const inp = "w-full h-11 rounded-lg bg-white ring-1 ring-stone-300 px-3 text-[14px] text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[var(--accent-500)]";
+const inp = "w-full h-11 rounded-lg bg-white ring-1 ring-stone-300 px-3 text-[15px] text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[var(--accent-500)]";
 const bad = "!ring-rose-400 !ring-2";
 
 const JUMPS = ["sku", "cats", "colors", "days", "receiving", "publish", "accounts", "log"];
+const JUMP_ICON = { sku: "tag", cats: "layers", colors: "sparkles", days: "clock", receiving: "package-check",
+                    publish: "send", accounts: "wallet", log: "history" };
+// Which section the reader is in (desk side list): the last one whose top
+// passed a third of the way down the viewport.
+const active = ref("sku");
+let spy = null;
+function watchSections() {
+  if (spy || typeof IntersectionObserver === "undefined") return;
+  const seen = new Map();
+  spy = new IntersectionObserver((entries) => {
+    for (const e of entries) seen.set(e.target.id.slice(4), e.isIntersecting);
+    const first = JUMPS.find((j) => seen.get(j));
+    if (first) active.value = first;
+  }, { rootMargin: "0px 0px -66% 0px" });
+  for (const j of JUMPS) { const el = document.getElementById("set-" + j); if (el) spy.observe(el); }
+}
 const ACCOUNT_KEYS = ["custodyAccount", "transportLossAccount", "warehouseLossAccount"];
 const ACCTS = [
   { key: "custodyAccount", list: "cash", label: "souk.set.acct.custody", hint: "souk.set.acct.custodyHint" },
@@ -354,10 +386,10 @@ const SecHead = defineComponent({
   props: { icon: String, title: String, hint: String },
   setup(p) {
     return () => h("div", [
-      h("h2", { class: "text-[13.5px] font-bold text-stone-900 flex items-center gap-2" }, [
-        h(Icon, { name: p.icon, size: 15, class: "text-stone-400" }), p.title,
+      h("h2", { class: "text-[14px] font-bold text-stone-900 flex items-center gap-2" }, [
+        h(Icon, { name: p.icon, size: 15, class: "text-stone-500" }), p.title,
       ]),
-      p.hint ? h("p", { class: "text-[11.5px] text-stone-500 mt-1 leading-relaxed" }, p.hint) : null,
+      p.hint ? h("p", { class: "text-[12px] text-stone-500 mt-1 leading-relaxed" }, p.hint) : null,
     ]);
   },
 });
@@ -373,8 +405,8 @@ const NumRow = defineComponent({
     const btn = "w-11 h-11 rounded-lg bg-white ring-1 ring-stone-300 text-[20px] font-bold text-stone-700 inline-flex items-center justify-center active:bg-stone-100 disabled:opacity-30";
     return () => h("div", { class: "flex items-center gap-3 py-2.5" }, [
       h("div", { class: "flex-1 min-w-0" }, [
-        h("label", { for: p.id, class: "block text-[13px] font-semibold text-stone-800" }, p.label),
-        p.hint ? h("p", { class: "text-[11px] text-stone-500 mt-0.5 leading-snug" }, p.hint) : null,
+        h("label", { for: p.id, class: "block text-[14px] font-semibold text-stone-800" }, p.label),
+        p.hint ? h("p", { class: "text-[12px] text-stone-500 mt-0.5 leading-snug" }, p.hint) : null,
       ]),
       h("div", { class: "flex items-center gap-1 shrink-0", dir: "ltr" }, [
         h("button", { type: "button", class: btn, "aria-label": "−", tabindex: -1,
@@ -391,7 +423,7 @@ const NumRow = defineComponent({
         h("button", { type: "button", class: btn, "aria-label": "+", tabindex: -1,
           disabled: val() != null && val() >= p.max, onClick: () => set((val() ?? p.min - 1) + 1) }, "+"),
       ]),
-      h("span", { class: "w-9 text-[11px] text-stone-500 shrink-0" }, p.unit),
+      h("span", { class: "w-9 text-[12px] text-stone-500 shrink-0" }, p.unit),
     ]);
   },
 });
@@ -401,11 +433,11 @@ const RemoveWarn = defineComponent({
   emits: ["yes", "no"],
   setup(p, { emit }) {
     return () => h("div", { class: "rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 space-y-2", role: "alert" }, [
-      h("p", { class: "text-[12px] text-amber-900 leading-relaxed" }, tt("souk.set.removeWarn", { n: p.n, name: p.name })),
+      h("p", { class: "text-[13px] text-amber-900 leading-relaxed" }, tt("souk.set.removeWarn", { n: p.n, name: p.name })),
       h("div", { class: "flex gap-2" }, [
-        h("button", { type: "button", class: "h-10 px-3.5 rounded-lg bg-rose-600 text-white text-[12.5px] font-bold", onClick: () => emit("yes") },
+        h("button", { type: "button", class: "h-10 px-3.5 rounded-lg bg-rose-600 text-white text-[13px] font-bold", onClick: () => emit("yes") },
           t("souk.set.removeAnyway")),
-        h("button", { type: "button", class: "h-10 px-3.5 rounded-lg ring-1 ring-stone-300 bg-white text-[12.5px] font-semibold text-stone-700", onClick: () => emit("no") },
+        h("button", { type: "button", class: "h-10 px-3.5 rounded-lg ring-1 ring-stone-300 bg-white text-[13px] font-semibold text-stone-700", onClick: () => emit("no") },
           t("souk.set.keep")),
       ]),
     ]);
@@ -670,6 +702,7 @@ function discard() { reset(); }
 
 // ── misc ────────────────────────────────────────────────────────────────
 function jump(j) {
+  active.value = j;
   const el = document.getElementById("set-" + j);
   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -682,5 +715,6 @@ const when = (at) => String(local(at) || "").slice(0, 16);
 onBeforeRouteLeave(() => !dirty.value || window.confirm(t("souk.set.bar.leave")));
 function beforeUnload(e) { if (dirty.value) { e.preventDefault(); e.returnValue = ""; } }
 onMounted(() => { window.addEventListener("beforeunload", beforeUnload); load(); });
-onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
+onBeforeUnmount(() => { window.removeEventListener("beforeunload", beforeUnload); if (spy) spy.disconnect(); });
+watch(() => boot.value && boot.value.isManager, (on) => { if (on) nextTick(watchSections); }, { immediate: true });
 </script>

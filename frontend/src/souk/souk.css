@@ -68,3 +68,11 @@ html[data-portal="souk"][data-theme="dark"] .lp-footer { background: rgb(28 25 2
   html[data-portal="souk"] * { scrollbar-width: none; }
   html[data-portal="souk"] *::-webkit-scrollbar { display: none; }
 }
+
+/* Arabic reads smaller than Latin at the same px (Noto Sans Arabic's x-height
+   and the dots): the small sizes step up one pixel in RTL so a buyer in the
+   sun reads the meta lines without zooming (audit 2026-11-19). */
+html[data-portal="souk"][dir="rtl"] .text-\[11px\] { font-size: 12px; }
+html[data-portal="souk"][dir="rtl"] .text-\[12px\] { font-size: 13px; }
+html[data-portal="souk"][dir="rtl"] .text-\[13px\] { font-size: 14px; }
+html[data-portal="souk"][dir="rtl"] .text-\[14px\] { font-size: 15px; }

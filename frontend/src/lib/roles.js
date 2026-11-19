@@ -392,7 +392,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
           { to: "SoukBuy", label: "nav.soukBuy", icon: "shopping-bag" },
-          { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
+          { to: "SoukBoard", label: "nav.soukBoard", icon: "kanban" },
         ],
       },
     ],
@@ -405,7 +405,7 @@ export const ROLE_CONFIG = {
         section: "nav.souk",
         items: [
           { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
-          { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
+          { to: "SoukBoard", label: "nav.soukBoard", icon: "kanban" },
           // Only the accounts section is theirs (custody cash, loss accounts).
           { to: "SoukSettings", label: "nav.settings", icon: "settings" },
         ],
@@ -423,7 +423,7 @@ export const ROLE_CONFIG = {
           { to: "SoukStudio", label: "nav.soukStudio", icon: "image" },
           { to: "SoukContent", label: "nav.soukContent", icon: "notebook-pen" },
           { to: "SoukReview", label: "nav.soukReview", icon: "clipboard-check" },
-          { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
+          { to: "SoukBoard", label: "nav.soukBoard", icon: "kanban" },
         ],
       },
     ],
@@ -438,7 +438,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "SoukContent", label: "nav.soukContent", icon: "notebook-pen" },
           { to: "SoukReview", label: "nav.soukReview", icon: "clipboard-check" },
-          { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
+          { to: "SoukBoard", label: "nav.soukBoard", icon: "kanban" },
         ],
       },
     ],
@@ -576,7 +576,7 @@ const SOUK_MANAGER = {
     {
       section: "nav.soukBuying",
       items: [
-        { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
+        { to: "SoukBoard", label: "nav.soukBoard", icon: "kanban" },
         { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
         { to: "SoukBuy", label: "nav.soukBuy", icon: "shopping-bag" },
       ],

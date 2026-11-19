@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from "vite";
 import vue from "@vitejs/plugin-vue";
 import Icons from "unplugin-icons/vite";
 import path from "path";
+import soukLocales from "./build/soukLocales.js";
 
 export default defineConfig(({ mode }) => {
   // Load ALL env vars (incl. non-VITE_) from .env.local so LP_BACKEND / LP_API_TOKEN
@@ -15,7 +16,7 @@ export default defineConfig(({ mode }) => {
   const souk = process.env.LP_ENTRY === "souk";
   const NAME = souk ? "logistics_souk" : "logistics_portal";
   return {
-  plugins: [vue(), Icons()],
+  plugins: [vue(), Icons(), ...(souk ? [soukLocales(path.resolve(__dirname, "src"))] : [])],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
