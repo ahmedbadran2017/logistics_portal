@@ -270,7 +270,7 @@
 
         <!-- close (buyer) — a second open trip of the same buyer closes here;
              the first one closes from the fixed footer -->
-        <div v-if="tr.status === 'Open' && tr.buyer === data.me && tr !== footTrip" class="space-y-1.5">
+        <div v-if="tr.status === 'Open' && (tr.buyer === data.me || data.isAccountant) && tr !== footTrip" class="space-y-1.5">
           <p v-if="tr.missingReceipts" class="text-[12px] text-stone-600 text-center">{{ t('souk.missingN').replace('{n}', tr.missingReceipts) }}</p>
           <button class="w-full min-h-[50px] px-3 py-2 rounded-[10px] bg-[var(--accent-600)] text-white text-[15px] leading-snug font-bold disabled:bg-stone-200 disabled:text-stone-600"
                   :disabled="busy || !tr.canClose" @click="close(tr)">
