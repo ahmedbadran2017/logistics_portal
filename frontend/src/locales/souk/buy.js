@@ -85,7 +85,7 @@ export default {
       done: {
         title: "{title} is recorded",
         rebuyTitle: "{title} bought again",
-        goodsIn: "The warehouse finds it in Goods In (receiving) as soon as it arrives.",
+        goodsIn: "The warehouse finds it in Souk receiving as soon as it arrives.",
         draft: "Draft product on Shopify",
         draftSub: "On the site as {brand} · customers can't see it yet",
         next: "{n} item(s) on Next",
@@ -245,7 +245,7 @@ export default {
       done: {
         title: "{title} est enregistré",
         rebuyTitle: "{title} racheté",
-        goodsIn: "L'entrepôt le trouve dans Goods In (réception) dès son arrivée.",
+        goodsIn: "L'entrepôt le trouve dans Réception souk dès son arrivée.",
         draft: "Produit Draft sur Shopify",
         draftSub: "Sur le site sous {brand} · invisible pour les clients",
         next: "{n} article(s) sur Next",

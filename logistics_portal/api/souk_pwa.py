@@ -118,6 +118,22 @@ self.addEventListener("fetch", (e) => {
 
 
 def _version():
+    """Changes only when what the phone caches changes: the souk bundles'
+    hashed names and the page shell. get_build_version moved on every
+    deploy (any app, even Python-only), so phones showed "a new version is
+    ready" for nothing."""
+    try:
+        import hashlib
+        from frappe.utils import get_assets_json
+        a = get_assets_json() or {}
+        parts = [a.get(k, "") for k in ("logistics_souk.bundle.js", "logistics_souk.bundle.css",
+                                        "rtl_logistics_souk.bundle.css")]
+        with open(frappe.get_app_path("logistics_portal", "templates", "pages", "souk.html"), "rb") as f:
+            parts.append(hashlib.md5(f.read()).hexdigest())
+        if parts[0]:
+            return hashlib.md5("|".join(parts).encode()).hexdigest()[:12]
+    except Exception:
+        pass
     try:
         from frappe.utils import get_build_version
         return str(get_build_version())

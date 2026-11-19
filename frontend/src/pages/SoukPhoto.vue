@@ -197,6 +197,10 @@ const colorDone = (c) => !d.value.missing.some((m) => m.color === c.code);
 const missingText = computed(() => {
   const by = {};
   for (const m of d.value?.missing || []) by[m.color] = (by[m.color] || 0) + 1;
+  // A product without colours: "Still missing: 6 photos", not "The product 6".
+  if (d.value.colors.length === 1 && !d.value.colors[0].code) {
+    return t("souk.photoMissingN").replace("{n}", by[""] || 0);
+  }
   const parts = d.value.colors.filter((c) => by[c.code]).map((c) => `${colorName(c)} ${by[c.code]}`);
   return t("souk.photoMissing").replace("{list}", parts.join(" · "));
 });

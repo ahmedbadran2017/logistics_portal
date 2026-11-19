@@ -741,7 +741,8 @@ async function post() {
   if (brokenState.value === "err" && !window.confirm(t("souk.recv.photoMissingConfirm"))) return;
   const msg = nothingCame.value
     ? t("souk.allShortConfirm").replace("{n}", fmt(owed.value))
-    : t("souk.recvConfirm").replace("{g}", totalGood.value).replace("{b}", totalBroken.value)
+    : t(totalStudio.value ? "souk.recvConfirmStudio" : "souk.recvConfirm").replace("{g}", totalGood.value)
+      .replace("{st}", totalStudio.value).replace("{b}", totalBroken.value)
       .replace("{s}", totalShort.value).replace("{w}", shortWh(target.value) || "—");
   if (!window.confirm(msg)) return;
   busy.value = true;
