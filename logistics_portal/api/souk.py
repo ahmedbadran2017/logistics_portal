@@ -1543,6 +1543,12 @@ def _make_po(supplier, trip, product, lines, receipt_image="", client_key="", pa
                             "uom": uom, "stock_uom": uom, "conversion_factor": 1,
                             "schedule_date": today, "warehouse": RECEIVING_WH})
     po.set("taxes", [])
+    # The ecommerce_integrations PurchaseOrder override replaces validate and
+    # never fills the defaults (exchange rate, item name, base amounts) that
+    # the Desk form would. Fill them here, as the form does; the rate stays
+    # what the buyer paid.
+    po.run_method("set_missing_values")
+    po.run_method("calculate_taxes_and_totals")
     po.insert(ignore_permissions=True)
     po.submit()
     return po
