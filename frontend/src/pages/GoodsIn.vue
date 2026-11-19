@@ -52,6 +52,23 @@
           <p v-if="!loadingBoot && !displayPos.length" class="text-[11.5px] text-stone-400">{{ t('gi.noOpenPos') }}</p>
         </div>
       </div>
+
+      <!-- The souk lane: new products from the market are received on their
+           own screen (studio sample, weight, a shelf on Shopify). Goods In
+           hides their POs and points here instead. -->
+      <div v-if="soukPos.length" class="flex items-start gap-3 flex-wrap pt-3 border-t border-stone-100">
+        <span class="text-[12.5px] font-medium text-stone-600 w-16 mt-2">{{ t('gi.soukLane') }}</span>
+        <div class="flex-1 min-w-[240px] space-y-1.5">
+          <div class="flex flex-wrap gap-1.5">
+            <router-link v-for="p in soukPos" :key="p.po" :to="{ name: 'SoukReceive', params: { po: p.po } }"
+                         class="h-8 px-2.5 rounded-lg text-[12px] font-semibold ring-1 ring-amber-300 bg-amber-50 text-amber-900 hover:ring-amber-400 inline-flex items-center gap-1.5 tabular-nums">
+              <Icon name="shopping-bag" :size="13" />
+              <span class="font-mono">{{ p.po }}</span> · {{ p.title || p.stall }} · {{ p.units }}
+            </router-link>
+          </div>
+          <p class="text-[11.5px] text-stone-500">{{ t('gi.soukLaneHint') }}</p>
+        </div>
+      </div>
     </div>
 
     <!-- PO open: header + target + the PO's items (review / enter, scanner optional) -->
@@ -201,6 +218,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import ScanInput from "@/components/ui/ScanInput.vue";
 import { api, apiPost } from "@/lib/resource";
@@ -244,6 +262,13 @@ const allRouted = computed(() =>
 // The typed target only matters for pieces without a fixed bin.
 const targetOk = computed(() =>
   targetValid.value || poLines.value.every((l) => !(l.qty > 0) || (!l.extra && routes.value[l.itemCode])));
+const router = useRouter();
+const soukPos = computed(() => boot.value?.soukPos || []);
+// A souk PO opened by number or scan goes to its own screen.
+function toSouk(po) {
+  success(t("gi.soukPo"), po);
+  router.push({ name: "SoukReceive", params: { po } });
+}
 const displayPos = computed(() =>
   poSearch.value.trim().length >= 2 ? poSearchRows.value : (boot.value?.openPos || []));
 const shownLines = computed(() => {
@@ -282,6 +307,7 @@ async function selectPo(name, bump = null) {
       // A Cross-dock PO is received on its own screen, into Cross-dock - JM —
       // posted here its goods land in a zone picking vetoes. Say which order,
       // so the counter knows what it is holding.
+      if (o.reason === "souk") return toSouk(o.po || name);
       if (o.reason === "crossdock") warn(t("gi.crossdockPo"), o.so || name);
       else if (o.reason === "cancelled") warn(t("gi.cancelledPo"), o.so || name);
       else warn(t("gi.poNotOpen"), name);
@@ -345,6 +371,7 @@ async function scanToOpen(code) {
   try {
     const o = await apiPost("purchasing.open_po", { po: code });
     if (o.ok) return selectPo(code);
+    if (o.reason === "souk") return toSouk(o.po || code);
     if (o.reason === "crossdock") { scanner.value?.showError(t("gi.crossdockPo")); return; }
   }
   catch (e) { /* fall through */ }

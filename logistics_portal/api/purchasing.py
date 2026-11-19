@@ -72,6 +72,49 @@ def _lane_owns(po):
     return any(l.po == po for l in _expected_lines(so=so))
 
 
+# --- Souk purchases have their own lane too -----------------------------------
+# A souk PO is a NEW product bought in the market (api/souk.py). Its receiving
+# is more than a receipt: one sample goes to the studio, a piece is weighed,
+# the shelf must be a sellable bin on Shopify, and the product card moves on
+# to the photos. Received here instead it lands in Receiving Zone (not on
+# Shopify), unweighed, and the card waits at "Bought" for ever — the same
+# second-door bug the cross-dock lane had. Same people, one door: Goods In
+# hides these POs and sends the scan to Souk receiving (Ahmed, 2026-11-19).
+
+def _souk_ready():
+    return frappe.db.has_column("Purchase Order", "custom_souk_trip")
+
+
+def _not_souk():
+    """SQL tail for the PO lists: hide the souk lane's POs (outer alias po)."""
+    if not _souk_ready():
+        return ""
+    from logistics_portal.api.souk import _souk_po_sql
+    return f" AND NOT {_souk_po_sql('po')}"
+
+
+def _souk_owns(po):
+    if not _souk_ready():
+        return False
+    from logistics_portal.api.souk import _is_souk_po
+    fields = ["custom_souk_trip"] + (["custom_souk_buyer"] if frappe.db.has_column(
+        "Purchase Order", "custom_souk_buyer") else [])
+    h = frappe.db.get_value("Purchase Order", po, fields, as_dict=True)
+    return bool(h and _is_souk_po(h))
+
+
+def souk_pos_waiting():
+    """The souk lane's strip on Goods In: what came from the market and waits."""
+    if not _souk_ready():
+        return []
+    try:
+        from logistics_portal.api.souk import receive_queue
+        return receive_queue().get("rows", [])
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "purchasing.souk_pos_waiting")
+        return []
+
+
 # --- A cross-dock order that has already left ------------------------------
 # The Cross-dock in lane receives goods for orders still waiting. Most of this
 # lane's history runs the other way: the order shipped and its PO was never
@@ -271,7 +314,7 @@ def receive_boot():
                    COUNT(*) AS nlines
             FROM `tabPurchase Order` po
             JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
-            WHERE {_OPEN_PO} AND poi.qty > poi.received_qty{_not_lane_owned()}
+            WHERE {_OPEN_PO} AND poi.qty > poi.received_qty{_not_lane_owned()}{_not_souk()}
             GROUP BY po.name
             ORDER BY pending DESC LIMIT 24""",
         {"company": COMPANY}, as_dict=True)
@@ -290,6 +333,7 @@ def receive_boot():
         "defaultTarget": RECEIVING_WH,
         "isManager": _is_manager(),
         "recent": _recent_prs(10),
+        "soukPos": souk_pos_waiting(),
     }
 
 
@@ -307,7 +351,7 @@ def find_po(q=""):
             FROM `tabPurchase Order` po
             JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
             WHERE {_OPEN_PO} AND poi.qty > poi.received_qty
-              AND (po.name LIKE %(q)s OR po.supplier LIKE %(q)s){_not_lane_owned()}
+              AND (po.name LIKE %(q)s OR po.supplier LIKE %(q)s){_not_lane_owned()}{_not_souk()}
             GROUP BY po.name ORDER BY pending DESC LIMIT 20""",
         {"company": COMPANY, "q": like}, as_dict=True)
     return {"rows": [_po_card(r) for r in rows]}
@@ -345,6 +389,8 @@ def open_po(po):
     if _lane_owns(po):
         return {"ok": False, "reason": "crossdock", "po": po,
                 "so": frappe.db.get_value("Purchase Order", po, "custom_sales_order") or ""}
+    if _souk_owns(po):
+        return {"ok": False, "reason": "souk", "po": po}
     dead = _cancelled(po)
     pw = None if dead else _paperwork(po)
     lines = _po_lines(po)
@@ -387,7 +433,7 @@ def resolve_piece(code):
                    (poi.qty - poi.received_qty) AS pending, 1 AS nlines
             FROM `tabPurchase Order` po
             JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
-            WHERE {_OPEN_PO} AND poi.item_code = %(item)s AND poi.qty > poi.received_qty{_not_lane_owned()}
+            WHERE {_OPEN_PO} AND poi.item_code = %(item)s AND poi.qty > poi.received_qty{_not_lane_owned()}{_not_souk()}
             ORDER BY po.transaction_date DESC, po.creation DESC""",
         {"company": COMPANY, "item": item_code}, as_dict=True)
     return {
@@ -432,6 +478,11 @@ def post_purchase_receipt(po, items=None, target=None, note=None, piece_in_hand=
     if not h or h.docstatus != 1 or h.company != COMPANY \
             or h.status in ("Closed", "Completed", "Cancelled"):
         frappe.throw("That PO is not open.")
+    if _souk_owns(po):
+        frappe.throw(
+            "This is a souk purchase — receive it on Souk receiving: a sample goes to the "
+            "studio, a piece is weighed and the shelf must be on Shopify. Posted here it "
+            "lands in Receiving Zone and the product never reaches the photos.")
     if _lane_owns(po):
         frappe.throw(
             "This is a Cross-dock order — receive it on the Cross-dock in screen. "

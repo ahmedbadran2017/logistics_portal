@@ -107,6 +107,12 @@ doc_events = {
             "logistics_portal.api.stock_moves.guard_receiving_intake",
         ],
     },
+    # A souk PO has one door: Souk receiving (the studio sample, the weight,
+    # a shelf on Shopify, the product card moving on). Goods In hides those
+    # POs; this closes the Desk too.
+    "Purchase Receipt": {
+        "validate": "logistics_portal.api.souk.guard_souk_receipt",
+    },
     "Pick List": {
         "before_submit": "logistics_portal.api.picking.enforce_picker_on_submit",
         "on_update": "logistics_portal.api.picking.sync_pick_progress",

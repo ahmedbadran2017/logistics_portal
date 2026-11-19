@@ -2186,9 +2186,40 @@ def _post_receipt(h, po, target, rows, note):
         "items": rows,
     })
     pr.flags.ignore_permissions = True
-    pr.insert(ignore_permissions=True)
-    pr.submit()
+    frappe.flags.lp_souk_receiving = True
+    try:
+        pr.insert(ignore_permissions=True)
+        pr.submit()
+    finally:
+        frappe.flags.lp_souk_receiving = False
     return pr
+
+
+def guard_souk_receipt(doc, method=None):
+    """Purchase Receipt validate: a souk PO is received on Souk receiving only
+    (portal or Desk alike). Elsewhere the goods land unweighed, without the
+    studio sample, often in Receiving Zone, and the product card never moves
+    on. Returns (is_return) are left alone."""
+    if doc.get("is_return") or frappe.flags.get("lp_souk_receiving"):
+        return
+    try:
+        pos = {r.get("purchase_order") for r in (doc.get("items") or []) if r.get("purchase_order")}
+        if not pos or not _has_col("Purchase Order", "custom_souk_trip"):
+            return
+        fields = ["name", "custom_souk_trip"] + (
+            ["custom_souk_buyer"] if _has_col("Purchase Order", "custom_souk_buyer") else [])
+        souk = [h.name for h in frappe.get_all("Purchase Order", filters={"name": ["in", list(pos)]},
+                                               fields=fields) if _is_souk_po(h)]
+    except Exception:
+        # A guard must never be the reason a legitimate document cannot save.
+        frappe.log_error(frappe.get_traceback()[:2000], "souk.guard_souk_receipt")
+        return
+    if souk:
+        frappe.throw(
+            f"{', '.join(souk)} is a souk purchase — receive it on Souk receiving "
+            "(/logistics/souk/receive). There a sample goes to the studio, a piece is "
+            "weighed, the shelf is checked against Shopify and the product moves on to "
+            "the photos.", title="Souk purchase")
 
 
 def _after_receive(h, po, pr, target, rows, outcome, owed, owed_lines, counted, studio, s, notes, want_labels):
