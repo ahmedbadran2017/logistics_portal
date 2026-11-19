@@ -1,7 +1,7 @@
 <template>
   <div class="souk-root h-[100dvh] flex overflow-hidden bg-[rgb(var(--bg))]" :data-tabs="tabs.length ? 1 : 0">
     <!-- ── Sidebar (desktop) ─────────────────────────────────────────── -->
-    <aside class="hidden lg:flex w-[244px] flex-shrink-0 flex-col bg-white border-e border-stone-200/70">
+    <aside class="hidden lg:flex w-[244px] flex-shrink-0 flex-col bg-white border-e border-stone-200">
       <div class="px-5 pt-5 pb-4">
         <div class="flex items-center gap-2.5">
           <img :src="logoSrc" alt="Justyol" class="h-[15px]" />
@@ -80,7 +80,7 @@
         <Icon name="refresh-cw" :size="14" /> {{ t('souk.pwa.updated') }}
       </button>
 
-      <header class="souk-glass souk-safe-top flex-shrink-0 border-b border-stone-200/60 relative z-10">
+      <header class="souk-glass souk-safe-top flex-shrink-0 border-b border-stone-200 relative z-10">
        <div class="h-14 flex items-center gap-3 px-4 sm:px-6">
         <!-- On a phone the brand rides the header; the sidebar has it on a desk. -->
         <div class="lg:hidden flex items-center gap-2 min-w-0">
@@ -101,7 +101,7 @@
             <Icon :name="theme === 'dark' ? 'sun' : 'moon'" :size="17" />
           </button>
           <button v-if="pwa.canInstall || pwa.ios" type="button"
-                  class="h-9 ps-2.5 pe-3 rounded-full bg-[var(--accent-600)] text-white text-[12px] font-semibold flex items-center gap-1.5 shadow-sm"
+                  class="h-9 ps-2.5 pe-3 rounded-full bg-[var(--accent-600)] text-white text-[12px] font-semibold flex items-center gap-1.5"
                   @click="askInstall">
             <Icon name="download" :size="14" /> {{ t('souk.pwa.install') }}
           </button>
@@ -121,7 +121,7 @@
 
       <!-- ── Bottom tabs (phone / tablet) ─────────────────────────────── -->
       <nav v-if="tabs.length"
-           class="souk-glass lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-stone-200/60 flex items-stretch"
+           class="souk-glass lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-stone-200 flex items-stretch"
            style="height: calc(64px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom)">
         <router-link v-for="item in tabs" :key="item.to" :to="{ name: item.to }"
                      class="flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors"
@@ -145,7 +145,7 @@
       </nav>
       <div v-if="more" class="lg:hidden fixed inset-0 z-20" @click="more = false">
         <div class="absolute inset-0 bg-stone-900/30" />
-        <div class="absolute inset-x-0 bg-white rounded-t-3xl p-4 shadow-2xl" style="bottom: calc(64px + env(safe-area-inset-bottom))" @click.stop>
+        <div class="absolute inset-x-0 bg-white rounded-t-2xl p-4 ring-1 ring-stone-200" style="bottom: calc(64px + env(safe-area-inset-bottom))" @click.stop>
           <div class="grid grid-cols-4 gap-3">
             <template v-for="item in moreItems" :key="item.to || item.href">
               <a v-if="item.href" :href="item.href" class="flex flex-col items-center gap-1.5 py-2 rounded-xl text-stone-600 active:bg-stone-100">

@@ -406,6 +406,8 @@ export const ROLE_CONFIG = {
         items: [
           { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
           { to: "SoukBoard", label: "nav.soukBoard", icon: "layout-grid" },
+          // Only the accounts section is theirs (custody cash, loss accounts).
+          { to: "SoukSettings", label: "nav.settings", icon: "settings" },
         ],
       },
     ],
@@ -598,6 +600,7 @@ const SOUK_MANAGER = {
       section: "nav.team",
       items: [
         { to: "Team", label: "nav.team", icon: "users" },
+        { to: "SoukSettings", label: "nav.settings", icon: "settings" },
         { href: "/logistics/home", label: "nav.backToLogistics", icon: "warehouse" },
       ],
     },

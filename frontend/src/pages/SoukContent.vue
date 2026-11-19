@@ -7,233 +7,264 @@
        3 s after the last change and are never lost on a product switch or a
        closed tab. "Send to review" writes it onto the Shopify Draft.
        Backend: souk.content_boot / content_draft / content_save / content_send. -->
-  <div class="px-4 py-5 space-y-4">
-    <header class="flex items-start justify-between gap-3 flex-wrap">
-      <div class="min-w-0">
-        <div v-if="d && data" class="text-[11.5px] font-semibold text-stone-500">
-          {{ t('souk.pub.kicker').replace('{n}', data.queue.length) }}
+  <div class="px-4 sm:px-5 pt-6 max-w-[1320px] mx-auto space-y-4" :class="hasFooter ? 'pb-28 lg:pb-10' : 'pb-10'">
+    <router-link v-if="data && d && !listOnly" :to="{ name: 'SoukContent' }"
+                 class="lg:hidden lp-tap h-11 -ms-1 -mt-2 px-1 inline-flex items-center gap-1 text-[13px] font-semibold text-stone-700">
+      <Icon name="chevron-left" :size="18" class="rtl:rotate-180" />{{ t('souk.pub.backToQueue') }} · {{ data.queue.length }}
+    </router-link>
+    <!-- the product's header (a phone shows it on the product view only) -->
+    <header v-if="d" class="items-start justify-between gap-3 flex-wrap" :class="listOnly ? 'hidden lg:flex' : 'flex'">
+      <div class="min-w-0 flex flex-col gap-0.5">
+        <div class="text-[11.5px] font-semibold text-stone-500 flex flex-wrap items-center gap-x-1.5">
+          <span>{{ t('souk.pub.kicker').replace('{n}', data.queue.length) }}</span>
+          <span aria-hidden="true">·</span><span class="mono" dir="ltr">{{ d.name }}</span>
+          <span aria-hidden="true">·</span><span>{{ writerText }}</span>
+          <template v-if="dueText"><span aria-hidden="true">·</span><span class="tabular-nums" dir="auto">{{ dueText }}</span></template>
         </div>
-        <h1 class="text-[20px] font-bold text-stone-900 truncate">{{ d ? (c.fr.title || d.title) : t('souk.contentTitle') }}</h1>
-        <p v-if="!d" class="text-[12.5px] text-stone-500 mt-0.5 max-w-[680px]">{{ t('souk.contentIntro') }}</p>
+        <h1 class="text-[20px] font-bold text-stone-900 break-words">{{ c.fr.title || d.title }}</h1>
       </div>
-      <div v-if="d" class="flex gap-2 items-center flex-wrap">
-        <span v-if="clock" class="text-[11.5px] font-bold rounded-md px-2 py-1 bg-white ring-1 tabular-nums"
+      <div class="flex gap-2 items-center flex-wrap">
+        <span v-if="d.canEdit" class="hidden lg:inline-flex items-center gap-1.5 text-[11.5px] font-semibold" :title="t('souk.pub.autoNote')"
+              :class="saveState === 'error' ? 'text-rose-700' : dirty || saving ? 'text-amber-800' : 'text-emerald-700'">
+          <span class="w-2 h-2 rounded-full" :class="saveState === 'error' ? 'bg-rose-500' : dirty || saving ? 'bg-amber-500' : 'bg-emerald-500'" />
+          {{ saveText }}
+        </span>
+        <button v-if="d.canEdit && (dirty || saveState === 'error')" class="hidden lg:inline-flex h-9 px-3 rounded-lg bg-white ring-1 ring-inset ring-stone-300 text-[12px] font-semibold text-stone-700 items-center disabled:opacity-40"
+                :disabled="saving" @click="save({ quiet: false })">{{ t('souk.pub.saveNow') }}</button>
+        <span v-if="clock" class="text-[11.5px] font-bold rounded-md px-2 py-1 bg-white ring-1 ring-inset tabular-nums"
               :class="clock.late ? 'ring-rose-200 text-rose-700' : 'ring-stone-200 text-stone-700'">{{ clock.text }}</span>
-        <span v-if="dueText" class="text-[11.5px] text-stone-600 bg-white ring-1 ring-stone-200 rounded-md px-2 py-1 tabular-nums" dir="auto">{{ dueText }}</span>
-        <span class="text-[11.5px] text-stone-600 bg-white ring-1 ring-stone-200 rounded-md px-2 py-1">{{ writerText }}</span>
-        <button v-if="d.canEdit" class="h-9 px-3 rounded-lg bg-white ring-1 ring-stone-300 text-[12.5px] font-semibold text-stone-700 inline-flex items-center gap-1.5 disabled:opacity-40"
+        <button v-if="d.canEdit" class="h-9 px-3 rounded-lg bg-white ring-1 ring-inset ring-stone-300 text-[12.5px] font-semibold text-stone-700 inline-flex items-center gap-1.5 hover:bg-stone-50 disabled:opacity-40"
                 :disabled="drafting" :title="t('souk.pub.draftHint')" @click="draftForMe">
           <Icon name="sparkles" :size="14" />{{ drafting ? t('souk.pub.drafting') : t('souk.pub.draftForMe') }}
         </button>
-        <button v-if="d.canEdit" class="h-9 px-4 rounded-lg bg-[var(--accent-600)] text-white text-[13px] font-bold disabled:bg-stone-200 disabled:text-stone-500"
-                :disabled="busy || blockers.length > 0" @click="send">
+        <button v-if="d.canEdit" class="hidden lg:inline-flex h-9 px-4 rounded-lg bg-[var(--accent-600)] enabled:hover:bg-[var(--accent-700)] text-white text-[13px] font-bold items-center disabled:bg-stone-200 disabled:text-stone-600"
+                :disabled="busy || blockers.length > 0" :title="blockers.length ? blockText : null" @click="send">
           {{ busy ? t('souk.sending') : t('souk.toReview') }}
         </button>
       </div>
     </header>
+    <header v-if="!d || listOnly" class="space-y-0.5" :class="d ? 'lg:hidden' : ''">
+      <h1 class="text-[20px] font-bold text-stone-900">{{ t('souk.contentTitle') }}</h1>
+      <p class="text-[12.5px] text-stone-500 max-w-[680px]">{{ t('souk.contentIntro') }}</p>
+    </header>
 
-    <div v-if="loading && !data" class="h-[420px] rounded-2xl bg-white ring-1 ring-stone-200/70 animate-pulse" />
+    <div v-if="loading && !data" class="lp-card h-[420px] animate-pulse" />
 
     <!-- nothing in the queue: the same card on the three screens -->
-    <div v-else-if="data && !data.queue.length && !d" class="bg-white ring-1 ring-stone-200/70 rounded-2xl px-6 py-12 flex flex-col items-center text-center gap-3">
+    <div v-else-if="data && !data.queue.length && !d" class="lp-card px-6 py-12 flex flex-col items-center text-center gap-3">
       <span class="w-12 h-12 rounded-full bg-stone-100 text-stone-500 inline-flex items-center justify-center"><Icon name="inbox" :size="22" /></span>
       <p class="text-[13.5px] font-semibold text-stone-700">{{ t('souk.contentNone') }}</p>
-      <router-link :to="{ name: 'SoukBoard' }" class="lp-tap h-10 px-4 rounded-xl bg-white ring-1 ring-stone-300 text-[12.5px] font-semibold inline-flex items-center gap-1.5 hover:bg-stone-50">
+      <router-link :to="{ name: 'SoukBoard' }" class="lp-tap h-10 px-4 rounded-lg bg-white ring-1 ring-inset ring-stone-300 text-[12.5px] font-semibold inline-flex items-center gap-1.5 hover:bg-stone-50">
         {{ t('souk.pub.toBoard') }}<Icon name="arrow-right" :size="14" class="rtl:rotate-180" />
       </router-link>
     </div>
 
-    <div v-else-if="data" class="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4 items-start">
-      <aside class="bg-white ring-1 ring-stone-200/70 rounded-2xl overflow-hidden">
-        <div class="px-4 py-2.5 border-b border-stone-100 flex justify-between text-[12px]">
-          <b>{{ t('souk.nProducts').replace('{n}', data.queue.length) }}</b>
-          <span class="text-stone-500">{{ t('souk.oldestFirst') }}</span>
+    <template v-else-if="data">
+      <!-- the queue: a phone's list view; a strip above the product on a desk -->
+      <section v-if="listOnly && data.queue.length" :aria-label="t('souk.pub.queueLbl')" class="lg:hidden lp-card overflow-hidden">
+        <div class="px-3.5 py-3 flex justify-between gap-2 text-[12px] font-semibold text-stone-600 border-b border-stone-100">
+          <span>{{ t('souk.nProducts').replace('{n}', data.queue.length) }}</span>
+          <span>{{ t('souk.oldestFirst') }}</span>
         </div>
-        <div v-if="!data.queue.length" class="p-6 text-center text-[12.5px] text-stone-500">{{ t('souk.contentNone') }}</div>
         <router-link v-for="q in data.queue" :key="q.name" :to="{ name: 'SoukContent', params: { name: q.name } }"
-                     class="flex items-center gap-2.5 px-3 py-2.5 border-b border-stone-100 last:border-0 min-h-[56px]"
-                     :class="d && d.name === q.name ? 'bg-[var(--accent-50)]' : 'hover:bg-stone-50'">
-          <img v-if="q.image" :src="q.image" class="w-10 h-10 rounded-lg object-cover ring-1 ring-stone-200" alt="" />
-          <div v-else class="w-10 h-10 rounded-lg bg-stone-100" />
+                     class="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-stone-100 last:border-0 min-h-[60px]">
+          <img v-if="q.image" :src="q.image" class="w-10 h-10 shrink-0 rounded-lg object-cover bg-stone-100" alt="" />
+          <div v-else class="w-10 h-10 shrink-0 rounded-lg bg-stone-100" />
           <div class="min-w-0 flex-1">
-            <div class="text-[12.5px] font-semibold truncate">{{ q.title }}</div>
-            <div v-if="q.rejects" class="text-[11px] text-amber-700">{{ t('souk.returnedN').replace('{n}', q.rejects) }}</div>
+            <div class="text-[12.5px] font-semibold truncate ltr:text-left rtl:text-right" dir="auto">{{ q.title }}</div>
+            <div v-if="q.rejects" class="text-[11px] text-amber-800">{{ t('souk.returnedN').replace('{n}', q.rejects) }}</div>
           </div>
-          <span class="text-[10.5px] font-bold rounded-full px-2 py-0.5 tabular-nums"
-                :class="q.late ? 'bg-rose-50 text-rose-700' : 'bg-stone-100 text-stone-600'">{{ t('souk.ageDays').replace('{n}', q.age) }}</span>
+          <span class="text-[10.5px] font-bold rounded-md px-[7px] py-0.5 whitespace-nowrap tabular-nums"
+                :class="q.late ? 'bg-rose-50 text-rose-700' : 'bg-stone-100 text-stone-700'">{{ ageText(q.age) }}</span>
         </router-link>
-      </aside>
-
-      <div v-if="!d" class="bg-white ring-1 ring-stone-200/70 rounded-2xl p-8 text-center text-[13px] text-stone-500">{{ t('souk.studioPick') }}</div>
-      <div v-else class="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-4 items-start min-w-0">
-        <div class="space-y-4 min-w-0">
-          <div class="text-[11.5px] text-stone-500 font-mono px-1" dir="ltr">{{ d.name }} · {{ d.brand }}</div>
-
-          <div v-if="d.reviewNote" class="bg-amber-50 ring-1 ring-amber-200 rounded-xl p-3 text-[12.5px] text-amber-900">
-            <b>{{ t('souk.reviewSaid').replace('{n}', d.rejects) }}</b> {{ d.reviewNote }}
+      </section>
+      <nav v-if="showStrip" :aria-label="t('souk.pub.queueLbl')" class="hidden lg:flex gap-2 overflow-x-auto pb-0.5">
+        <router-link v-for="q in data.queue" :key="q.name" :to="{ name: 'SoukContent', params: { name: q.name } }"
+                     class="shrink-0 w-[240px] flex items-center gap-2.5 px-3 py-2 rounded-xl ring-1 ring-inset"
+                     :class="d && d.name === q.name ? 'bg-[var(--accent-50)] ring-[var(--accent-200)]' : 'bg-white ring-stone-200 hover:bg-stone-50'">
+          <img v-if="q.image" :src="q.image" class="w-8 h-8 shrink-0 rounded-md object-cover bg-stone-100" alt="" />
+          <div v-else class="w-8 h-8 shrink-0 rounded-md bg-stone-100" />
+          <div class="min-w-0 flex-1">
+            <div class="text-[12.5px] font-semibold truncate ltr:text-left rtl:text-right" dir="auto">{{ q.title }}</div>
+            <div v-if="q.rejects" class="text-[11px] text-amber-800 truncate">{{ t('souk.returnedN').replace('{n}', q.rejects) }}</div>
           </div>
-          <div v-if="!d.canEdit" class="bg-stone-50 ring-1 ring-stone-200 rounded-xl p-3 text-[12.5px] text-stone-700">{{ t('souk.contentNotNow') }}</div>
+          <span class="text-[10.5px] font-bold rounded-md px-[7px] py-0.5 whitespace-nowrap tabular-nums"
+                :class="q.late ? 'bg-rose-50 text-rose-700' : 'bg-stone-100 text-stone-700'">{{ ageText(q.age) }}</span>
+        </router-link>
+      </nav>
 
-          <!-- texts -->
-          <section class="bg-white ring-1 ring-stone-200/70 rounded-2xl p-4 space-y-3.5">
-            <div role="tablist" class="inline-flex gap-0.5 p-1 bg-stone-100 rounded-[10px]">
-              <button v-for="l in ['fr', 'ar']" :key="l" role="tab" :aria-selected="lang === l"
-                      class="h-8 px-3.5 rounded-lg text-[12.5px] font-semibold"
-                      :class="lang === l ? 'bg-white shadow-sm text-stone-900' : 'text-stone-600'" @click="lang = l">
-                {{ l === 'fr' ? t('souk.langFr') : t('souk.langAr') }}
-                <span v-if="l === 'ar' && !arDone" class="ms-1 inline-block w-1.5 h-1.5 rounded-full bg-amber-500 align-middle" />
-              </button>
+      <div v-if="!d" class="hidden lg:block lp-card p-8 text-center text-[13px] text-stone-500">{{ t('souk.studioPick') }}</div>
+      <div v-else :class="listOnly ? 'hidden lg:block' : ''">
+        <div class="flex flex-wrap gap-4 items-start">
+          <div class="flex-[999_1_560px] min-w-0 space-y-3.5">
+            <div v-if="d.reviewNote" class="bg-amber-50 rounded-lg px-3 py-2.5 text-[12.5px] text-amber-800">
+              <b>{{ t('souk.reviewSaid').replace('{n}', d.rejects) }}</b> {{ d.reviewNote }}
             </div>
-            <div class="space-y-1">
-              <label class="text-[12px] font-semibold text-stone-700" for="c-title">{{ t('souk.pub.fTitle') }}</label>
-              <input id="c-title" v-model="c[lang].title" :dir="lang === 'ar' ? 'rtl' : 'ltr'" :disabled="!d.canEdit"
-                     class="w-full h-11 rounded-lg ring-1 ring-stone-300 px-3 text-[14.5px]" />
-              <div class="text-[11px] tabular-nums" :class="c[lang].title.length > 70 ? 'text-rose-600 font-semibold' : 'text-stone-500'">
-                {{ t('souk.pub.chars').replace('{n}', c[lang].title.length).replace('{m}', 70) }}
-              </div>
-            </div>
-            <div class="space-y-1">
-              <label class="text-[12px] font-semibold text-stone-700" for="c-desc">{{ t('souk.pub.fDesc') }}</label>
-              <textarea id="c-desc" v-model="c[lang].description" :dir="lang === 'ar' ? 'rtl' : 'ltr'" :disabled="!d.canEdit" rows="9"
-                        class="w-full rounded-lg ring-1 ring-stone-300 px-3 py-2.5 text-[14px] leading-relaxed" />
-              <div class="text-[11px] text-stone-500">{{ t('souk.descHint') }}</div>
-            </div>
-          </section>
+            <div v-if="!d.canEdit" class="bg-stone-100 rounded-lg px-3 py-2.5 text-[12.5px] text-stone-700">{{ t('souk.contentNotNow') }}</div>
 
-          <!-- catalogue + prices -->
-          <section class="bg-white ring-1 ring-stone-200/70 rounded-2xl p-4 grid grid-cols-1 md:grid-cols-2 gap-3.5">
-            <div class="space-y-1">
-              <label class="text-[12px] font-semibold text-stone-700" for="c-type">{{ t('souk.productType') }}</label>
-              <select id="c-type" v-model="c.productType" :disabled="!d.canEdit" class="w-full h-11 rounded-lg ring-1 ring-stone-300 px-2.5 text-[14px] bg-white">
-                <option value="">{{ t('souk.pub.pickType') }}</option>
-                <option v-for="pt in typeOptions" :key="pt" :value="pt">{{ pt }}</option>
-              </select>
-            </div>
-            <div class="space-y-1.5">
-              <div class="text-[12px] font-semibold text-stone-700">{{ t('souk.collections') }}</div>
-              <div v-if="d.collectionsError" class="text-[11.5px] text-rose-700 break-words">{{ d.collectionsError }}</div>
-              <div class="flex gap-1.5 flex-wrap items-center min-h-[44px]">
-                <span v-for="id in c.collections" :key="id" class="h-8 ps-2.5 pe-1 rounded-full bg-stone-100 ring-1 ring-stone-200 text-[12px] font-semibold inline-flex items-center gap-1">
-                  {{ colTitle(id) }}
-                  <button v-if="d.canEdit" class="w-6 h-6 rounded-full hover:bg-stone-200 inline-flex items-center justify-center" :aria-label="t('souk.remove')" @click="dropCol(id)"><Icon name="x" :size="12" /></button>
-                </span>
-                <button v-if="d.canEdit && !addingCol" class="h-8 px-2.5 rounded-full bg-white ring-1 ring-stone-300 text-[12px] font-semibold text-stone-600" @click="addingCol = true">
-                  {{ t('souk.pub.addCollection') }}
+            <!-- texts: French is the storefront's own language; the Arabic is
+                 always typed right-to-left, whatever the screen's language -->
+            <section class="lp-card p-4 space-y-3.5">
+              <div role="tablist" :aria-label="t('souk.pub.langLbl')" class="inline-flex gap-0.5 p-1 bg-stone-100 rounded-[10px]">
+                <button v-for="l in ['fr', 'ar']" :key="l" role="tab" :aria-selected="lang === l"
+                        class="h-[30px] px-3.5 rounded-lg text-[12.5px] font-semibold inline-flex items-center"
+                        :class="lang === l ? 'bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] text-stone-900' : 'text-stone-600'" @click="lang = l">
+                  {{ l === 'fr' ? t('souk.langFr') : t('souk.langAr') }}
+                  <span v-if="l === 'ar' && !arDone" class="ms-1.5 inline-block w-1.5 h-1.5 rounded-full bg-amber-500" />
                 </button>
               </div>
-              <div v-if="d.canEdit && (addingCol || !c.collections.length)" class="relative">
-                <input v-model="colQuery" class="w-full h-10 rounded-lg ring-1 ring-stone-300 px-3 text-[13px]" :placeholder="t('souk.collectionSearch')"
-                       @keydown.esc="colQuery = ''; addingCol = false" />
-                <div v-if="colQuery.trim()" class="absolute z-10 mt-1 w-full max-h-[240px] overflow-auto bg-white ring-1 ring-stone-200 rounded-xl shadow-lg">
-                  <button v-for="x in colHits" :key="x.id" class="block w-full text-start px-3 py-2.5 text-[12.5px] hover:bg-stone-50" @click="addCol(x.id)">{{ x.title }}</button>
-                  <div v-if="!colHits.length" class="px-3 py-2 text-[12px] text-stone-400">—</div>
+              <div class="flex flex-col gap-[5px]">
+                <label class="text-[12px] font-semibold text-stone-700" for="c-title">{{ t('souk.pub.fTitle') }}</label>
+                <input id="c-title" v-model="c[lang].title" :dir="lang === 'ar' ? 'rtl' : 'ltr'" :lang="lang" :disabled="!d.canEdit"
+                       class="w-full h-[42px] rounded-lg border border-stone-300 bg-white px-3 text-[14.5px] disabled:bg-stone-50" />
+                <span class="text-[11px] tabular-nums" :class="c[lang].title.length > 70 ? 'text-rose-700 font-semibold' : 'text-stone-600'">
+                  {{ t('souk.pub.chars').replace('{n}', c[lang].title.length).replace('{m}', 70) }}
+                </span>
+              </div>
+              <div class="flex flex-col gap-[5px]">
+                <label class="text-[12px] font-semibold text-stone-700" for="c-desc">{{ t('souk.pub.fDesc') }}</label>
+                <textarea id="c-desc" v-model="c[lang].description" :dir="lang === 'ar' ? 'rtl' : 'ltr'" :lang="lang" :disabled="!d.canEdit" rows="7"
+                          class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-[14px] leading-[1.6] resize-y disabled:bg-stone-50" />
+                <span class="text-[11px] text-stone-500">{{ t('souk.descHint') }}</span>
+              </div>
+            </section>
+
+            <!-- catalogue + prices -->
+            <section class="lp-card p-4 grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              <div class="flex flex-col gap-[5px] min-w-0">
+                <label class="text-[12px] font-semibold text-stone-700" for="c-type">{{ t('souk.productType') }}</label>
+                <select id="c-type" v-model="c.productType" :disabled="!d.canEdit" class="w-full h-[42px] rounded-lg border border-stone-300 px-2.5 text-[14px] bg-white disabled:bg-stone-50">
+                  <option value="">{{ t('souk.pub.pickType') }}</option>
+                  <option v-for="pt in typeOptions" :key="pt" :value="pt">{{ pt }}</option>
+                </select>
+              </div>
+              <div class="flex flex-col gap-[5px] min-w-0">
+                <span class="text-[12px] font-semibold text-stone-700">{{ t('souk.collections') }}</span>
+                <div v-if="d.collectionsError" class="text-[11.5px] text-rose-700 break-words">{{ d.collectionsError }}</div>
+                <div class="flex gap-1.5 flex-wrap items-center min-h-[42px]">
+                  <span v-for="id in c.collections" :key="id" class="h-7 ps-2.5 pe-1 rounded-full bg-stone-100 ring-1 ring-inset ring-stone-200 text-[12px] font-semibold inline-flex items-center gap-1">
+                    {{ colTitle(id) }}
+                    <button v-if="d.canEdit" class="w-5 h-5 rounded-full hover:bg-stone-200 inline-flex items-center justify-center" :aria-label="t('souk.remove')" @click="dropCol(id)"><Icon name="x" :size="12" /></button>
+                  </span>
+                  <button v-if="d.canEdit && !addingCol" class="h-7 px-2.5 rounded-full bg-white ring-1 ring-inset ring-stone-300 text-[12px] font-semibold text-stone-600 hover:bg-stone-50" @click="addingCol = true">
+                    {{ t('souk.pub.addCollection') }}
+                  </button>
+                </div>
+                <div v-if="d.canEdit && (addingCol || !c.collections.length)" class="relative">
+                  <input v-model="colQuery" class="w-full h-10 rounded-lg border border-stone-300 bg-white px-3 text-[13px]" :placeholder="t('souk.collectionSearch')"
+                         :aria-label="t('souk.collectionSearch')" @keydown.esc="colQuery = ''; addingCol = false" />
+                  <div v-if="colQuery.trim()" class="absolute z-10 mt-1 w-full max-h-[240px] overflow-auto bg-white ring-1 ring-stone-200 rounded-lg shadow-lg">
+                    <button v-for="x in colHits" :key="x.id" class="block w-full text-start px-3 py-2.5 text-[12.5px] hover:bg-stone-50" @click="addCol(x.id)">{{ x.title }}</button>
+                    <div v-if="!colHits.length" class="px-3 py-2 text-[12px] text-stone-400">—</div>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div v-for="g in groups" :key="g.key" class="space-y-1">
-              <label class="text-[12px] font-semibold text-stone-700" :for="'c-price-' + g.key">{{ t('souk.finalPrice') }} {{ g.key }}</label>
-              <div class="flex items-center gap-2">
-                <input :id="'c-price-' + g.key" type="number" inputmode="decimal" :value="priceOf(g)" :disabled="!d.canEdit"
-                       class="w-full max-w-[160px] h-11 rounded-lg ring-1 ring-stone-300 px-3 text-[15px] font-bold tabular-nums" @input="setPrice(g, $event.target.value)" />
-                <span class="text-[12px] text-stone-500">MAD</span>
-              </div>
-              <div class="text-[11px] text-stone-500 tabular-nums">
-                {{ t('souk.landedCost') }} {{ fmt2(g.landed) }} ·
-                <span class="font-bold" :class="marginOf(g) <= 0 ? 'text-rose-600' : 'text-emerald-700'">{{ t('souk.marginPct').replace('{n}', marginOf(g)) }}</span>
-              </div>
-              <div v-if="!g.allocated" class="text-[11px] text-amber-700">{{ t('souk.transportNotYet') }}</div>
-            </div>
-
-            <div class="space-y-1 md:col-span-2">
-              <label class="text-[12px] font-semibold text-stone-700" for="c-tags">{{ t('souk.pub.tags') }}</label>
-              <input id="c-tags" v-model="tagsText" dir="auto" :disabled="!d.canEdit" class="w-full h-11 rounded-lg ring-1 ring-stone-300 px-3 text-[14px]" :placeholder="t('souk.tagsHint')" />
-            </div>
-          </section>
-
-          <!-- SEO -->
-          <section class="bg-white ring-1 ring-stone-200/70 rounded-2xl p-4 space-y-3.5">
-            <h2 class="text-[13.5px] font-bold">{{ t('souk.seoTitle') }}</h2>
-            <div class="rounded-lg bg-stone-50 px-3.5 py-3 space-y-0.5" dir="ltr" lang="fr">
-              <div class="text-[12px] text-stone-600 truncate">justyol.com › products › {{ c.handle || '…' }}</div>
-              <div class="text-[17px] text-[#1a0dab] truncate">{{ c.metaTitle || c.fr.title || '—' }}</div>
-              <div class="text-[13px] text-stone-600 line-clamp-2 leading-normal">{{ c.metaDescription || '—' }}</div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              <div class="space-y-1">
-                <div class="flex justify-between items-center text-[12px]">
-                  <label class="font-semibold text-stone-700" for="c-handle">{{ t('souk.handle') }}</label>
-                  <button v-if="d.canEdit" class="lp-tap h-7 px-1 text-[11.5px] font-semibold underline" @click="c.handle = slug(c.fr.title)">{{ t('souk.fromTitle') }}</button>
+              <div v-for="g in groups" :key="g.key" class="flex flex-col gap-[5px] min-w-0">
+                <label class="text-[12px] font-semibold text-stone-700" :for="'c-price-' + g.key">{{ t('souk.finalPrice') }} {{ g.key }}</label>
+                <div class="relative">
+                  <input :id="'c-price-' + g.key" type="number" inputmode="decimal" :value="priceOf(g)" :disabled="!d.canEdit"
+                         class="w-full h-[42px] rounded-lg border border-stone-300 bg-white ps-3 pe-14 text-[14px] font-semibold tabular-nums disabled:bg-stone-50" @input="setPrice(g, $event.target.value)" />
+                  <span class="absolute inset-y-0 end-3 flex items-center text-[12px] text-stone-500 pointer-events-none">MAD</span>
                 </div>
-                <input id="c-handle" v-model="c.handle" dir="ltr" :disabled="!d.canEdit" class="w-full h-11 rounded-lg ring-1 ring-stone-300 px-3 text-[13.5px] font-mono" />
+                <span class="text-[11px] text-stone-600 tabular-nums">
+                  {{ t('souk.landedCost') }} {{ fmt2(g.landed) }} ·
+                  <span class="font-bold" :class="marginOf(g) <= 0 ? 'text-rose-700' : 'text-emerald-700'">{{ t('souk.marginPct').replace('{n}', marginOf(g)) }}</span>
+                </span>
+                <span v-if="!g.allocated" class="text-[11px] text-amber-800">{{ t('souk.transportNotYet') }}</span>
               </div>
-              <div class="space-y-1">
-                <label class="text-[12px] font-semibold text-stone-700" for="c-mt">{{ t('souk.pub.metaTitle') }}</label>
-                <input id="c-mt" v-model="c.metaTitle" dir="ltr" :disabled="!d.canEdit" class="w-full h-11 rounded-lg ring-1 ring-stone-300 px-3 text-[14px]" />
-                <div class="text-[11px] tabular-nums" :class="c.metaTitle.length > 60 ? 'text-rose-600 font-semibold' : 'text-stone-500'">
-                  {{ t('souk.pub.chars').replace('{n}', c.metaTitle.length).replace('{m}', 60) }}
-                </div>
-              </div>
-              <div class="space-y-1 md:col-span-2">
-                <label class="text-[12px] font-semibold text-stone-700" for="c-md">{{ t('souk.pub.metaDesc') }}</label>
-                <textarea id="c-md" v-model="c.metaDescription" dir="ltr" :disabled="!d.canEdit" rows="2" class="w-full rounded-lg ring-1 ring-stone-300 px-3 py-2.5 text-[14px] leading-normal" />
-                <div class="text-[11px] tabular-nums" :class="c.metaDescription.length > 160 ? 'text-rose-600 font-semibold' : 'text-stone-500'">
-                  {{ t('souk.pub.chars').replace('{n}', c.metaDescription.length).replace('{m}', 160) }}
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
 
-        <!-- side -->
-        <aside class="space-y-4 xl:sticky xl:top-4 min-w-0">
-          <section v-if="d.finals.length" class="bg-white ring-1 ring-stone-200/70 rounded-2xl p-3.5 space-y-2.5">
-            <h3 class="text-[13px] font-bold">{{ t('souk.finals') }} · {{ d.finals.length }}</h3>
-            <div class="grid grid-cols-5 gap-1.5">
-              <a v-for="f in d.finals" :key="f.url" :href="f.url" target="_blank" rel="noopener" class="block aspect-[4/5] rounded-md overflow-hidden ring-1 ring-stone-200">
-                <img :src="f.url" class="w-full h-full object-cover" alt="" loading="lazy" />
-              </a>
-            </div>
-          </section>
-          <section class="bg-white ring-1 ring-stone-200/70 rounded-2xl p-3.5 text-[12.5px]">
-            <h3 class="text-[13px] font-bold mb-1.5">{{ t('souk.fromBuy') }}</h3>
-            <div v-for="row in facts" :key="row.k" class="flex justify-between gap-2.5 py-1 border-b border-stone-100 last:border-0">
-              <span class="text-stone-500 shrink-0">{{ row.k }}</span><span class="font-semibold text-end min-w-0 break-words" :dir="row.ltr ? 'ltr' : null">{{ row.v }}</span>
-            </div>
-            <div v-if="d.specs" class="pt-1.5 text-stone-700"><b>{{ t('souk.specs') }}:</b> {{ d.specs }}</div>
-          </section>
-          <section class="bg-white ring-1 ring-stone-200/70 rounded-2xl p-3.5 space-y-2">
-            <h3 class="text-[13px] font-bold">{{ t('souk.beforeSend') }}</h3>
-            <div v-for="k in checks" :key="k.key" class="flex items-start gap-2 text-[12.5px]">
-              <span class="w-[18px] h-[18px] mt-px shrink-0 rounded-full text-[11px] font-bold inline-flex items-center justify-center text-white"
-                    :class="k.ok ? 'bg-emerald-700' : k.soft ? 'bg-amber-500' : 'bg-rose-600'">{{ k.ok ? '✓' : '!' }}</span>
-              <div class="min-w-0">
-                <div :class="k.ok ? 'text-stone-800' : k.soft ? 'text-amber-900' : 'text-rose-800'">{{ t('souk.ck_' + k.key) }}</div>
-                <div v-if="!k.ok && k.soft" class="text-[11px] text-amber-700">{{ t('souk.pub.softWarn') }}</div>
+              <div class="flex flex-col gap-[5px] md:col-span-2">
+                <label class="text-[12px] font-semibold text-stone-700" for="c-tags">{{ t('souk.pub.tags') }}</label>
+                <input id="c-tags" v-model="tagsText" dir="auto" :disabled="!d.canEdit" class="w-full h-[42px] rounded-lg border border-stone-300 bg-white px-3 text-[14px] disabled:bg-stone-50" :placeholder="t('souk.tagsHint')" />
               </div>
-            </div>
-          </section>
-          <div v-if="d.canEdit" class="space-y-2">
-            <div class="flex items-center justify-between gap-2 min-h-[36px] text-[12px]">
-              <span class="font-semibold inline-flex items-center gap-1.5"
-                    :class="saveState === 'error' ? 'text-rose-700' : dirty || saving ? 'text-amber-800' : 'text-emerald-700'">
-                <span class="w-2 h-2 rounded-full" :class="saveState === 'error' ? 'bg-rose-500' : dirty || saving ? 'bg-amber-500' : 'bg-emerald-500'" />
-                {{ saving ? t('souk.pub.saving') : saveState === 'error' ? t('souk.pub.saveFailed').replace('{e}', saveError) : dirty ? t('souk.pub.unsaved') : t('souk.pub.saved') }}
-              </span>
-              <button v-if="dirty || saveState === 'error'" class="h-8 px-3 rounded-lg bg-white ring-1 ring-stone-300 text-[12px] font-semibold disabled:opacity-40" :disabled="saving" @click="save({ quiet: false })">
-                {{ t('souk.pub.saveNow') }}
-              </button>
-            </div>
-            <p class="text-[11px] text-stone-400">{{ t('souk.pub.autoNote') }}</p>
-            <button class="w-full h-11 rounded-xl bg-[var(--accent-600)] text-white text-[13.5px] font-bold disabled:bg-stone-200 disabled:text-stone-500"
-                    :disabled="busy || blockers.length > 0" @click="send">
-              {{ busy ? t('souk.sending') : t('souk.toReview') }}
-            </button>
-            <p v-if="blockers.length" class="text-[11.5px] text-rose-700">{{ t('souk.pub.blocksSend').replace('{list}', blockers.map((k) => t('souk.ck_' + k.key)).join(' · ')) }}</p>
-            <p class="text-[11.5px] text-stone-500">{{ t('souk.toReviewNote') }}</p>
+            </section>
+
+            <!-- SEO -->
+            <section class="lp-card p-4 space-y-3.5">
+              <h2 class="text-[13.5px] font-bold">{{ t('souk.seoTitle') }}</h2>
+              <div class="rounded-lg bg-stone-50 px-3.5 py-3 flex flex-col gap-[3px] min-w-0" dir="ltr" lang="fr" style="font-family: Arial, sans-serif">
+                <span class="text-[12px] text-[#3c4043] truncate">justyol.com › products › {{ c.handle || '…' }}</span>
+                <span class="text-[17px] text-[#1a0dab] truncate">{{ c.metaTitle || c.fr.title || '—' }}</span>
+                <span class="text-[13px] text-[#4d5156] line-clamp-2 leading-normal">{{ c.metaDescription || '—' }}</span>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                <div class="flex flex-col gap-[5px] min-w-0">
+                  <!-- fixed height: the link button must not push this input below its neighbour -->
+                  <div class="flex justify-between items-center gap-2 h-[18px] text-[12px]">
+                    <label class="font-semibold text-stone-700" for="c-handle">{{ t('souk.handle') }}</label>
+                    <button v-if="d.canEdit" class="lp-tap h-7 px-1 shrink-0 text-[11.5px] font-semibold underline text-[var(--accent-700)]" @click="c.handle = slug(c.fr.title)">{{ t('souk.fromTitle') }}</button>
+                  </div>
+                  <input id="c-handle" v-model="c.handle" dir="ltr" :disabled="!d.canEdit" class="w-full h-[42px] rounded-lg border border-stone-300 bg-white px-3 text-[14px] disabled:bg-stone-50" />
+                </div>
+                <div class="flex flex-col gap-[5px] min-w-0">
+                  <label class="h-[18px] flex items-center text-[12px] font-semibold text-stone-700" for="c-mt">{{ t('souk.pub.metaTitle') }}</label>
+                  <input id="c-mt" v-model="c.metaTitle" dir="ltr" lang="fr" :disabled="!d.canEdit" class="w-full h-[42px] rounded-lg border border-stone-300 bg-white px-3 text-[14px] disabled:bg-stone-50" />
+                  <span class="text-[11px] tabular-nums" :class="c.metaTitle.length > 60 ? 'text-rose-700 font-semibold' : 'text-stone-600'">
+                    {{ t('souk.pub.chars').replace('{n}', c.metaTitle.length).replace('{m}', 60) }}
+                  </span>
+                </div>
+                <div class="flex flex-col gap-[5px] md:col-span-2">
+                  <label class="text-[12px] font-semibold text-stone-700" for="c-md">{{ t('souk.pub.metaDesc') }}</label>
+                  <textarea id="c-md" v-model="c.metaDescription" dir="ltr" lang="fr" :disabled="!d.canEdit" rows="2" class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-[14px] leading-normal resize-y disabled:bg-stone-50" />
+                  <span class="text-[11px] tabular-nums" :class="c.metaDescription.length > 160 ? 'text-rose-700 font-semibold' : 'text-stone-600'">
+                    {{ t('souk.pub.chars').replace('{n}', c.metaDescription.length).replace('{m}', 160) }}
+                  </span>
+                </div>
+              </div>
+            </section>
           </div>
-        </aside>
+
+          <!-- side -->
+          <aside class="flex-[1_1_300px] max-w-[380px] min-w-0 space-y-3.5 xl:sticky xl:top-4">
+            <section v-if="d.finals.length" class="lp-card p-3.5 space-y-2.5">
+              <h2 class="text-[13px] font-bold">{{ t('souk.finals') }} · {{ d.finals.length }}</h2>
+              <div class="grid grid-cols-5 gap-1.5">
+                <a v-for="f in d.finals" :key="f.url" :href="f.url" target="_blank" rel="noopener" class="block aspect-[4/5] rounded-md overflow-hidden bg-stone-100">
+                  <img :src="f.url" class="w-full h-full object-cover" alt="" loading="lazy" />
+                </a>
+              </div>
+            </section>
+            <section class="lp-card p-3.5 space-y-2">
+              <h2 class="text-[13px] font-bold">{{ t('souk.fromBuy') }}</h2>
+              <div>
+                <div v-for="row in facts" :key="row.k" class="flex justify-between gap-2.5 py-[3px] text-[12.5px] border-b border-stone-100 last:border-0">
+                  <span class="text-stone-600 shrink-0">{{ row.k }}</span><span class="font-semibold text-end min-w-0 break-words" :dir="row.ltr ? 'ltr' : null">{{ row.v }}</span>
+                </div>
+              </div>
+              <div v-if="d.specs" class="text-[12.5px] text-stone-700">{{ t('souk.specs') }}: <bdi>{{ d.specs }}</bdi></div>
+            </section>
+            <section class="lp-card p-3.5 space-y-2">
+              <h2 class="text-[13px] font-bold">{{ t('souk.beforeSend') }}</h2>
+              <div v-for="k in checks" :key="k.key" class="flex items-start gap-2 text-[12.5px]">
+                <span class="w-[18px] h-[18px] mt-px shrink-0 rounded-full text-[11px] font-bold inline-flex items-center justify-center text-white"
+                      :class="k.ok ? 'bg-emerald-700' : k.soft ? 'bg-amber-600' : 'bg-rose-700'">{{ k.ok ? '✓' : '!' }}</span>
+                <div class="min-w-0">
+                  <div :class="k.ok ? 'text-stone-900' : k.soft ? 'text-amber-800' : 'text-rose-700'">{{ t('souk.ck_' + k.key) }}</div>
+                  <div v-if="!k.ok && k.soft" class="text-[11px] text-amber-700">{{ t('souk.pub.softWarn') }}</div>
+                </div>
+              </div>
+              <p v-if="d.canEdit && blockers.length" class="pt-1 text-[11.5px] text-rose-700">{{ blockText }}</p>
+            </section>
+            <p v-if="d.canEdit" class="px-1 text-[11.5px] text-stone-500">{{ t('souk.toReviewNote') }}</p>
+          </aside>
+        </div>
       </div>
+    </template>
+
+    <!-- a phone: the save state and the send stay under the thumb -->
+    <div v-if="hasFooter" class="lp-footer lg:hidden px-4 py-3 flex items-center gap-2">
+      <button type="button" class="flex-1 min-w-0 h-11 inline-flex items-center gap-1.5 text-[12px] font-semibold text-start"
+              :class="saveState === 'error' ? 'text-rose-700' : dirty || saving ? 'text-amber-800' : 'text-emerald-700'"
+              :disabled="saving || !(dirty || saveState === 'error')" @click="save({ quiet: false })">
+        <span class="w-2 h-2 shrink-0 rounded-full" :class="saveState === 'error' ? 'bg-rose-500' : dirty || saving ? 'bg-amber-500' : 'bg-emerald-500'" />
+        <span class="truncate">{{ saveText }}</span>
+        <span v-if="!saving && (dirty || saveState === 'error')" class="shrink-0 underline">{{ t('souk.pub.saveNow') }}</span>
+      </button>
+      <button class="h-11 px-5 shrink-0 rounded-lg bg-[var(--accent-600)] text-white text-[13.5px] font-bold disabled:bg-stone-200 disabled:text-stone-600"
+              :disabled="busy || blockers.length > 0" @click="send">
+        {{ busy ? t('souk.sending') : t('souk.toReview') }}
+      </button>
     </div>
   </div>
 </template>
@@ -347,6 +378,16 @@ const checks = computed(() => {
   ].map((k) => ({ ...k, soft: soft.has(k.key) }));
 });
 const blockers = computed(() => checks.value.filter((k) => !k.ok && !k.soft));
+const blockText = computed(() => t("souk.pub.blocksSend").replace("{list}", blockers.value.map((k) => t("souk.ck_" + k.key)).join(" · ")));
+
+// A phone shows the queue OR the product; the route decides which.
+const listOnly = computed(() => !route.params.name);
+const showStrip = computed(() => {
+  const q = data.value?.queue || [];
+  return q.length > 1 || (q.length === 1 && q[0].name !== d.value?.name);
+});
+const hasFooter = computed(() => !!d.value?.canEdit && !listOnly.value);
+const ageText = (a) => (Number(a) < 1 ? t("souk.pub.today") : t("souk.ageDays").replace("{n}", Math.floor(Number(a))));
 
 // Stage clock, deadline and writer.
 const dur = (h) => {
@@ -381,6 +422,8 @@ const dirty = computed(() => !!d.value?.canEdit && current.value !== baseline.va
 const saving = ref(false);
 const saveState = ref("idle"); // idle | saved | error
 const saveError = ref("");
+const saveText = computed(() => (saving.value ? t("souk.pub.saving") : saveState.value === "error"
+  ? t("souk.pub.saveFailed").replace("{e}", saveError.value) : dirty.value ? t("souk.pub.unsaved") : t("souk.pub.saved")));
 let timer = null;
 let inflight = null;
 

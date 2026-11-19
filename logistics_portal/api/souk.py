@@ -343,29 +343,287 @@ def settings():
     return out
 
 
-@frappe.whitelist(methods=["POST"])
-def save_settings(settings_json):
-    """Managers set everything; the accountant sets the accounts."""
-    _gate_accountant()
-    s = json.loads(settings_json or "{}")
-    if not isinstance(s, dict):
-        frappe.throw("Bad settings.")
-    if _role() != "manager":
-        s = {k: v for k, v in s.items() if k in ("custodyAccount", "transportLossAccount", "warehouseLossAccount")}
-    acct = (s.get("custodyAccount") or "").strip()
+# The settings screen (/souk/settings). Everything below validates what the
+# owner types there, so a typo can no longer reach a SKU, a deadline or the
+# books. Saves are PARTIAL: the screen sends only the keys it changed, so a
+# publish that remembered its channels meanwhile is not overwritten.
+SETTINGS_LOG_KEY = "lp_souk_settings_log"
+ACCOUNT_KEYS = ("custodyAccount", "transportLossAccount", "warehouseLossAccount")
+STAGE_DAY_KEYS = ("bought", "photos", "studio", "content", "review")
+# The longest SKU a buy can make is PREFIX<n>-COL-SIZE. Colour codes are 3
+# letters; the size code is the buyer's own (up to 4 characters, _size_code)
+# but 3 covers every size the market sells under a short code — 2XL, 3XL,
+# XXL, 42, 128. A 4-letter one (XXXL) is rare and the buy screen already
+# refuses it with "use a shorter size code" when it does not fit.
+SKU_ASSUMED_SIZE = 3
+SKU_ASSUMED_COLOR = 3
+
+
+def _sku_numbers_used(prefix):
+    """The highest number already used after this prefix (Items and souk
+    cards) — the same two reads as _next_sku_number, without its settings."""
+    pat = "^" + re.escape(prefix) + "[0-9]+"
+    hi = cint(frappe.db.sql(
+        """SELECT MAX(CAST(SUBSTRING(custom_sku, %s) AS UNSIGNED)) FROM `tabItem`
+           WHERE custom_sku REGEXP %s""", (len(prefix) + 1, pat + "(-|$)"))[0][0])
+    hi2 = cint(frappe.db.sql(
+        f"""SELECT MAX(CAST(SUBSTRING(sku_base, %s) AS UNSIGNED)) FROM `tab{DT_PRODUCT}`
+            WHERE sku_base REGEXP %s""", (len(prefix) + 1, pat + "$"))[0][0])
+    return max(hi, hi2)
+
+
+def _longest_sku(prefix, number):
+    return len(prefix) + len(str(number)) + 1 + SKU_ASSUMED_COLOR + 1 + SKU_ASSUMED_SIZE
+
+
+def _as_int(v, what, lo, hi):
+    if isinstance(v, bool):
+        v = None
+    elif isinstance(v, float) and v.is_integer():
+        v = int(v)
+    elif isinstance(v, str) and re.fullmatch(r"\s*-?\d+\s*", v):
+        v = int(v)
+    if not isinstance(v, int) or not lo <= v <= hi:
+        frappe.throw(f"{what} must be a whole number from {lo} to {hi}.")
+    return v
+
+
+def _text(v, what, cap):
+    v = re.sub(r"\s+", " ", str(v or "")).strip() if not isinstance(v, (dict, list)) else ""
+    if not v:
+        frappe.throw(f"{what} is empty.")
+    if len(v) > cap:
+        frappe.throw(f"{what} is longer than {cap} characters.")
+    return v
+
+
+def _clean_colors(rows):
+    if not isinstance(rows, list) or not rows:
+        frappe.throw("Keep at least one colour.")
+    if len(rows) > 80:
+        frappe.throw("At most 80 colours.")
+    out, seen = [], set()
+    for i, r in enumerate(rows, 1):
+        if not isinstance(r, dict):
+            frappe.throw(f"Colour {i} is malformed.")
+        code = str(r.get("code") or "").strip().upper()
+        if not re.fullmatch(r"[A-Z]{3}", code):
+            frappe.throw(f"Colour {i}: the code must be exactly 3 letters A–Z (it goes into the SKU), not “{code}”.")
+        if code in seen:
+            frappe.throw(f"Colour code {code} appears twice.")
+        seen.add(code)
+        out.append({"code": code, "fr": _text(r.get("fr"), f"The French name of {code}", 40),
+                    "ar": _text(r.get("ar"), f"The Arabic name of {code}", 40)})
+    return out
+
+
+def _clean_categories(rows):
+    if not isinstance(rows, list) or not rows:
+        frappe.throw("Keep at least one category.")
+    if len(rows) > 40:
+        frappe.throw("At most 40 categories.")
+    out, seen = [], set()
+    for i, r in enumerate(rows, 1):
+        if not isinstance(r, dict):
+            frappe.throw(f"Category {i} is malformed.")
+        key = str(r.get("key") or "").strip().lower()
+        if not re.fullmatch(r"[a-z0-9_-]{1,30}", key):
+            frappe.throw(f"Category {i}: the key must be 1–30 of a–z, 0–9, _ or -, not “{key}”.")
+        if key in seen:
+            frappe.throw(f"Category key {key} appears twice.")
+        seen.add(key)
+        out.append({"key": key,
+                    "ar": _text(r.get("ar"), f"The Arabic name of {key}", 40),
+                    "fr": _text(r.get("fr"), f"The French name of {key}", 40),
+                    "productType": _text(r.get("productType"), f"The product type of {key}", 80),
+                    "brand": _text(r.get("brand"), f"The brand of {key}", 80)})
+    return out
+
+
+def _clean_stage_days(v):
+    if not isinstance(v, dict) or set(v) != set(STAGE_DAY_KEYS):
+        frappe.throw("Deadlines need exactly these stages: " + ", ".join(STAGE_DAY_KEYS) + ".")
+    return {k: _as_int(v[k], f"The deadline for {k}", 1, 30) for k in STAGE_DAY_KEYS}
+
+
+def _clean_channels(v, cur):
+    if not isinstance(v, list) or not all(isinstance(x, str) and x.strip() for x in v):
+        frappe.throw("Sales channels are malformed.")
+    v = list(dict.fromkeys(x.strip() for x in v))
+    if v and v != (cur or []):
+        try:
+            known = {p["id"] for p in _channels()[0]}
+        except Exception:
+            known = None   # Shopify unreachable: keep what was chosen, check at publish
+        if known is not None:
+            bad = [x for x in v if x not in known]
+            if bad:
+                frappe.throw("Unknown sales channel: " + ", ".join(bad) + ". Reload the page.")
+    return v
+
+
+def _clean_settings(s, cur):
+    """s = only the keys being changed; cur = the settings before. Returns
+    the normalised keys. Throws a readable message on the first bad one."""
+    out = {}
+    for key in ACCOUNT_KEYS:
+        if key in s:
+            out[key] = str(s.get(key) or "").strip()
+    acct = out.get("custodyAccount")
     if acct and frappe.db.get_value("Account", {"name": acct, "company": COMPANY, "is_group": 0},
                                     "account_type") not in ("Cash", "Bank"):
         frappe.throw(f"{acct} is not a cash account of {COMPANY}.")
     for key in ("transportLossAccount", "warehouseLossAccount"):
-        a = (s.get(key) or "").strip()
+        a = out.get(key)
         if a and frappe.db.get_value("Account", {"name": a, "company": COMPANY, "is_group": 0},
                                      "root_type") != "Expense":
             frappe.throw(f"{a} is not an expense account of {COMPANY}.")
+    if "skuPrefix" in s:
+        p = str(s.get("skuPrefix") or "").strip().upper()
+        if not re.fullmatch(r"[A-Z]{1,4}", p):
+            frappe.throw("The SKU prefix must be 1 to 4 letters A–Z.")
+        out["skuPrefix"] = p
+    if "skuStart" in s:
+        out["skuStart"] = _as_int(s.get("skuStart"), "The first SKU number", 1, 999999)
+    prefix = out.get("skuPrefix", cur.get("skuPrefix"))
+    start = out.get("skuStart", cint(cur.get("skuStart")))
+    if (prefix != cur.get("skuPrefix") or start != cint(cur.get("skuStart"))):
+        n = max(_sku_numbers_used(prefix), start - 1) + 1
+        longest = _longest_sku(prefix, n)
+        # Refuse only what makes it worse: if the numbers already outgrew the
+        # label, a change that shortens (or keeps) the SKU must still pass.
+        now = _longest_sku(cur.get("skuPrefix") or "",
+                           max(_sku_numbers_used(cur.get("skuPrefix") or ""), cint(cur.get("skuStart")) - 1) + 1)
+        if longest > SKU_MAX and longest > now:
+            frappe.throw(f"The next SKU would be {prefix}{n}: with a colour and a size "
+                         f"({prefix}{n}-RED-2XL) it is {longest} characters, and the shelf label scans "
+                         f"at most {SKU_MAX}. Use a shorter prefix or a lower first number.")
+    if "colors" in s:
+        out["colors"] = _clean_colors(s.get("colors"))
+    if "categories" in s:
+        out["categories"] = _clean_categories(s.get("categories"))
+    if "stageDays" in s:
+        out["stageDays"] = _clean_stage_days(s.get("stageDays"))
+    if "escalateDays" in s:
+        out["escalateDays"] = _as_int(s.get("escalateDays"), "Escalate after (days)", 1, 90)
+    if "launchDays" in s:
+        out["launchDays"] = _as_int(s.get("launchDays"), "The launch target (days)", 1, 60)
+    if "studioSamples" in s:
+        out["studioSamples"] = _as_int(s.get("studioSamples"), "Studio samples", 0, 10)
+    if "publishChannels" in s:
+        out["publishChannels"] = _clean_channels(s.get("publishChannels"), cur.get("publishChannels"))
+    return out
+
+
+def _settings_log():
+    try:
+        log = json.loads(frappe.db.get_default(SETTINGS_LOG_KEY) or "[]")
+    except Exception:
+        log = []
+    return log if isinstance(log, list) else []
+
+
+@frappe.whitelist(methods=["POST"])
+def save_settings(settings_json):
+    """Managers set everything; the accountant sets the accounts. Send only
+    the keys that change; returns the whole settings after the save."""
+    _gate_accountant()
+    try:
+        s = json.loads(settings_json or "{}")
+    except ValueError:
+        s = None
+    if not isinstance(s, dict):
+        frappe.throw("Bad settings.")
+    if _role() != "manager":
+        s = {k: v for k, v in s.items() if k in ACCOUNT_KEYS}
+    s = {k: v for k, v in s.items() if k in DEFAULT_SETTINGS}
     cur = settings()
-    cur.update({k: v for k, v in s.items() if k in DEFAULT_SETTINGS})
+    clean = _clean_settings(s, cur)
+    changed = [k for k, v in clean.items() if cur.get(k) != v]
+    if not changed:
+        return cur
+    cur.update(clean)
     frappe.db.set_default(SETTINGS_KEY, json.dumps(cur, ensure_ascii=False))
+    log = [{"at": str(now_datetime())[:19], "by": frappe.session.user, "keys": changed}] + _settings_log()
+    frappe.db.set_default(SETTINGS_LOG_KEY, json.dumps(log[:20], ensure_ascii=False))
     frappe.db.commit()
     return cur
+
+
+def _house_brands(cats):
+    """The website brands a category can carry. The brand is the Shopify
+    vendor, and ee writes the vendor into Item.default_supplier — so a brand
+    is a Supplier name. Offered: every brand in use (settings + souk cards)
+    and whether a Supplier of that name exists. A new name is allowed (the
+    screen says it is not a supplier yet); nothing else is guessed."""
+    names = [c.get("brand") for c in cats] + [c["brand"] for c in DEFAULT_SETTINGS["categories"]]
+    try:
+        names += frappe.get_all(DT_PRODUCT, filters={"brand": ["is", "set"]}, pluck="brand", distinct=True)
+    except Exception:
+        pass
+    names = sorted({(n or "").strip() for n in names if (n or "").strip()}, key=str.lower)
+    sup = set()
+    if names:
+        for r in frappe.db.sql("""SELECT name, supplier_name FROM `tabSupplier`
+                                  WHERE name IN %(n)s OR supplier_name IN %(n)s""", {"n": tuple(names)}, as_dict=True):
+            sup.update({r.name, r.supplier_name})
+    return [{"name": n, "supplier": n in sup} for n in names]
+
+
+def _settings_usage():
+    """How many souk cards use each colour / category: the screen warns
+    before one in use is removed (removing only hides it from new buys)."""
+    colors, cats = {}, {}
+    try:
+        for r in frappe.get_all(DT_PRODUCT, fields=["category", "variants_json"], limit_page_length=0):
+            if r.category:
+                cats[r.category] = cats.get(r.category, 0) + 1
+            for code in {v.get("color") for v in (_loads(r.variants_json) or []) if isinstance(v, dict)}:
+                if code:
+                    colors[code] = colors.get(code, 0) + 1
+    except Exception:
+        pass
+    return {"colors": colors, "categories": cats}
+
+
+@frappe.whitelist()
+def settings_boot():
+    """The settings screen. Manager: everything. Accountant: the accounts."""
+    _gate_accountant()
+    s = settings()
+    mgr = _role() == "manager"
+    accounts = {
+        "cash": frappe.get_all("Account", filters={"company": COMPANY, "is_group": 0,
+                                                   "account_type": ["in", ["Cash", "Bank"]],
+                                                   "account_currency": "MAD"},
+                               pluck="name", order_by="name"),
+        "expense": frappe.get_all("Account", filters={"company": COMPANY, "is_group": 0, "root_type": "Expense"},
+                                  pluck="name", order_by="name", limit_page_length=0),
+    }
+    log = [dict(e, byName=_user_name(e.get("by"))) for e in _settings_log() if isinstance(e, dict)]
+    out = {"isManager": mgr, "canEditAccounts": True, "accounts": accounts, "log": log,
+           "settings": {k: s.get(k) or "" for k in ACCOUNT_KEYS}}
+    if not mgr:
+        return out
+    channels, channels_error = [], ""
+    try:
+        channels = _channels()[0]
+    except Exception as e:
+        channels_error = str(e)[:300] or "Shopify did not answer."
+    used = _sku_numbers_used(s["skuPrefix"])
+    # A stageDays saved before a stage existed lacks it: show the default.
+    days = s.get("stageDays") if isinstance(s.get("stageDays"), dict) else {}
+    s["stageDays"] = {k: days.get(k, DEFAULT_SETTINGS["stageDays"][k]) for k in STAGE_DAY_KEYS}
+    out.update({
+        "settings": s,
+        "skuMax": SKU_MAX, "skuUsed": used,
+        "nextSku": f"{s['skuPrefix']}{_next_sku_number(s['skuPrefix'])}",
+        "brands": _house_brands(s.get("categories") or []),
+        "channels": channels, "channelsError": channels_error,
+        "usage": _settings_usage(),
+        "stages": list(STAGE_DAY_KEYS),
+    })
+    return out
 
 
 def _user_name(user):

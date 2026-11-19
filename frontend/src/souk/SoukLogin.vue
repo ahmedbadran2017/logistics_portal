@@ -2,20 +2,20 @@
   <div class="min-h-[100dvh] flex bg-[rgb(var(--bg))]">
     <!-- The story panel (desktop): what this app is for, in one look. -->
     <div class="hidden lg:flex w-[46%] max-w-[620px] flex-col justify-between p-10 text-white relative overflow-hidden"
-         style="background: radial-gradient(120% 90% at 0% 0%, #0d6b48 0%, #08442f 48%, #04261a 100%)">
-      <div class="absolute -bottom-24 -end-24 w-[360px] h-[360px] rounded-full blur-3xl opacity-25 bg-emerald-400 pointer-events-none" />
+         style="background: #1c1917">
+      <div class="absolute -bottom-24 -end-24 w-[360px] h-[360px] rounded-full blur-3xl opacity-20 bg-[#c4492a] pointer-events-none" />
       <span class="inline-flex items-center self-start h-11 px-4 rounded-xl bg-white">
         <img :src="logoSrc" alt="Justyol" class="h-4" />
       </span>
       <div class="relative">
-        <span class="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-emerald-200 bg-white/10 ring-1 ring-white/15 rounded-full px-3 py-1">
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald-300" />{{ t('nav.soukPortalShort') }}
+        <span class="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-[#f6ccbf] bg-white/10 ring-1 ring-white/15 rounded-full px-3 py-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-[#e17f62]" />{{ t('nav.soukPortalShort') }}
         </span>
         <h2 class="mt-5 text-[30px] font-bold leading-tight tracking-[-0.01em]">{{ t('auth.soukHero') }}</h2>
         <ol class="mt-7 space-y-3.5">
           <li v-for="(s, i) in STEPS" :key="s.k" class="flex items-center gap-3">
             <span class="w-8 h-8 rounded-lg bg-white/10 ring-1 ring-white/15 flex items-center justify-center flex-shrink-0">
-              <Icon :name="s.icon" :size="15" class="text-emerald-200" />
+              <Icon :name="s.icon" :size="15" class="text-[#eea894]" />
             </span>
             <span class="text-[13.5px] text-white/85"><span class="text-white/40 me-1.5 tabular-nums">{{ i + 1 }}</span>{{ t(s.k) }}</span>
           </li>

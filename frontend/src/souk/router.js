@@ -32,6 +32,10 @@ const routes = [
       { path: "review/:name?", name: "SoukReview", component: () => import("@/pages/SoukReview.vue") },
       // Roles & access for the souk team — the manager's only.
       { path: "team", name: "Team", component: () => import("@/pages/Team.vue"), meta: { manager: true } },
+      // The souk's own settings (SKU, categories, colours, deadlines, channels,
+      // accounts). The accountant comes for the accounts only.
+      { path: "settings", name: "SoukSettings", component: () => import("@/pages/SoukSettings.vue"),
+        meta: { roles: ["manager", "accountant"] } },
       { path: ":pathMatch(.*)*", redirect: () => ({ name: "Home2" }) },
     ],
   },
@@ -102,6 +106,10 @@ router.beforeEach(async (to, from, next) => {
     next({ name: "Home2" });
   } else if (isLoggedIn.value && to.matched.some((r) => r.meta.manager) && role.value !== "manager") {
     next({ name: "Home2" });
+  } else if (isLoggedIn.value && to.matched.some((r) => r.meta.roles && !r.meta.roles.includes(role.value))) {
+    // Straight to the role's home, not Home2: Home2 reopens the remembered
+    // route, which may be this very page (another role used this phone) — a loop.
+    next({ name: homeRouteFor(role.value, hiddenPages.value, "souk") });
   } else if (isLoggedIn.value && to.name && hiddenPages.value.includes(to.name)) {
     try { useToast().warn(useI18n().t("nav.hiddenBounce"), ""); } catch (_) { /* never block */ }
     next({ name: homeRouteFor(role.value, hiddenPages.value, "souk") });
