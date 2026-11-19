@@ -1534,7 +1534,13 @@ def _make_po(supplier, trip, product, lines, receipt_image="", client_key="", pa
         po.custom_souk_receipt = "receipt"
         po.custom_souk_receipt_image = receipt_image
     for code, qty, rate in lines:
+        # Units set here, not left to set_missing_values: the ecommerce
+        # PurchaseOrder override validates the stock-UOM qty before ERPNext
+        # fills them, and throws "Conversion Factor is mandatory" — no souk
+        # PO had ever been made on prod (found 2026-11-19).
+        uom = frappe.db.get_value("Item", code, "stock_uom") or "Nos"
         po.append("items", {"item_code": code, "qty": qty, "rate": rate,
+                            "uom": uom, "stock_uom": uom, "conversion_factor": 1,
                             "schedule_date": today, "warehouse": RECEIVING_WH})
     po.set("taxes", [])
     po.insert(ignore_permissions=True)
