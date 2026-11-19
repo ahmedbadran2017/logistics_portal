@@ -3240,7 +3240,7 @@ query($id: ID!, $loc: ID!) {
 }
 """
 _PUBLICATIONS = """
-{ publications(first: 30) { nodes { id catalog { title } } } }
+{ publications(first: 30) { nodes { id catalog { title } app { title } } } }
 """
 _LAST_PUBLISHED = """
 { products(first: 1, sortKey: CREATED_AT, reverse: true, query: "status:active") {
@@ -3256,15 +3256,18 @@ mutation($id: ID!, $input: [PublicationInput!]!) {
 def _channels():
     """Sales channels + the default ticks (the last publish's, else what the
     newest active product on Shopify is published to)."""
-    key = "lp_souk_publications"
+    key = "lp_souk_publications_v2"
     pubs = frappe.cache().get_value(key)
     if not pubs:
         nodes = (((_gql()(_PUBLICATIONS).get("data") or {}).get("publications") or {}).get("nodes")) or []
         pubs = []
         for n in nodes:
+            # The ee token gets catalog = null (no catalog scope); the app's
+            # title ("Online Store", "TikTok") is what the team calls it.
             title = ((n.get("catalog") or {}).get("title")) or ""
             m = re.search(r" for (.+)$", title)
-            pubs.append({"id": n["id"], "name": m.group(1) if m else (title or n["id"].rsplit("/", 1)[-1])})
+            app = ((n.get("app") or {}).get("title")) or ""
+            pubs.append({"id": n["id"], "name": app or (m.group(1) if m else (title or n["id"].rsplit("/", 1)[-1]))})
         frappe.cache().set_value(key, pubs, expires_in_sec=3600)
     ids = {p["id"] for p in pubs}
     chosen = [c for c in (settings().get("publishChannels") or []) if c in ids]
