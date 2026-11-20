@@ -143,6 +143,13 @@ def ensure_doctype():
         _sync_stage_options()
         _ensure_po_fields()
         _ensure_studio()
+        try:
+            # Selection (souk_picks): its own doctypes; a failure there must
+            # not stop the rest of the souk from installing.
+            from logistics_portal.api import souk_picks
+            souk_picks.ensure()
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:2000], "souk_picks.ensure")
         if not frappe.db.exists("Supplier Group", SUPPLIER_GROUP):
             frappe.get_doc({"doctype": "Supplier Group", "supplier_group_name": SUPPLIER_GROUP,
                             "parent_supplier_group": "All Supplier Groups"}).insert(ignore_permissions=True)
@@ -2048,7 +2055,10 @@ def _basket_product(p, s, color_map):
                 frappe.throw(f"{title}: the barcode {bc} is already {hit['sku']} · {hit['title']}. "
                              "Buy it again instead, or confirm that the product is different.")
     return {"title": title, "cat": cat, "colors": colors, "sizes": sizes, "lines": lines,
-            "barcode": _barcode_norm(p.get("barcode")), "refImage": str(p.get("refImage") or "")[:300]}
+            "barcode": _barcode_norm(p.get("barcode")), "refImage": str(p.get("refImage") or "")[:300],
+            # Bought from the shopping list (souk_picks): its photo is the
+            # reference until the buyer's own arrives, and the pick is done.
+            "pick": str(p.get("pick") or "")[:20]}
 
 
 def _line_key(ln, prod):
@@ -2073,6 +2083,9 @@ def _new_card(prod, i, key, pay, again, stall, trip, s, color_map):
                 v["boxBarcode"] = prod["barcode"]
         total = round(sum(v["qty"] * v["cost"] for v in variants), 2)
         ref = prod["refImage"] if prod["refImage"].startswith("/files/") else ""
+        if not ref and prod.get("pick"):
+            from logistics_portal.api import souk_picks
+            ref = souk_picks.pick_photo(prod["pick"])
         try:
             doc = frappe.get_doc({
                 "doctype": DT_PRODUCT, "sku_base": base, "title": prod["title"][:140],
@@ -2083,11 +2096,15 @@ def _new_card(prod, i, key, pay, again, stall, trip, s, color_map):
                 "variants_json": json.dumps(variants, ensure_ascii=False),
                 **({"ref_image": ref} if ref else {}),
                 **({"client_key": f"{key}-{i}"} if _has_col(DT_PRODUCT, "client_key") else {}),
-                "pay_json": json.dumps({**pay, "basket": key, "idx": i, "again": again}),
+                "pay_json": json.dumps({**pay, "basket": key, "idx": i, "again": again,
+                                        **({"pick": prod["pick"]} if prod.get("pick") else {})}),
                 **({"stage_log": json.dumps([{"s": "buying", "at": str(now_datetime())[:19],
                                                "by": frappe.session.user}])}
                    if _has_col(DT_PRODUCT, "stage_log") else {}),
             }).insert(ignore_permissions=True)
+            if prod.get("pick"):
+                from logistics_portal.api import souk_picks
+                souk_picks.link_card(prod["pick"], doc.name)
             return doc
         except frappe.DuplicateEntryError:
             frappe.db.rollback()
@@ -2129,6 +2146,9 @@ def create_basket(payload):
         # the first one's work and only finishes it.
         if not (_basket_cards(key, with_dropped=True) or _basket_po(key)):
             stall = _resolve_stall(p.get("stall"), p.get("newStall"))
+            # A lead from the shopping list (souk_picks) becomes a stall here.
+            from logistics_portal.api import souk_picks
+            souk_picks.promote_lead(stall)
             if stall and frappe.db.get_value("Supplier", stall, "supplier_group") != SUPPLIER_GROUP:
                 frappe.throw("Choose a souk stall.")
             for code in {a["itemCode"] for a in again}:

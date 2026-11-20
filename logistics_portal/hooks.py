@@ -267,6 +267,15 @@ scheduler_events = {
         "0 11 * * *": [
             "logistics_portal.api.souk.run_late_alerts",
         ],
+        # Souk selection: read the wholesalers' public Telegram channels
+        # every 3 hours (the work runs on the long queue), and drop the
+        # posts nobody flagged after 30 days, with their thumbnails.
+        "15 */3 * * *": [
+            "logistics_portal.api.souk_picks.run_scrape",
+        ],
+        "40 4 * * *": [
+            "logistics_portal.api.souk_picks.cleanup",
+        ],
         "20 * * * *": [
             "logistics_portal.api.carrier_sync.run",
             # ...and copy "the parcel is back" onto the orders the carrier

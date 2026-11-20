@@ -326,6 +326,19 @@
           </div>
         </section>
 
+        <!-- bought from the shopping list (souk_picks): the decider's numbers -->
+        <section v-if="tab === 'new' && f.pickInfo" class="rounded-2xl ring-1 ring-inset p-3 flex flex-col gap-1.5"
+                 :class="overMax.length ? 'bg-rose-50 ring-rose-200' : 'bg-sky-50 ring-sky-200'" role="status">
+          <div class="flex items-center gap-2">
+            <Icon name="list-checks" :size="16" :class="overMax.length ? 'text-rose-700' : 'text-sky-700'" />
+            <span class="flex-1 min-w-0 text-[13px] font-bold text-stone-900">{{ t('souk.pk.fromList') }}</span>
+            <button type="button" class="shrink-0 h-9 px-2.5 rounded-lg text-[12px] font-semibold text-stone-600 underline underline-offset-2" @click="unlinkPick">{{ t('souk.pk.unlink') }}</button>
+          </div>
+          <span class="text-[13px] text-stone-700 tabular-nums">{{ tt('souk.pk.targets', { q: f.pickInfo.targetQty, p: fmt(f.pickInfo.maxPrice) }) }}<template v-if="f.pickInfo.decidedBy"> · {{ f.pickInfo.decidedBy }}</template></span>
+          <span v-if="overMax.length" class="text-[13px] font-bold text-rose-800">{{ tt('souk.pk.overMax', { p: fmt(f.pickInfo.maxPrice), sku: overMax.join(', ') }) }}</span>
+          <span v-else-if="curUnits && curUnits < f.pickInfo.targetQty" class="text-[12px] text-stone-600">{{ tt('souk.pk.underQty', { n: curUnits, q: f.pickInfo.targetQty }) }}</span>
+        </section>
+
         <!-- name, category, brand -->
         <section v-if="tab === 'new'" class="sk-sec st-buying">
           <div class="sk-sec-h">
@@ -741,6 +754,9 @@
         <p v-if="why" class="text-[12px] font-semibold text-amber-800 flex items-start gap-1.5" aria-live="polite">
           <Icon name="info" :size="13" class="mt-[2px] shrink-0" />{{ why }}
         </p>
+        <p v-if="tab === 'new' && overMax.length" class="text-[12px] font-bold text-rose-700 flex items-start gap-1.5" aria-live="polite">
+          <Icon name="alert-triangle" :size="13" class="mt-[2px] shrink-0" />{{ tt('souk.pk.overMax', { p: fmt(f.pickInfo.maxPrice), sku: overMax.join(', ') }) }}
+        </p>
         <button class="w-full h-12 rounded-xl bg-gradient-to-b from-[var(--accent-500)] to-[var(--accent-700)] text-white text-[15px] font-bold disabled:opacity-40 disabled:from-stone-400 disabled:to-stone-500 shadow-[0_6px_16px_-6px_rgba(196,73,42,.7)] disabled:shadow-none"
                 :disabled="busy || !!why" @click="submit">
           {{ busy ? t('souk.sending') : basketCount > 1 ? tt('souk.basket.confirm', { n: basketCount }) : tab === 'new' ? t('souk.buy.createBtn') : t('souk.confirmRebuy') }}
@@ -753,7 +769,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick, defineComponent, h } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { swatch } from "@/souk/stages";
 import { api, apiPost } from "@/lib/resource";
@@ -766,6 +782,7 @@ import { useToast } from "@/composables/useToast";
 const { t, locale } = useI18n();
 const { warn } = useToast();
 const route = useRoute();
+const router = useRouter();
 const isAr = computed(() => (locale?.value || "ar") === "ar");
 const tt = (k, vars = {}) => {
   let s = String(t(k));
@@ -833,7 +850,7 @@ const draftOk = ref(true);
 const lastCat = ref(readJSON(CAT_KEY, "") || "");
 
 const blank = () => ({ stall: "", newStall: { name: "", phone: "", sure: false }, title: "", category: lastCat.value || "", colors: [],
-                       barcode: "", barcodeSure: false });
+                       barcode: "", barcodeSure: false, pick: "", pickInfo: null });
 const f = reactive(blank());
 const sizes = ref([]);           // [{id, label, code}] — label is what the customer reads, code goes into the SKU
 const qty = reactive({});
@@ -1256,7 +1273,8 @@ async function startAgain(r) {
 // ── keep the form on the phone ───────────────────────────────────────────────
 const hasContent = computed(() => !!(f.title.trim() || f.colors.length || sizes.value.length || f.newStall.name
   || Object.values(qty).some((v) => Number(v) > 0) || again.value || basket.products.length || basket.again.length));
-const plain = (p) => ({ ...p, refFile: null, refPreview: "" });
+const isUrl = (u) => /^\/files\//.test(u || "");
+const plain = (p) => ({ ...p, refFile: null, refPreview: isUrl(p.refPreview) ? p.refPreview : "" });
 function saveDraft() {
   draftOk.value = writeJSON(DRAFT_KEY, {
     v: 2, tab: tab.value,
@@ -1299,7 +1317,7 @@ function loadDraft() {
   if (d.pay && PAY.some((m) => m.k === d.pay.method)) Object.assign(pay, { ref: "", due: "", ...d.pay });
   Object.assign(bcs, d.bcs || {});
   if (d.basket) {
-    basket.products = (d.basket.products || []).map((p) => ({ ...p, refFile: null, refPreview: "" }));
+    basket.products = (d.basket.products || []).map((p) => ({ ...p, refFile: null, refPreview: isUrl(p.refPreview) ? p.refPreview : "" }));
     basket.again = d.basket.again || [];
   }
 }
@@ -1315,6 +1333,7 @@ function snapProduct() {
     sizes: sizes.value.map((z) => ({ ...z })), qty: { ...qty }, cost: { ...cost },
     bcs: JSON.parse(JSON.stringify(bcs)),
     refFile: refFile.value, refPreview: refPreview.value,
+    pick: f.pick || "", pickInfo: f.pickInfo ? { ...f.pickInfo } : null,
     sizeNames: namedSizes.value.map((z) => z.label.trim()),
     lines: lines.value.map((l) => ({ color: l.color, size: l.size, sizeCode: l.sizeCode, code: l.code, sku: l.sku,
                                      qty: l.qty, cost: l.cost, price: l.price, barcode: l.barcode, barcodeSure: l.barcodeSure })),
@@ -1326,7 +1345,7 @@ function snapProduct() {
 // The editor emptied for the next product; the stall and the payment stay.
 function clearProduct(revoke = false) {
   if (revoke && refPreview.value) URL.revokeObjectURL(refPreview.value);
-  Object.assign(f, { title: "", category: lastCat.value || "", colors: [], barcode: "", barcodeSure: false });
+  Object.assign(f, { title: "", category: lastCat.value || "", colors: [], barcode: "", barcodeSure: false, pick: "", pickInfo: null });
   sizes.value = [];
   editSize.value = null;
   colorsOpen.value = false;
@@ -1338,7 +1357,7 @@ function clearProduct(revoke = false) {
 function loadProduct(p) {
   clearProduct();
   Object.assign(f, { title: p.title, category: p.category, colors: [...p.colors], barcode: p.barcode || "",
-                     barcodeSure: !!p.barcodeSure });
+                     barcodeSure: !!p.barcodeSure, pick: p.pick || "", pickInfo: p.pickInfo || null });
   sizes.value = (p.sizes || []).map((z) => ({ ...z }));
   Object.assign(qty, p.qty || {});
   Object.assign(cost, p.cost || {});
@@ -1538,6 +1557,7 @@ async function submit() {
                                        qty: l.qty, cost: l.cost,
                                        ...(l.barcode ? { barcode: l.barcode, barcodeSure: !!l.barcodeSure } : {}) })),
           ...(p.barcode ? { barcode: p.barcode, barcodeSure: !!p.barcodeSure } : {}),
+          ...(p.pick ? { pick: p.pick } : {}),
         })),
         again: agains.flatMap((a) => a.rows.map((r) => ({
           itemCode: r.itemCode, qty: r.qty, cost: r.cost, product: a.kind === "souk" ? a.key : "",
@@ -1727,13 +1747,65 @@ async function load() {
   }
 }
 
+// ── from the shopping list (souk_picks) ──────────────────────────────────────
+// The decider set a quantity, a max cost per piece and the source: the photo,
+// the title and the stall come filled; a cost above the max is said in red.
+const overMax = computed(() => {
+  const mx = Number(f.pickInfo?.maxPrice || 0);
+  return mx > 0 ? lines.value.filter((l) => l.qty > 0 && Number(l.cost) > mx).map((l) => l.sku) : [];
+});
+// A lead (a Telegram source not bought from yet) is not in the stall list:
+// it becomes a stall at this purchase.
+function keepLeadStall() {
+  const st = f.pickInfo?.stall || basket.products.map((p) => p.pickInfo?.stall).find((x) => x && x.name === f.stall);
+  if (st && boot.value && f.stall === st.name && !boot.value.stalls.some((s) => s.name === st.name)) {
+    boot.value.stalls.unshift({ name: st.name, label: st.label });
+  }
+}
+async function startPick(name) {
+  let d;
+  try {
+    d = await api("souk_picks.pick_for_buy", { name });
+  } catch (e) {
+    warn(t("souk.failed"), String(e.message || e));
+    return;
+  }
+  const inBasket = basket.products.some((p) => p.pick === d.name) || f.pick === d.name;
+  if (!inBasket) {
+    // The editor holds another product: it goes into the basket first.
+    if (tab.value === "new" && currentActive.value && !currentWhy.value) { basket.products.push(snapProduct()); clearProduct(); }
+    else if (tab.value === "new" && currentActive.value) { warn(t("souk.basket.finishFirst"), ""); return; }
+    tab.value = "new";
+    Object.assign(f, { title: d.title || "", pick: d.name,
+                       pickInfo: { name: d.name, targetQty: d.targetQty, maxPrice: d.maxPrice, photo: d.photo,
+                                   stall: d.stall, decidedBy: d.decidedBy || "" } });
+    if (d.category && boot.value?.categories.some((c) => c.key === d.category)) f.category = d.category;
+    if (!refFile.value) refPreview.value = d.photo || "";
+    const empty = !basket.products.length && !basket.again.length;
+    if (d.stall && (empty || !f.stall)) { f.stall = d.stall.name; f.newStall = { name: "", phone: "", sure: false }; }
+    else if (d.stall && f.stall !== d.stall.name) warn(t("souk.pk.otherStall"), d.stall.label);
+    keepLeadStall();
+  }
+  const q = { ...route.query };
+  delete q.pick;
+  router.replace({ query: q });
+}
+function unlinkPick() {
+  if (refPreview.value && refPreview.value === f.pickInfo?.photo && !refFile.value) refPreview.value = "";
+  f.pick = "";
+  f.pickInfo = null;
+}
+
 onMounted(async () => {
   sent.value = readJSON(SENT_KEY, null);
   if (sent.value && !sent.value.summary) sent.value = null;
   loadDraft();
   await load();
   reconcile();
+  if (f.pickInfo && !refFile.value && !refPreview.value) refPreview.value = f.pickInfo.photo || "";
+  keepLeadStall();
   if (route.query.again && !sent.value) await startAgain({ key: route.query.again, kind: route.query.kind || "souk" });
+  if (route.query.pick && !sent.value) await startPick(String(route.query.pick));
 });
 onBeforeUnmount(() => {
   offDone();

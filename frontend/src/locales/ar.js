@@ -55,6 +55,7 @@ export default {
     souk: "مشتريات السوق",
     soukBoard: "لوحة الإطلاق",
     soukBuy: "شراء",
+    soukPicks: "اختيار المنتجات",
     soukStalls: "المحلات",
     soukCustody: "العهدة",
     soukPortal: "بوابة مشتريات السوق",

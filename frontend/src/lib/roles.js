@@ -392,6 +392,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
           { to: "SoukBuy", label: "nav.soukBuy", icon: "shopping-bag" },
+          { to: "SoukPicks", label: "nav.soukPicks", icon: "sparkles" },
           { to: "SoukStalls", label: "nav.soukStalls", icon: "store" },
           { to: "SoukBoard", label: "nav.soukBoard", icon: "kanban" },
         ],
@@ -426,6 +427,7 @@ export const ROLE_CONFIG = {
           { to: "SoukContent", label: "nav.soukContent", icon: "notebook-pen" },
           { to: "SoukReview", label: "nav.soukReview", icon: "clipboard-check" },
           { to: "SoukBoard", label: "nav.soukBoard", icon: "kanban" },
+          { to: "SoukPicks", label: "nav.soukPicks", icon: "sparkles" },
         ],
       },
     ],
@@ -441,6 +443,7 @@ export const ROLE_CONFIG = {
           { to: "SoukContent", label: "nav.soukContent", icon: "notebook-pen" },
           { to: "SoukReview", label: "nav.soukReview", icon: "clipboard-check" },
           { to: "SoukBoard", label: "nav.soukBoard", icon: "kanban" },
+          { to: "SoukPicks", label: "nav.soukPicks", icon: "sparkles" },
         ],
       },
     ],
@@ -579,6 +582,7 @@ const SOUK_MANAGER = {
       section: "nav.soukBuying",
       items: [
         { to: "SoukBoard", label: "nav.soukBoard", icon: "kanban" },
+        { to: "SoukPicks", label: "nav.soukPicks", icon: "sparkles" },
         { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
         { to: "SoukBuy", label: "nav.soukBuy", icon: "shopping-bag" },
         { to: "SoukStalls", label: "nav.soukStalls", icon: "store" },
