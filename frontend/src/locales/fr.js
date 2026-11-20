@@ -2642,7 +2642,7 @@ export default {
     slot_side: "Côté",
     slotHint_side: "Montre profondeur et hauteur",
     slot_detail: "Détail",
-    slotHint_detail: "Motif et matière de près",
+    slotHint_detail: "Motif ou matière plein cadre, net, à la lumière du jour — publié tel quel",
     slot_size: "Étiquette taille",
     slotHint_size: "La taille ou les mesures écrites",
     slot_hand: "En main",

@@ -283,6 +283,33 @@
           <NumRow v-model="form.aiWebPack.monthlyCap" id="ss-ai-cap" :label="t('souk.st.setCap')"
                   :hint="t('souk.st.setCapHint').replace('{used}', boot.ai.used)" unit="" :min="0" :max="100000"
                   :bad="!!errs.days.aiCap" />
+          <!-- the full selling set (souk_set) -->
+          <template v-if="boot.ai.setModels">
+            <label class="flex items-start gap-3 min-h-[48px] px-3 py-2.5 rounded-xl ring-1 cursor-pointer"
+                   :class="form.aiWebPack.set ? 'st-ring st-soft' : 'ring-stone-200 bg-white'">
+              <input type="checkbox" class="w-5 h-5 shrink-0 mt-0.5" style="accent-color: rgb(var(--st))" v-model="form.aiWebPack.set" />
+              <span class="flex-1 min-w-0">
+                <span class="block text-[14px] font-semibold text-stone-900">{{ t('souk.ss.setSet') }}</span>
+                <span class="block text-[12px] text-stone-500">{{ t('souk.ss.setSetHint') }}</span>
+              </span>
+            </label>
+            <div v-if="form.aiWebPack.set" class="space-y-1.5">
+              <div class="text-[13px] font-semibold text-stone-700">{{ t('souk.ss.setSetModel') }}</div>
+              <div class="grid sm:grid-cols-2 gap-1.5">
+                <label v-for="m in boot.ai.setModels" :key="m.id" class="flex items-center gap-3 min-h-[48px] px-3 rounded-xl ring-1 cursor-pointer"
+                       :class="form.aiWebPack.setModel === m.id ? 'st-ring st-soft' : 'ring-stone-200 bg-white'">
+                  <input type="radio" name="ss-set-model" class="w-4 h-4 shrink-0" style="accent-color: rgb(var(--st))" :value="m.id" v-model="form.aiWebPack.setModel" />
+                  <span class="flex-1 min-w-0">
+                    <span class="block text-[14px] font-semibold text-stone-900"><bdi>{{ m.label }}</bdi></span>
+                    <span class="block text-[12px] text-stone-500">{{ t('souk.ss.setSetPrice').replace('{usd}', m.usd) }}</span>
+                  </span>
+                </label>
+              </div>
+              <p class="text-[12px] text-stone-500">{{ t('souk.ss.setSetPer').replace('{usd}', boot.ai.setUsd) }}
+                {{ t('souk.ss.setSetUsed').replace('{n}', boot.ai.setUsed?.sets || 0).replace('{usd}', boot.ai.setUsed?.usd || 0) }}</p>
+              <p v-if="!boot.ai.claudeKey" class="text-[12px] font-semibold text-amber-800 flex items-start gap-1.5"><Icon name="alert-triangle" :size="13" class="mt-[2px] shrink-0" />{{ t('souk.ss.setNoClaude') }}</p>
+            </div>
+          </template>
         </template>
         <!-- the key: its own call, encrypted, never sent back -->
         <div class="rounded-xl bg-stone-50 p-3 space-y-2">
@@ -581,7 +608,7 @@ function toForm(s) {
   }
   if (Array.isArray(out.colors)) out.colors = out.colors.map((c) => ({ code: c.code || "", fr: c.fr || "", ar: c.ar || "", _id: ++uid }));
   if (out.stageDays && typeof out.stageDays === "object") out.stageDays = { ...out.stageDays };
-  if (out.aiWebPack && typeof out.aiWebPack === "object") out.aiWebPack = { ...out.aiWebPack };
+  if (out.aiWebPack && typeof out.aiWebPack === "object") out.aiWebPack = { set: false, setModel: "openai/gpt-image-2.6/flare/edit", ...out.aiWebPack };
   if (out.aiContent && typeof out.aiContent === "object") out.aiContent = { ...out.aiContent };
   if ("publishChannels" in out && !Array.isArray(out.publishChannels)) out.publishChannels = [];
   for (const k of ACCOUNT_KEYS) if (k in out) out[k] = out[k] || "";
@@ -615,7 +642,7 @@ function norm(k, v) {
   if (k === "categories") return (v || []).map(({ key, ar, fr, productType, brand }) => ({ key, ar, fr, productType, brand }));
   if (k === "colors") return (v || []).map(({ code, fr, ar }) => ({ code, fr, ar }));
   if (k === "publishChannels") return [...(v || [])].sort();
-  if (k === "aiWebPack") return v && { enabled: !!v.enabled, auto: !!v.auto, model: v.model, monthlyCap: Number(v.monthlyCap) };
+  if (k === "aiWebPack") return v && { enabled: !!v.enabled, auto: !!v.auto, model: v.model, monthlyCap: Number(v.monthlyCap), set: !!v.set, setModel: v.setModel };
   if (k === "aiContent") return v && { enabled: !!v.enabled, model: v.model, arabic: v.arabic, monthlyCap: Number(v.monthlyCap) };
   if (k === "stageDays") return Object.fromEntries(Object.keys(v || {}).sort().map((s) => [s, v[s]]));
   return v;

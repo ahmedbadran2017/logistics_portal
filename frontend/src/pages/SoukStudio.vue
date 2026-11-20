@@ -99,6 +99,144 @@
           <div v-if="d.error" class="bg-rose-50 rounded-xl px-3 py-2.5 text-[13px] text-rose-700 break-words flex gap-2"><Icon name="alert-circle" :size="15" class="shrink-0 mt-0.5" />{{ d.error }}</div>
           <div v-if="!d.canEdit" class="bg-stone-100 rounded-xl px-3 py-2.5 text-[13px] text-stone-700">{{ t('souk.studioNotNow') }}</div>
 
+          <!-- the photo set (souk_set): drawn shots checked against the floor
+               photos, the words drawn by code, a person accepts -->
+          <section v-if="ps && d.canEdit && (ps.ready || ps.items.length || ps.why === 'setoff' && isManager)" class="sk-sec st-studio">
+            <div class="sk-sec-h">
+              <span class="sk-ico sk-ico-sm sk-ico-solid"><Icon name="layout-grid" :size="14" /></span>
+              <div class="min-w-0 flex-1">
+                <div class="sk-sec-t">{{ t('souk.ss.title') }}<template v-if="ps.items.length"> · {{ ps.items.length }}</template></div>
+                <div class="sk-sec-s">{{ t('souk.ss.sub') }}</div>
+              </div>
+              <button v-if="psOk.length" class="lp-tap shrink-0 h-9 px-3 rounded-xl st-solid text-[13px] font-bold inline-flex items-center gap-1.5 disabled:opacity-40"
+                      :disabled="busy || aiBusy" @click="setAccept(psOk.map((i) => i.url))">
+                <Icon name="check-circle" :size="14" />{{ t('souk.ss.acceptOk').replace('{n}', psOk.length) }}
+              </button>
+            </div>
+            <div class="sk-sec-b space-y-3">
+              <div v-if="!ps.ready" class="flex items-start gap-2.5 rounded-xl bg-stone-50 px-3 py-2.5 text-[13px] text-stone-700">
+                <Icon name="info" :size="15" class="shrink-0 mt-0.5 text-stone-500" />
+                <div class="space-y-1">
+                  <div>{{ whyText(ps.why) }}</div>
+                  <router-link v-if="isManager && ps.why !== 'migrate'" :to="{ name: 'SoukSettings', hash: '#set-ai' }" class="font-semibold underline st-ink">{{ t('souk.st.openSettings') }}</router-link>
+                </div>
+              </div>
+
+              <div v-if="psWorking" class="flex items-center gap-2.5 rounded-xl st-soft px-3 py-2.5 text-[13px] font-semibold st-ink">
+                <Icon name="refresh-cw" :size="15" class="animate-spin" />
+                {{ ps.step === 'draw' ? t('souk.ss.step_draw').replace('{n}', ps.todo.length) : ps.step === 'brief' ? t('souk.ss.step_brief') : t('souk.ss.queued') }}
+              </div>
+              <div v-if="ps.state === 'error' && ps.error" class="flex items-start gap-2 rounded-xl bg-rose-50 px-3 py-2.5 text-[13px] text-rose-800 break-words">
+                <Icon name="alert-circle" :size="15" class="shrink-0 mt-0.5" />{{ ps.error }}
+              </div>
+
+              <!-- what the brief could not settle: checked on the goods -->
+              <div v-if="ps.brief && ps.brief.verify && ps.brief.verify.length && ps.items.length" class="rounded-xl bg-amber-50 px-3 py-2.5 space-y-1">
+                <div class="text-[13px] font-bold text-amber-900 flex items-center gap-1.5"><Icon name="alert-triangle" :size="14" />{{ t('souk.ss.verifyTitle') }}</div>
+                <ul class="text-[13px] text-amber-900 space-y-0.5 list-disc ps-5">
+                  <li v-for="(v, k) in ps.brief.verify" :key="k" dir="auto">{{ v }}</li>
+                </ul>
+              </div>
+
+              <div v-if="ps.items.length || psTodo.length" class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5">
+                <div v-for="it in ps.items" :key="it.url" class="rounded-xl ring-1 overflow-hidden bg-white flex flex-col"
+                     :class="it.ok === false ? 'ring-rose-300' : 'ring-stone-200'">
+                  <button class="relative aspect-square bg-white" :aria-label="t('souk.st.compare')" @click="openSet(it)">
+                    <img :src="it.url" class="w-full h-full object-contain" alt="" loading="lazy" />
+                    <span class="absolute top-1.5 start-1.5 text-[11px] font-bold rounded-full px-2 py-0.5 bg-white/90 text-stone-700 inline-flex items-center gap-1">
+                      <span v-if="it.color" class="w-2.5 h-2.5 rounded-full ring-1 ring-black/10" :style="{ background: swatch(it.color) }" />{{ t('souk.ss.shot_' + it.shot) }}
+                    </span>
+                  </button>
+                  <div class="px-2 py-1.5 border-t border-stone-100 space-y-1 text-[12px]">
+                    <div v-if="['detail', 'real', 'colours'].includes(it.shot)" class="font-semibold text-stone-600 flex items-center gap-1"><Icon name="camera" :size="12" />{{ it.shot === 'colours' ? t('souk.ss.shot_colours') : t('souk.ss.fromFloor') }}</div>
+                    <div v-else class="font-semibold flex flex-wrap items-center gap-x-1"
+                         :class="it.ok === true ? 'text-emerald-700' : it.ok === false ? 'text-rose-700' : 'text-stone-500'">
+                      <Icon :name="it.ok === true ? 'check-circle' : it.ok === false ? 'alert-triangle' : 'help-circle'" :size="12" />
+                      {{ it.ok === true ? t('souk.ss.qcOk') : it.ok === false ? t('souk.ss.qcBad') : t('souk.ss.qcNone') }}
+                      <span v-if="it.tries > 1" class="basis-full text-stone-500 font-normal">{{ t('souk.ss.tries').replace('{n}', it.tries) }}</span>
+                    </div>
+                    <ul v-if="it.notes && it.notes.length" class="text-rose-800 space-y-0.5">
+                      <li v-for="(n, k) in it.notes" :key="k" dir="auto">• {{ n }}</li>
+                    </ul>
+                    <div v-if="it.shot === 'box' && it.numbered === 0" class="text-amber-800">{{ t('souk.ss.noNumbers') }}</div>
+                    <div v-if="it.edited" class="text-stone-500">{{ t('souk.ss.edited') }}</div>
+                  </div>
+                  <div class="grid grid-cols-[1fr_auto_auto] border-t border-stone-100 mt-auto">
+                    <button class="h-10 text-[13px] font-bold text-emerald-700 hover:bg-emerald-50 inline-flex items-center justify-center gap-1 disabled:opacity-40"
+                            :disabled="busy || aiBusy" @click="setAccept([it.url])"><Icon name="check" :size="15" />{{ t('souk.st.accept') }}</button>
+                    <button class="h-10 w-10 border-s border-stone-100 text-stone-600 hover:bg-stone-50 inline-flex items-center justify-center disabled:opacity-40"
+                            :disabled="busy || aiBusy || !ps.ready || psWorking" :title="t('souk.st.redo')" :aria-label="t('souk.st.redo')" @click="setStart([it.id])"><Icon name="refresh-cw" :size="14" /></button>
+                    <button class="h-10 w-10 border-s border-stone-100 text-rose-600 hover:bg-rose-50 inline-flex items-center justify-center disabled:opacity-40"
+                            :disabled="busy || aiBusy" :title="t('souk.st.reject')" :aria-label="t('souk.st.reject')" @click="setReject(it.url)"><Icon name="x" :size="15" /></button>
+                  </div>
+                </div>
+                <div v-for="id in psTodo" :key="'todo-' + id" class="rounded-xl ring-1 ring-stone-200 overflow-hidden bg-white">
+                  <div class="relative aspect-square bg-stone-50 flex items-center justify-center">
+                    <span class="sk-ico st-studio"><Icon name="sparkles" :size="16" class="animate-pulse" /></span>
+                  </div>
+                  <div class="h-10 border-t border-stone-100 text-[12px] font-semibold text-stone-500 flex items-center justify-center">{{ t('souk.ss.shot_' + id.split(':')[0]) }}</div>
+                </div>
+              </div>
+
+              <div v-for="f in ps.failed" :key="'sf-' + f.id" class="flex items-center gap-2.5 rounded-xl bg-rose-50 px-2.5 py-2 text-[12px] text-rose-800">
+                <Icon name="alert-circle" :size="15" class="shrink-0" />
+                <span class="flex-1 min-w-0 break-words"><b>{{ t('souk.ss.shot_' + f.shot) }}</b> · {{ t('souk.ss.failedOne') }} <span class="opacity-75" dir="ltr">{{ f.error }}</span></span>
+                <button v-if="ps.ready && !psWorking" class="lp-tap shrink-0 h-8 px-2.5 rounded-lg bg-white ring-1 ring-inset ring-rose-200 font-semibold inline-flex items-center gap-1 disabled:opacity-40"
+                        :disabled="aiBusy" @click="setStart([f.id])"><Icon name="refresh-cw" :size="12" />{{ t('souk.st.retry') }}</button>
+              </div>
+
+              <!-- the words on the photos: edited here, redrawn by code for free -->
+              <details v-if="ps.brief && ps.items.some((i) => i.editable)" class="rounded-xl ring-1 ring-stone-200 bg-white group" @toggle="onTextsToggle">
+                <summary class="px-3 min-h-[44px] flex items-center gap-2 cursor-pointer text-[13px] font-bold text-stone-800 list-none">
+                  <Icon name="pen-line" :size="14" />{{ t('souk.ss.textsTitle') }}
+                  <span class="text-[12px] font-normal text-stone-500 hidden sm:inline">· {{ t('souk.ss.textsHint') }}</span>
+                  <Icon name="chevron-down" :size="14" class="ms-auto transition-transform group-open:rotate-180" />
+                </summary>
+                <div v-if="tx" class="px-3 pb-3 grid gap-2.5 sm:grid-cols-2 text-[13px]" dir="ltr">
+                  <label class="sm:col-span-2 space-y-1"><span class="block font-semibold text-stone-700" dir="auto">{{ t('souk.ss.headline') }}</span>
+                    <input v-model="tx.headlineFr" maxlength="48" class="w-full h-10 rounded-lg border border-stone-300 px-2.5" /></label>
+                  <label class="sm:col-span-2 space-y-1"><span class="block font-semibold text-stone-700" dir="auto">{{ t('souk.ss.benefits') }}</span>
+                    <textarea v-model="tx.benefits" rows="5" class="w-full rounded-lg border border-stone-300 px-2.5 py-2" /></label>
+                  <label class="space-y-1"><span class="block font-semibold text-stone-700" dir="auto">{{ t('souk.ss.scaleValue') }}</span>
+                    <input v-model="tx.scaleValue" maxlength="12" class="w-full h-10 rounded-lg border border-stone-300 px-2.5" /></label>
+                  <label class="space-y-1"><span class="block font-semibold text-stone-700" dir="auto">{{ t('souk.ss.scaleLine1') }}</span>
+                    <input v-model="tx.scaleLine1Fr" maxlength="44" class="w-full h-10 rounded-lg border border-stone-300 px-2.5" /></label>
+                  <label class="sm:col-span-2 space-y-1"><span class="block font-semibold text-stone-700" dir="auto">{{ t('souk.ss.scaleLine2') }}</span>
+                    <input v-model="tx.scaleLine2Fr" maxlength="52" class="w-full h-10 rounded-lg border border-stone-300 px-2.5" /></label>
+                  <template v-if="ps.items.some((i) => i.shot === 'box')">
+                    <label class="space-y-1"><span class="block font-semibold text-stone-700" dir="auto">{{ t('souk.ss.packCount') }}</span>
+                      <input v-model.number="tx.packCount" type="number" min="2" max="24" class="w-full h-10 rounded-lg border border-stone-300 px-2.5" /></label>
+                    <label class="space-y-1"><span class="block font-semibold text-stone-700" dir="auto">{{ t('souk.ss.pieces') }}</span>
+                      <input v-model="tx.piecesFr" maxlength="24" class="w-full h-10 rounded-lg border border-stone-300 px-2.5" /></label>
+                    <label class="sm:col-span-2 space-y-1"><span class="block font-semibold text-stone-700" dir="auto">{{ t('souk.ss.boxSub') }}</span>
+                      <input v-model="tx.boxSubFr" maxlength="48" class="w-full h-10 rounded-lg border border-stone-300 px-2.5" /></label>
+                  </template>
+                  <label class="sm:col-span-2 flex items-center gap-2.5 min-h-[40px] cursor-pointer" dir="auto">
+                    <input v-model="tx.trust" type="checkbox" class="w-5 h-5 shrink-0" style="accent-color: rgb(var(--st))" />
+                    <span class="font-semibold text-stone-700">{{ t('souk.ss.trust') }}</span>
+                  </label>
+                  <div class="sm:col-span-2" dir="auto">
+                    <button class="lp-tap h-10 px-4 rounded-xl st-solid text-[13px] font-bold inline-flex items-center gap-1.5 disabled:opacity-40"
+                            :disabled="aiBusy || psWorking" @click="setRetext"><Icon name="pen-line" :size="14" />{{ t('souk.ss.redraw') }}</button>
+                  </div>
+                </div>
+              </details>
+
+              <!-- start / remake -->
+              <div v-if="ps.ready && !psWorking" class="flex flex-wrap items-center gap-3">
+                <button class="lp-tap h-11 px-4 rounded-xl text-[14px] font-bold inline-flex items-center gap-2 disabled:opacity-40"
+                        :class="ps.items.length ? 'bg-white ring-1 ring-inset ring-stone-300 text-stone-700' : 'st-solid'"
+                        :disabled="aiBusy || !d.photos.length" @click="setStart([])">
+                  <Icon :name="ps.items.length ? 'refresh-cw' : 'sparkles'" :size="16" />{{ ps.items.length ? t('souk.ss.remake') : t('souk.ss.make') }}
+                </button>
+                <button v-if="ps.brief" class="lp-tap h-11 px-3 rounded-xl text-[13px] font-semibold text-stone-700 hover:bg-stone-50 inline-flex items-center gap-1.5 disabled:opacity-40"
+                        :disabled="aiBusy" :title="t('souk.ss.newBriefHint')" @click="setStart([], true)"><Icon name="eye" :size="15" />{{ t('souk.ss.newBrief') }}</button>
+                <span class="text-[12px] text-stone-600">{{ t('souk.ss.cost').replace('{usd}', ps.usd.toFixed(2)).replace('{model}', ps.model) }}<template v-if="ps.spent"> · {{ t('souk.ss.spent').replace('{usd}', ps.spent.toFixed(2)) }}</template></span>
+              </div>
+              <p v-if="ps.items.length" class="text-[12px] text-stone-500 flex items-start gap-1.5"><Icon name="info" :size="12" class="mt-[2px] shrink-0" />{{ t('souk.ss.rule') }}</p>
+            </div>
+          </section>
+
           <!-- web pack: the AI's suggestions, each accepted by a person -->
           <section v-if="ai && d.canEdit" class="sk-sec st-studio">
             <div class="sk-sec-h">
@@ -123,7 +261,7 @@
               </div>
 
               <!-- working -->
-              <div v-if="working" class="flex items-center gap-2.5 rounded-xl st-soft px-3 py-2.5 text-[13px] font-semibold st-ink">
+              <div v-if="cutWorking" class="flex items-center gap-2.5 rounded-xl st-soft px-3 py-2.5 text-[13px] font-semibold st-ink">
                 <Icon name="refresh-cw" :size="15" class="animate-spin" />
                 {{ t('souk.st.working').replace('{n}', ai.todo.length) }}
               </div>
@@ -336,16 +474,16 @@
     <div v-if="big" class="fixed inset-0 z-50 bg-black/80 p-4 flex items-center justify-center" @click.self="big = null">
       <div class="bg-white rounded-2xl p-3 w-full max-w-[920px] space-y-2">
         <div class="flex items-center justify-between gap-2">
-          <span class="text-[14px] font-bold">{{ slotName(big.slot) }}</span>
+          <span class="text-[14px] font-bold">{{ big.label || slotName(big.slot) }}</span>
           <button class="w-9 h-9 rounded-lg hover:bg-stone-100 inline-flex items-center justify-center" :aria-label="t('souk.cancel')" @click="big = null"><Icon name="x" :size="18" /></button>
         </div>
         <div class="grid grid-cols-2 gap-2">
-          <figure class="space-y-1"><img :src="big.src" class="w-full aspect-square object-contain bg-stone-100 rounded-xl" alt="" /><figcaption class="text-[12px] text-center text-stone-600">{{ t('souk.st.before') }}</figcaption></figure>
+          <figure class="space-y-1"><img :src="big.src" class="w-full aspect-square object-contain bg-stone-100 rounded-xl" alt="" /><figcaption class="text-[12px] text-center text-stone-600">{{ big.kind === 'set' ? t('souk.ss.compareRef') : t('souk.st.before') }}</figcaption></figure>
           <figure class="space-y-1"><img :src="big.url" class="w-full aspect-square object-contain bg-white ring-1 ring-stone-200 rounded-xl" alt="" /><figcaption class="text-[12px] text-center text-stone-600">{{ t('souk.st.after') }}</figcaption></figure>
         </div>
         <div class="flex gap-2 justify-end">
-          <button class="h-10 px-3 rounded-xl text-rose-700 hover:bg-rose-50 text-[13px] font-semibold inline-flex items-center gap-1" :disabled="aiBusy" @click="aiReject(big.url); big = null"><Icon name="x" :size="14" />{{ t('souk.st.reject') }}</button>
-          <button class="h-10 px-4 rounded-xl bg-emerald-600 text-white text-[13px] font-bold inline-flex items-center gap-1" :disabled="aiBusy" @click="aiAccept([big.url]); big = null"><Icon name="check" :size="14" />{{ t('souk.st.accept') }}</button>
+          <button class="h-10 px-3 rounded-xl text-rose-700 hover:bg-rose-50 text-[13px] font-semibold inline-flex items-center gap-1" :disabled="aiBusy" @click="(big.kind === 'set' ? setReject : aiReject)(big.url); big = null"><Icon name="x" :size="14" />{{ t('souk.st.reject') }}</button>
+          <button class="h-10 px-4 rounded-xl bg-emerald-600 text-white text-[13px] font-bold inline-flex items-center gap-1" :disabled="aiBusy" @click="(big.kind === 'set' ? setAccept : aiAccept)([big.url]); big = null"><Icon name="check" :size="14" />{{ t('souk.st.accept') }}</button>
         </div>
       </div>
     </div>
@@ -382,7 +520,13 @@ const isManager = computed(() => auth.role?.value === "manager");
 const ai = computed(() => d.value?.ai || null);
 const aiBusy = ref(false);
 const big = ref(null);
-const working = computed(() => !!ai.value && ["queued", "running"].includes(ai.value.state) && ai.value.todo.length > 0);
+const cutWorking = computed(() => !!ai.value && ["queued", "running"].includes(ai.value.state) && ai.value.todo.length > 0);
+// the photo set (souk_set)
+const ps = computed(() => d.value?.aiSet || null);
+const psWorking = computed(() => !!ps.value && ["queued", "running"].includes(ps.value.state) && ps.value.todo.length > 0);
+const psTodo = computed(() => (ps.value?.todo || []).filter((id) => id !== "*" && !ps.value.items.some((i) => i.id === id)));
+const psOk = computed(() => (ps.value?.items || []).filter((i) => i.ok !== false));
+const working = computed(() => cutWorking.value || psWorking.value);
 const autoSrcs = computed(() => (d.value?.photos || []).filter((p) => (ai.value?.autoSlots || []).includes(p.slot)).map((p) => p.url));
 const hasAi = (url) => !!ai.value && (ai.value.items.some((i) => i.src === url) || ai.value.todo.includes(url));
 const slotName = (s) => (s ? t("souk.slot_" + s) : "");
@@ -393,7 +537,7 @@ function schedulePoll() {
   const name = d.value.name;
   pollTimer = setTimeout(async () => {
     try {
-      const det = await api("souk_ai.poll", { name });
+      const det = await api(psWorking.value ? "souk_set.poll" : "souk_ai.poll", { name });
       if (d.value?.name === name) setDetail(det);
     } catch (_) { /* the next tick tries again */ }
     schedulePoll();
@@ -419,6 +563,58 @@ async function aiAccept(urls) {
   if (!sameOrder()) await save(order.value);
   await aiCall("accept", { urls: JSON.stringify(urls) });
 }
+async function setCall(method, args) {
+  aiBusy.value = true;
+  try {
+    setDetail(await apiPost("souk_set." + method, { name: d.value.name, ...args }));
+    schedulePoll();
+    return true;
+  } catch (e) {
+    warn(t("souk.failed"), String(e.message || e));
+    return false;
+  } finally {
+    aiBusy.value = false;
+  }
+}
+const setStart = (ids, fresh = false) => setCall("start", { ids: JSON.stringify(ids), fresh: fresh ? 1 : 0 });
+const setReject = (url) => setCall("reject", { url });
+async function setAccept(urls) {
+  clearTimeout(nudgeTimer);
+  if (!sameOrder()) await save(order.value);
+  await setCall("accept", { urls: JSON.stringify(urls) });
+}
+const whyText = (w) => {
+  const v = t("souk.ss.why_" + w);
+  return v === "souk.ss.why_" + w ? t("souk.st.why_" + w) : v;
+};
+// The words on the photos: a local copy, filled when the panel opens.
+const tx = ref(null);
+function fillTexts() {
+  const b = ps.value?.brief;
+  tx.value = b ? {
+    headlineFr: b.headlineFr || "", benefits: (b.benefitsFr || []).join("\n"),
+    scaleValue: b.scaleValue || "", scaleLine1Fr: b.scaleLine1Fr || "", scaleLine2Fr: b.scaleLine2Fr || "",
+    piecesFr: b.piecesFr || "", packCount: Number(b.packCount || 0), boxSubFr: b.boxSubFr || "", trust: b.trust !== false,
+  } : null;
+}
+const onTextsToggle = (e) => { if (e.target.open) fillTexts(); };
+watch(() => d.value?.name, () => { tx.value = null; });
+async function setRetext() {
+  const x = tx.value;
+  if (!x) return;
+  const texts = { ...x, benefitsFr: x.benefits.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 5) };
+  delete texts.benefits;
+  if (await setCall("retext", { texts: JSON.stringify(texts) })) success(t("souk.ss.redrawn"));
+}
+// The floor photo a set shot is judged against: its colour's front.
+function refFor(it) {
+  const ph = d.value?.photos || [];
+  const main = d.value?.colors?.[0]?.code || "";
+  const col = it.color || main;
+  const pick = ph.find((p) => (p.color || "") === col && p.slot === "front") || ph.find((p) => p.slot === "front") || ph[0];
+  return pick ? pick.url : "";
+}
+const openSet = (it) => { big.value = { url: it.url, src: refFor(it), label: t("souk.ss.shot_" + it.shot), kind: "set" }; };
 
 // The finals as shown: a local copy, so a drag re-orders live and the server
 // hears ONE final_set when the drag ends (the arrows: one call after a short

@@ -121,7 +121,8 @@ DEFAULT_SETTINGS = {
     "warehouseLossAccount": "",
     # The studio's web pack (souk_ai.py): off until the manager enables it
     # and saves the provider key. monthlyCap = images per month, 0 = no cap.
-    "aiWebPack": {"enabled": False, "auto": True, "model": "bria/rmbg-3", "monthlyCap": 300},
+    "aiWebPack": {"enabled": False, "auto": True, "model": "bria/rmbg-3", "monthlyCap": 300,
+                  "set": False, "setModel": "openai/gpt-image-2.6/flare/edit"},
     "aiContent": {"enabled": False, "model": "claude-opus-5-5", "arabic": "msa", "monthlyCap": 300},
 }
 STUDIO_WH = "Studio - JM"
@@ -3578,7 +3579,17 @@ def _studio_detail(name):
         "canEdit": doc.stage == "studio",
         "deadline": _deadline(doc),
         "ai": _ai_block(doc),
+        "aiSet": _set_block(doc),
     }
+
+
+def _set_block(doc):
+    from logistics_portal.api import souk_set
+    try:
+        return souk_set.block(doc)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], f"souk._set_block {doc.name}")
+        return None
 
 
 def _ai_block(doc):

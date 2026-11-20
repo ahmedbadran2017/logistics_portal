@@ -46,7 +46,10 @@ MODELS = {
     "bria/rmbg-3": {"label": "Bria RMBG 3.0", "usd": 0.018},
     "fal-ai/birefnet/v2": {"label": "BiRefNet v2", "usd": 0.001},
 }
-DEFAULTS = {"enabled": False, "auto": True, "model": "bria/rmbg-3", "monthlyCap": 300}
+# set / setModel: make the whole selling set (souk_set.py) instead of the
+# cut-outs alone; the same key, switch and monthly cap.
+DEFAULTS = {"enabled": False, "auto": True, "model": "bria/rmbg-3", "monthlyCap": 300,
+            "set": False, "setModel": "openai/gpt-image-2.6/flare/edit"}
 AUTO_SLOTS = ("front", "back", "side")
 
 SEND_EDGE = 2048        # longest edge sent to the provider
@@ -68,6 +71,10 @@ def cfg(s=None):
         out.update({k: raw[k] for k in DEFAULTS if k in raw})
     if out["model"] not in MODELS:
         out["model"] = DEFAULTS["model"]
+    from logistics_portal.api.souk_set import MODELS as SET_MODELS
+    if out["setModel"] not in SET_MODELS:
+        out["setModel"] = DEFAULTS["setModel"]
+    out["set"] = bool(out["set"])
     return out
 
 
@@ -78,8 +85,13 @@ def clean_cfg(v):
     model = str(v.get("model") or DEFAULTS["model"])
     if model not in MODELS:
         frappe.throw("Unknown background-removal model.")
+    from logistics_portal.api.souk_set import MODELS as SET_MODELS
+    set_model = str(v.get("setModel") or DEFAULTS["setModel"])
+    if set_model not in SET_MODELS:
+        frappe.throw("Unknown image model.")
     return {"enabled": bool(v.get("enabled")), "auto": bool(v.get("auto", True)), "model": model,
-            "monthlyCap": S._as_int(v.get("monthlyCap"), "The monthly image cap", 0, 100000)}
+            "monthlyCap": S._as_int(v.get("monthlyCap"), "The monthly image cap", 0, 100000),
+            "set": bool(v.get("set")), "setModel": set_model}
 
 
 def api_key():
@@ -132,9 +144,13 @@ def _count(n=1):
 
 def settings_block():
     """What the settings screen shows about the pack."""
+    from logistics_portal.api import souk_set, souk_write
     c = cfg()
     return {"keySet": bool(api_key()), "used": usage(), "month": _month(),
             "models": [{"id": k, "label": v["label"], "usd": v["usd"]} for k, v in MODELS.items()],
+            "setModels": [{"id": k, "label": v["label"], "usd": v["usd"]} for k, v in souk_set.MODELS.items()],
+            "setUsed": souk_set.usage(), "setUsd": souk_set.estimate(5),
+            "claudeKey": bool(souk_write._key()) and souk_write._sdk_ok(),
             "slots": list(AUTO_SLOTS), "config": c}
 
 
@@ -200,6 +216,10 @@ def auto_start(name):
     try:
         if _why_not() or not cfg()["auto"]:
             return
+        if cfg()["set"]:
+            from logistics_portal.api import souk_set
+            if souk_set.auto_start(name):
+                return
         doc = frappe.get_doc(S.DT_PRODUCT, name)
         srcs = [p["url"] for p in (S._loads(doc.photos_json) or []) if p.get("slot") in AUTO_SLOTS]
         if srcs:
@@ -216,6 +236,8 @@ def clear(doc):
     st = _state(doc)
     finals = {f.get("url") for f in (S._loads(doc.get("finals_json")) or [])}
     S._drop_files(doc.name, [i["url"] for i in st["items"] if i.get("url") not in finals])
+    from logistics_portal.api import souk_set
+    souk_set.clear(doc, st)
     _save(doc, {"state": "", "items": [], "todo": []})
 
 

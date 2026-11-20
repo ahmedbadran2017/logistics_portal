@@ -2641,7 +2641,7 @@ export default {
     slot_side: "جانبية",
     slotHint_side: "تُظهر العمق والارتفاع",
     slot_detail: "التفاصيل",
-    slotHint_detail: "النقش والخامة عن قرب",
+    slotHint_detail: "النقش أو الخامة يملأ الصورة، واضحًا وفي ضوء النهار؛ يُنشر كما هو",
     slot_size: "ملصق المقاس",
     slotHint_size: "المقاس أو الأبعاد مكتوبة",
     slot_hand: "في اليد",

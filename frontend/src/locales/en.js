@@ -2646,7 +2646,7 @@ export default {
     slot_side: "Side",
     slotHint_side: "Shows depth and height",
     slot_detail: "Detail",
-    slotHint_detail: "Pattern and material up close",
+    slotHint_detail: "Pattern or texture fills the frame, sharp, in daylight — shown as is on the site",
     slot_size: "Size label",
     slotHint_size: "The size or the measurements written",
     slot_hand: "In the hand",
