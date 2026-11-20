@@ -2580,6 +2580,7 @@ export default {
     rk_frColors: "أسماء الألوان بالفرنسية",
     rk_priceOnShopify: "الأسعار على شوبيفاي = المحتوى",
     rk_arabicOnShopify: "النص العربي على شوبيفاي",
+    rk_shopifyPhotos: "معالجة الصور على شوبيفاي",
     qtyNudge: "إعادة إرسال الكمية",
     qtyNudged: "أُضيفت إلى قائمة الانتظار — يرسلها ee خلال ~5 دقائق، ثم أعد الفحص.",
     eyeChecks: "المراجعة البصرية",

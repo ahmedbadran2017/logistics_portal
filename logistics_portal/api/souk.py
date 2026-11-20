@@ -1422,7 +1422,7 @@ def _create_shopify_draft(doc):
                                           "name": "available", "quantity": 0}]
         vinputs.append(vi)
     inp = {"title": doc.title, "vendor": doc.brand, "productType": doc.product_type,
-           "status": "DRAFT", "tags": ["souk", f"souk-trip-{doc.trip}", doc.sku_base],
+           "status": "DRAFT", "tags": ["souk", doc.sku_base] + ([f"souk-trip-{doc.trip}"] if doc.trip else []),
            "productOptions": options, "variants": vinputs}
     data = shopify_graphql(_PRODUCT_SET, {"input": inp})
     res = (data.get("data") or {}).get("productSet") or {}
@@ -2819,11 +2819,20 @@ def _media_ids(pid):
     return [n["id"] for n in ((prod.get("media") or {}).get("nodes") or [])]
 
 
+def _public_url(path):
+    """The address Shopify fetches a file from. Behind the proxy get_url can
+    say http and carry the bench port (JY101: https://admin.justyol.com:8000/…
+    → every photo FAILED on Shopify); the site only answers https on 443."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    from frappe.utils import get_url
+    u = urlsplit(get_url(path))
+    return urlunsplit(("https", u.hostname or "", u.path, u.query, ""))
+
+
 def _push_finals(doc, finals, variants, colors):
     """Finals → the Draft's media, in order; each colour's first final → its
     variants' image. Returns the media ids we now own on the product."""
-    from frappe.utils import get_url
-
     from logistics_portal.api.catalog_hub.sync import shopify_graphql
     pid = f"gid://shopify/Product/{doc.shopify_product_id}"
     ours = set(_loads(doc.shopify_media) or [])
@@ -2839,9 +2848,7 @@ def _push_finals(doc, finals, variants, colors):
     fr = {c["code"]: c["fr"] for c in colors}
     media, first_of = [], {}
     for f in finals:
-        # Shopify fetches the file itself; behind the proxy get_url may say
-        # http, and the site only answers https.
-        src = re.sub(r"^http://", "https://", get_url(f["url"]))
+        src = _public_url(f["url"])
         alt = (doc.title or doc.name) + (f" - {fr.get(f['color'])}" if f.get("color") and fr.get(f["color"]) else "")
         media.append({"originalSource": src, "mediaContentType": "IMAGE", "alt": alt[:500]})
         if f.get("color"):
@@ -3308,7 +3315,7 @@ def _push_content(doc, c, variants):
     joined = set(_loads(doc.shopify_collections) or [])
     want = set(c["collections"])
     tags = []
-    for t in ["souk", f"souk-trip-{doc.trip}", doc.sku_base] + c["tags"]:
+    for t in ["souk", doc.sku_base] + ([f"souk-trip-{doc.trip}"] if doc.trip else []) + c["tags"]:
         if t and t not in tags:
             tags.append(t)
     prod = {"id": pid, "title": c["fr"]["title"], "descriptionHtml": _desc_html(c["fr"]["description"]),
@@ -3380,6 +3387,7 @@ query($id: ID!, $loc: ID!) {
   product(id: $id) {
     status vendor onlineStorePreviewUrl
     options { name optionValues { name } }
+    media(first: 100) { nodes { status } }
     variants(first: 100) { nodes { id sku price
       inventoryItem { inventoryLevel(locationId: $loc) { quantities(names: ["available"]) { name quantity } } } } }
   }
@@ -3490,6 +3498,11 @@ def _review_checks(doc, variants, c, costs):
     tot_n = sum(r["next"] for r in rows)
     checks.append({"key": "qty", "hard": True, "ok": not off,
                    "detail": "; ".join(off) if off else f"{tot_s} = {tot_n}"})
+    st = [n.get("status") for n in ((prod.get("media") or {}).get("nodes") or [])]
+    bad = st.count("FAILED")
+    waiting = len([x for x in st if x in ("UPLOADED", "PROCESSING")])
+    checks.append({"key": "shopifyPhotos", "hard": True, "ok": bool(st) and not bad and not waiting,
+                   "detail": (f"{bad} failed" if bad else f"{waiting} processing" if waiting else str(len(st)))})
     checks.append({"key": "vendor", "hard": True, "ok": (prod.get("vendor") or "") == (doc.brand or ""),
                    "detail": prod.get("vendor") or ""})
     if any(v.get("color") for v in variants):

@@ -2585,6 +2585,7 @@ export default {
     rk_frColors: "Colour names in French",
     rk_priceOnShopify: "Prices on Shopify = content",
     rk_arabicOnShopify: "Arabic on Shopify",
+    rk_shopifyPhotos: "Photos processed on Shopify",
     qtyNudge: "Push the quantity again",
     qtyNudged: "Queued — ee pushes it within ~5 minutes; check again then.",
     eyeChecks: "Eye checks",
