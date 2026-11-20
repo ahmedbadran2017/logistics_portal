@@ -294,6 +294,54 @@
         </div>
       </section>
 
+      <!-- ── content writer (souk_write) ─────────────────────────────── -->
+      <section v-if="boot.isManager && boot.write && form.aiContent" id="set-write" class="lp-card p-4 space-y-3 scroll-mt-3 st-content">
+        <SecHead icon="pen-line" :title="t('souk.wr.setTitle')" :hint="t('souk.wr.setSub')" />
+        <label class="flex items-center gap-3 min-h-[48px] px-3 rounded-xl ring-1 cursor-pointer"
+               :class="form.aiContent.enabled ? 'st-ring st-soft' : 'ring-stone-200 bg-white'">
+          <input type="checkbox" class="w-5 h-5 shrink-0" style="accent-color: rgb(var(--st))" v-model="form.aiContent.enabled" />
+          <span class="flex-1 text-[14px] font-semibold text-stone-900">{{ t('souk.wr.setEnabled') }}</span>
+        </label>
+        <template v-if="form.aiContent.enabled">
+          <div class="space-y-1.5">
+            <div class="text-[13px] font-semibold text-stone-700">{{ t('souk.wr.setModel') }}</div>
+            <div class="grid sm:grid-cols-2 gap-1.5">
+              <label v-for="m in boot.write.models" :key="m.id" class="flex items-center gap-3 min-h-[48px] px-3 rounded-xl ring-1 cursor-pointer"
+                     :class="form.aiContent.model === m.id ? 'st-ring st-soft' : 'ring-stone-200 bg-white'">
+                <input type="radio" name="ss-wr-model" class="w-4 h-4 shrink-0" style="accent-color: rgb(var(--st))" :value="m.id" v-model="form.aiContent.model" />
+                <span class="flex-1 min-w-0">
+                  <span class="block text-[14px] font-semibold text-stone-900"><bdi>{{ m.label }}</bdi></span>
+                  <span class="block text-[12px] text-stone-500">{{ t('souk.wr.setPrice').replace('{usd}', m.usd) }}</span>
+                </span>
+              </label>
+            </div>
+          </div>
+          <div class="space-y-1.5">
+            <div class="text-[13px] font-semibold text-stone-700">{{ t('souk.wr.setArabic') }}</div>
+            <div class="grid sm:grid-cols-2 gap-1.5">
+              <label v-for="a in ['msa', 'darija']" :key="a" class="flex items-center gap-3 min-h-[48px] px-3 rounded-xl ring-1 cursor-pointer"
+                     :class="form.aiContent.arabic === a ? 'st-ring st-soft' : 'ring-stone-200 bg-white'">
+                <input type="radio" name="ss-wr-ar" class="w-4 h-4 shrink-0" style="accent-color: rgb(var(--st))" :value="a" v-model="form.aiContent.arabic" />
+                <span class="flex-1 min-w-0">
+                  <span class="block text-[14px] font-semibold text-stone-900">{{ t('souk.wr.ar_' + a) }}</span>
+                  <span class="block text-[12px] text-stone-500" dir="rtl">{{ t('souk.wr.ar_' + a + 'Ex') }}</span>
+                </span>
+              </label>
+            </div>
+          </div>
+          <NumRow v-model="form.aiContent.monthlyCap" id="ss-wr-cap" :label="t('souk.wr.setCap')"
+                  :hint="t('souk.wr.setCapHint').replace('{n}', boot.write.used.pages).replace('{usd}', boot.write.used.usd)" unit="" :min="0" :max="100000"
+                  :bad="!!errs.days.wrCap" />
+        </template>
+        <div class="rounded-xl bg-stone-50 p-3 flex items-start gap-2 text-[12px] text-stone-600">
+          <span class="text-[12px] font-bold rounded-full px-2 py-0.5 inline-flex items-center gap-1 shrink-0"
+                :class="boot.write.keySet && boot.write.sdk ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'">
+            <Icon :name="boot.write.keySet && boot.write.sdk ? 'check' : 'alert-triangle'" :size="12" />{{ boot.write.keySet && boot.write.sdk ? t('souk.wr.keyOk') : t('souk.wr.keyMissing') }}
+          </span>
+          <span class="min-w-0">{{ t('souk.wr.setPrivacy') }}</span>
+        </div>
+      </section>
+
       <!-- ── accounts ───────────────────────────────────────────────── -->
       <section id="set-accounts" class="lp-card p-4 space-y-4 scroll-mt-3">
         <SecHead icon="wallet" :title="t('souk.set.acct.title')" :hint="t('souk.set.acct.hint')" />
@@ -405,9 +453,9 @@ const tt = (k, vars = {}) => {
 const inp = "w-full h-11 rounded-lg bg-white ring-1 ring-stone-300 px-3 text-[15px] text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[var(--accent-500)]";
 const bad = "!ring-rose-400 !ring-2";
 
-const JUMPS = ["sku", "cats", "colors", "days", "receiving", "publish", "ai", "accounts", "log"];
+const JUMPS = ["sku", "cats", "colors", "days", "receiving", "publish", "ai", "write", "accounts", "log"];
 const JUMP_ICON = { sku: "tag", cats: "layers", colors: "sparkles", days: "clock", receiving: "package-check",
-                    publish: "send", ai: "image", accounts: "wallet", log: "history" };
+                    publish: "send", ai: "image", write: "pen-line", accounts: "wallet", log: "history" };
 // Which section the reader is in (desk side list): the last one whose top
 // passed a third of the way down the viewport.
 const active = ref("sku");
@@ -431,7 +479,7 @@ const ACCTS = [
 const SECTION_KEYS = {
   sku: ["skuPrefix", "skuStart"], cats: ["categories"], colors: ["colors"],
   days: ["stageDays", "escalateDays", "launchDays"], receiving: ["studioSamples"],
-  publish: ["publishChannels"], ai: ["aiWebPack"], accounts: ACCOUNT_KEYS, log: [],
+  publish: ["publishChannels"], ai: ["aiWebPack"], write: ["aiContent"], accounts: ACCOUNT_KEYS, log: [],
 };
 
 // ── small pieces ────────────────────────────────────────────────────────
@@ -518,6 +566,7 @@ function toForm(s) {
   if (Array.isArray(out.colors)) out.colors = out.colors.map((c) => ({ code: c.code || "", fr: c.fr || "", ar: c.ar || "", _id: ++uid }));
   if (out.stageDays && typeof out.stageDays === "object") out.stageDays = { ...out.stageDays };
   if (out.aiWebPack && typeof out.aiWebPack === "object") out.aiWebPack = { ...out.aiWebPack };
+  if (out.aiContent && typeof out.aiContent === "object") out.aiContent = { ...out.aiContent };
   if ("publishChannels" in out && !Array.isArray(out.publishChannels)) out.publishChannels = [];
   for (const k of ACCOUNT_KEYS) if (k in out) out[k] = out[k] || "";
   return out;
@@ -551,6 +600,7 @@ function norm(k, v) {
   if (k === "colors") return (v || []).map(({ code, fr, ar }) => ({ code, fr, ar }));
   if (k === "publishChannels") return [...(v || [])].sort();
   if (k === "aiWebPack") return v && { enabled: !!v.enabled, auto: !!v.auto, model: v.model, monthlyCap: Number(v.monthlyCap) };
+  if (k === "aiContent") return v && { enabled: !!v.enabled, model: v.model, arabic: v.arabic, monthlyCap: Number(v.monthlyCap) };
   if (k === "stageDays") return Object.fromEntries(Object.keys(v || {}).sort().map((s) => [s, v[s]]));
   return v;
 }
@@ -716,6 +766,7 @@ const errs = computed(() => {
   range("launchDays", "launch", t("souk.set.days.launch"), form.launchDays, 1, 60);
   range("studioSamples", "samples", t("souk.set.receiving.samples"), form.studioSamples, 0, 10);
   if (form.aiWebPack) range("aiWebPack", "aiCap", t("souk.st.setCap"), form.aiWebPack.monthlyCap, 0, 100000);
+  if (form.aiContent) range("aiContent", "wrCap", t("souk.wr.setCap"), form.aiContent.monthlyCap, 0, 100000);
   return out;
 });
 // Only a problem in something being changed blocks the save.
@@ -734,7 +785,7 @@ function payload() {
       key: key.trim(), ar: ar.trim(), fr: fr.trim(), productType: productType.trim(), brand: brand.trim() }));
     else if (k === "colors") out[k] = v.map(({ code, fr, ar }) => ({ code, fr: fr.trim(), ar: ar.trim() }));
     else if (k === "skuStart" || k === "escalateDays" || k === "launchDays" || k === "studioSamples") out[k] = Number(v);
-    else if (k === "aiWebPack") out[k] = norm(k, v);
+    else if (k === "aiWebPack" || k === "aiContent") out[k] = norm(k, v);
     else if (k === "stageDays") out[k] = Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Number(b)]));
     else out[k] = v;
   }

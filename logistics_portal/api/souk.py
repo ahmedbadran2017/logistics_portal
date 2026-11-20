@@ -116,6 +116,7 @@ DEFAULT_SETTINGS = {
     # The studio's web pack (souk_ai.py): off until the manager enables it
     # and saves the provider key. monthlyCap = images per month, 0 = no cap.
     "aiWebPack": {"enabled": False, "auto": True, "model": "bria/rmbg-3", "monthlyCap": 300},
+    "aiContent": {"enabled": False, "model": "claude-opus-5-5", "arabic": "msa", "monthlyCap": 300},
 }
 STUDIO_WH = "Studio - JM"
 DEFECTIVE_WH = "Defective Items - JM"
@@ -540,6 +541,9 @@ def _clean_settings(s, cur):
     if "aiWebPack" in s:
         from logistics_portal.api import souk_ai
         out["aiWebPack"] = souk_ai.clean_cfg(s.get("aiWebPack"))
+    if "aiContent" in s:
+        from logistics_portal.api import souk_write
+        out["aiContent"] = souk_write.clean_cfg(s.get("aiContent"))
     return out
 
 
@@ -651,8 +655,18 @@ def settings_boot():
         "usage": _settings_usage(),
         "stages": list(STAGE_DAY_KEYS),
         "ai": _ai_settings(),
+        "write": _write_settings(),
     })
     return out
+
+
+def _write_settings():
+    from logistics_portal.api import souk_write
+    try:
+        return souk_write.settings_block()
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "souk._write_settings")
+        return None
 
 
 def _ai_settings():
@@ -3139,7 +3153,17 @@ def _content_detail(name, with_collections=True):
         "shopifyAdmin": _shopify_admin_url(doc.shopify_product_id),
         "productTypes": _product_types(c.get("productType")),
         "writer": _user_name(doc.content_by), "deadline": _deadline(doc), "age": _age_days(doc.stage_at),
+        "write": _write_block(doc.name) if doc.stage == "content" else None,
     }
+
+
+def _write_block(name):
+    from logistics_portal.api import souk_write
+    try:
+        return souk_write.block(name)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], f"souk._write_block {name}")
+        return None
 
 
 def _product_types(current=""):

@@ -48,7 +48,7 @@
           <Icon name="send" :size="15" :stroke-width="2.2" />{{ busy ? t('souk.sending') : t('souk.toReview') }}
         </button>
         <button class="btn btn-line" :disabled="drafting" :title="t('souk.pub.draftHint')" @click="draftForMe">
-          <Icon name="sparkles" :size="14" />{{ drafting ? t('souk.pub.drafting') : t('souk.pub.draftForMe') }}
+          <Icon name="list-checks" :size="14" />{{ drafting ? t('souk.pub.drafting') : t('souk.wr.template') }}
         </button>
         <button v-if="dirty || saveState === 'error'" class="hidden lg:inline-flex btn btn-line" :disabled="saving" @click="save({ quiet: false })">
           <Icon name="check" :size="14" />{{ t('souk.pub.saveNow') }}
@@ -129,6 +129,70 @@
             <div v-if="!d.canEdit" class="bg-stone-100 rounded-2xl px-3.5 py-3 text-[13px] text-stone-700 flex gap-2.5 items-start">
               <Icon name="info" :size="16" class="shrink-0 mt-0.5" />{{ t('souk.contentNotNow') }}
             </div>
+
+            <!-- AI writer (souk_write): one call reads the finals + facts; the
+                 result waits as a suggestion until the writer applies it -->
+            <section v-if="wr && d.canEdit" class="sk-sec" aria-live="polite">
+              <div class="sk-sec-h">
+                <span class="sk-ico sk-ico-solid"><Icon name="pen-line" :size="16" /></span>
+                <div class="min-w-0 flex-1 flex flex-col">
+                  <h2 class="sk-sec-t">{{ t('souk.wr.title') }}</h2>
+                  <span class="sk-sec-s">{{ t('souk.wr.sub') }}</span>
+                </div>
+              </div>
+              <div class="sk-sec-b flex flex-col gap-3">
+                <div v-if="wr.why" class="rounded-xl bg-stone-100 px-3 py-2.5 text-[13px] text-stone-700 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <Icon name="info" :size="15" class="shrink-0" />{{ t('souk.wr.why_' + wr.why) }}
+                  <router-link v-if="isManager" :to="{ name: 'SoukSettings', hash: '#set-write' }" class="font-semibold underline st-ink">{{ t('souk.wr.openSettings') }}</router-link>
+                </div>
+                <div v-else-if="!d.finals.length" class="rounded-xl bg-stone-100 px-3 py-2.5 text-[13px] text-stone-700 flex items-center gap-2">
+                  <Icon name="info" :size="15" class="shrink-0" />{{ t('souk.wr.noFinals') }}
+                </div>
+                <template v-else>
+                  <div v-if="writing" class="flex items-center gap-2.5 rounded-xl st-soft px-3 py-2.5 text-[13px] font-semibold st-ink">
+                    <Icon name="refresh-cw" :size="15" class="animate-spin" />{{ t('souk.wr.writing') }}
+                  </div>
+                  <div v-else-if="wr.state === 'error'" class="rounded-xl bg-rose-50 ring-1 ring-inset ring-rose-200 px-3 py-2.5 text-[13px] text-rose-800 flex gap-2 items-start">
+                    <Icon name="alert-triangle" :size="15" class="shrink-0 mt-0.5" /><span class="min-w-0 break-words">{{ t('souk.wr.failed').replace('{e}', wr.error) }}</span>
+                  </div>
+
+                  <!-- the suggestion: a short preview, apply, and what to check -->
+                  <div v-if="wr.result && !writing" class="rounded-xl ring-1 ring-inset ring-[rgb(var(--st)/.25)] bg-white overflow-hidden">
+                    <div class="px-3 py-2 st-soft flex flex-wrap items-center gap-2">
+                      <Icon name="check" :size="14" class="st-fg" />
+                      <span class="text-[13px] font-bold st-ink">{{ t('souk.wr.ready') }}</span>
+                      <span class="text-[12px] text-stone-500 tabular-nums" dir="ltr">{{ wr.at }}</span>
+                    </div>
+                    <div class="px-3 py-2.5 flex flex-col gap-1.5">
+                      <div class="text-[14px] font-semibold text-stone-900 break-words" dir="ltr" lang="fr">{{ wr.result.fr.title }}</div>
+                      <div class="text-[14px] font-semibold text-stone-900 break-words" dir="rtl" lang="ar">{{ wr.result.ar.title }}</div>
+                      <p class="text-[13px] text-stone-600 line-clamp-3 whitespace-pre-line" dir="ltr" lang="fr">{{ wr.result.fr.description }}</p>
+                    </div>
+                    <div v-if="wr.result.verify" class="px-3 py-2.5 border-t border-stone-100">
+                      <div class="text-[12px] font-bold text-amber-800 flex items-center gap-1.5 mb-1"><Icon name="list-checks" :size="14" />{{ t('souk.wr.verify') }}</div>
+                      <ul v-if="wr.result.verify.length" class="text-[13px] text-stone-700 list-disc ps-5 space-y-0.5" dir="rtl" lang="ar">
+                        <li v-for="(v, i) in wr.result.verify" :key="i">{{ v }}</li>
+                      </ul>
+                      <p v-else class="text-[13px] text-stone-500">{{ t('souk.wr.none') }}</p>
+                    </div>
+                    <div class="px-3 py-2.5 border-t border-stone-100 flex flex-wrap items-center gap-2">
+                      <button class="btn btn-st" @click="applyWr"><Icon name="check" :size="14" :stroke-width="2.2" />{{ t('souk.wr.apply') }}</button>
+                      <button v-if="undoWr" class="btn btn-line" @click="undoApply"><Icon name="undo-2" :size="14" />{{ t('souk.wr.undo') }}</button>
+                      <span class="text-[12px] text-stone-500 min-w-0 basis-full sm:basis-auto sm:flex-1">{{ t('souk.wr.replaces') }}</span>
+                    </div>
+                  </div>
+
+                  <div v-if="!writing" class="flex flex-wrap items-center gap-2">
+                    <input v-model="wrNote" type="text" maxlength="300" :placeholder="t('souk.wr.notePh')" dir="auto"
+                           class="flex-[1_1_240px] min-w-0 h-11 rounded-xl ring-1 ring-stone-300 bg-white px-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--st))]" />
+                    <button class="btn" :class="wr.result ? 'btn-line' : 'btn-st'" :disabled="wrBusy" @click="startWr">
+                      <Icon name="sparkles" :size="14" />{{ wr.result ? t('souk.wr.again') : t('souk.wr.write') }}
+                    </button>
+                  </div>
+                  <p v-if="!writing" class="text-[12px] text-stone-500">{{ t('souk.wr.cost').replace('{usd}', wr.usd).replace('{m}', wr.model) }}</p>
+                </template>
+              </div>
+            </section>
 
             <!-- French: the storefront's own language -->
             <section class="sk-sec">
@@ -402,6 +466,7 @@ import { api, apiPost } from "@/lib/resource";
 import { local } from "@/lib/clock";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
+import { useAuth } from "@/composables/useAuth";
 
 const { t, locale } = useI18n();
 const { success, warn } = useToast();
@@ -416,6 +481,8 @@ const addingCol = ref(false);
 const c = ref(blank());
 const tagsText = ref("");
 const d = computed(() => data.value?.detail || null);
+const auth = useAuth();
+const isManager = computed(() => auth.role?.value === "manager");
 
 function blank() {
   return { fr: { title: "", description: "" }, ar: { title: "", description: "" }, productType: "", collections: [],
@@ -658,6 +725,70 @@ async function draftForMe() {
   }
 }
 
+// --- AI writer (souk_write) --------------------------------------------------
+const wr = computed(() => d.value?.write || null);
+const writing = computed(() => !!wr.value && ["queued", "running"].includes(wr.value.state));
+const wrBusy = ref(false);
+const wrNote = ref("");
+const undoWr = ref(null);
+let wrTimer = null;
+function setWr(w) {
+  if (d.value) data.value = { ...data.value, detail: { ...d.value, write: w } };
+}
+function pollWr() {
+  clearTimeout(wrTimer);
+  if (!writing.value || !d.value) return;
+  const name = d.value.name;
+  wrTimer = setTimeout(async () => {
+    try {
+      const w = await api("souk_write.poll", { name });
+      if (d.value?.name !== name) return;
+      setWr(w);
+      if (w.state === "done") success(t("souk.wr.ready"));
+    } catch (e) {
+      /* a missed poll: try again on the next tick */
+    }
+    pollWr();
+  }, 4000);
+}
+async function startWr() {
+  wrBusy.value = true;
+  try {
+    setWr(await apiPost("souk_write.start", { name: d.value.name, note: wrNote.value.trim() }));
+    pollWr();
+  } catch (e) {
+    warn(t("souk.failed"), String(e.message || e));
+  } finally {
+    wrBusy.value = false;
+  }
+}
+function applyWr() {
+  const r = wr.value?.result;
+  if (!r) return;
+  undoWr.value = { c: JSON.parse(JSON.stringify(c.value)), tags: tagsText.value };
+  c.value.fr = { title: r.fr.title, description: r.fr.description };
+  c.value.ar = { title: r.ar.title, description: r.ar.description };
+  c.value.metaTitle = r.metaTitle;
+  c.value.metaDescription = r.metaDescription;
+  if (r.handle && !String(c.value.handle || "").trim()) c.value.handle = r.handle;
+  // The shop's own tags (souk, brand, colours) stay; the writer's are added.
+  const have = tagsText.value.split(",").map((x) => x.trim()).filter(Boolean);
+  for (const x of r.tags || []) if (!have.some((h) => h.toLowerCase() === x.toLowerCase())) have.push(x);
+  tagsText.value = have.join(", ");
+  success(t("souk.wr.applied"));
+}
+function undoApply() {
+  if (!undoWr.value) return;
+  c.value = undoWr.value.c;
+  tagsText.value = undoWr.value.tags;
+  undoWr.value = null;
+}
+watch(() => d.value?.name, () => {
+  undoWr.value = null;
+  wrNote.value = "";
+  pollWr();
+});
+
 async function send() {
   if (!(await save())) {
     warn(t("souk.failed"), saveError.value);
@@ -698,6 +829,7 @@ window.addEventListener("beforeunload", guard);
 onBeforeUnmount(() => {
   window.removeEventListener("beforeunload", guard);
   clearTimeout(timer);
+  clearTimeout(wrTimer);
 });
 watch(() => route.params.name, load);
 onMounted(load);

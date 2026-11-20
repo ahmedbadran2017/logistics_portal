@@ -9,7 +9,7 @@ export default {
       acctOnly: "You can change the accounts. The rest of the settings are the manager's.",
       loadFail: "Couldn't load the settings.",
       retry: "Retry",
-      jump: { sku: "SKU", cats: "Categories", colors: "Colours", days: "Deadlines", receiving: "Receiving", publish: "Publishing", ai: "Website photos", accounts: "Accounts", log: "Changes" },
+      jump: { sku: "SKU", cats: "Categories", colors: "Colours", days: "Deadlines", receiving: "Receiving", publish: "Publishing", ai: "Website photos", write: "Content writer", accounts: "Accounts", log: "Changes" },
       sku: {
         title: "SKU",
         hint: "Every new product takes the next number after the prefix. Its variants add the colour code and the size code.",
@@ -100,7 +100,7 @@ export default {
       keys: {
         skuPrefix: "SKU prefix", skuStart: "first SKU number", categories: "categories", colors: "colours",
         stageDays: "deadlines", escalateDays: "escalation", launchDays: "launch target",
-        studioSamples: "studio samples", publishChannels: "sales channels", aiWebPack: "website photos", custodyAccount: "custody account",
+        studioSamples: "studio samples", publishChannels: "sales channels", aiWebPack: "website photos", aiContent: "content writer", custodyAccount: "custody account",
         transportLossAccount: "transport breakage account", warehouseLossAccount: "warehouse breakage account",
       },
       bar: {
@@ -135,7 +135,7 @@ export default {
       acctOnly: "Vous pouvez modifier les comptes. Le reste des paramètres revient au manager.",
       loadFail: "Impossible de charger les paramètres.",
       retry: "Réessayer",
-      jump: { sku: "SKU", cats: "Catégories", colors: "Couleurs", days: "Délais", receiving: "Réception", publish: "Publication", ai: "Photos site", accounts: "Comptes", log: "Historique" },
+      jump: { sku: "SKU", cats: "Catégories", colors: "Couleurs", days: "Délais", receiving: "Réception", publish: "Publication", ai: "Photos site", write: "Rédaction", accounts: "Comptes", log: "Historique" },
       sku: {
         title: "SKU",
         hint: "Chaque nouveau produit prend le numéro suivant après le préfixe. Ses variantes ajoutent le code couleur et le code taille.",
@@ -226,7 +226,7 @@ export default {
       keys: {
         skuPrefix: "préfixe SKU", skuStart: "premier numéro SKU", categories: "catégories", colors: "couleurs",
         stageDays: "délais", escalateDays: "escalade", launchDays: "objectif de lancement",
-        studioSamples: "échantillons studio", publishChannels: "canaux de vente", aiWebPack: "photos site", custodyAccount: "compte de caisse",
+        studioSamples: "échantillons studio", publishChannels: "canaux de vente", aiWebPack: "photos site", aiContent: "rédaction IA", custodyAccount: "compte de caisse",
         transportLossAccount: "compte casse transport", warehouseLossAccount: "compte casse entrepôt",
       },
       bar: {
@@ -261,7 +261,7 @@ export default {
       acctOnly: "يمكنك تعديل الحسابات. أما باقي الإعدادات فمن صلاحيات المدير.",
       loadFail: "تعذّر تحميل الإعدادات.",
       retry: "إعادة المحاولة",
-      jump: { sku: "SKU", cats: "الفئات", colors: "الألوان", days: "المهل", receiving: "الاستلام", publish: "النشر", ai: "صور الموقع", accounts: "الحسابات", log: "التغييرات" },
+      jump: { sku: "SKU", cats: "الفئات", colors: "الألوان", days: "المهل", receiving: "الاستلام", publish: "النشر", ai: "صور الموقع", write: "كتابة المحتوى", accounts: "الحسابات", log: "التغييرات" },
       sku: {
         title: "SKU",
         hint: "يأخذ كل منتج جديد الرقم التالي بعد البادئة. وتضيف خياراته رمز اللون ورمز المقاس.",
@@ -352,7 +352,7 @@ export default {
       keys: {
         skuPrefix: "بادئة SKU", skuStart: "أول رقم SKU", categories: "الفئات", colors: "الألوان",
         stageDays: "المهل", escalateDays: "التصعيد", launchDays: "هدف الإطلاق",
-        studioSamples: "عينات الاستوديو", publishChannels: "قنوات البيع", aiWebPack: "صور الموقع", custodyAccount: "حساب العهدة",
+        studioSamples: "عينات الاستوديو", publishChannels: "قنوات البيع", aiWebPack: "صور الموقع", aiContent: "كتابة المحتوى", custodyAccount: "حساب العهدة",
         transportLossAccount: "حساب تلف النقل", warehouseLossAccount: "حساب تلف المستودع",
       },
       bar: {
