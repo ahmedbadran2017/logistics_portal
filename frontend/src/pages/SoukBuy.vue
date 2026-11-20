@@ -948,8 +948,9 @@ const why = computed(() => {
     const r = againLines.value.find((x) => !(Number(x.cost) > 0));
     if (r) return W("cost", { z: r.sku });
   } else {
-    if (f.title.trim().length < 3) return W("title");
+    // A known barcode first: the answer is "buy it again", not "fill the form".
     if (f.barcode && bcHits.value.length && !f.barcodeSure) return t("souk.scan.why");
+    if (f.title.trim().length < 3) return W("title");
     if (!f.category) return W("category");
     if (!stallOk.value) return W("stall");
     const bad = namedSizes.value.find((s) => !effCode(s));
