@@ -71,6 +71,14 @@
           <div class="text-[13px] text-emerald-800 font-mono" dir="ltr">{{ result.receipt }}<span v-if="result.debitNote"> · {{ result.debitNote }}</span></div>
           <div v-if="result.labels" class="text-[13px] text-emerald-800 inline-flex items-center gap-1.5"><Icon name="printer" :size="14" />{{ t('souk.labelsQueued').replace('{n}', result.labels) }}</div>
         </div>
+        <button v-if="printCount" type="button" class="w-full h-[52px] rounded-xl st-solid text-[15px] font-bold inline-flex items-center justify-center gap-2" @click="printHere">
+          <Icon name="printer" :size="18" :stroke-width="2" />{{ printed ? t('souk.recv.printAgain') : t('souk.recv.printNow').replace('{n}', printCount) }}
+        </button>
+        <div v-if="printErr" role="alert" class="bg-rose-50 ring-1 ring-inset ring-rose-200 rounded-xl p-3 text-[13px] font-semibold text-rose-800">{{ printErr }}</div>
+        <div v-if="result.station && result.station.idle" role="alert" class="bg-amber-50 ring-1 ring-inset ring-amber-200 rounded-2xl p-4 text-[13px] font-semibold text-amber-800 flex items-start gap-2.5">
+          <span class="sk-ico sk-ico-sm"><Icon name="alert-triangle" :size="14" /></span>
+          <span>{{ t('souk.recv.stationIdle').replace('{n}', result.station.pending).replace('{t}', result.station.oldestQueued) }}</span>
+        </div>
         <div v-if="result.owed" class="bg-amber-50 ring-1 ring-inset ring-amber-200 rounded-2xl p-4 text-[13px] font-semibold text-amber-800 flex items-start gap-2.5 st-bought">
           <span class="sk-ico sk-ico-sm"><Icon name="alert-triangle" :size="14" /></span>
           {{ t('souk.owedLine').replace('{n}', fmt(result.owed)).replace('{s}', b.stall) }}
@@ -219,12 +227,12 @@
           </div>
         </section>
 
-        <!-- weight: one piece of each size, required for good pieces -->
+        <!-- weight: one piece of each size — optional (Ahmed 2026-11-20) -->
         <section class="sk-sec st-bought">
           <div class="sk-sec-h">
             <span class="sk-ico"><Icon name="scale" :size="16" /></span>
             <h2 class="sk-sec-t m-0 flex-1">{{ t('souk.recv.weightTitle') }}</h2>
-            <span v-if="groups.some((g) => !g.allKnown)" class="shrink-0 text-[11px] font-bold text-rose-700 bg-rose-50 ring-1 ring-inset ring-rose-200 rounded-full px-2 py-0.5">{{ t('souk.recv.required') }}</span>
+            <span v-if="groups.some((g) => !g.allKnown)" class="shrink-0 text-[11px] font-bold text-stone-600 bg-stone-100 rounded-full px-2 py-0.5">{{ t('souk.recv.optional') }}</span>
             <span v-else class="shrink-0 text-emerald-600"><Icon name="check-circle" :size="17" /></span>
           </div>
           <div class="sk-sec-b !pt-3 flex flex-col gap-2.5">
@@ -237,13 +245,13 @@
                 <input :id="'w-' + g.key" v-model="weights[g.key]" type="number" inputmode="decimal" min="1" max="100000"
                        :placeholder="g.allKnown ? knownText(g) : ''"
                        class="w-full h-11 rounded-lg border ps-3 pe-8 text-[16px] tabular-nums bg-white outline-none focus:ring-2 focus:ring-[var(--accent-600)]/30 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                       :class="weightMissing(g) || weightBadOf(g) ? 'border-rose-300 bg-rose-50' : 'border-stone-300'" />
+                       :class="weightBadOf(g) ? 'border-rose-300 bg-rose-50' : 'border-stone-300'" />
                 <span class="absolute inset-y-0 end-3 flex items-center text-[14px] text-stone-500 pointer-events-none">g</span>
               </div>
               <span v-if="g.allKnown" class="text-[12px] text-emerald-700 truncate inline-flex items-center gap-1"><Icon name="check" :size="12" />{{ t('souk.recv.weightKnown') }}</span>
             </div>
           </div>
-          <span class="text-[12px] text-stone-600 leading-normal">{{ groups.some((g) => g.size && g.lines.length > 1) ? t('souk.recv.weightFoot') : t('souk.recv.weightFootOne') }}</span>
+          <span class="text-[12px] text-stone-600 leading-normal">{{ t('souk.recv.weightWhyOpt') }}</span>
           </div>
         </section>
 
@@ -295,12 +303,9 @@
           </div>
 
           <div class="flex flex-col gap-[5px]">
-            <label for="souk-shelf" class="text-[13px] font-semibold text-stone-700 inline-flex items-center gap-1.5"><Icon name="map-pin" :size="14" class="st-fg" />{{ t('souk.shelf') }}</label>
-            <select id="souk-shelf" v-model="target" class="w-full h-11 rounded-lg border px-2.5 text-[15px] bg-white outline-none focus:ring-2 focus:ring-[var(--accent-600)]/30"
-                    :class="needsShelf && !target ? 'border-amber-400' : 'border-stone-300'">
-              <option value="">—</option>
-              <option v-for="w in b.shelves" :key="w" :value="w">{{ shortWh(w) }}</option>
-            </select>
+            <span class="text-[13px] font-semibold text-stone-700 inline-flex items-center gap-1.5"><Icon name="map-pin" :size="14" class="st-fg" />{{ t('souk.shelf') }}</span>
+            <ShelfPicker v-model="target" :shelves="b.shelves" :suggest="b.suggest || []" :fill="b.shelfFill || {}"
+                         :zone="b.newZone || 'B'" :invalid="needsShelf && !target" />
             <span class="text-[12px] text-stone-600 leading-normal">{{ t('souk.shelfHint') }}</span>
           </div>
           <input v-model="note" :placeholder="t('souk.note')" class="w-full h-11 rounded-lg border border-stone-300 px-3 text-[16px] bg-white outline-none focus:ring-2 focus:ring-[var(--accent-600)]/30" />
@@ -316,7 +321,7 @@
             </div>
             <div class="min-w-0 flex-1 flex flex-col">
               <span class="text-[13px] font-semibold">{{ t('souk.recv.labelsTitle').replace('{n}', totalGood) }}</span>
-              <span class="text-[12px] text-stone-600">{{ t('souk.recv.labelsStation') }}</span>
+              <span class="text-[12px] text-stone-600">{{ labelsMode === 'here' ? t('souk.recv.labelsHereSub') : t('souk.recv.labelsStation') }}</span>
             </div>
             <input v-model="labels" type="checkbox" class="peer sr-only" />
             <span aria-hidden="true" class="w-[22px] h-[22px] shrink-0 rounded-md flex items-center justify-center peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--accent-600)]/40"
@@ -324,6 +329,12 @@
               <Icon v-if="labels" name="check" :size="13" :stroke-width="3" />
             </span>
           </label>
+          <div v-if="labels" role="radiogroup" class="grid grid-cols-2 gap-2 px-3.5 pb-3">
+            <button v-for="m in ['here', 'station']" :key="m" type="button" role="radio" :aria-checked="labelsMode === m"
+                    class="min-h-11 rounded-lg px-2 text-[13px] font-semibold ring-1 ring-inset"
+                    :class="labelsMode === m ? 'st-solid ring-transparent' : 'bg-white ring-stone-300 text-stone-700'"
+                    @click="labelsMode = m">{{ m === 'here' ? t('souk.recv.labelsHere') : t('souk.recv.labelsStationOpt') }}</button>
+          </div>
         </section>
       </template>
     </div>
@@ -356,6 +367,8 @@ import { useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
 import { uploadPhoto } from "@/lib/soukPhoto";
+import { LABEL_SIZES, printShelfLabels } from "@/lib/shelfLabelPrint.js";
+import ShelfPicker from "@/souk/ShelfPicker.vue";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
 
@@ -411,6 +424,27 @@ const studioManual = ref(null);
 const studioEdit = ref(false);
 const target = ref("");
 const labels = ref(true);
+// Labels print on this device (a printer on the receiving phone/PC) or wait
+// in the floor print station's queue. Remembered per device.
+const labelsMode = ref((() => { try { return localStorage.getItem("lp_souk_labels_mode") || "here"; } catch (_) { return "here"; } })());
+watch(labelsMode, (v) => { try { localStorage.setItem("lp_souk_labels_mode", v); } catch (_) { /* private mode */ } });
+const printed = ref(false);
+const printErr = ref("");
+const printCount = computed(() => (result.value?.printItems || []).reduce((s, x) => s + (Number(x.copies) || 0), 0));
+function printHere() {
+  const items = result.value?.printItems || [];
+  if (!items.length) return;
+  let sz = LABEL_SIZES[0];
+  try { sz = LABEL_SIZES.find((x) => x.key === localStorage.getItem("lp_print_size")) || sz; } catch (_) { /* default size */ }
+  const ok = printShelfLabels({
+    shelf: "",
+    items: items.map((x) => ({ sku: x.sku, barcode: x.barcode, name: x.name, qty: 1, copies: x.copies })),
+    copies: "sku",
+    size: sz,
+  });
+  printErr.value = ok ? "" : t("souk.recv.printBlocked");
+  if (ok) printed.value = true;
+}
 const note = ref("");
 const result = ref(null);
 const brokenFile = ref(null);
@@ -553,7 +587,6 @@ const groupOf = (l) => groups.value.find((g) => g.lines.includes(l));
 const gramsOk = (v) => v !== "" && v != null && Number(v) >= 1 && Number(v) <= 100000;
 const entered = (g) => weights[g.key] !== "" && weights[g.key] != null;
 const weightBadOf = (g) => entered(g) && !gramsOk(weights[g.key]);
-const weightMissing = (g) => !gramsOk(weights[g.key]) && g.lines.some((l) => good(l) > 0 && !l.grams);
 const knownText = (g) => [...new Set(g.lines.map((l) => l.grams))].join(" / ");
 const gramsFor = (l) => {
   const g = groupOf(l);
@@ -613,10 +646,6 @@ const blocker = computed(() => {
   const left = lines.value.filter((l) => !touched[l.itemCode]).length;
   if (left) return t("souk.recv.whyCount").replace("{n}", left);
   if (lines.value.some(over)) return t("souk.recv.whyOver");
-  const miss = groups.value.filter(weightMissing);
-  if (miss.length) {
-    return t("souk.recv.whyWeight").replace("{list}", miss.map((g) => (g.size || g.lines[0].sku)).join(", "));
-  }
   if (groups.value.some(weightBadOf)) return t("souk.recv.whyWeightBad");
   if (studioBad.value) return t("souk.recv.whyStudio");
   if (needsShelf.value && !target.value) return t("souk.recv.whyShelf");
@@ -659,6 +688,8 @@ function resetForm() {
   studioEdit.value = false;
   target.value = "";
   labels.value = true;
+  printed.value = false;
+  printErr.value = "";
   note.value = "";
   brokenFile.value = null;
   if (brokenPreview.value) URL.revokeObjectURL(brokenPreview.value);
@@ -778,7 +809,7 @@ async function post() {
   busy.value = true;
   try {
     const res = await apiPost("souk.receive", { po: b.value.po, payload: JSON.stringify({
-      target: target.value, labels: labels.value ? 1 : 0, note: note.value, nothingCame: nothingCame.value ? 1 : 0,
+      target: target.value, labels: labels.value ? 1 : 0, labelsMode: labelsMode.value, note: note.value, nothingCame: nothingCame.value ? 1 : 0,
       studio: { ...effStudio.value },
       lines: b.value.lines.map((l) => ({
         itemCode: l.itemCode, good: good(l), grams: gramsFor(l),

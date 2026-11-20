@@ -10,6 +10,7 @@
     "prebuild": "rm -f ../logistics_portal/public/lp-*.js"
   },
   "dependencies": {
+    "barcode-detector": "3.2.3",
     "feather-icons": "^4.29.2",
     "frappe-ui": "^0.1.73",
     "showdown": "^2.1.0",

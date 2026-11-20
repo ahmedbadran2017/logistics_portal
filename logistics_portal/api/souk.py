@@ -1182,19 +1182,50 @@ def _need(n):
 
 
 def _barcode_norm(v):
+    # Code128/39 may carry . / + _ — kept; never % or quotes (they reach LIKE).
     v = re.sub(r"\s+", "", str(v or ""))[:40]
-    return v if re.fullmatch(r"[A-Za-z0-9-]{4,40}", v) else ""
+    return v if re.fullmatch(r"[A-Za-z0-9./+_-]{4,40}", v) else ""
+
+
+def _upce_to_upca(c):
+    """UPC-E (8 digits, number system 0/1) → its 12-digit UPC-A."""
+    if len(c) != 8 or not c.isdigit() or c[0] not in "01":
+        return ""
+    ns, d, chk = c[0], c[1:7], c[7]
+    last = d[5]
+    if last in "012":
+        body = d[0:2] + last + "0000" + d[2:5]
+    elif last == "3":
+        body = d[0:3] + "00000" + d[3:5]
+    elif last == "4":
+        body = d[0:4] + "00000" + d[4]
+    else:
+        body = d[0:5] + "0000" + last
+    return ns + body + chk
 
 
 def _barcode_forms(code):
-    """EAN-13 and UPC-A are the same number with or without a leading 0."""
+    """One product, several spellings of its number: EAN-13 ⇄ UPC-A (leading
+    0), a carton's GTIN-14 (leading 0s), and a short UPC-E expanded."""
     out = [code]
     if code.isdigit():
-        if len(code) == 12:
-            out.append("0" + code)
-        elif len(code) == 13 and code.startswith("0"):
-            out.append(code[1:])
-    return tuple(out)
+        n = code
+        if len(n) == 14 and n.startswith("0"):
+            n = n[1:]
+            out.append(n)
+        if len(n) == 8:
+            a = _upce_to_upca(n)
+            if a:
+                out += [a, "0" + a]
+        if len(n) == 12:
+            out.append("0" + n)
+        elif len(n) == 13 and n.startswith("0"):
+            out.append(n[1:])
+    seen = []
+    for f in out:
+        if f not in seen:
+            seen.append(f)
+    return tuple(seen)
 
 
 def _barcode_hits(code):
@@ -2205,6 +2236,64 @@ def _shelves():
             ORDER BY w.name""", tuple(args))]
 
 
+# A new product's sales speed is unknown: it starts in the slotting plan's
+# B zone (H/J/F today) until its picks say otherwise (slotting.zone_roles).
+NEW_PRODUCT_CLASS = "B"
+
+
+def _shelf_fill(shelves):
+    """shelf -> distinct SKUs stocked on it (how crowded the face is)."""
+    if not shelves:
+        return {}
+    return {w: cint(n) for w, n in frappe.db.sql(
+        """SELECT warehouse, COUNT(DISTINCT item_code) FROM `tabBin`
+           WHERE actual_qty > 0 AND warehouse IN %s GROUP BY warehouse""", (tuple(shelves),))}
+
+
+def _shelf_suggest(item_codes, shelves, fill):
+    """Up to three shelves, each with its reason, best first:
+    1. where these very items already sit (a rebuy: never split one SKU),
+    2. where the product's other colours/sizes sit (one product, one face),
+    3. the emptiest bins of the new-product zone, one per aisle letter."""
+    ok, out, seen = set(shelves), [], set()
+
+    def add(w, why, n=0):
+        if w in ok and w not in seen and len(out) < 3:
+            seen.add(w)
+            out.append({"shelf": w, "why": why, "n": cint(n)})
+
+    codes = [c for c in item_codes if c]
+    if codes:
+        for w, q in frappe.db.sql(
+                """SELECT warehouse, SUM(actual_qty) FROM `tabBin` WHERE item_code IN %s AND actual_qty > 0
+                   GROUP BY warehouse ORDER BY SUM(actual_qty) DESC""", (tuple(codes),)):
+            add(w, "stock", q)
+        tpl = [t for t in frappe.get_all("Item", filters={"name": ["in", codes]}, pluck="variant_of") if t]
+        if tpl:
+            for w, q in frappe.db.sql(
+                    """SELECT b.warehouse, SUM(b.actual_qty) FROM `tabBin` b JOIN `tabItem` i ON i.name = b.item_code
+                       WHERE i.variant_of IN %s AND b.item_code NOT IN %s AND b.actual_qty > 0
+                       GROUP BY b.warehouse ORDER BY SUM(b.actual_qty) DESC""", (tuple(tpl), tuple(codes))):
+                add(w, "family", q)
+    if len(out) < 3:
+        try:
+            from logistics_portal.api.slotting import _SHELF_RE, zone_roles
+            letters = set(zone_roles().get(NEW_PRODUCT_CLASS) or ())
+        except Exception:
+            letters, _SHELF_RE = set(), None
+        cand = [w for w in shelves if w[:1] in letters and (_SHELF_RE is None or _SHELF_RE.match(w))]
+        cand.sort(key=lambda w: (fill.get(w, 0), w))
+        used = {o["shelf"][:1] for o in out}
+        for w in cand:
+            if len(out) >= 3:
+                break
+            if w[:1] in used:
+                continue
+            used.add(w[:1])
+            add(w, "empty" if not fill.get(w) else "light", fill.get(w, 0))
+    return out
+
+
 def _po_lines_for(po):
     return frappe.db.sql(
         """SELECT poi.name AS po_item, poi.item_code, poi.item_name, poi.qty, poi.received_qty,
@@ -2274,12 +2363,16 @@ def receive_boot(po):
                       "grams": round(kg * 1000) if kg else None, "color": colors.get(l.item_code, ""),
                       "size": sizes.get(l.item_code, "")})
     first_variant = lines[0]["itemCode"] if lines else ""
+    shelves = _shelves()
+    fill = _shelf_fill(shelves)
     return {
         "po": h.name, "stall": h.supplier, "trip": h.custom_souk_trip, "done": h.custom_souk_received or "",
         "closed": h.status in ("Closed", "Completed"),
         "product": prod.name if prod else "", "title": prod.title if prod else "",
         "image": prod.ref_image if prod else "", "isNew": bool(prod and prod.stage == "bought"),
-        "lines": lines, "shelves": _shelves(),
+        "lines": lines, "shelves": shelves, "shelfFill": fill,
+        "suggest": _shelf_suggest([x["itemCode"] for x in lines], shelves, fill),
+        "newZone": NEW_PRODUCT_CLASS,
         "studioSamples": cint(s.get("studioSamples")) if prod and prod.stage == "bought" else 0,
         "studioDefault": first_variant,
         # One sample of each colour (the studio shoots every colour), the
@@ -2325,12 +2418,11 @@ def receive(po, payload):
         counted[code] = c
     if not counted:
         frappe.throw("Count the pieces first.")
-    weighed = set(frappe.get_all("Item", filters={"name": ["in", list(counted)], "weight_per_unit": [">", 0]},
-                                 pluck="name"))
-    unweighed = [po_lines[c].sku or c for c, v in counted.items()
-                 if v["good"] and c not in weighed and not (1 <= v["grams"] <= 100000)]
-    if unweighed:
-        frappe.throw("Weigh one piece of each size first (grams): " + ", ".join(unweighed))
+    # Weight is optional (Ahmed 2026-11-20): only a typed weight must be sane.
+    bad_w = [po_lines[c].sku or c for c, v in counted.items()
+             if v["grams"] and not (1 <= v["grams"] <= 100000)]
+    if bad_w:
+        frappe.throw("A weight must be between 1 and 100000 grams: " + ", ".join(bad_w))
     nothing_came = not any(c["good"] + c["transport"] + c["warehouse"] + c["supplier"] for c in counted.values())
     if nothing_came and not cint(p.get("nothingCame")):
         frappe.throw("Nothing counted. If nothing arrived at all, confirm it as fully short.")
@@ -2373,8 +2465,10 @@ def receive(po, payload):
     notes = []
     if not rows:
         notes.append("Nothing of ours arrived: no receipt, the stall owes the whole purchase.")
+    want = cint(p.get("labels", 1))
+    mode = "here" if p.get("labelsMode") == "here" else "station"
     return _after_receive(h, po, pr, target, rows, outcome, owed, owed_lines, counted, studio, s, notes,
-                          cint(p.get("labels", 1)))
+                          want and mode == "station", print_here=want and mode == "here")
 
 
 def _post_receipt(h, po, target, rows, note):
@@ -2425,7 +2519,8 @@ def guard_souk_receipt(doc, method=None):
             "the photos.", title="Souk purchase")
 
 
-def _after_receive(h, po, pr, target, rows, outcome, owed, owed_lines, counted, studio, s, notes, want_labels):
+def _after_receive(h, po, pr, target, rows, outcome, owed, owed_lines, counted, studio, s, notes, want_labels,
+                   print_here=False):
     pr_name = pr.name if pr else "NONE"
     # Our breakage leaves the books into its own account — or waits for one.
     write_offs = []
@@ -2475,9 +2570,16 @@ def _after_receive(h, po, pr, target, rows, outcome, owed, owed_lines, counted, 
     }, update_modified=False)
 
     labels = 0
+    on_shelf = [(o["itemCode"], o["good"]) for o in outcome if o["good"]]
     if want_labels:
         from logistics_portal.api.labelprint import queue_items
-        labels = queue_items([(o["itemCode"], o["good"]) for o in outcome if o["good"]], LABEL_STATION)
+        labels = queue_items(on_shelf, LABEL_STATION)
+    # Printed on the receiving device itself: the same payloads the station
+    # would print, handed back for the browser to print now.
+    print_items = []
+    if print_here and on_shelf:
+        from logistics_portal.api.labelprint import label_items
+        print_items = label_items(on_shelf)
 
     good = sum(o["good"] for o in outcome)
     summary = (f"Souk: received {good} good on {target.replace(' - JM', '')}"
@@ -2509,7 +2611,16 @@ def _after_receive(h, po, pr, target, rows, outcome, owed, owed_lines, counted, 
     for k in ("lp_pick_avail", "lp_board_summary", "lp_consolidation"):
         frappe.cache().delete_value(k)
     return {"ok": True, "receipt": pr_name, "good": good, "owed": owed, "debitNote": debit_note,
-            "writeOffs": write_offs, "notes": notes, "labels": labels, "product": product or ""}
+            "writeOffs": write_offs, "notes": notes, "labels": labels, "product": product or "",
+            "printItems": print_items, "station": _station_state() if labels else None}
+
+
+def _station_state():
+    try:
+        from logistics_portal.api.labelprint import station_state
+        return station_state()
+    except Exception:
+        return None
 
 
 def _make_debit_note(pi_name, qty_by_item, po):

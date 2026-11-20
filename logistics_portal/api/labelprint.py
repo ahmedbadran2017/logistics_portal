@@ -117,6 +117,39 @@ def queue_items(rows, station=""):
     return made
 
 
+def label_items(rows):
+    """[(item_code, qty)] -> what a browser prints right now, by the same
+    barcode rules as the queue (souk receiving prints on its own device)."""
+    from logistics_portal.api.warehouses import _label_payloads
+    out = []
+    rows = [(c, int(q or 0)) for c, q in rows if c and int(q or 0) > 0]
+    if not rows:
+        return out
+    info = {r.name: r for r in frappe.get_all("Item", filters={"name": ["in", [c for c, _ in rows]]},
+                                              fields=["name", "custom_sku", "item_name"])}
+    pays = _label_payloads([(c, (info.get(c) or {}).get("custom_sku") or "") for c, _ in rows])
+    for code, q in rows:
+        it = info.get(code) or {}
+        sku = (it.get("custom_sku") or "").strip()
+        pay = pays.get(code) or {}
+        out.append({"itemCode": code, "sku": sku or code, "barcode": pay.get("barcode") or sku or code,
+                    "name": (it.get("item_name") or "")[:140], "copies": min(q, 500)})
+    return out
+
+
+def station_state():
+    """Is the floor print station pulling? The newest print and the queue
+    depth — a station not seen for a while means queued labels just wait."""
+    last = frappe.db.sql(f"SELECT MAX(printed_at) FROM `tab{DT}` WHERE status = 'printed'")[0][0]
+    pending = frappe.db.count(DT, {"status": "queued"})
+    oldest = frappe.db.sql(f"SELECT MIN(creation) FROM `tab{DT}` WHERE status = 'queued'")[0][0]
+    # The station polls every 3 s and prints at once: queued work older than
+    # 5 minutes means nobody has the station open.
+    idle = bool(oldest) and (now_datetime() - oldest).total_seconds() > 300
+    return {"lastPrinted": str(last)[:16] if last else "", "pending": pending, "idle": idle,
+            "oldestQueued": str(oldest)[:16] if oldest else ""}
+
+
 @frappe.whitelist(methods=["POST"])
 def pull(limit=10):
     """The print station's heartbeat: claim the oldest queued jobs and hand

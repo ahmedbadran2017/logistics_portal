@@ -1,9 +1,10 @@
 <template>
   <!-- Scan the barcode printed on the box (souk buy, 2026-11-20). The phone's
-       own BarcodeDetector (Chrome on Android) reads the camera; where it is
-       missing (iPhone Safari) or the camera is refused, the buyer types the
-       digits printed under the bars — always offered at the foot. Emits
-       `code` once and closes. -->
+       own BarcodeDetector when it has one; otherwise (iPhone, most Androids:
+       the native one is missing or knows no format) zxing-wasm, the same
+       engine, with its .wasm self-hosted at /assets/logistics_portal/. The
+       typed digits stay at the foot for a refused camera. Emits `code` once
+       and closes. -->
   <Teleport to="body">
     <div v-if="open" class="fixed inset-0 z-[80] bg-stone-950 flex flex-col text-white" role="dialog" aria-modal="true" :aria-label="t('souk.scan.title')">
       <div class="flex items-center gap-2 px-4 pt-[max(12px,env(safe-area-inset-top))] pb-3">
@@ -78,21 +79,44 @@ function typed() {
   if (c.length >= 6) done(c);
 }
 
+// The native detector only when it really reads our formats; else zxing.
+let zx = null;
+async function detectorClass() {
+  const BD = window.BarcodeDetector;
+  if (BD) {
+    try {
+      const have = await BD.getSupportedFormats();
+      if (WANT.some((f) => have.includes(f))) return { BD, have };
+    } catch (_) { /* fall through to zxing */ }
+  }
+  if (!zx) {
+    const m = await import("barcode-detector/ponyfill");
+    m.setZXingModuleOverrides({
+      locateFile: (path, prefix) => (path.endsWith(".wasm") ? "/assets/logistics_portal/zxing_reader.wasm" : prefix + path),
+    });
+    zx = m.BarcodeDetector;
+  }
+  return { BD: zx, have: WANT };
+}
+
 async function start() {
   digits.value = "";
   problem.value = "";
-  const BD = window.BarcodeDetector;
-  if (!BD || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     problem.value = "unsupported";
     await nextTick();
     inputEl.value && inputEl.value.focus();
     return;
   }
-  let formats = WANT;
+  let BD, formats;
   try {
-    const have = await BD.getSupportedFormats();
-    formats = WANT.filter((f) => have.includes(f));
-  } catch (_) { /* keep the list */ }
+    const d = await detectorClass();
+    BD = d.BD;
+    formats = WANT.filter((f) => d.have.includes(f));
+  } catch (_) {
+    problem.value = "unsupported";
+    return;
+  }
   if (!formats.length) { problem.value = "unsupported"; return; }
   try {
     stream = await navigator.mediaDevices.getUserMedia({
