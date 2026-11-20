@@ -53,6 +53,26 @@ THUMB_PX = 480
 MAX_PAGES = 4            # pages of 20 posts read back per channel per run
 RUN_BUDGET = 400         # new posts per run, all channels together
 REASONS = ("price", "quality", "have_it", "style", "saturated", "other")
+# What a pick is, read from its photo + caption by a small model (tag_pending).
+# Finer than the shop's six categories: the wholesalers post electronics,
+# garden, tools... `shop` = the shop category the decision form prefills.
+KINDS = {
+    "kitchen": "kitchen", "appliances": "kitchen", "decor": "home", "storage": "storage",
+    "cleaning": "home", "bathroom": "home", "garden": "home", "lighting": "home",
+    "tools": "home", "electronics": "", "beauty": "women", "women": "women", "men": "men",
+    "kids": "kids", "sport": "", "auto": "", "other": "",
+}
+NOISE = "noise"           # not a product: a banner, a price list, a shop ad — hidden
+TAG_MODEL = "claude-haiku-5-5"
+TAG_BATCH = 12
+TAG_RUN = 480             # picks tagged per run at most
+TAG_USAGE_KEY = "lp_souk_tag_usage"
+TAG_FIELDS = [
+    {"fieldname": "kind", "fieldtype": "Data", "label": "Kind (AI)", "search_index": 1},
+    {"fieldname": "ai_price", "fieldtype": "Currency", "label": "Price in the post (AI)"},
+    {"fieldname": "pack_n", "fieldtype": "Int", "label": "Pieces per carton (AI)"},
+    {"fieldname": "ai_at", "fieldtype": "Datetime", "label": "Read by AI at"},
+]
 STATUSES = ("new", "interested", "approved", "rejected", "bought")
 UA = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36")
@@ -112,6 +132,11 @@ def ensure():
             frappe.db.add_unique(DT_POST, ["channel", "post_id"], constraint_name="souk_post_channel_id")
         except Exception:
             frappe.log_error(frappe.get_traceback()[:1500], "souk_picks.ensure unique")
+    S._add_missing_fields(DT_PICK, TAG_FIELDS)
+
+
+def _tagged():
+    return S._has_col(DT_PICK, "kind")
 
 
 def _ready():
@@ -351,6 +376,19 @@ def scrape_now():
     return {"queued": True}
 
 
+@frappe.whitelist()
+def tag_now():
+    """Manager: sort the unread picks now instead of after the next read."""
+    if S._role() != "manager":
+        frappe.throw("Managers only.", frappe.PermissionError)
+    _need_ready()
+    if not (_tagged() and W_key()):
+        frappe.throw("Sorting is not available: it needs the migrate and the server's Anthropic key.")
+    frappe.enqueue("logistics_portal.api.souk_picks.tag_pending", queue="long", timeout=1800,
+                   job_id="souk_picks_tag", deduplicate=True)
+    return {"queued": True}
+
+
 def _sources_out():
     st = _state()
     week = add_days(now_datetime(), -7)
@@ -400,6 +438,7 @@ def scrape_all():
         if budget[0] <= 0:
             break
         _scrape_source(r, budget, hashes)
+    _enqueue_tag()
 
 
 def scrape_one(handle):
@@ -408,6 +447,7 @@ def scrape_one(handle):
     r = _source_by_handle(handle)
     if r and not r.disabled:
         _scrape_source(r, [RUN_BUDGET], _recent_hashes())
+        _enqueue_tag()
 
 
 def _scrape_source(src, budget, hashes):
@@ -731,7 +771,8 @@ def _card(r, srcs, me):
     who = _loads(r.interested_json, []) or []
     return {
         "name": str(r.name), "title": r.title or "", "photo": r.photo or "", "caption": (r.caption or "")[:400],
-        "priceSeen": price_seen(r.caption), "status": r.status, "firstSeen": str(r.first_seen or "")[:16], "lastSeen": str(r.last_seen or "")[:16],
+        "priceSeen": price_seen(r.caption) or flt(r.get("ai_price")) or None, "status": r.status,
+        "kind": r.get("kind") or "", "packN": cint(r.get("pack_n")), "shopCat": KINDS.get(r.get("kind") or "", ""), "firstSeen": str(r.first_seen or "")[:16], "lastSeen": str(r.last_seen or "")[:16],
         "posts": cint(r.posts_n), "sourcesN": cint(r.sources_n), "trendN": cint(r.trend_n),
         **_signals(r),
         "interested": [{"user": u, "name": S._user_name(u)} for u in who], "mine": me in who,
@@ -747,11 +788,18 @@ PICK_FIELDS = ["name", "title", "photo", "caption", "status", "first_seen", "las
                "max_price", "source", "category", "product", "interested_at"]
 
 
+def _fields():
+    """PICK_FIELDS plus what the classifier writes, once the migrate has added it."""
+    return PICK_FIELDS + (["kind", "ai_price", "pack_n"] if _tagged() else [])
+
+
 @frappe.whitelist()
-def picks_boot(tab="feed", q="", start=0, only=""):
+def picks_boot(tab="feed", q="", start=0, only="", kind=""):
     """tab: feed (new, last 14 days) · interest (waiting for the decision) ·
     list (approved: the shopping list) · done (bought / no, last 30 days).
-    only: trending | saturated | <source supplier name>."""
+    only: trending | saturated | <source supplier name>.
+    kind: one of KINDS, or "noise" for the banners the classifier set aside
+    (hidden everywhere else)."""
     S._gate_view()
     me = frappe.session.user
     base = {"canDecide": _can_decide(), "isManager": S._role() == "manager",
@@ -797,13 +845,30 @@ def picks_boot(tab="feed", q="", start=0, only=""):
     if q:
         cond.append("(title LIKE %(q)s OR caption LIKE %(q)s)")
         args["q"] = f"%{str(q).strip()[:60]}%"
+    kinds, pending = {}, 0
+    if _tagged():
+        # Counted before the kind filter, so every chip shows what it would give.
+        for r in frappe.db.sql(f"""SELECT IFNULL(kind, '') k, COUNT(*) n FROM `tab{DT_PICK}`
+                                   WHERE {" AND ".join(cond)} GROUP BY k""", args, as_dict=True):
+            if r.k:
+                kinds[r.k] = cint(r.n)
+            else:
+                pending = cint(r.n)
+        if kind == NOISE:
+            cond.append("kind = 'noise'")
+        else:
+            cond.append("IFNULL(kind, '') != 'noise'")
+            if kind in KINDS:
+                cond.append("kind = %(kind)s")
+                args["kind"] = kind
     rows = frappe.db.sql(
-        f"""SELECT {", ".join(PICK_FIELDS)} FROM `tab{DT_PICK}` WHERE {" AND ".join(cond)}
+        f"""SELECT {", ".join(_fields())} FROM `tab{DT_PICK}` WHERE {" AND ".join(cond)}
             ORDER BY {order} LIMIT {page + 1} OFFSET {start}""", args, as_dict=True)
     more = len(rows) > page
     rows = rows[:page]
     srcs = _sources_of([str(r.name) for r in rows])
-    out = dict(base, tab=tab, counts=counts, more=more, picks=[_card(r, srcs, me) for r in rows])
+    out = dict(base, tab=tab, counts=counts, more=more, picks=[_card(r, srcs, me) for r in rows],
+               kinds=kinds, untagged=pending, tagOn=bool(_tagged() and W_key()), kind=kind)
     if tab == "list":
         # Grouped by the stall to buy from: one visit, one call.
         groups = {}
@@ -830,7 +895,7 @@ def pick(name):
     """One pick and every post of it (who posted it, when, with what caption)."""
     S._gate_view()
     _need_ready()
-    r = frappe.db.get_value(DT_PICK, name, PICK_FIELDS, as_dict=True)
+    r = frappe.db.get_value(DT_PICK, name, _fields(), as_dict=True)
     if not r:
         frappe.throw("Unknown pick.")
     srcs = _sources_of([str(r.name)])
@@ -928,7 +993,7 @@ def pick_decide(name, verdict, reason="", note="", target_qty=0, max_price=0, so
 
 
 def _one(name):
-    r = frappe.db.get_value(DT_PICK, name, PICK_FIELDS, as_dict=True)
+    r = frappe.db.get_value(DT_PICK, name, _fields(), as_dict=True)
     return _card(r, _sources_of([str(name)]), frappe.session.user)
 
 
@@ -939,7 +1004,7 @@ def pick_for_buy(name):
     """SoukBuy opened from the shopping list: what to prefill."""
     S._gate_buy()
     _need_ready()
-    r = frappe.db.get_value(DT_PICK, name, PICK_FIELDS, as_dict=True)
+    r = frappe.db.get_value(DT_PICK, name, _fields(), as_dict=True)
     if not r or r.status != "approved":
         frappe.throw("This pick is not on the shopping list.")
     src = frappe.db.get_value("Supplier", r.source, ["name", "supplier_name", "mobile_no", "supplier_group"],
@@ -980,3 +1045,140 @@ def link_card(name, card):
     if not name or not _ready() or not frappe.db.exists(DT_PICK, name):
         return
     frappe.db.set_value(DT_PICK, name, {"status": "bought", "product": card})
+
+
+# --- what each pick is: read by a small model ----------------------------------------
+#
+# The captions are mostly a shop name, a WhatsApp link or "𝐏𝐫𝐢𝐱 :", so the
+# title the scrape guesses is useless and nothing can be filtered. After every
+# read, the new picks go to Claude Haiku in batches of TAG_BATCH photos with
+# their captions; it returns what each one is (KINDS, or NOISE for a banner),
+# a short French name, the price written in the post and the pieces per carton.
+# Cost: a few hundredths of a cent per pick. Off without the server's
+# Anthropic key (the content writer's).
+
+TAG_SCHEMA = {
+    "type": "object",
+    "properties": {"items": {"type": "array", "items": {
+        "type": "object",
+        "properties": {
+            "n": {"type": "integer"},
+            "kind": {"type": "string", "enum": list(KINDS) + [NOISE]},
+            "title": {"type": "string"},
+            "price": {"type": "number"},
+            "pack": {"type": "integer"},
+        },
+        "required": ["n", "kind", "title", "price", "pack"],
+        "additionalProperties": False,
+    }}},
+    "required": ["items"],
+    "additionalProperties": False,
+}
+
+TAG_SYSTEM = """You sort the products Moroccan wholesalers post on their Telegram channels, for a shop that buys from them. Each item is one post: its photo and its caption (often only a shop name, phone links or a price, in French, Arabic or Darija, sometimes in decorative Unicode letters like 𝐏𝐫𝐢𝐱).
+
+For every item return:
+- kind, one of:
+  kitchen (cookware, utensils, tableware, glasses, food containers), appliances (small electric home and kitchen appliances: kettle, blender, fryer, heater, iron, fan), decor (decoration, frames, rugs, cushions, curtains, bedding, towels), storage (organisers, boxes, racks, hangers, shelves), cleaning (mops, brushes, cleaning products, laundry), bathroom (bathroom accessories), garden (garden, outdoor, hose, plants, camping, terrace), lighting (lamps, bulbs, LED strips, solar lights), tools (DIY, hand and power tools, hardware), electronics (phones accessories, chargers, cables, earphones, speakers, watches, gadgets), beauty (cosmetics, hair and body care, beauty devices), women (women's clothing, bags, shoes, jewellery), men (men's clothing, shoes, accessories), kids (baby, children, toys, school), sport (sport, fitness, travel, luggage), auto (car accessories), other (a product that fits none of these), noise (NOT a single product: a shop banner or logo, a price list, a text-only image, a collage of many unrelated products, a delivery or payment notice).
+- title: the product's name in French, at most 60 characters, product type first, then the one or two facts a buyer needs that you can see or read (capacity, size, number of pieces). Like "Bouilloire électrique inox 5 L" or "Dévidoir tuyau d'arrosage 15 m". Never a shop name, never a brand name, never a price. "" for noise.
+- price: the price per piece in dirhams written in the caption or on the photo, as a number; 0 when there is none or it is unclear.
+- pack: the number of pieces per carton or per "colis" when the post states it (e.g. "Colis : 40 Pcs" → 40); 0 otherwise.
+Return exactly one entry per item, with its number n."""
+
+
+def _enqueue_tag():
+    if _tagged() and W_key():
+        frappe.enqueue("logistics_portal.api.souk_picks.tag_pending", queue="long", timeout=1800,
+                       job_id="souk_picks_tag", deduplicate=True, enqueue_after_commit=True)
+
+
+def W_key():
+    from logistics_portal.api import souk_write
+    return souk_write._key() if souk_write._sdk_ok() else ""
+
+
+def tag_usage():
+    try:
+        u = json.loads(frappe.db.get_default(TAG_USAGE_KEY) or "{}")
+    except ValueError:
+        u = {}
+    m = (u if isinstance(u, dict) else {}).get(str(now_datetime())[:7]) or {}
+    return {"items": cint(m.get("items")), "usd": round(flt(m.get("usd")), 3)}
+
+
+def _tag_count(items, usd):
+    try:
+        u = json.loads(frappe.db.get_default(TAG_USAGE_KEY) or "{}")
+    except ValueError:
+        u = {}
+    u = u if isinstance(u, dict) else {}
+    m = str(now_datetime())[:7]
+    cur = u.get(m) or {}
+    u = {k: v for k, v in u.items() if k >= str(int(m[:4]) - 1) + m[4:]}
+    u[m] = {"items": cint(cur.get("items")) + items, "usd": round(flt(cur.get("usd")) + usd, 4)}
+    frappe.db.set_default(TAG_USAGE_KEY, json.dumps(u))
+
+
+def tag_pending(limit=TAG_RUN):
+    """The picks no model has read yet, newest first."""
+    if not (_ready() and _tagged()):
+        return
+    key = W_key()
+    if not key:
+        return
+    import anthropic
+    client = anthropic.Anthropic(api_key=key, timeout=180, max_retries=2)
+    rows = frappe.db.sql(f"""SELECT name, photo, caption FROM `tab{DT_PICK}`
+                             WHERE ai_at IS NULL
+                             ORDER BY last_seen DESC LIMIT %s""", (cint(limit),), as_dict=True)
+    for i in range(0, len(rows), TAG_BATCH):
+        batch = rows[i:i + TAG_BATCH]
+        try:
+            _tag_batch(client, batch)
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+            frappe.log_error(frappe.get_traceback()[:3000], "souk_picks.tag_pending")
+            return          # the next run tries again
+
+
+def _tag_batch(client, batch):
+    from logistics_portal.api import souk_write
+    content, sent = [], {}
+    for k, r in enumerate(batch, 1):
+        try:
+            img = souk_write._img_block(r.photo) if r.photo else None
+        except Exception:
+            img = None                  # a broken thumbnail: the caption alone
+        cap = re.sub(r"https?://\S+", "", str(r.caption or ""))
+        cap = re.sub(r"\s+", " ", cap).strip()[:400]
+        content.append({"type": "text", "text": f"Item {k} — caption: {cap or '(none)'}" + ("" if img else " (no photo)")})
+        if img:
+            content.append(img)
+        sent[k] = r
+    if not sent:
+        return
+    resp = client.messages.create(
+        model=TAG_MODEL, max_tokens=6000, system=TAG_SYSTEM,
+        output_config={"effort": "low", "format": {"type": "json_schema", "schema": TAG_SCHEMA}},
+        messages=[{"role": "user", "content": content}],
+    )
+    u = resp.usage
+    usd = (u.input_tokens * 0.10 + u.output_tokens * 0.50) / 1e6
+    if resp.stop_reason in ("refusal", "max_tokens"):
+        raise Exception(f"tagging stopped: {resp.stop_reason}")
+    text = next((b.text for b in resp.content if b.type == "text"), "")
+    got = {cint(x.get("n")): x for x in (json.loads(text).get("items") or [])}
+    at = now_datetime()
+    for k, r in sent.items():
+        x = got.get(k)
+        if not x:
+            continue                    # read again next run
+        kind = x.get("kind") if x.get("kind") in KINDS or x.get("kind") == NOISE else "other"
+        upd = {"kind": kind, "ai_at": at, "ai_price": max(0.0, min(flt(x.get("price")), 1000000)),
+               "pack_n": max(0, min(cint(x.get("pack")), 100000))}
+        title = re.sub(r"\s+", " ", str(x.get("title") or "")).strip()[:80]
+        if title and kind != NOISE:
+            upd["title"] = title
+        frappe.db.set_value(DT_PICK, r.name, upd, update_modified=False)
+    _tag_count(len(sent), usd)

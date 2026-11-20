@@ -45,6 +45,21 @@
           <button type="button" class="cat" :aria-pressed="only === 'saturated'" @click="setOnly('saturated')">{{ t('souk.pk.saturated') }}</button>
           <button v-if="onlySource" type="button" class="cat" aria-pressed="true" @click="setOnly('')">{{ onlySource }} ✕</button>
         </div>
+        <!-- What each pick is (Claude Haiku reads the photo and caption after every read). -->
+        <div v-if="kindChips.length" class="flex gap-1.5 overflow-x-auto -mx-1 px-1" role="group" :aria-label="t('souk.pk.kindFilter')">
+          <button type="button" class="cat" :aria-pressed="!kind" @click="setKind('')">{{ t('souk.pk.allKinds') }}</button>
+          <button v-for="k in kindChips" :key="k.k" type="button" class="cat inline-flex items-center gap-1" :aria-pressed="kind === k.k" @click="setKind(k.k)">
+            {{ t('souk.pk.k_' + k.k) }}<span class="text-[11px] tabular-nums opacity-70">{{ k.n }}</span>
+          </button>
+          <button v-if="data?.kinds?.noise" type="button" class="cat inline-flex items-center gap-1 text-stone-500" :aria-pressed="kind === 'noise'" @click="setKind('noise')">
+            <Icon name="eye-off" :size="13" />{{ t('souk.pk.k_noise') }}<span class="text-[11px] tabular-nums opacity-70">{{ data.kinds.noise }}</span>
+          </button>
+        </div>
+        <p v-if="data?.untagged" class="text-[12px] text-stone-600 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>{{ tt(data.tagOn ? 'souk.pk.untagged' : 'souk.pk.untaggedOff', { n: data.untagged }) }}</span>
+          <button v-if="data.tagOn && data.isManager" type="button" class="font-bold st-ink underline underline-offset-2" :disabled="saving" @click="tagNow">{{ t('souk.pk.tagNow') }}</button>
+        </p>
+        <p v-if="kind === 'noise'" class="text-[12px] text-stone-600 leading-normal">{{ t('souk.pk.noiseHint') }}</p>
       </div>
       <p v-if="tab === 'interest'" class="text-[13px] text-stone-600 leading-normal">
         {{ data?.canDecide ? t('souk.pk.interestYou') : tt('souk.pk.interestWait', { who: deciderNames || '—' }) }}
@@ -65,9 +80,12 @@
             </span>
             <span v-if="p.status !== 'new' && p.status !== 'interested'" class="absolute bottom-1.5 start-1.5 badge" :class="statusCls(p.status)">{{ t('souk.pk.st_' + p.status) }}</span>
             <span v-if="p.priceSeen" class="absolute bottom-1.5 end-1.5 badge bg-white/95 text-stone-900 tabular-nums" dir="ltr">{{ fmt(p.priceSeen) }} MAD</span>
+            <span v-if="p.packN" class="absolute top-1.5 end-1.5 badge bg-white/95 text-stone-800 tabular-nums">{{ tt('souk.pk.packN', { n: p.packN }) }}</span>
           </button>
           <div class="p-2.5 flex flex-col gap-1 flex-1">
             <span class="text-[13px] font-semibold text-stone-900 leading-snug line-clamp-2" dir="auto">{{ p.title || '—' }}</span>
+            <button v-if="p.kind && p.kind !== 'noise' && tab === 'feed'" type="button" class="self-start text-[11px] font-semibold px-1.5 py-0.5 rounded-md bg-stone-100 text-stone-700 hover:bg-stone-200"
+                    :aria-label="tt('souk.pk.showKind', { k: t('souk.pk.k_' + p.kind) })" @click="setKind(p.kind)">{{ t('souk.pk.k_' + p.kind) }}</button>
             <span class="text-[11px] text-stone-500 truncate" dir="auto">
               {{ p.sources[0]?.label || '—' }}<template v-if="p.sources.length > 1"> +{{ p.sources.length - 1 }}</template> · {{ ago(p.lastSeen) }}
             </span>
@@ -355,6 +373,10 @@ const saving = ref(false);
 const q = ref("");
 const only = ref("");
 const onlySource = ref("");
+const kind = ref("");
+// Largest first; "noise" (banners, price lists) has its own chip at the end.
+const kindChips = computed(() => Object.entries(data.value?.kinds || {})
+  .filter(([k, n]) => k !== "noise" && n > 0).sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ k, n })));
 const d = ref(null);
 const dec = reactive({ qty: null, max: null, source: "", category: "", note: "", reason: "" });
 const nf = reactive({ link: "", name: "", phone: "" });
@@ -389,7 +411,7 @@ function ago(s) {
 async function load(start = 0) {
   loading.value = true;
   try {
-    const r = await api("souk_picks.picks_boot", { tab: tab.value, q: q.value, only: only.value, start });
+    const r = await api("souk_picks.picks_boot", { tab: tab.value, q: q.value, only: only.value, kind: kind.value, start });
     data.value = r;
     rows.value = start ? [...rows.value, ...r.picks] : r.picks;
     if (r.isManager && !decidersText.value) decidersText.value = r.deciders.map((x) => x.user).join(", ");
@@ -404,11 +426,16 @@ const more = () => load(rows.value.length);
 function go(x) {
   only.value = "";
   onlySource.value = "";
+  kind.value = "";
   router.replace({ query: { ...route.query, tab: x } });
 }
 function setOnly(v) {
   only.value = v;
   if (v === "" || v === "trending" || v === "saturated") onlySource.value = "";
+  reload();
+}
+function setKind(v) {
+  kind.value = kind.value === v ? "" : v;
   reload();
 }
 function showSource(s) {
@@ -454,13 +481,20 @@ function open(n) {
 function close() {
   router.push({ name: "SoukPicks", query: route.query });
 }
+// The classifier's kind → the shop category, when that category exists in Settings.
+function shopCat(p) {
+  const c = p?.shopCat || "";
+  const cats = data.value?.categories;
+  // The pick can arrive before the board: keep it, the server drops unknown keys.
+  return !cats || cats.some((x) => x.key === c) ? c : "";
+}
 async function loadOne(n) {
   d.value = null;
   if (!n) return;
   try {
     d.value = await api("souk_picks.pick", { name: n });
     Object.assign(dec, { qty: d.value.targetQty || null, max: d.value.maxPrice || d.value.priceSeen || null,
-                         source: d.value.source || d.value.sources[0]?.name || "", category: d.value.category || "",
+                         source: d.value.source || d.value.sources[0]?.name || "", category: d.value.category || shopCat(d.value),
                          note: "", reason: "" });
   } catch (e) {
     warn(t("souk.failed"), String(e.message || e));
@@ -509,6 +543,17 @@ async function scrapeNow() {
   try {
     await apiPost("souk_picks.scrape_now", {});
     success(t("souk.pk.readQueued"), "");
+  } catch (e) {
+    warn(t("souk.failed"), String(e.message || e));
+  } finally {
+    saving.value = false;
+  }
+}
+async function tagNow() {
+  saving.value = true;
+  try {
+    await apiPost("souk_picks.tag_now", {});
+    success(t("souk.pk.tagQueued"), "");
   } catch (e) {
     warn(t("souk.failed"), String(e.message || e));
   } finally {
