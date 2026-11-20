@@ -241,6 +241,59 @@
         </div>
       </section>
 
+      <!-- ── website photos (souk_ai) ───────────────────────────────── -->
+      <section v-if="boot.isManager && boot.ai && form.aiWebPack" id="set-ai" class="lp-card p-4 space-y-3 scroll-mt-3 st-studio">
+        <SecHead icon="sparkles" :title="t('souk.st.setTitle')" :hint="t('souk.st.setSub')" />
+        <label class="flex items-center gap-3 min-h-[48px] px-3 rounded-xl ring-1 cursor-pointer"
+               :class="form.aiWebPack.enabled ? 'st-ring st-soft' : 'ring-stone-200 bg-white'">
+          <input type="checkbox" class="w-5 h-5 shrink-0" style="accent-color: rgb(var(--st))" v-model="form.aiWebPack.enabled" />
+          <span class="flex-1 text-[14px] font-semibold text-stone-900">{{ t('souk.st.setEnabled') }}</span>
+        </label>
+        <template v-if="form.aiWebPack.enabled">
+          <label class="flex items-start gap-3 min-h-[48px] px-3 py-2.5 rounded-xl ring-1 ring-stone-200 bg-white cursor-pointer">
+            <input type="checkbox" class="w-5 h-5 shrink-0 mt-0.5" style="accent-color: rgb(var(--st))" v-model="form.aiWebPack.auto" />
+            <span class="flex-1 min-w-0">
+              <span class="block text-[14px] font-semibold text-stone-900">{{ t('souk.st.setAuto') }}</span>
+              <span class="block text-[12px] text-stone-500">{{ t('souk.st.setAutoHint') }}</span>
+            </span>
+          </label>
+          <div class="space-y-1.5">
+            <div class="text-[13px] font-semibold text-stone-700">{{ t('souk.st.setModel') }}</div>
+            <div class="grid sm:grid-cols-2 gap-1.5">
+              <label v-for="m in boot.ai.models" :key="m.id" class="flex items-center gap-3 min-h-[48px] px-3 rounded-xl ring-1 cursor-pointer"
+                     :class="form.aiWebPack.model === m.id ? 'st-ring st-soft' : 'ring-stone-200 bg-white'">
+                <input type="radio" name="ss-ai-model" class="w-4 h-4 shrink-0" style="accent-color: rgb(var(--st))" :value="m.id" v-model="form.aiWebPack.model" />
+                <span class="flex-1 min-w-0">
+                  <span class="block text-[14px] font-semibold text-stone-900"><bdi>{{ m.label }}</bdi></span>
+                  <span class="block text-[12px] text-stone-500">{{ t('souk.st.setPrice').replace('{usd}', m.usd) }}</span>
+                </span>
+              </label>
+            </div>
+          </div>
+          <NumRow v-model="form.aiWebPack.monthlyCap" id="ss-ai-cap" :label="t('souk.st.setCap')"
+                  :hint="t('souk.st.setCapHint').replace('{used}', boot.ai.used)" unit="" :min="0" :max="100000"
+                  :bad="!!errs.days.aiCap" />
+        </template>
+        <!-- the key: its own call, encrypted, never sent back -->
+        <div class="rounded-xl bg-stone-50 p-3 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[13px] font-semibold text-stone-700">{{ t('souk.st.setKey') }}</span>
+            <span class="text-[12px] font-bold rounded-full px-2 py-0.5 inline-flex items-center gap-1"
+                  :class="boot.ai.keySet ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'">
+              <Icon :name="boot.ai.keySet ? 'check' : 'alert-triangle'" :size="12" />{{ boot.ai.keySet ? t('souk.st.setKeySet') : t('souk.st.setKeyNone') }}
+            </span>
+          </div>
+          <div class="flex gap-2 flex-wrap">
+            <input id="ss-ai-key" v-model="aiKey" type="password" autocomplete="off" spellcheck="false" dir="ltr"
+                   :placeholder="t('souk.st.setKeyPh')" :aria-label="t('souk.st.setKey')"
+                   class="flex-1 min-w-[200px] h-11 rounded-xl ring-1 ring-stone-300 bg-white px-3 text-[14px] focus:outline-none focus:ring-2" />
+            <button type="button" class="h-11 px-4 rounded-xl st-solid text-[14px] font-bold disabled:opacity-40" :disabled="aiKeyBusy || aiKey.trim().length < 20" @click="saveAiKey(false)">{{ t('souk.st.setKeySave') }}</button>
+            <button v-if="boot.ai.keySet" type="button" class="h-11 px-3 rounded-xl ring-1 ring-inset ring-stone-300 bg-white text-[13px] font-semibold text-rose-700 disabled:opacity-40" :disabled="aiKeyBusy" @click="saveAiKey(true)">{{ t('souk.st.setKeyClear') }}</button>
+          </div>
+          <p class="text-[12px] text-stone-500 flex items-start gap-1.5"><Icon name="info" :size="13" class="mt-[2px] shrink-0" />{{ t('souk.st.setPrivacy') }}</p>
+        </div>
+      </section>
+
       <!-- ── accounts ───────────────────────────────────────────────── -->
       <section id="set-accounts" class="lp-card p-4 space-y-4 scroll-mt-3">
         <SecHead icon="wallet" :title="t('souk.set.acct.title')" :hint="t('souk.set.acct.hint')" />
@@ -352,9 +405,9 @@ const tt = (k, vars = {}) => {
 const inp = "w-full h-11 rounded-lg bg-white ring-1 ring-stone-300 px-3 text-[15px] text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[var(--accent-500)]";
 const bad = "!ring-rose-400 !ring-2";
 
-const JUMPS = ["sku", "cats", "colors", "days", "receiving", "publish", "accounts", "log"];
+const JUMPS = ["sku", "cats", "colors", "days", "receiving", "publish", "ai", "accounts", "log"];
 const JUMP_ICON = { sku: "tag", cats: "layers", colors: "sparkles", days: "clock", receiving: "package-check",
-                    publish: "send", accounts: "wallet", log: "history" };
+                    publish: "send", ai: "image", accounts: "wallet", log: "history" };
 // Which section the reader is in (desk side list): the last one whose top
 // passed a third of the way down the viewport.
 const active = ref("sku");
@@ -378,7 +431,7 @@ const ACCTS = [
 const SECTION_KEYS = {
   sku: ["skuPrefix", "skuStart"], cats: ["categories"], colors: ["colors"],
   days: ["stageDays", "escalateDays", "launchDays"], receiving: ["studioSamples"],
-  publish: ["publishChannels"], accounts: ACCOUNT_KEYS, log: [],
+  publish: ["publishChannels"], ai: ["aiWebPack"], accounts: ACCOUNT_KEYS, log: [],
 };
 
 // ── small pieces ────────────────────────────────────────────────────────
@@ -464,6 +517,7 @@ function toForm(s) {
   }
   if (Array.isArray(out.colors)) out.colors = out.colors.map((c) => ({ code: c.code || "", fr: c.fr || "", ar: c.ar || "", _id: ++uid }));
   if (out.stageDays && typeof out.stageDays === "object") out.stageDays = { ...out.stageDays };
+  if (out.aiWebPack && typeof out.aiWebPack === "object") out.aiWebPack = { ...out.aiWebPack };
   if ("publishChannels" in out && !Array.isArray(out.publishChannels)) out.publishChannels = [];
   for (const k of ACCOUNT_KEYS) if (k in out) out[k] = out[k] || "";
   return out;
@@ -496,6 +550,7 @@ function norm(k, v) {
   if (k === "categories") return (v || []).map(({ key, ar, fr, productType, brand }) => ({ key, ar, fr, productType, brand }));
   if (k === "colors") return (v || []).map(({ code, fr, ar }) => ({ code, fr, ar }));
   if (k === "publishChannels") return [...(v || [])].sort();
+  if (k === "aiWebPack") return v && { enabled: !!v.enabled, auto: !!v.auto, model: v.model, monthlyCap: Number(v.monthlyCap) };
   if (k === "stageDays") return Object.fromEntries(Object.keys(v || {}).sort().map((s) => [s, v[s]]));
   return v;
 }
@@ -660,6 +715,7 @@ const errs = computed(() => {
   range("escalateDays", "escalate", t("souk.set.days.escalate"), form.escalateDays, 1, 90);
   range("launchDays", "launch", t("souk.set.days.launch"), form.launchDays, 1, 60);
   range("studioSamples", "samples", t("souk.set.receiving.samples"), form.studioSamples, 0, 10);
+  if (form.aiWebPack) range("aiWebPack", "aiCap", t("souk.st.setCap"), form.aiWebPack.monthlyCap, 0, 100000);
   return out;
 });
 // Only a problem in something being changed blocks the save.
@@ -678,6 +734,7 @@ function payload() {
       key: key.trim(), ar: ar.trim(), fr: fr.trim(), productType: productType.trim(), brand: brand.trim() }));
     else if (k === "colors") out[k] = v.map(({ code, fr, ar }) => ({ code, fr: fr.trim(), ar: ar.trim() }));
     else if (k === "skuStart" || k === "escalateDays" || k === "launchDays" || k === "studioSamples") out[k] = Number(v);
+    else if (k === "aiWebPack") out[k] = norm(k, v);
     else if (k === "stageDays") out[k] = Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Number(b)]));
     else out[k] = v;
   }
@@ -699,6 +756,23 @@ async function save() {
   }
 }
 function discard() { reset(); }
+
+// The provider key: saved on its own (encrypted server-side), never shown.
+const aiKey = ref("");
+const aiKeyBusy = ref(false);
+async function saveAiKey(clear) {
+  aiKeyBusy.value = true;
+  try {
+    const r = await apiPost("souk_ai.save_key", clear ? { clear: 1 } : { key: aiKey.value.trim() });
+    aiKey.value = "";
+    if (boot.value?.ai) boot.value.ai.keySet = !!r.keySet;
+    toast.success(clear ? t("souk.st.setKeyCleared") : t("souk.st.setKeySaved"), "");
+  } catch (e) {
+    toast.warn(t("souk.failed"), e.message || String(e));
+  } finally {
+    aiKeyBusy.value = false;
+  }
+}
 
 // ── misc ────────────────────────────────────────────────────────────────
 function jump(j) {

@@ -14,11 +14,12 @@
        stall owes and the broken, then weight, studio + shelf, labels.
        Backend: souk.receive_queue / receive_boot / receive. -->
   <div class="pb-40 text-stone-900">
-    <header class="bg-white border-b border-stone-200">
+    <header class="st-bought bg-white/85 backdrop-blur border-b border-stone-200">
       <div class="max-w-[560px] mx-auto px-4 py-3.5 flex items-start justify-between gap-3">
-        <div class="min-w-0 flex flex-col gap-0.5">
-          <span class="text-[12px] font-semibold text-stone-500">{{ b && b.isNew ? t('souk.recv.kickerNew') : t('souk.recv.kicker') }}</span>
-          <h1 class="m-0 text-[16px] font-bold leading-snug truncate">{{ b ? (b.title || b.po) : t('souk.recvTitle') }}</h1>
+        <span class="sk-ico sk-ico-solid mt-0.5"><Icon name="package-check" :size="17" :stroke-width="2" /></span>
+        <div class="min-w-0 flex-1 flex flex-col gap-0.5">
+          <span class="text-[12px] font-bold st-ink">{{ b && b.isNew ? t('souk.recv.kickerNew') : t('souk.recv.kicker') }}</span>
+          <h1 class="m-0 text-[17px] font-extrabold leading-snug truncate">{{ b ? (b.title || b.po) : t('souk.recvTitle') }}</h1>
           <span v-if="b" class="text-[12px] text-stone-600 truncate">
             <span class="font-mono" dir="ltr">{{ b.po }} · {{ b.stall }}</span><template v-if="b.trip"> · {{ t('souk.tripNo').replace('{n}', b.trip) }}</template>
           </span>
@@ -35,39 +36,50 @@
 
       <!-- queue -->
       <template v-else-if="!po">
-        <div v-if="!queue.length" class="bg-white ring-1 ring-inset ring-stone-200 rounded-xl p-8 text-center text-[14px] text-stone-500">{{ t('souk.recvNone') }}</div>
-        <div v-else class="bg-white ring-1 ring-inset ring-stone-200 rounded-xl overflow-hidden">
+        <div v-if="!queue.length" class="sk-sec st-live p-8 flex flex-col items-center gap-3 text-center text-[14px] text-stone-500">
+          <span class="sk-ico sk-ico-lg"><Icon name="check-circle" :size="22" /></span>{{ t('souk.recvNone') }}
+        </div>
+        <div v-else class="sk-sec st-bought">
+          <div class="sk-sec-h">
+            <span class="sk-ico"><Icon name="truck" :size="16" /></span>
+            <h2 class="sk-sec-t flex-1">{{ t('souk.recv.waiting') }}</h2>
+            <span class="shrink-0 min-w-[26px] h-[26px] px-2 rounded-full st-solid text-[13px] font-bold tabular-nums inline-flex items-center justify-center">{{ queue.length }}</span>
+          </div>
           <router-link v-for="(r, i) in queue" :key="r.po" :to="{ name: 'SoukReceive', params: { po: r.po } }"
-                       class="flex items-center gap-3 px-3.5 py-3 min-h-[72px] hover:bg-stone-50"
+                       class="flex items-center gap-3 px-3.5 py-3 min-h-[72px] hover:bg-amber-50/40"
                        :class="i ? 'border-t border-stone-100' : ''">
-            <img v-if="r.image" :src="r.image" class="w-12 h-12 shrink-0 rounded-[10px] object-cover" alt="" />
-            <div v-else class="w-12 h-12 shrink-0 rounded-[10px] bg-stone-100" />
+            <img v-if="r.image" :src="r.image" class="w-12 h-12 shrink-0 rounded-xl object-cover ring-1 ring-stone-200" alt="" />
+            <div v-else class="w-12 h-12 shrink-0 rounded-xl st-tint st-fg flex items-center justify-center"><Icon name="package" :size="18" /></div>
             <div class="min-w-0 flex-1">
               <div class="text-[14px] font-semibold truncate">{{ r.title || r.po }}</div>
               <div class="text-[12px] text-stone-600 truncate">{{ r.stall }} · {{ r.units }} {{ t('souk.pcs') }} · <span class="tabular-nums">{{ r.date }}</span></div>
               <div class="font-mono text-[11px] text-stone-500 truncate self-start" dir="ltr" :class="isRTL ? 'text-right' : ''">{{ r.po }}</div>
             </div>
             <span v-if="r.draft" class="shrink-0 h-6 px-2 rounded-md bg-amber-50 text-amber-800 text-[12px] font-bold inline-flex items-center">{{ t('souk.recv.draftChip') }}</span>
-            <Icon :name="isRTL ? 'chevron-left' : 'chevron-right'" :size="16" class="shrink-0 text-stone-500" />
+            <span class="shrink-0 w-8 h-8 rounded-full st-tint st-ink flex items-center justify-center"><Icon :name="isRTL ? 'chevron-left' : 'chevron-right'" :size="16" /></span>
           </router-link>
         </div>
       </template>
 
       <!-- done -->
       <section v-else-if="result" class="flex flex-col gap-3">
-        <div class="bg-emerald-50 ring-1 ring-inset ring-emerald-200 rounded-xl p-4 flex flex-col gap-1">
-          <div class="text-[15px] font-bold text-emerald-800">{{ t('souk.recvDone').replace('{n}', result.good) }}</div>
-          <div class="text-[13px] text-emerald-800 font-mono self-start" dir="ltr">{{ result.receipt }}<span v-if="result.debitNote"> · {{ result.debitNote }}</span></div>
-          <div v-if="result.labels" class="text-[13px] text-emerald-800">{{ t('souk.labelsQueued').replace('{n}', result.labels) }}</div>
+        <div class="sk-hero st-live flex flex-col gap-1 items-center text-center !py-6">
+          <span class="w-16 h-16 mb-2 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center shadow-[0_8px_24px_-8px_rgba(5,150,105,.7)] ring-4 ring-emerald-100">
+            <Icon name="check" :size="30" :stroke-width="2.8" />
+          </span>
+          <div class="text-[17px] font-extrabold text-emerald-800">{{ t('souk.recvDone').replace('{n}', result.good) }}</div>
+          <div class="text-[13px] text-emerald-800 font-mono" dir="ltr">{{ result.receipt }}<span v-if="result.debitNote"> · {{ result.debitNote }}</span></div>
+          <div v-if="result.labels" class="text-[13px] text-emerald-800 inline-flex items-center gap-1.5"><Icon name="printer" :size="14" />{{ t('souk.labelsQueued').replace('{n}', result.labels) }}</div>
         </div>
-        <div v-if="result.owed" class="bg-amber-50 ring-1 ring-inset ring-amber-200 rounded-xl p-4 text-[13px] font-semibold text-amber-800">
+        <div v-if="result.owed" class="bg-amber-50 ring-1 ring-inset ring-amber-200 rounded-2xl p-4 text-[13px] font-semibold text-amber-800 flex items-start gap-2.5 st-bought">
+          <span class="sk-ico sk-ico-sm"><Icon name="alert-triangle" :size="14" /></span>
           {{ t('souk.owedLine').replace('{n}', fmt(result.owed)).replace('{s}', b.stall) }}
         </div>
         <div v-for="(n, i) in result.notes" :key="i" class="bg-white ring-1 ring-inset ring-stone-200 rounded-xl p-3 text-[13px] text-stone-600">{{ n }}</div>
         <div class="grid grid-cols-2 gap-2">
-          <router-link :to="{ name: 'SoukReceive' }" class="h-12 rounded-[10px] bg-white ring-1 ring-inset ring-stone-300 text-[14px] font-bold inline-flex items-center justify-center">{{ t('souk.recvNext') }}</router-link>
+          <router-link :to="{ name: 'SoukReceive' }" class="h-12 rounded-xl bg-white ring-1 ring-inset ring-stone-300 text-[14px] font-bold inline-flex items-center justify-center gap-1.5"><Icon name="truck" :size="15" />{{ t('souk.recvNext') }}</router-link>
           <router-link v-if="result.product" :to="{ name: 'SoukProduct', params: { name: result.product } }"
-                       class="h-12 rounded-[10px] bg-[var(--accent-600)] hover:bg-[var(--accent-700)] text-white text-[14px] font-bold inline-flex items-center justify-center">{{ t('souk.toProduct') }}</router-link>
+                       class="h-12 rounded-xl bg-[var(--accent-600)] hover:bg-[var(--accent-700)] text-white text-[14px] font-bold inline-flex items-center justify-center gap-1.5 shadow-[0_6px_16px_-6px_rgba(196,73,42,.7)]"><Icon name="eye" :size="15" />{{ t('souk.toProduct') }}</router-link>
         </div>
       </section>
 
@@ -83,25 +95,32 @@
         </div>
 
         <!-- the buyer's reference photo -->
-        <section class="flex gap-3 items-center bg-white ring-1 ring-inset ring-stone-200 rounded-xl p-3">
-          <button v-if="b.image" type="button" class="w-16 h-16 shrink-0 rounded-[10px] overflow-hidden" @click="refBig = true" :aria-label="t('souk.recv.refTitle')">
+        <section class="sk-sec st-bought flex gap-3 items-center p-3">
+          <button v-if="b.image" type="button" class="w-[72px] h-[72px] shrink-0 rounded-2xl overflow-hidden ring-2 ring-[rgb(var(--st)/.35)] ring-offset-2" @click="refBig = true" :aria-label="t('souk.recv.refTitle')">
             <img :src="b.image" class="w-full h-full object-cover" alt="" />
           </button>
-          <div v-else class="w-16 h-16 shrink-0 rounded-[10px] bg-[repeating-linear-gradient(45deg,#f5f5f4_0_7px,#e7e5e4_7px_8px)] flex items-center justify-center">
-            <Icon name="image" :size="20" class="text-stone-500" />
+          <div v-else class="w-[72px] h-[72px] shrink-0 rounded-2xl st-soft border-2 border-dashed border-[rgb(var(--st)/.3)] st-fg flex items-center justify-center">
+            <Icon name="image" :size="22" />
           </div>
           <div class="min-w-0 flex flex-col gap-0.5">
-            <span class="text-[13px] font-semibold">{{ t('souk.recv.refTitle') }}</span>
+            <span class="text-[14px] font-bold">{{ t('souk.recv.refTitle') }}</span>
             <span class="text-[12px] text-stone-600 leading-normal">{{ t('souk.recv.refHint') }}</span>
           </div>
         </section>
 
         <!-- quantity: good / broken per variant, short is the rest -->
-        <section class="bg-white ring-1 ring-inset ring-stone-200 rounded-xl flex flex-col">
-          <div class="grid grid-cols-[minmax(0,1fr)_132px_64px] gap-2 px-3.5 pt-3 pb-2 items-end">
-            <h2 class="m-0 text-[14px] font-bold">{{ t('souk.recv.qtyTitle') }}</h2>
-            <span class="text-[12px] font-semibold text-stone-600 text-center">{{ t('souk.good') }}</span>
-            <span class="text-[12px] font-semibold text-stone-600 text-center">{{ t('souk.brokenShort') }}</span>
+        <section class="sk-sec st-bought flex flex-col">
+          <div class="sk-sec-h">
+            <span class="sk-ico"><Icon name="boxes" :size="16" /></span>
+            <div class="min-w-0 flex flex-col">
+              <h2 class="sk-sec-t m-0">{{ t('souk.recv.qtyTitle') }}</h2>
+              <span class="sk-sec-s">{{ t('souk.recv.secQtySub') }}</span>
+            </div>
+          </div>
+          <div class="grid grid-cols-[minmax(0,1fr)_132px_64px] gap-2 px-3.5 pt-2.5 pb-1.5 items-end">
+            <span />
+            <span class="text-[12px] font-bold text-emerald-700 text-center inline-flex items-center justify-center gap-1"><Icon name="check-circle" :size="13" />{{ t('souk.good') }}</span>
+            <span class="text-[12px] font-bold text-rose-700 text-center inline-flex items-center justify-center gap-1"><Icon name="package-x" :size="13" />{{ t('souk.brokenShort') }}</span>
           </div>
 
           <div v-for="(l, i) in b.lines" :key="l.itemCode"
@@ -124,16 +143,16 @@
 
             <!-- not counted yet: the two one-tap answers -->
             <div v-if="!touched[l.itemCode] && !open[l.itemCode]" class="col-span-3 grid grid-cols-[1fr_auto] gap-2">
-              <button type="button" class="h-11 rounded-lg bg-emerald-50 ring-1 ring-inset ring-emerald-200 text-emerald-800 text-[13px] font-bold inline-flex items-center justify-center gap-1.5"
+              <button type="button" class="h-11 rounded-xl bg-gradient-to-b from-emerald-50 to-emerald-100/70 ring-1 ring-inset ring-emerald-200 text-emerald-800 text-[13px] font-bold inline-flex items-center justify-center gap-1.5"
                       @click="allArrived(l)">
                 <Icon name="check" :size="15" />{{ t('souk.recv.allArrived').replace('{n}', Math.max(0, pending(l) - brokenOf(l))) }}
               </button>
-              <button type="button" class="h-11 px-3 rounded-lg bg-white ring-1 ring-inset ring-stone-300 text-stone-600 text-[13px] font-semibold"
-                      @click="noneCame(l)">{{ t('souk.recv.noneCame') }}</button>
+              <button type="button" class="h-11 px-3 rounded-xl bg-white ring-1 ring-inset ring-stone-300 text-stone-600 text-[13px] font-semibold inline-flex items-center gap-1.5"
+                      @click="noneCame(l)"><Icon name="ban" :size="14" />{{ t('souk.recv.noneCame') }}</button>
             </div>
 
             <!-- opened from the broken box: where it broke, and the quick answers -->
-            <div v-if="open[l.itemCode]" class="col-span-3 rounded-lg bg-white ring-1 ring-inset ring-stone-200 p-2.5 flex flex-col gap-2.5 mb-1">
+            <div v-if="open[l.itemCode]" class="col-span-3 rounded-xl bg-white ring-1 ring-inset ring-rose-100 shadow-[0_4px_14px_-8px_rgba(225,29,72,.35)] p-2.5 flex flex-col gap-2.5 mb-1">
               <div class="grid grid-cols-[1fr_auto] gap-2">
                 <button type="button" class="h-11 rounded-lg ring-1 ring-inset text-[13px] font-bold inline-flex items-center justify-center gap-1.5"
                         :class="allIn(l) ? 'bg-emerald-700 text-white ring-emerald-700' : 'bg-emerald-50 text-emerald-800 ring-emerald-200'"
@@ -144,7 +163,7 @@
                         :class="touched[l.itemCode] && !arrived(l) ? 'bg-amber-50 text-amber-800 ring-amber-200' : 'bg-white text-stone-600 ring-stone-300'"
                         @click="noneCame(l)">{{ t('souk.recv.noneCame') }}</button>
               </div>
-              <div class="text-[12px] font-bold text-rose-700">{{ t('souk.recv.whereQ') }}</div>
+              <div class="text-[12px] font-bold text-rose-700 inline-flex items-center gap-1.5"><Icon name="alert-circle" :size="13" />{{ t('souk.recv.whereQ') }}</div>
               <div v-for="w in WHERE" :key="w" class="grid grid-cols-[minmax(0,1fr)_132px] gap-2 items-center">
                 <div class="min-w-0">
                   <div class="text-[13px] font-semibold text-stone-800 leading-snug">{{ t('souk.br_' + w) }}</div>
@@ -157,7 +176,7 @@
           </div>
 
           <!-- what the stall owes, the broken, their photo -->
-          <div v-if="footerOn" class="px-3.5 py-2.5 flex flex-col gap-2 bg-amber-50 rounded-b-xl border-t border-amber-200">
+          <div v-if="footerOn" class="px-3.5 py-3 flex flex-col gap-2 bg-gradient-to-b from-amber-50 to-amber-100/50 border-t border-amber-200">
             <div v-if="owed > 0" class="flex gap-2 items-start">
               <Icon name="alert-triangle" :size="15" :stroke-width="2" class="shrink-0 mt-0.5 text-amber-700" />
               <div class="min-w-0 flex flex-col gap-0.5 text-[12px] text-amber-800 leading-normal">
@@ -201,11 +220,14 @@
         </section>
 
         <!-- weight: one piece of each size, required for good pieces -->
-        <section class="bg-white ring-1 ring-inset ring-stone-200 rounded-xl px-3.5 py-3 flex flex-col gap-2.5">
-          <div class="flex items-baseline justify-between gap-2">
-            <h2 class="m-0 text-[14px] font-bold">{{ t('souk.recv.weightTitle') }}</h2>
-            <span v-if="groups.some((g) => !g.allKnown)" class="text-[12px] font-bold text-rose-700">{{ t('souk.recv.required') }}</span>
+        <section class="sk-sec st-bought">
+          <div class="sk-sec-h">
+            <span class="sk-ico"><Icon name="scale" :size="16" /></span>
+            <h2 class="sk-sec-t m-0 flex-1">{{ t('souk.recv.weightTitle') }}</h2>
+            <span v-if="groups.some((g) => !g.allKnown)" class="shrink-0 text-[11px] font-bold text-rose-700 bg-rose-50 ring-1 ring-inset ring-rose-200 rounded-full px-2 py-0.5">{{ t('souk.recv.required') }}</span>
+            <span v-else class="shrink-0 text-emerald-600"><Icon name="check-circle" :size="17" /></span>
           </div>
+          <div class="sk-sec-b !pt-3 flex flex-col gap-2.5">
           <div class="grid grid-cols-2 gap-2.5">
             <div v-for="g in groups" :key="g.key" class="min-w-0 flex flex-col gap-[5px]">
               <label :for="'w-' + g.key" class="text-[13px] font-semibold text-stone-700 truncate">
@@ -218,20 +240,26 @@
                        :class="weightMissing(g) || weightBadOf(g) ? 'border-rose-300 bg-rose-50' : 'border-stone-300'" />
                 <span class="absolute inset-y-0 end-3 flex items-center text-[14px] text-stone-500 pointer-events-none">g</span>
               </div>
-              <span v-if="g.allKnown" class="text-[12px] text-emerald-700 truncate">{{ t('souk.recv.weightKnown') }}</span>
+              <span v-if="g.allKnown" class="text-[12px] text-emerald-700 truncate inline-flex items-center gap-1"><Icon name="check" :size="12" />{{ t('souk.recv.weightKnown') }}</span>
             </div>
           </div>
           <span class="text-[12px] text-stone-600 leading-normal">{{ groups.some((g) => g.size && g.lines.length > 1) ? t('souk.recv.weightFoot') : t('souk.recv.weightFootOne') }}</span>
+          </div>
         </section>
 
         <!-- studio sample + shelf -->
-        <section class="bg-white ring-1 ring-inset ring-stone-200 rounded-xl px-3.5 py-3 flex flex-col gap-2.5">
-          <template v-if="b.studioSamples">
-            <h2 class="m-0 text-[14px] font-bold">{{ t('souk.recv.studioTitle') }}</h2>
+        <section class="sk-sec st-bought">
+          <div class="sk-sec-h">
+            <span class="sk-ico"><Icon name="warehouse" :size="16" /></span>
+            <h2 class="sk-sec-t m-0">{{ t('souk.recv.secPlace') }}</h2>
+          </div>
+          <div class="sk-sec-b flex flex-col gap-3">
+          <div v-if="b.studioSamples" class="st-studio rounded-xl st-soft ring-1 ring-inset ring-[rgb(var(--st)/.18)] p-3 flex flex-col gap-2">
+            <h3 class="m-0 text-[13px] font-bold st-ink inline-flex items-center gap-2"><span class="sk-ico sk-ico-sm"><Icon name="sparkles" :size="14" /></span>{{ t('souk.recv.studioTitle') }}</h3>
             <label class="flex gap-2.5 items-center min-h-[44px] cursor-pointer">
               <input v-model="studioOn" type="checkbox" class="peer sr-only" />
               <span aria-hidden="true" class="w-[22px] h-[22px] shrink-0 rounded-md flex items-center justify-center peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--accent-600)]/40"
-                    :class="studioOn ? 'bg-[var(--accent-600)] text-white' : 'bg-white ring-1 ring-inset ring-stone-300'">
+                    :class="studioOn ? 'st-solid' : 'bg-white ring-1 ring-inset ring-stone-300'">
                 <Icon v-if="studioOn" name="check" :size="13" :stroke-width="3" />
               </span>
               <span class="text-[13px] leading-normal">
@@ -243,11 +271,11 @@
               <div v-if="!totalGood" class="text-[12px] text-amber-800">{{ t('souk.recv.studioWaits') }}</div>
               <div v-else-if="!studioEdit" class="flex items-center justify-between gap-2">
                 <div class="flex flex-wrap gap-1.5 min-w-0">
-                  <span v-for="(n, code) in effStudio" :key="code" class="h-6 px-2 rounded-md bg-stone-100 text-[12px] font-mono inline-flex items-center" dir="ltr">{{ skuOf(code) }} ×{{ n }}</span>
+                  <span v-for="(n, code) in effStudio" :key="code" class="h-6 px-2 rounded-md bg-white st-ink ring-1 ring-inset ring-[rgb(var(--st)/.25)] text-[12px] font-mono inline-flex items-center" dir="ltr">{{ skuOf(code) }} ×{{ n }}</span>
                 </div>
-                <button type="button" class="shrink-0 h-11 px-3 rounded-lg ring-1 ring-inset ring-stone-300 text-[13px] font-semibold" @click="studioEdit = true">{{ t('souk.recv.studioChange') }}</button>
+                <button type="button" class="shrink-0 h-11 px-3 rounded-lg bg-white ring-1 ring-inset ring-stone-300 text-[13px] font-semibold" @click="studioEdit = true">{{ t('souk.recv.studioChange') }}</button>
               </div>
-              <div v-else class="rounded-lg bg-stone-50 ring-1 ring-inset ring-stone-200 p-2.5 flex flex-col gap-2">
+              <div v-else class="rounded-lg bg-white ring-1 ring-inset ring-stone-200 p-2.5 flex flex-col gap-2">
                 <div v-for="l in b.lines" :key="l.itemCode" class="grid grid-cols-[minmax(0,1fr)_132px] gap-2 items-center"
                      :class="good(l) || effStudio[l.itemCode] ? '' : 'opacity-50'">
                   <div class="min-w-0 flex flex-col">
@@ -260,14 +288,14 @@
                 <div class="flex items-center justify-between gap-2 pt-0.5">
                   <button v-if="studioManual" type="button" class="h-11 px-1 text-[13px] font-semibold text-stone-600 underline" @click="studioManual = null">{{ t('souk.recv.studioReset') }}</button>
                   <span v-else />
-                  <button type="button" class="h-11 px-4 rounded-lg bg-stone-900 text-white text-[13px] font-bold" @click="studioEdit = false">{{ t('souk.recv.studioDone') }}</button>
+                  <button type="button" class="h-11 px-4 rounded-lg st-solid text-[13px] font-bold" @click="studioEdit = false">{{ t('souk.recv.studioDone') }}</button>
                 </div>
               </div>
             </template>
-          </template>
+          </div>
 
           <div class="flex flex-col gap-[5px]">
-            <label for="souk-shelf" class="text-[13px] font-semibold text-stone-700">{{ t('souk.shelf') }}</label>
+            <label for="souk-shelf" class="text-[13px] font-semibold text-stone-700 inline-flex items-center gap-1.5"><Icon name="map-pin" :size="14" class="st-fg" />{{ t('souk.shelf') }}</label>
             <select id="souk-shelf" v-model="target" class="w-full h-11 rounded-lg border px-2.5 text-[15px] bg-white outline-none focus:ring-2 focus:ring-[var(--accent-600)]/30"
                     :class="needsShelf && !target ? 'border-amber-400' : 'border-stone-300'">
               <option value="">—</option>
@@ -276,11 +304,12 @@
             <span class="text-[12px] text-stone-600 leading-normal">{{ t('souk.shelfHint') }}</span>
           </div>
           <input v-model="note" :placeholder="t('souk.note')" class="w-full h-11 rounded-lg border border-stone-300 px-3 text-[16px] bg-white outline-none focus:ring-2 focus:ring-[var(--accent-600)]/30" />
+          </div>
         </section>
 
         <!-- labels -->
-        <section class="bg-white ring-1 ring-inset ring-stone-200 rounded-xl">
-          <label class="flex gap-3 items-center px-3.5 py-3 min-h-[44px] cursor-pointer">
+        <section class="sk-sec st-bought" :class="labels ? '!shadow-[inset_0_0_0_1.5px_rgb(var(--st)/.45)]' : ''">
+          <label class="flex gap-3 items-center px-3.5 py-3 min-h-[44px] cursor-pointer" :class="labels ? 'st-soft' : ''">
             <div aria-hidden="true" class="w-[74px] h-11 shrink-0 rounded-md ring-1 ring-inset ring-stone-300 bg-white flex flex-col items-center justify-center gap-0.5">
               <div class="w-[58px] h-[18px] bg-[repeating-linear-gradient(90deg,#1c1917_0_1px,#fff_1px_3px,#1c1917_3px_5px,#fff_5px_6px)]" />
               <span class="font-mono text-[6.5px] text-stone-900 max-w-[66px] truncate" dir="ltr">{{ b.lines[0] && b.lines[0].sku }}</span>
@@ -291,7 +320,7 @@
             </div>
             <input v-model="labels" type="checkbox" class="peer sr-only" />
             <span aria-hidden="true" class="w-[22px] h-[22px] shrink-0 rounded-md flex items-center justify-center peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--accent-600)]/40"
-                  :class="labels ? 'bg-[var(--accent-600)] text-white' : 'bg-white ring-1 ring-inset ring-stone-300'">
+                  :class="labels ? 'st-solid' : 'bg-white ring-1 ring-inset ring-stone-300'">
               <Icon v-if="labels" name="check" :size="13" :stroke-width="3" />
             </span>
           </label>
@@ -302,7 +331,7 @@
     <footer v-if="b && !b.done && !result && !loading && po" class="lp-footer bg-white px-4 pt-3 pb-4">
       <div class="max-w-[560px] mx-auto flex flex-col gap-2">
         <div v-if="blocker && blocker.trim() && !busy" class="text-[12px] font-semibold text-amber-800 text-center leading-snug">{{ blocker }}</div>
-        <button type="button" class="w-full h-[52px] rounded-[10px] bg-[var(--accent-600)] hover:bg-[var(--accent-700)] text-white text-[15px] font-bold inline-flex items-center justify-center gap-2 disabled:bg-stone-200 disabled:text-stone-600"
+        <button type="button" class="w-full h-[52px] rounded-xl bg-gradient-to-b from-[var(--accent-500)] to-[var(--accent-700)] text-white text-[15px] font-bold inline-flex items-center justify-center gap-2 shadow-[0_6px_16px_-6px_rgba(196,73,42,.7)] disabled:from-stone-200 disabled:to-stone-200 disabled:text-stone-600 disabled:shadow-none"
                 :disabled="busy || !!blocker" @click="post">
           <Icon v-if="!busy && !nothingCame && labels && totalGood" name="printer" :size="18" :stroke-width="2" />
           {{ busy ? t('souk.sending') : nothingCame ? t('souk.allShort')
@@ -446,7 +475,8 @@ const needsShelf = computed(() => lines.value.some((l) => {
 
 // --- the quantity table (artboard): one row per variant ---------------------
 const issue = (l) => touched[l.itemCode] && (shortOf(l) > 0 || brokenOf(l) > 0);
-const rowBg = (l) => (over(l) ? "bg-rose-50" : issue(l) ? "bg-amber-50" : "bg-white");
+// A counted row says how it went at a glance: all good = a green wash.
+const rowBg = (l) => (over(l) ? "bg-rose-50" : issue(l) ? "bg-amber-50" : allIn(l) ? "bg-emerald-50/60" : "bg-white");
 const noteTone = (l) => (over(l) ? "text-rose-700 font-semibold" : issue(l) ? "text-amber-700" : "text-stone-600");
 function noteOf(l) {
   if (over(l)) return t("souk.tooMany");

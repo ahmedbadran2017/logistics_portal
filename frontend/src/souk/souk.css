@@ -1,13 +1,131 @@
 /* ==========================================================================
-   SOUK — phone behaviour for the souk app (scoped to html[data-portal=souk]).
+   SOUK — look + phone behaviour for the souk app (scoped to html[data-portal=souk]).
 
-   LOOK = THE DESIGN (Souk Sourcing Screens canvas, 2026-11-17): the portal's
-   own tokens from index.css, unchanged: terracotta accent #c4492a / #a33a22,
-   stone neutrals (#f5f5f4 page, #e7e5e4 hairlines), Inter + Noto Sans Arabic,
-   JetBrains Mono for SKUs. Flat white cards with a 1px inset ring, radius 12,
-   no shadows, no glass. Do NOT re-skin here: a souk-only palette/fonts made
-   the app drift from the design (reverted 2026-11-19).
+   BRAND: the portal's own tokens from index.css — terracotta accent #c4492a /
+   #a33a22, stone neutrals, Inter for Latin + digits, JetBrains Mono for SKUs.
+   ARABIC = IBM Plex Sans Arabic (Ahmed, 2026-11-19: "خط عربي أحلى"): calmer
+   and clearer in the sun than Noto; loaded by templates/pages/souk.html.
+
+   RICHER LOOK (approved by Ahmed 2026-11-19, "same brand, much richer"):
+   every stage of the cycle owns one soft colour family, used the same way on
+   every screen — the board column, the stage pill, the section header of the
+   screen that does that stage's work, the next-step button:
+     buying  terracotta (brand)   bought/receive  amber    photos  sky
+     studio  violet               content         teal     review  indigo
+     live    emerald              dropped         stone
+   Rose stays reserved for late / errors, never a stage. Tints are alpha over
+   the surface, so the same classes work in dark mode.
+   Use:  <div class="st-photos sk-sec"> <div class="sk-sec-h"> <span class="sk-ico">…
    ========================================================================== */
+
+/* -- stage families: --st = the colour, --st-ink = text on a tint ---------- */
+.st-buying  { --st: 196 73 42;   --st-ink: 163 58 34;  }
+.st-bought  { --st: 217 119 6;   --st-ink: 146 64 14;  }
+.st-photos  { --st: 2 132 199;   --st-ink: 7 89 133;   }
+.st-studio  { --st: 124 58 237;  --st-ink: 91 33 182;  }
+.st-content { --st: 13 148 136;  --st-ink: 17 94 89;   }
+.st-review  { --st: 79 70 229;   --st-ink: 55 48 163;  }
+.st-live    { --st: 5 150 105;   --st-ink: 6 95 70;    }
+.st-dropped { --st: 120 113 108; --st-ink: 68 64 60;   }
+.st-late    { --st: 225 29 72;   --st-ink: 159 18 57;  }
+html[data-theme="dark"] .st-buying  { --st: 224 122 82;  --st-ink: 240 179 156; }
+html[data-theme="dark"] .st-bought  { --st: 245 158 11;  --st-ink: 252 211 77;  }
+html[data-theme="dark"] .st-photos  { --st: 56 189 248;  --st-ink: 125 211 252; }
+html[data-theme="dark"] .st-studio  { --st: 167 139 250; --st-ink: 196 181 253; }
+html[data-theme="dark"] .st-content { --st: 45 212 191;  --st-ink: 94 234 212;  }
+html[data-theme="dark"] .st-review  { --st: 129 140 248; --st-ink: 165 180 252; }
+html[data-theme="dark"] .st-live    { --st: 52 211 153;  --st-ink: 110 231 183; }
+html[data-theme="dark"] .st-dropped { --st: 168 162 158; --st-ink: 214 211 209; }
+html[data-theme="dark"] .st-late    { --st: 251 113 133; --st-ink: 253 164 175; }
+
+/* Bare helpers inside a stage family. */
+.st-ink   { color: rgb(var(--st-ink)); }
+.st-fg    { color: rgb(var(--st)); }
+.st-soft  { background: rgb(var(--st) / .06); }
+.st-tint  { background: rgb(var(--st) / .12); }
+.st-solid { background: rgb(var(--st)); color: #fff; }
+.st-ring  { box-shadow: inset 0 0 0 1px rgb(var(--st) / .25); }
+.st-dot   { width: 8px; height: 8px; border-radius: 9999px; background: rgb(var(--st)); flex-shrink: 0; }
+html[data-theme="dark"] .st-solid { color: rgb(28 25 23); }
+
+/* Icon chip: the stage's mark in a soft rounded square. */
+.sk-ico { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 32px; height: 32px; border-radius: 10px;
+  background: rgb(var(--st, 196 73 42) / .13); color: rgb(var(--st-ink, 163 58 34)); }
+.sk-ico-sm { width: 26px; height: 26px; border-radius: 8px; }
+.sk-ico.sk-ico-solid { background: rgb(var(--st)); color: #fff; box-shadow: 0 2px 6px -2px rgb(var(--st) / .7); }
+.sk-ico-lg { width: 44px; height: 44px; border-radius: 14px; }
+
+/* Section card: white card + a tinted header band in the stage colour. */
+.sk-sec { background: #fff; border-radius: 16px; overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgb(231 229 228), 0 1px 2px rgba(28, 25, 23, .04); }
+.sk-sec-h { display: flex; align-items: center; gap: 10px; padding: 11px 14px;
+  background: linear-gradient(90deg, rgb(var(--st, 196 73 42) / .10), rgb(var(--st, 196 73 42) / .02) 70%);
+  box-shadow: inset 0 -1px 0 rgb(var(--st, 196 73 42) / .14); }
+[dir="rtl"] .sk-sec-h { background: linear-gradient(270deg, rgb(var(--st, 196 73 42) / .10), rgb(var(--st, 196 73 42) / .02) 70%); }
+.sk-sec-t { font-size: 14px; font-weight: 700; color: rgb(28 25 23); line-height: 1.25; }
+.sk-sec-s { font-size: 12px; color: rgb(120 113 108); line-height: 1.3; }
+.sk-sec-b { padding: 14px; }
+html[data-theme="dark"] .sk-sec { background: rgb(41 37 36); box-shadow: inset 0 0 0 1px rgb(68 64 60); }
+html[data-theme="dark"] .sk-sec-t { color: rgb(245 245 244); }
+html[data-theme="dark"] .sk-sec-s { color: rgb(168 162 158); }
+
+/* Page hero: a soft gradient banner in the page's stage colour. */
+.sk-hero { position: relative; overflow: hidden; border-radius: 20px; padding: 18px;
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgb(var(--st, 196 73 42) / .16), transparent 60%),
+    linear-gradient(135deg, rgb(var(--st, 196 73 42) / .08), rgb(var(--st, 196 73 42) / .02));
+  box-shadow: inset 0 0 0 1px rgb(var(--st, 196 73 42) / .16); }
+[dir="rtl"] .sk-hero { background:
+    radial-gradient(120% 140% at 0% 0%, rgb(var(--st, 196 73 42) / .16), transparent 60%),
+    linear-gradient(225deg, rgb(var(--st, 196 73 42) / .08), rgb(var(--st, 196 73 42) / .02)); }
+@media (min-width: 640px) { .sk-hero { padding: 22px 24px; } }
+
+/* Choice tile (payment method, damage kind…): picked = stage tint + ring. */
+.sk-pick { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  min-height: 72px; padding: 10px 6px; border-radius: 14px; background: #fff; text-align: center;
+  font-size: 13px; font-weight: 600; color: rgb(68 64 60); box-shadow: inset 0 0 0 1px rgb(231 229 228);
+  transition: background-color .12s, box-shadow .12s, color .12s; }
+.sk-pick[aria-pressed="true"] { background: rgb(var(--st) / .10); color: rgb(var(--st-ink));
+  box-shadow: inset 0 0 0 2px rgb(var(--st)); }
+html[data-theme="dark"] .sk-pick { background: rgb(41 37 36); color: rgb(214 211 209); box-shadow: inset 0 0 0 1px rgb(68 64 60); }
+html[data-theme="dark"] .sk-pick[aria-pressed="true"] { background: rgb(var(--st) / .16); color: rgb(var(--st-ink)); box-shadow: inset 0 0 0 2px rgb(var(--st)); }
+
+/* Money with the buyer: a dark card with a warm terracotta glow. */
+.sk-wallet { background: radial-gradient(120% 160% at 100% 0%, rgb(196 73 42 / .55), transparent 55%),
+  linear-gradient(135deg, rgb(41 37 36), rgb(28 25 23)); box-shadow: 0 8px 24px -12px rgba(28, 25, 23, .6); }
+[dir="rtl"] .sk-wallet { background: radial-gradient(120% 160% at 0% 0%, rgb(196 73 42 / .55), transparent 55%),
+  linear-gradient(225deg, rgb(41 37 36), rgb(28 25 23)); }
+
+/* Page background: warm stone with a whisper of terracotta at the top. */
+html[data-portal="souk"] .souk-main { background:
+  linear-gradient(180deg, rgb(196 73 42 / .045), transparent 260px), rgb(250 249 247); }
+html[data-portal="souk"][data-theme="dark"] .souk-main { background:
+  linear-gradient(180deg, rgb(224 122 82 / .06), transparent 260px), rgb(var(--bg)); }
+
+/* -- type ------------------------------------------------------------------
+   Inter first in BOTH directions: it has no Arabic glyphs, so Arabic falls to
+   Plex while digits, MAD, SKUs and French stay Inter — one look for numbers
+   on every screen. Plex stops at 700: never fake a bolder Arabic. */
+html[data-portal="souk"] body, html[data-portal="souk"][dir="rtl"] body {
+  font-family: "Inter", "IBM Plex Sans Arabic", ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+}
+/* Arabic is cursive: letter-spacing breaks the joins, and it needs more air
+   between lines than Latin (tall ascenders, dots below). */
+html[data-portal="souk"][dir="rtl"] [class*="tracking-"] { letter-spacing: 0; }
+html[data-portal="souk"][dir="rtl"] body { line-height: 1.6; }
+html[data-portal="souk"][dir="rtl"] .leading-tight { line-height: 1.4; }
+html[data-portal="souk"][dir="rtl"] .leading-snug,
+html[data-portal="souk"][dir="rtl"] .leading-\[1\.35\] { line-height: 1.5; }
+html[data-portal="souk"][dir="rtl"] .leading-normal { line-height: 1.65; }
+/* Headings: one scale. Page title > section title > label > meta. */
+html[data-portal="souk"] h1 { text-wrap: balance; }
+html[data-portal="souk"] .sk-sec-t { letter-spacing: -0.005em; }
+html[data-portal="souk"][dir="rtl"] .sk-sec-t { font-size: 15px; }
+html[data-portal="souk"][dir="rtl"] .sk-sec-s { font-size: 12.5px; }
+/* Labels above fields read as labels, not as body text. */
+html[data-portal="souk"] label.text-\[13px\].font-semibold { color: rgb(68 64 60); }
 
 /* Money and counts line up in columns. */
 html[data-portal="souk"] input[type="number"] { font-variant-numeric: tabular-nums; }
@@ -23,8 +141,8 @@ html[data-portal="souk"] button { -webkit-user-select: none; user-select: none; 
 /* A pressed thing visibly gives under the thumb. */
 html[data-portal="souk"] button:not(:disabled):active { transform: scale(.98); transition: transform 60ms; }
 
-/* The design's card: white, 1px inset ring #e7e5e4, radius 12, flat. */
-html[data-portal="souk"] .lp-card { border-radius: 12px; box-shadow: inset 0 0 0 1px rgb(231 229 228); --tw-ring-shadow: 0 0 #0000; }
+/* Card: white, 1px inset ring, radius 14, a breath of lift. */
+html[data-portal="souk"] .lp-card { border-radius: 14px; box-shadow: inset 0 0 0 1px rgb(231 229 228), 0 1px 2px rgba(28, 25, 23, .04); --tw-ring-shadow: 0 0 #0000; }
 html[data-portal="souk"][data-theme="dark"] .lp-card { box-shadow: inset 0 0 0 1px rgb(68 64 60); }
 
 /* Header / tab bar / sticky bars: solid white + a hairline (design header:
@@ -69,7 +187,7 @@ html[data-portal="souk"][data-theme="dark"] .lp-footer { background: rgb(28 25 2
   html[data-portal="souk"] *::-webkit-scrollbar { display: none; }
 }
 
-/* Arabic reads smaller than Latin at the same px (Noto Sans Arabic's x-height
+/* Arabic reads smaller than Latin at the same px (Arabic glyphs' x-height
    and the dots): the small sizes step up one pixel in RTL so a buyer in the
    sun reads the meta lines without zooming (audit 2026-11-19). */
 html[data-portal="souk"][dir="rtl"] .text-\[11px\] { font-size: 12px; }

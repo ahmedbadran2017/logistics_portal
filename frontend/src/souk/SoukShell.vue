@@ -111,7 +111,7 @@
        </div>
       </header>
 
-      <main class="flex-1 overflow-y-auto overscroll-contain" :class="tabs.length ? 'pb-[76px] lg:pb-0' : ''">
+      <main class="souk-main flex-1 overflow-y-auto overscroll-contain" :class="tabs.length ? 'pb-[76px] lg:pb-0' : ''">
         <router-view v-slot="{ Component }">
           <transition name="souk-page" appear>
             <component :is="Component" :key="$route.name + JSON.stringify($route.params)" />

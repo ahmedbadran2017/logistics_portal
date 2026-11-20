@@ -70,10 +70,10 @@ DEFAULT_SETTINGS = {
     "skuStart": 100,
     "custodyAccount": "",          # empty = PO only, accountant books it
     "categories": [
-        {"key": "kitchen", "ar": "مطبخ", "fr": "Cuisine", "productType": "Cuisine", "brand": "JHome"},
-        {"key": "home", "ar": "ديكور وبيت", "fr": "Maison & Déco", "productType": "Maison", "brand": "JHome"},
-        {"key": "storage", "ar": "تخزين وتنظيم", "fr": "Rangement", "productType": "Rangement", "brand": "JHome"},
-        {"key": "women", "ar": "حريمي", "fr": "Femme", "productType": "Femme", "brand": "JWomen"},
+        {"key": "kitchen", "ar": "المطبخ", "fr": "Cuisine", "productType": "Cuisine", "brand": "JHome"},
+        {"key": "home", "ar": "الديكور والمنزل", "fr": "Maison & Déco", "productType": "Maison", "brand": "JHome"},
+        {"key": "storage", "ar": "التخزين والتنظيم", "fr": "Rangement", "productType": "Rangement", "brand": "JHome"},
+        {"key": "women", "ar": "نسائي", "fr": "Femme", "productType": "Femme", "brand": "JWomen"},
         {"key": "men", "ar": "رجالي", "fr": "Homme", "productType": "Homme", "brand": "JMen"},
         {"key": "kids", "ar": "أطفال", "fr": "Enfants", "productType": "Enfants", "brand": "JKids"},
     ],
@@ -93,10 +93,10 @@ DEFAULT_SETTINGS = {
         {"code": "ORG", "fr": "Orange", "ar": "برتقالي"},
         {"code": "PUR", "fr": "Violet", "ar": "بنفسجي"},
         {"code": "NAV", "fr": "Bleu marine", "ar": "كحلي"},
-        {"code": "GLD", "fr": "Doré", "ar": "دهبي"},
+        {"code": "GLD", "fr": "Doré", "ar": "ذهبي"},
         {"code": "SLV", "fr": "Argenté", "ar": "فضي"},
         {"code": "NAT", "fr": "Naturel", "ar": "طبيعي"},
-        {"code": "MLT", "fr": "Multicolore", "ar": "ملون"},
+        {"code": "MLT", "fr": "Multicolore", "ar": "متعدد الألوان"},
     ],
     # Days a card may sit in a stage before it is late (alerts repeat daily).
     "stageDays": {"bought": 2, "photos": 1, "studio": 3, "content": 2, "review": 1},
@@ -113,6 +113,9 @@ DEFAULT_SETTINGS = {
     # accountant names the account; nothing is guessed.
     "transportLossAccount": "",
     "warehouseLossAccount": "",
+    # The studio's web pack (souk_ai.py): off until the manager enables it
+    # and saves the provider key. monthlyCap = images per month, 0 = no cap.
+    "aiWebPack": {"enabled": False, "auto": True, "model": "bria/rmbg-3", "monthlyCap": 300},
 }
 STUDIO_WH = "Studio - JM"
 DEFECTIVE_WH = "Defective Items - JM"
@@ -244,6 +247,9 @@ PRODUCT_LATER_FIELDS = [
     # How the stall is paid, as the buyer chose it ({method, ref, due}) —
     # kept until finish_buy writes it on the PO.
     {"fieldname": "pay_json", "fieldtype": "Small Text", "label": "Payment (buyer's choice)"},
+    # The studio's web pack: its job state and the suggestions nobody has
+    # accepted yet (souk_ai.py).
+    {"fieldname": "ai_json", "fieldtype": "Long Text", "label": "Web pack (suggestions)"},
 ]
 
 
@@ -531,6 +537,9 @@ def _clean_settings(s, cur):
         out["studioSamples"] = _as_int(s.get("studioSamples"), "Studio samples", 0, 10)
     if "publishChannels" in s:
         out["publishChannels"] = _clean_channels(s.get("publishChannels"), cur.get("publishChannels"))
+    if "aiWebPack" in s:
+        from logistics_portal.api import souk_ai
+        out["aiWebPack"] = souk_ai.clean_cfg(s.get("aiWebPack"))
     return out
 
 
@@ -641,8 +650,18 @@ def settings_boot():
         "channels": channels, "channelsError": channels_error,
         "usage": _settings_usage(),
         "stages": list(STAGE_DAY_KEYS),
+        "ai": _ai_settings(),
     })
     return out
+
+
+def _ai_settings():
+    from logistics_portal.api import souk_ai
+    try:
+        return souk_ai.settings_block()
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "souk._ai_settings")
+        return None
 
 
 def _user_name(user):
@@ -2617,6 +2636,8 @@ def photos_send(name, specs=""):
     doc.add_comment("Comment", f"Souk: {len(photos)} in-house photos by {_user_name(frappe.session.user)}"
                                + (f" · {specs}" if specs else "") + " · to marketing.")
     frappe.db.commit()
+    from logistics_portal.api import souk_ai
+    souk_ai.auto_start(doc.name)
     return {"ok": True}
 
 
@@ -2672,7 +2693,17 @@ def _studio_detail(name):
         if len(colors) > 1 else [],
         "canEdit": doc.stage == "studio",
         "deadline": _deadline(doc),
+        "ai": _ai_block(doc),
     }
+
+
+def _ai_block(doc):
+    from logistics_portal.api import souk_ai
+    try:
+        return souk_ai.block(doc)
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], f"souk._ai_block {doc.name}")
+        return None
 
 
 @frappe.whitelist()
@@ -2750,6 +2781,8 @@ def studio_return(name, reason):
     doc = _lock_product(name)
     if doc.stage != "studio":
         frappe.throw("This product is not with marketing.")
+    from logistics_portal.api import souk_ai
+    souk_ai.clear(doc)
     _set_stage(doc, "photos")
     doc.add_comment("Comment", f"Souk: sent back to in-house photos by {_user_name(frappe.session.user)} · {reason[:280]}")
     frappe.db.commit()
@@ -2854,6 +2887,8 @@ def studio_send(name):
         frappe.db.set_value(DT_PRODUCT, name, "error", f"Shopify photos: {str(e)[:400]}", update_modified=False)
         frappe.db.commit()
         frappe.throw(f"Shopify did not take the photos: {str(e)[:300]}")
+    from logistics_portal.api import souk_ai
+    souk_ai.clear(doc)
     _set_stage(doc, "content", shopify_media=json.dumps(mine), error="")
     doc.add_comment("Comment", f"Souk: {len(finals)} final photos on the Shopify Draft by "
                                f"{_user_name(frappe.session.user)} · to content.")

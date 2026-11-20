@@ -9,15 +9,16 @@
        itself is kept on the phone (localStorage) until it is sent.
        LOOK = design Buy.dc.html (the form) and BuyDone.dc.html (done). -->
   <div>
-    <header v-if="!done" class="bg-white border-b border-stone-200">
+    <header v-if="!done" class="st-buying bg-white/85 backdrop-blur border-b border-stone-200">
       <div class="max-w-[520px] mx-auto px-4 py-3 flex flex-col gap-2.5">
         <div class="flex items-center gap-2.5">
           <router-link :to="{ name: 'SoukTrip' }" :aria-label="t('souk.buy.back')"
                        class="shrink-0 w-11 h-11 -ms-2 rounded-lg inline-flex items-center justify-center text-stone-700 hover:bg-stone-100">
             <Icon name="chevron-left" :size="18" :stroke-width="2" class="rtl:rotate-180" />
           </router-link>
+          <span class="sk-ico sk-ico-solid"><Icon name="shopping-bag" :size="17" :stroke-width="2" /></span>
           <div class="flex-1 min-w-0 flex flex-col">
-            <h1 class="text-[16px] font-bold text-stone-900 leading-snug">{{ t('souk.buyTitle') }}</h1>
+            <h1 class="text-[17px] font-extrabold text-stone-900 leading-snug">{{ t('souk.buyTitle') }}</h1>
             <span class="text-[12px] text-stone-600 truncate tabular-nums">
               {{ boot?.trip ? tt('souk.buy.sub', { place: boot.trip.place || 'Derb Omar', n: fmt(left) }) : t('souk.title') }}
             </span>
@@ -28,11 +29,13 @@
             {{ draftOk ? t('souk.buy.saved') : t('souk.buy.notSaved') }}
           </span>
         </div>
-        <div v-if="formMode" role="tablist" class="flex gap-0.5 p-1 bg-stone-100 rounded-[10px]">
-          <button role="tab" :aria-selected="tab === 'new'" class="flex-1 min-w-0 h-11 px-2 rounded-lg text-[13px] font-semibold truncate"
-                  :class="tab === 'new' ? 'bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] text-stone-900' : 'text-stone-600'" @click="tab = 'new'">{{ t('souk.tabNew') }}</button>
-          <button role="tab" :aria-selected="tab === 'again'" class="flex-1 min-w-0 h-11 px-2 rounded-lg text-[13px] font-semibold truncate"
-                  :class="tab === 'again' ? 'bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] text-stone-900' : 'text-stone-600'" @click="tab = 'again'">{{ t('souk.tabAgain') }}</button>
+        <div v-if="formMode" role="tablist" class="flex gap-1 p-1 bg-[var(--accent-50)] ring-1 ring-inset ring-[var(--accent-100)] rounded-xl">
+          <button role="tab" :aria-selected="tab === 'new'" class="flex-1 min-w-0 h-11 px-2 rounded-[9px] text-[13px] font-semibold truncate inline-flex items-center justify-center gap-1.5 transition-colors"
+                  :class="tab === 'new' ? 'bg-white shadow-[0_2px_6px_-2px_rgba(163,58,34,.25)] text-[var(--accent-700)]' : 'text-stone-600'" @click="tab = 'new'">
+            <Icon name="sparkles" :size="15" />{{ t('souk.tabNew') }}</button>
+          <button role="tab" :aria-selected="tab === 'again'" class="flex-1 min-w-0 h-11 px-2 rounded-[9px] text-[13px] font-semibold truncate inline-flex items-center justify-center gap-1.5 transition-colors"
+                  :class="tab === 'again' ? 'bg-white shadow-[0_2px_6px_-2px_rgba(163,58,34,.25)] text-[var(--accent-700)]' : 'text-stone-600'" @click="tab = 'again'">
+            <Icon name="refresh-cw" :size="15" />{{ t('souk.tabAgain') }}</button>
         </div>
       </div>
     </header>
@@ -43,8 +46,8 @@
       <!-- ── done (BuyDone) ───────────────────────────────────────────────── -->
       <template v-else-if="done">
         <div class="flex flex-col items-center gap-2 text-center pt-2 pb-1">
-          <div class="w-14 h-14 rounded-full bg-emerald-50 ring-1 ring-inset ring-emerald-200 text-emerald-700 flex items-center justify-center">
-            <Icon name="check" :size="26" :stroke-width="2.6" />
+          <div class="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center shadow-[0_8px_24px_-8px_rgba(5,150,105,.7)] ring-4 ring-emerald-100">
+            <Icon name="check" :size="30" :stroke-width="2.8" />
           </div>
           <h1 class="text-[18px] font-bold text-stone-900">
             {{ tt(done.again ? 'souk.buy.done.rebuyTitle' : 'souk.buy.done.title', { title: done.title || done.po }) }}
@@ -52,24 +55,24 @@
           <p class="text-[13px] text-stone-600">{{ t('souk.buy.done.goodsIn') }}</p>
         </div>
 
-        <section class="lp-card overflow-hidden">
-          <div v-if="!done.again" class="px-3.5 py-3 flex items-center gap-2.5">
-            <span class="w-2 h-2 rounded-full bg-emerald-700 shrink-0" />
+        <section class="sk-sec">
+          <div v-if="!done.again" class="px-3.5 py-3 flex items-center gap-2.5 st-live">
+            <span class="sk-ico sk-ico-sm"><Icon name="shopping-bag" :size="14" /></span>
             <div class="flex-1 min-w-0 flex flex-col">
               <span class="text-[14px] font-semibold text-stone-900">{{ t('souk.buy.done.draft') }}</span>
               <span class="text-[12px] text-stone-600">{{ tt('souk.buy.done.draftSub', { brand: done.brand || '—' }) }}</span>
             </div>
             <span class="shrink-0 text-[11px] font-bold rounded-md px-[7px] py-0.5 bg-stone-100 text-stone-600">DRAFT</span>
           </div>
-          <div v-if="!done.again && done.variants.length" class="px-3.5 py-3 border-t border-stone-100 flex items-center gap-2.5">
-            <span class="w-2 h-2 rounded-full bg-emerald-700 shrink-0" />
+          <div v-if="!done.again && done.variants.length" class="px-3.5 py-3 border-t border-stone-100 flex items-center gap-2.5 st-live">
+            <span class="sk-ico sk-ico-sm"><Icon name="layers" :size="14" /></span>
             <div class="flex-1 min-w-0 flex flex-col">
               <span class="text-[14px] font-semibold text-stone-900">{{ tt('souk.buy.done.next', { n: done.variants.length }) }}</span>
               <span class="text-[12px] text-stone-600">{{ t('souk.buy.done.nextSub') }}</span>
             </div>
           </div>
-          <div class="px-3.5 py-3 flex items-center gap-2.5" :class="done.again ? '' : 'border-t border-stone-100'">
-            <span class="w-2 h-2 rounded-full bg-emerald-700 shrink-0" />
+          <div class="px-3.5 py-3 flex items-center gap-2.5 st-live" :class="done.again ? '' : 'border-t border-stone-100'">
+            <span class="sk-ico sk-ico-sm"><Icon name="file-text" :size="14" /></span>
             <div class="flex-1 min-w-0 flex flex-col">
               <span class="text-[14px] font-semibold text-stone-900">
                 {{ tt('souk.buy.done.poPay', { stall: done.stall || '—', pay: payLabel(done.pay) }) }}
@@ -83,20 +86,20 @@
         </section>
 
         <section v-if="done.variants.length" class="lp-card px-3.5 py-3 flex flex-col gap-1.5">
-          <span class="text-[13px] font-semibold text-stone-700">{{ t('souk.skus') }}</span>
+          <span class="text-[13px] font-bold text-stone-800 inline-flex items-center gap-2"><Icon name="tag" :size="14" class="text-stone-500" />{{ t('souk.skus') }}</span>
           <div v-for="v in done.variants" :key="v.sku" class="flex items-center justify-between gap-2 text-[13px] py-[3px]">
             <span class="mono text-[12px] text-stone-900" dir="ltr">{{ v.sku }}</span>
             <span class="text-stone-600 tabular-nums">{{ v.qty }} {{ t('souk.pcs') }}</span>
           </div>
         </section>
 
-        <div v-if="done.left != null" class="rounded-xl bg-stone-900 text-white px-3.5 py-3 flex items-center justify-between gap-2">
-          <span class="text-[13px] text-stone-300">{{ t('souk.leftWithYou') }}</span>
+        <div v-if="done.left != null" class="sk-wallet rounded-2xl text-white px-4 py-3.5 flex items-center justify-between gap-2">
+          <span class="text-[13px] text-white/80 inline-flex items-center gap-2"><Icon name="wallet" :size="16" />{{ t('souk.leftWithYou') }}</span>
           <span class="text-[16px] font-extrabold tabular-nums">{{ fmt(done.left) }} MAD</span>
         </div>
 
         <div class="flex flex-col gap-2 pt-2">
-          <button class="h-12 rounded-[10px] bg-[var(--accent-600)] text-white text-[15px] font-bold px-3" @click="another">{{ t('souk.buy.done.another') }}</button>
+          <button class="h-12 rounded-xl bg-[var(--accent-600)] text-white text-[15px] font-bold px-3 inline-flex items-center justify-center gap-2 shadow-[0_6px_16px_-6px_rgba(196,73,42,.7)]" @click="another"><Icon name="plus" :size="17" :stroke-width="2.4" />{{ t('souk.buy.done.another') }}</button>
           <router-link :to="{ name: 'SoukTrip' }" class="h-12 rounded-[10px] bg-white ring-1 ring-inset ring-stone-300 text-stone-900 text-[15px] font-semibold inline-flex items-center justify-center">{{ t('souk.buy.done.trip') }}</router-link>
         </div>
       </template>
@@ -120,8 +123,8 @@
           <div v-if="sent.pending" class="mono text-[12px] text-stone-500" dir="ltr">{{ sent.pending }}</div>
         </section>
 
-        <div v-if="boot?.trip && sent.summary.pay === 'cash'" class="rounded-xl bg-stone-900 text-white px-3.5 py-3 flex items-center justify-between gap-2">
-          <span class="text-[13px] text-stone-300">{{ t('souk.leftWithYou') }}</span>
+        <div v-if="boot?.trip && sent.summary.pay === 'cash'" class="sk-wallet rounded-2xl text-white px-4 py-3.5 flex items-center justify-between gap-2">
+          <span class="text-[13px] text-white/80 inline-flex items-center gap-2"><Icon name="wallet" :size="16" />{{ t('souk.leftWithYou') }}</span>
           <span class="text-[16px] font-extrabold tabular-nums">{{ fmt(left) }} MAD</span>
         </div>
 
@@ -156,25 +159,34 @@
       <!-- ── the form ─────────────────────────────────────────────────────── -->
       <template v-else-if="boot">
         <!-- NEW PRODUCT: reference photo -->
-        <section v-if="tab === 'new'" class="lp-card p-3.5 flex gap-3 items-center">
-          <label class="w-[76px] h-[76px] shrink-0 rounded-[10px] bg-stone-100 flex items-center justify-center overflow-hidden cursor-pointer"
+        <section v-if="tab === 'new'" class="sk-sec st-buying p-3.5 flex gap-3 items-center">
+          <label class="w-[84px] h-[84px] shrink-0 rounded-2xl flex items-center justify-center overflow-hidden cursor-pointer"
+                 :class="refPreview ? 'ring-1 ring-stone-200' : 'st-soft border-2 border-dashed border-[rgb(var(--st)/.35)] st-fg'"
                  :aria-label="refPreview ? t('souk.buy.retake') : t('souk.buy.takePhoto')">
             <img v-if="refPreview" :src="refPreview" class="w-full h-full object-cover" alt="" />
-            <Icon v-else name="camera" :size="24" class="text-stone-500" />
+            <Icon v-else name="camera" :size="28" />
             <input type="file" accept="image/*" capture="environment" class="hidden" @change="pickRef" />
           </label>
           <div class="flex-1 min-w-0 flex flex-col gap-1 items-start">
-            <span class="text-[14px] font-semibold text-stone-900">{{ t('souk.buy.refTitle') }}</span>
+            <span class="text-[14px] font-bold text-stone-900">{{ t('souk.buy.refTitle') }}</span>
             <span class="text-[12px] text-stone-600 leading-normal">{{ t('souk.buy.refNote') }}</span>
-            <label class="h-11 px-3 rounded-lg bg-stone-100 ring-1 ring-inset ring-stone-200 text-[13px] font-semibold text-stone-700 inline-flex items-center gap-1.5 cursor-pointer">
-              <Icon name="camera" :size="14" />{{ refPreview ? t('souk.buy.retake') : t('souk.buy.takePhoto') }}
+            <label class="h-11 px-3.5 rounded-xl st-tint st-ink text-[13px] font-bold inline-flex items-center gap-1.5 cursor-pointer">
+              <Icon name="camera" :size="15" />{{ refPreview ? t('souk.buy.retake') : t('souk.buy.takePhoto') }}
               <input type="file" accept="image/*" capture="environment" class="hidden" @change="pickRef" />
             </label>
           </div>
         </section>
 
         <!-- name, category, stall, brand (the stall card only, to buy again) -->
-        <section class="lp-card p-3.5 flex flex-col gap-3">
+        <section class="sk-sec st-buying">
+          <div class="sk-sec-h">
+            <span class="sk-ico"><Icon :name="tab === 'new' ? 'tag' : 'building'" :size="16" /></span>
+            <div class="min-w-0 flex flex-col">
+              <h2 class="sk-sec-t">{{ tab === 'new' ? t('souk.buy.secProduct') : t('souk.stall') }}</h2>
+              <span v-if="tab === 'new'" class="sk-sec-s">{{ t('souk.buy.secProductSub') }}</span>
+            </div>
+          </div>
+          <div class="sk-sec-b flex flex-col gap-3">
           <template v-if="tab === 'new'">
             <div class="flex flex-col gap-1.5">
               <label for="sb-title" class="text-[13px] font-semibold text-stone-700">{{ t('souk.name') }}</label>
@@ -200,7 +212,7 @@
                 <option value="">{{ t('souk.newStall') }}</option>
                 <option v-for="s in boot.stalls" :key="s.name" :value="s.name">{{ s.label }}</option>
               </select>
-              <button type="button" class="shrink-0 w-11 h-11 rounded-lg bg-stone-100 ring-1 ring-inset ring-stone-200 text-stone-700 inline-flex items-center justify-center"
+              <button type="button" class="shrink-0 w-11 h-11 rounded-xl st-tint st-ink inline-flex items-center justify-center"
                       :aria-label="t('souk.buy.newStallBtn')" :title="t('souk.buy.newStallBtn')" @click="newStall">
                 <Icon name="plus" :size="16" :stroke-width="2.2" />
               </button>
@@ -219,21 +231,22 @@
             </div>
           </div>
 
-          <div v-if="tab === 'new' && cat" class="flex items-center justify-between gap-2.5 bg-stone-50 rounded-lg px-2.5 py-2">
+          <div v-if="tab === 'new' && cat" class="flex items-center justify-between gap-2.5 st-soft rounded-xl px-3 py-2.5">
             <div class="min-w-0 flex flex-col">
               <span class="text-[13px] font-semibold text-stone-700">{{ t('souk.brandOnSite') }}</span>
               <span class="text-[12px] text-stone-600">{{ t('souk.buy.brandSub') }}</span>
             </div>
-            <span class="shrink-0 text-[13px] font-bold text-stone-900 bg-white ring-1 ring-inset ring-stone-200 rounded-md px-2.5 py-[3px]">{{ cat.brand }}</span>
+            <span class="shrink-0 text-[13px] font-bold st-ink bg-white ring-1 ring-inset ring-[rgb(var(--st)/.3)] rounded-lg px-2.5 py-[3px] inline-flex items-center gap-1"><Icon name="award" :size="13" />{{ cat.brand }}</span>
           </div>
           <p v-if="tab === 'again'" class="text-[12px] text-stone-600">{{ t('souk.stallHint') }}</p>
+          </div>
         </section>
 
         <template v-if="tab === 'new'">
           <!-- do we already have it? -->
-          <section v-if="similarShown.length" class="rounded-xl bg-amber-50 ring-1 ring-inset ring-amber-200 px-3.5 py-3 flex flex-col gap-2" :aria-label="t('souk.similar')">
+          <section v-if="similarShown.length" class="st-bought rounded-2xl bg-gradient-to-br from-amber-50 to-amber-100/60 ring-1 ring-inset ring-amber-200 px-3.5 py-3 flex flex-col gap-2" :aria-label="t('souk.similar')">
             <div class="flex items-center gap-2">
-              <Icon name="alert-triangle" :size="16" :stroke-width="2" class="text-amber-700 shrink-0" />
+              <span class="sk-ico sk-ico-sm"><Icon name="alert-triangle" :size="14" :stroke-width="2" /></span>
               <span class="text-[13px] font-bold text-amber-800">{{ tt('souk.buy.similarN', { n: similarShown.length }) }}</span>
             </div>
             <div class="flex flex-col gap-1.5">
@@ -256,17 +269,25 @@
           </section>
 
           <!-- colours, sizes, quantities -->
-          <section class="lp-card p-3.5 flex flex-col gap-3">
-            <h2 class="text-[14px] font-bold text-stone-900">{{ t('souk.buy.colorsSizes') }}</h2>
+          <section class="sk-sec st-buying">
+            <div class="sk-sec-h">
+              <span class="sk-ico"><Icon name="layers" :size="16" /></span>
+              <div class="min-w-0 flex flex-col">
+                <h2 class="sk-sec-t">{{ t('souk.buy.colorsSizes') }}</h2>
+                <span class="sk-sec-s">{{ t('souk.buy.secVariantsSub') }}</span>
+              </div>
+              <span v-if="units" class="ms-auto shrink-0 text-[12px] font-bold st-ink st-tint rounded-full px-2.5 py-1 tabular-nums">{{ units }} {{ t('souk.pcs') }}</span>
+            </div>
+            <div class="sk-sec-b flex flex-col gap-3">
 
             <div class="flex flex-col gap-1.5">
               <span id="sb-colors" class="text-[12px] font-semibold text-stone-600">{{ t('souk.buy.colorsLbl') }}</span>
               <div class="flex flex-wrap gap-1.5" role="group" aria-labelledby="sb-colors">
                 <button v-for="c in shownColors" :key="c.code" type="button" :aria-pressed="f.colors.includes(c.code)"
                         class="h-11 ps-2.5 pe-3 rounded-full text-[13px] font-semibold inline-flex items-center gap-1.5"
-                        :class="f.colors.includes(c.code) ? 'bg-stone-900 text-white' : 'bg-white text-stone-700 ring-1 ring-inset ring-stone-300'"
+                        :class="f.colors.includes(c.code) ? 'bg-[var(--accent-600)] text-white shadow-[0_3px_10px_-4px_rgba(196,73,42,.7)]' : 'bg-white text-stone-700 ring-1 ring-inset ring-stone-300'"
                         @click="toggleColor(c.code)">
-                  <span class="w-3 h-3 rounded-full shrink-0" :class="f.colors.includes(c.code) ? 'ring-1 ring-white' : 'ring-1 ring-black/10'" :style="{ background: swatch(c.code) }" />
+                  <span class="w-3.5 h-3.5 rounded-full shrink-0" :class="f.colors.includes(c.code) ? 'ring-2 ring-white' : 'ring-1 ring-black/10'" :style="{ background: swatch(c.code) }" />
                   {{ colorName(c) }}
                 </button>
                 <button type="button" :aria-expanded="colorsOpen"
@@ -284,7 +305,7 @@
                         :aria-label="tt('souk.buy.editSize', { z: sizeChip(s) })"
                         class="h-11 px-3 rounded-full text-[13px] font-semibold inline-flex items-center max-w-full"
                         :class="editSize === s.id ? 'bg-white text-stone-900 ring-2 ring-inset ring-stone-900'
-                          : sizeBad(s) ? 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-300' : 'bg-stone-900 text-white'"
+                          : sizeBad(s) ? 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-300' : 'bg-[var(--accent-600)] text-white'"
                         @click="toggleEdit(s)">
                   <span class="truncate"><bdi>{{ (s.label || '').trim() || '…' }}</bdi><template v-if="effCode(s) && effCode(s) !== (s.label || '').trim()"> · <bdi class="mono">{{ effCode(s) }}</bdi></template></span>
                 </button>
@@ -293,7 +314,7 @@
                         :aria-label="t('souk.buy.addSize') + ' ' + q" @click="addSize(q)"><span dir="ltr">+{{ q }}</span></button>
               </div>
               <!-- the size being edited: what the customer reads + the code in the SKU -->
-              <div v-if="editing" class="rounded-lg bg-stone-50 p-2.5 flex flex-col gap-2.5">
+              <div v-if="editing" class="rounded-xl st-soft ring-1 ring-inset ring-[rgb(var(--st)/.2)] p-2.5 flex flex-col gap-2.5">
                 <div class="grid grid-cols-[minmax(0,1fr)_84px] gap-2">
                   <div class="flex flex-col gap-1 min-w-0">
                     <label :for="'sb-sz-' + editing.id" class="text-[12px] font-semibold text-stone-600 truncate">{{ t('souk.buy.sizeDesc') }}</label>
@@ -311,16 +332,16 @@
                 <div class="flex items-center gap-2">
                   <button type="button" class="h-11 px-3 rounded-lg bg-white ring-1 ring-inset ring-rose-200 text-rose-700 text-[13px] font-semibold inline-flex items-center gap-1.5"
                           @click="removeEditing"><Icon name="x" :size="14" />{{ t('souk.buy.removeSize') }}</button>
-                  <button type="button" class="ms-auto h-11 px-4 rounded-lg bg-stone-900 text-white text-[13px] font-bold" @click="closeEdit">{{ t('souk.buy.sizeDone') }}</button>
+                  <button type="button" class="ms-auto h-11 px-4 rounded-lg st-solid text-[13px] font-bold inline-flex items-center gap-1.5" @click="closeEdit"><Icon name="check" :size="14" :stroke-width="2.4" />{{ t('souk.buy.sizeDone') }}</button>
                 </div>
               </div>
               <p class="text-[12px] text-stone-600 leading-normal">{{ t('souk.buy.sizesNote') }}</p>
             </div>
 
             <!-- quantities: a row per colour, a −/+ cell per size -->
-            <div class="rounded-[10px] border border-stone-200 overflow-x-auto">
+            <div class="rounded-xl ring-1 ring-inset ring-stone-200 overflow-x-auto">
               <div class="w-max min-w-full">
-                <div class="grid gap-1.5 px-2.5 py-2 bg-stone-50 text-[12px] font-semibold text-stone-600" :style="qtyCols">
+                <div class="grid gap-1.5 px-2.5 py-2 st-soft text-[12px] font-bold st-ink" :style="qtyCols">
                   <span>{{ t('souk.qtyShort') }}</span>
                   <span v-for="z in sizeCols" :key="z.id" class="text-center truncate">{{ z.label ? zName(z) : t('souk.buy.oneSize') }}</span>
                 </div>
@@ -337,21 +358,27 @@
               </div>
             </div>
 
-            <div v-if="lines.length" class="bg-stone-50 rounded-lg px-2.5 py-2 flex flex-col gap-1">
-              <span class="text-[12px] font-semibold text-stone-600">{{ t('souk.buy.skusLbl') }}</span>
+            <div v-if="lines.length" class="bg-stone-50 rounded-xl px-3 py-2.5 flex flex-col gap-1">
+              <span class="text-[12px] font-semibold text-stone-600 inline-flex items-center gap-1.5"><Icon name="tag" :size="13" />{{ t('souk.buy.skusLbl') }}</span>
               <div class="text-start text-[12px] leading-[1.7] text-stone-800 mono break-words">
                 <span dir="ltr"><template v-for="(l, i) in lines" :key="l.sku"><template v-if="i"> · </template><span :class="l.sku.length > boot.skuMax ? 'text-rose-700 font-bold' : ''">{{ l.sku }}</span></template></span>
               </div>
             </div>
+            </div>
           </section>
 
           <!-- price -->
-          <section class="lp-card p-3.5 flex flex-col gap-3">
-            <div class="flex items-center justify-between gap-2">
-              <h2 class="text-[14px] font-bold text-stone-900">{{ t('souk.buy.priceTitle') }}</h2>
-              <button v-if="sizeCols.length > 1" class="h-11 -my-2.5 px-2 rounded-lg text-[13px] font-semibold text-[var(--accent-700)] hover:bg-[var(--accent-50)] disabled:opacity-40"
+          <section class="sk-sec st-buying">
+            <div class="sk-sec-h">
+              <span class="sk-ico"><Icon name="dollar-sign" :size="16" /></span>
+              <div class="min-w-0 flex-1 flex flex-col">
+                <h2 class="sk-sec-t">{{ t('souk.buy.priceTitle') }}</h2>
+                <span class="sk-sec-s">{{ t('souk.buy.secPriceSub') }}</span>
+              </div>
+              <button v-if="sizeCols.length > 1" class="shrink-0 h-11 -my-2.5 px-2 rounded-lg text-[13px] font-semibold text-[var(--accent-700)] hover:bg-[var(--accent-50)] disabled:opacity-40"
                       :disabled="!(Number(cost[sizeCols[0].id]) > 0)" @click="samePrices">{{ t('souk.buy.samePrices') }}</button>
             </div>
+            <div class="sk-sec-b flex flex-col gap-3">
             <div class="grid grid-cols-2 gap-2.5">
               <template v-for="z in sizeCols" :key="z.id">
                 <div class="flex flex-col gap-1.5 min-w-0">
@@ -376,7 +403,7 @@
             <!-- margin before shipping, per size. (The design's "after delivery
                  and returns" row needs a per-category delivery-cost + return-rate
                  number the backend does not send yet — not shown.) -->
-            <div class="rounded-lg border border-stone-200 overflow-x-auto text-[13px] tabular-nums">
+            <div class="rounded-xl ring-1 ring-inset ring-stone-200 overflow-x-auto text-[13px] tabular-nums">
               <div class="w-max min-w-full">
                 <div class="grid gap-1.5 px-2.5 py-[7px] bg-stone-50 font-semibold text-stone-600" :style="marginCols">
                   <span>{{ t('souk.buy.margin') }}</span>
@@ -385,20 +412,23 @@
                 <div class="grid gap-1.5 px-2.5 py-[7px]" :style="marginCols">
                   <span class="text-stone-700">{{ t('souk.buy.marginBefore') }}</span>
                   <span v-for="z in sizeCols" :key="z.id" class="text-center font-semibold"
-                        :class="margin(z.id) === null ? 'text-stone-300' : margin(z.id) < 40 ? 'text-rose-600' : 'text-stone-900'">
-                    {{ margin(z.id) === null ? '—' : margin(z.id) + '%' }}
+                        :class="margin(z.id) === null ? 'text-stone-300' : margin(z.id) < 40 ? 'text-rose-600' : 'text-emerald-700'">
+                    <span v-if="margin(z.id) !== null" class="inline-flex items-center justify-center min-w-[52px] rounded-full px-2 py-0.5"
+                          :class="margin(z.id) < 40 ? 'bg-rose-50' : 'bg-emerald-50'">{{ margin(z.id) }}%</span>
+                    <template v-else>—</template>
                   </span>
                 </div>
               </div>
             </div>
             <p class="text-[12px] text-stone-600 leading-normal">{{ t('souk.marginHint') }}</p>
+            </div>
           </section>
         </template>
 
         <!-- BUY AGAIN -->
         <template v-else>
-          <section class="lp-card p-3.5 flex flex-col gap-1.5">
-            <label for="sb-find" class="text-[13px] font-semibold text-stone-700">{{ t('souk.findProduct') }}</label>
+          <section class="sk-sec st-buying p-3.5 flex flex-col gap-1.5">
+            <label for="sb-find" class="text-[13px] font-bold text-stone-800 inline-flex items-center gap-2"><span class="sk-ico sk-ico-sm"><Icon name="search" :size="14" /></span>{{ t('souk.findProduct') }}</label>
             <input id="sb-find" v-model="againQ" :placeholder="t('souk.findPh')" autocomplete="off"
                    class="w-full h-11 rounded-lg ring-1 ring-inset ring-stone-300 bg-white px-3 text-[16px]" @input="lookAgain" />
             <div v-if="againRows.length && !again" class="flex flex-col gap-1.5 pt-1">
@@ -418,12 +448,14 @@
               </button>
             </div>
           </section>
-          <section v-if="again" class="lp-card p-3.5 flex flex-col gap-3">
-            <div class="flex items-center justify-between gap-2">
-              <h2 class="text-[14px] font-bold text-stone-900 truncate">{{ again.title }}</h2>
-              <button class="h-11 -my-2.5 px-2 rounded-lg text-[13px] font-semibold text-[var(--accent-700)] hover:bg-[var(--accent-50)]" @click="again = null">{{ t('souk.change') }}</button>
+          <section v-if="again" class="sk-sec st-buying">
+            <div class="sk-sec-h">
+              <span class="sk-ico"><Icon name="refresh-cw" :size="16" /></span>
+              <h2 class="sk-sec-t flex-1 min-w-0 truncate">{{ again.title }}</h2>
+              <button class="shrink-0 h-11 -my-2.5 px-2 rounded-lg text-[13px] font-semibold text-[var(--accent-700)] hover:bg-[var(--accent-50)]" @click="again = null">{{ t('souk.change') }}</button>
             </div>
-            <div v-for="r in again.rows" :key="r.itemCode" class="rounded-lg bg-stone-50 p-2.5 flex flex-col gap-2">
+            <div class="sk-sec-b flex flex-col gap-3">
+            <div v-for="r in again.rows" :key="r.itemCode" class="rounded-xl bg-stone-50 ring-1 ring-inset ring-stone-100 p-2.5 flex flex-col gap-2">
               <div class="min-w-0">
                 <div class="mono text-[13px] font-semibold text-stone-900" dir="ltr">{{ r.sku }}</div>
                 <div class="text-[12px] text-stone-600 truncate">{{ r.label }}</div>
@@ -445,6 +477,7 @@
               </div>
             </div>
             <p v-if="again.lastStall" class="text-[12px] text-stone-600">{{ t('souk.lastStall').replace('{s}', again.lastStall) }}</p>
+            </div>
           </section>
         </template>
 
@@ -452,18 +485,25 @@
              makes the PR and the accountant the PI and the payment — this
              only tells him how (cash on the custody, cheque, transfer,
              credit). Not tied to a custody (Ahmed, 2026-11-19). -->
-        <section class="lp-card p-3.5 flex flex-col gap-3" aria-labelledby="sb-pay-h">
-          <h2 id="sb-pay-h" class="text-[14px] font-bold text-stone-900">{{ t('souk.buy.pay.title') }}</h2>
+        <section class="sk-sec st-buying" aria-labelledby="sb-pay-h">
+          <div class="sk-sec-h">
+            <span class="sk-ico"><Icon name="wallet" :size="16" /></span>
+            <div class="min-w-0 flex flex-col">
+              <h2 id="sb-pay-h" class="sk-sec-t">{{ t('souk.buy.pay.title') }}</h2>
+              <span class="sk-sec-s">{{ t('souk.buy.secPaySub') }}</span>
+            </div>
+          </div>
+          <div class="sk-sec-b flex flex-col gap-3">
           <div role="radiogroup" :aria-labelledby="'sb-pay-h'" class="grid grid-cols-2 gap-2">
             <button v-for="m in PAY" :key="m.k" type="button" role="radio" :aria-checked="pay.method === m.k"
-                    class="min-h-[52px] rounded-[10px] px-3 py-2 flex items-center gap-2.5 text-start ring-1 ring-inset transition-colors"
-                    :class="pay.method === m.k ? 'bg-[var(--accent-50)] ring-[var(--accent-600)] text-[var(--accent-700)]' : 'bg-white ring-stone-300 text-stone-800 hover:bg-stone-50'"
+                    class="min-h-[60px] rounded-xl px-3 py-2 flex items-center gap-2.5 text-start ring-inset transition-colors"
+                    :class="[m.cls, pay.method === m.k ? 'ring-2 ring-[rgb(var(--st))] bg-[rgb(var(--st)/.08)] st-ink' : 'ring-1 ring-stone-200 bg-white text-stone-800 hover:bg-stone-50']"
                     @click="choosePay(m.k)">
-              <Icon :name="m.icon" :size="18" class="shrink-0" />
+              <span class="sk-ico sk-ico-sm" :class="pay.method === m.k ? 'sk-ico-solid' : ''"><Icon :name="m.icon" :size="15" /></span>
               <span class="flex flex-col min-w-0">
                 <span class="text-[14px] font-semibold leading-tight">{{ t('souk.buy.pay.' + m.k) }}</span>
                 <span v-if="m.k === 'cash'" class="text-[11px] leading-snug mt-0.5"
-                      :class="pay.method === 'cash' ? 'text-[var(--accent-700)]' : 'text-stone-500'">
+                      :class="pay.method === 'cash' ? 'st-ink opacity-90' : 'text-stone-500'">
                   {{ boot.trip ? tt('souk.buy.pay.cashTrip', { n: fmt(left) }) : t('souk.buy.pay.cashNoTrip') }}
                 </span>
               </span>
@@ -496,14 +536,15 @@
           <p v-else class="text-[12px] text-stone-600 leading-normal">{{ t('souk.buy.pay.books') }}</p>
 
           <!-- the stall's paper: the accountant's proof, whatever the payment -->
-          <div class="flex items-center gap-2 pt-2.5 border-t border-stone-100">
-            <Icon name="ticket" :size="16" class="text-stone-500 shrink-0" />
+          <div class="flex items-center gap-2.5 pt-3 border-t border-dashed border-stone-200">
+            <span class="sk-ico sk-ico-sm st-dropped"><Icon name="ticket" :size="14" /></span>
             <span class="flex-1 min-w-0 text-[13px] font-semibold text-stone-900">{{ t('souk.buy.pay.receipt') }}</span>
             <img v-if="receiptPreview" :src="receiptPreview" class="w-11 h-11 rounded-lg object-cover ring-1 ring-stone-200 shrink-0" alt="" />
-            <label class="shrink-0 h-11 px-2.5 rounded-lg bg-stone-100 ring-1 ring-inset ring-stone-200 text-[13px] font-semibold text-stone-700 inline-flex items-center cursor-pointer">
+            <label class="shrink-0 h-11 px-3 rounded-xl bg-stone-100 text-[13px] font-semibold text-stone-700 inline-flex items-center gap-1.5 cursor-pointer"><Icon name="camera" :size="14" />
               {{ receiptPreview ? t('souk.buy.retake') : t('souk.buy.receiptTake') }}
               <input type="file" accept="image/*" capture="environment" class="hidden" @change="pickReceipt" />
             </label>
+          </div>
           </div>
         </section>
 
@@ -518,13 +559,13 @@
     <footer v-if="formMode" class="lp-footer px-4 pt-3 pb-4">
       <div class="max-w-[520px] mx-auto flex flex-col gap-2">
         <div class="flex items-center justify-between gap-2 text-[13px] text-stone-700 tabular-nums">
-          <span class="min-w-0 truncate">{{ tt(tab === 'new' ? 'souk.buy.summary' : 'souk.buy.summaryAgain', { v: lineCount, n: units }) }}</span>
-          <span class="shrink-0 font-bold text-stone-900">{{ fmt(total) }} MAD</span>
+          <span class="min-w-0 truncate inline-flex items-center gap-1.5"><Icon name="shopping-bag" :size="14" class="text-[var(--accent-600)] shrink-0" />{{ tt(tab === 'new' ? 'souk.buy.summary' : 'souk.buy.summaryAgain', { v: lineCount, n: units }) }}</span>
+          <span class="shrink-0 text-[17px] font-extrabold text-stone-900">{{ fmt(total) }} <small class="text-[12px] font-semibold text-stone-500">MAD</small></span>
         </div>
         <p v-if="why" class="text-[12px] font-semibold text-amber-800 flex items-start gap-1.5" aria-live="polite">
           <Icon name="info" :size="13" class="mt-[2px] shrink-0" />{{ why }}
         </p>
-        <button class="w-full h-12 rounded-[10px] bg-[var(--accent-600)] text-white text-[15px] font-bold disabled:opacity-40"
+        <button class="w-full h-12 rounded-xl bg-gradient-to-b from-[var(--accent-500)] to-[var(--accent-700)] text-white text-[15px] font-bold disabled:opacity-40 disabled:from-stone-400 disabled:to-stone-500 shadow-[0_6px_16px_-6px_rgba(196,73,42,.7)] disabled:shadow-none"
                 :disabled="busy || !!why" @click="submit">
           {{ busy ? t('souk.sending') : tab === 'new' ? t('souk.buy.createBtn') : t('souk.confirmRebuy') }}
         </button>
@@ -537,6 +578,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick, defineComponent, h } from "vue";
 import { useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
+import { swatch } from "@/souk/stages";
 import { api, apiPost } from "@/lib/resource";
 import { shrink } from "@/lib/soukPhoto";
 import { outbox, enqueue, onDone, newKey, flush, retry as retryJob, discard as discardJob } from "@/lib/soukOutbox";
@@ -636,8 +678,9 @@ const formMode = computed(() => !!(boot.value && !done.value && !sent.value));
 
 // ── payment ──────────────────────────────────────────────────────────────────
 const PAY = [
-  { k: "cash", icon: "wallet" }, { k: "cheque", icon: "notebook-pen" },
-  { k: "transfer", icon: "send" }, { k: "credit", icon: "clock" },
+  // each way to pay wears its own soft colour (icon chip + ring when picked)
+  { k: "cash", icon: "wallet", cls: "st-live" }, { k: "cheque", icon: "notebook-pen", cls: "st-photos" },
+  { k: "transfer", icon: "send", cls: "st-studio" }, { k: "credit", icon: "clock", cls: "st-bought" },
 ];
 const pay = reactive({ method: "", ref: "", due: "", picked: false });
 const payLabel = (m) => (m ? t("souk.buy.pay." + m) : "—");
@@ -657,13 +700,6 @@ function defaultPay() {
 }
 
 // ── colours ──────────────────────────────────────────────────────────────────
-const SWATCH = {
-  RED: "#b4412c", BLU: "#2b5fb4", GRN: "#2f7d4f", BLK: "#1c1917", WHT: "#ffffff", BEI: "#d9c7a7",
-  BRN: "#7a4b2a", GRY: "#8a8784", PNK: "#e79bb4", YEL: "#e8c33a", ORG: "#e5792b", PUR: "#7b4fa8",
-  NAV: "#1f2f57", GLD: "#c9a227", SLV: "#c4c4c4", NAT: "#cdb38b",
-  MLT: "conic-gradient(#b4412c, #e8c33a, #2f7d4f, #2b5fb4, #7b4fa8, #b4412c)",
-};
-const swatch = (code) => SWATCH[code] || "#d6d3d1";
 const colorName = (c) => (isAr.value ? `${c.ar} · ${c.fr}` : c.fr);
 const colorLabel = (code) => {
   const x = boot.value?.colors.find((k) => k.code === code);

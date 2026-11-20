@@ -5,27 +5,31 @@
        On a phone the columns snap one by one; the filters narrow every column
        at once. Backend: souk.board. Look = design Main.dc.html (1280px). -->
   <div class="max-w-[1400px] mx-auto px-4 sm:px-5 pt-5 sm:pt-6 pb-10 flex flex-col gap-4">
-    <header class="flex items-start justify-between gap-3 flex-wrap">
-      <div class="min-w-0 flex flex-col gap-0.5">
-        <h1 class="text-[20px] font-bold tracking-[-0.01em] text-stone-900">{{ t('souk.boardTitle') }}</h1>
-        <p class="text-[13px] text-stone-500 max-w-[680px]">{{ t('souk.boardIntro') }}</p>
+    <header class="sk-hero st-buying flex items-start justify-between gap-3 flex-wrap">
+      <div class="min-w-0 flex gap-3 items-start">
+        <span class="sk-ico sk-ico-lg"><Icon name="kanban" :size="22" /></span>
+        <div class="min-w-0 flex flex-col gap-0.5">
+          <h1 class="text-[20px] sm:text-[22px] font-extrabold tracking-[-0.01em] text-stone-900">{{ t('souk.boardTitle') }}</h1>
+          <p class="text-[13px] text-stone-600 max-w-[680px]">{{ t('souk.boardIntro') }}</p>
+        </div>
       </div>
       <div class="flex gap-2 items-center flex-wrap w-full sm:w-auto">
-        <label class="basis-full sm:basis-auto sm:flex-none">
+        <label class="flex-1 basis-[calc(100%-3.25rem)] sm:basis-auto sm:flex-none">
           <span class="sr-only">{{ t('souk.lb.searchLbl') }}</span>
           <input v-model="q" type="search" :placeholder="t('souk.lb.search')"
-                 class="h-11 lg:h-9 w-full sm:w-[220px] rounded-lg bg-white border border-stone-200 px-3 text-[14px] text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[var(--accent-500)]" />
+                 class="h-11 lg:h-9 w-full sm:w-[220px] rounded-xl bg-white/90 border border-stone-200 px-3 text-[14px] text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[var(--accent-500)]" />
         </label>
         <router-link :to="{ name: 'SoukTrip' }"
-                     class="h-11 lg:h-9 px-3 flex-1 sm:flex-none justify-center rounded-lg bg-white ring-1 ring-inset ring-stone-300 text-stone-900 text-[14px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap hover:bg-stone-50">
-          <span v-if="data">{{ fill(t('souk.lb.tripsOpen'), { n: data.openTrips || 0 }) }}</span>
+                     class="order-2 sm:order-none h-11 lg:h-9 px-3 flex-1 min-w-0 sm:flex-none justify-center rounded-xl bg-white ring-1 ring-inset ring-stone-200 text-stone-900 text-[14px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap hover:bg-stone-50">
+          <Icon name="wallet" :size="15" class="text-amber-600 shrink-0" />
+          <span v-if="data" class="truncate">{{ fill(t('souk.lb.tripsOpen'), { n: data.openTrips || 0 }) }}</span>
           <span v-else>{{ t('souk.lb.trips') }}</span>
         </router-link>
         <router-link v-if="data?.canBuy" :to="{ name: 'SoukBuy' }"
-                     class="h-11 lg:h-9 px-3.5 flex-1 sm:flex-none justify-center rounded-lg bg-[var(--accent-600)] hover:bg-[var(--accent-700)] text-white text-[14px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
+                     class="order-2 sm:order-none h-11 lg:h-9 px-3.5 shrink-0 justify-center rounded-xl bg-[var(--accent-600)] shadow-[0_4px_12px_-4px_rgba(196,73,42,.55)] hover:bg-[var(--accent-700)] text-white text-[14px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap">
           <Icon name="plus" :size="14" :stroke-width="2.5" />{{ t('souk.lb.newProduct') }}
         </router-link>
-        <button type="button" class="h-11 w-11 lg:h-9 lg:w-9 shrink-0 rounded-lg bg-white ring-1 ring-inset ring-stone-200 text-stone-600 inline-flex items-center justify-center hover:bg-stone-50 disabled:opacity-50"
+        <button type="button" class="order-1 sm:order-none h-11 w-11 lg:h-9 lg:w-9 shrink-0 rounded-xl bg-white ring-1 ring-inset ring-stone-200 text-stone-600 inline-flex items-center justify-center hover:bg-stone-50 disabled:opacity-50"
                 :disabled="loading" :aria-label="t('souk.lb.refresh')" :title="t('souk.lb.refresh')" @click="load">
           <Icon name="rotate-ccw" :size="15" :class="loading ? 'animate-spin' : ''" />
         </button>
@@ -34,13 +38,13 @@
 
     <!-- KPIs -->
     <section v-if="data" :aria-label="t('souk.lb.kpis')" class="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-      <div class="tile">
-        <span class="tile-k">{{ t('souk.kNotLive') }}</span>
+      <div class="tile st-bought">
+        <span class="tile-k"><span class="sk-ico sk-ico-sm"><Icon name="wallet" :size="14" /></span>{{ t('souk.kNotLive') }}</span>
         <span class="tile-v">{{ fmt(data.notLive) }} <small class="tile-u">MAD</small></span>
         <span class="tile-s">{{ fill(t('souk.lb.kNotLiveSub'), { n: kpi.inCycle ?? 0, u: fmt(kpi.units) }) }}</span>
       </div>
-      <div class="tile">
-        <span class="tile-k">{{ t('souk.lb.kR2L') }}</span>
+      <div class="tile st-photos">
+        <span class="tile-k"><span class="sk-ico sk-ico-sm"><Icon name="hourglass" :size="14" /></span>{{ t('souk.lb.kR2L') }}</span>
         <span v-if="kpi.receiptToLive != null" class="tile-v" :class="kpi.receiptToLive > target ? 'text-rose-800' : ''">
           {{ kpi.receiptToLive }} <small class="tile-u">{{ t('souk.lb.days').replace('{n}', '').trim() }}</small>
         </span>
@@ -51,19 +55,19 @@
             : fill(t('souk.lb.kR2LNone'), { t: target }) }}
         </span>
       </div>
-      <div class="tile" :class="data.late ? 'tile-late' : ''">
+      <div class="tile" :class="data.late ? 'tile-late st-late' : 'st-live'">
         <!-- A problem carries a mark, not only a colour: the late rose sits too
              close to the terracotta of the actions to be read by hue alone. -->
-        <span class="tile-k inline-flex items-center gap-1" :class="data.late ? 'text-rose-700' : ''">
-          <Icon v-if="data.late" name="alert-triangle" :size="13" />{{ t('souk.lb.kLate') }}
+        <span class="tile-k" :class="data.late ? 'text-rose-700' : ''">
+          <span class="sk-ico sk-ico-sm"><Icon :name="data.late ? 'alert-triangle' : 'check-circle'" :size="14" /></span>{{ t('souk.lb.kLate') }}
         </span>
         <span class="tile-v" :class="data.late ? 'text-rose-800' : ''">{{ data.late }}</span>
         <span class="tile-s" :class="data.late ? 'text-rose-800' : ''">
           {{ lateTop ? fill(t('souk.lb.kLateSub'), { s: t('souk.st_' + lateTop.s), n: lateTop.n }) : t('souk.lb.kLateNone') }}
         </span>
       </div>
-      <div class="tile">
-        <span class="tile-k">{{ t('souk.lb.kSell') }}</span>
+      <div class="tile st-review">
+        <span class="tile-k"><span class="sk-ico sk-ico-sm"><Icon name="trending-up" :size="14" /></span>{{ t('souk.lb.kSell') }}</span>
         <span v-if="kpi.sellThrough != null" class="tile-v">{{ kpi.sellThrough }}%</span>
         <span v-else class="text-[15px] font-bold text-stone-500 leading-8">{{ t('souk.lb.noData') }}</span>
         <span class="tile-s">
@@ -73,13 +77,13 @@
     </section>
 
     <!-- where the time goes -->
-    <section v-if="data" :aria-label="t('souk.lb.timeTitle')" class="bg-white rounded-xl ring-1 ring-inset ring-stone-200 px-4 py-3 flex flex-col gap-2">
-      <div class="flex justify-between gap-x-3 gap-y-0.5 text-[13px] flex-wrap">
-        <span class="font-semibold text-stone-700">{{ t('souk.lb.timeTitle') }}</span>
+    <section v-if="data" :aria-label="t('souk.lb.timeTitle')" class="lp-card bg-white px-4 py-3.5 flex flex-col gap-2.5">
+      <div class="flex justify-between items-center gap-x-3 gap-y-0.5 text-[13px] flex-wrap">
+        <span class="font-bold text-stone-800 inline-flex items-center gap-2"><span class="sk-ico sk-ico-sm st-dropped"><Icon name="clock" :size="14" /></span>{{ t('souk.lb.timeTitle') }}</span>
         <span v-if="timeSegs.length" class="text-stone-500 tabular-nums">{{ fill(t('souk.lb.timeTotal'), { n: round1(timeTotal) }) }}</span>
       </div>
       <template v-if="timeSegs.length">
-        <div class="flex h-[26px] rounded-md overflow-hidden text-[12px] font-semibold">
+        <div class="flex h-[30px] rounded-lg overflow-hidden text-[12px] font-bold gap-[2px]">
           <div v-for="g in timeSegs" :key="g.s"
                class="flex items-center justify-center min-w-[4px] overflow-hidden whitespace-nowrap px-1 tabular-nums"
                :class="g.cls" :style="{ width: (g.avg / timeTotal * 100) + '%' }"
@@ -89,9 +93,9 @@
           </div>
         </div>
         <div class="flex gap-x-4 gap-y-1 text-[12px] flex-wrap">
-          <span v-for="g in timeSegs" :key="g.s" class="tabular-nums"
-                :class="g.over ? 'text-rose-700 font-semibold' : 'text-stone-600'" :title="fill(t('souk.lb.timeN'), { n: g.n })">
-            {{ t('souk.st_' + g.s) }} {{ g.over ? fill(t('souk.lb.timeOf'), { a: g.avg, l: g.limit }) : g.avg }}
+          <span v-for="g in timeSegs" :key="g.s" class="tabular-nums inline-flex items-center gap-1.5" :class="[stageClass(g.s), g.over ? 'text-rose-700 font-semibold' : 'text-stone-600']"
+                :title="fill(t('souk.lb.timeN'), { n: g.n })">
+            <span class="st-dot" />{{ t('souk.st_' + g.s) }} {{ g.over ? fill(t('souk.lb.timeOf'), { a: g.avg, l: g.limit }) : g.avg }}
           </span>
         </div>
       </template>
@@ -158,12 +162,13 @@
           jumps to any stage (with its count, and a red dot when late). -->
      <div ref="stageBar" class="sm:hidden sticky top-0 z-10 -mx-4 px-4 py-2 mb-2 souk-glass border-b border-stone-200 flex gap-1.5 overflow-x-auto">
        <button v-for="(s, i) in data.stages" :key="s" type="button"
-               class="h-10 ps-3 pe-2 rounded-full text-[13px] font-semibold whitespace-nowrap flex items-center gap-1.5 shrink-0 transition-colors"
-               :class="activeCol === i ? 'bg-stone-900 text-white' : 'bg-white ring-1 ring-inset ring-stone-200 text-stone-700'"
+               class="h-10 ps-2.5 pe-2 rounded-full text-[13px] font-semibold whitespace-nowrap flex items-center gap-1.5 shrink-0 transition-colors"
+               :class="[stageClass(s), activeCol === i ? 'st-solid' : 'bg-white ring-1 ring-inset ring-stone-200 text-stone-700']"
                :aria-current="activeCol === i ? 'true' : undefined" @click="goCol(i)">
+         <Icon :name="stageIcon(s)" :size="15" :class="activeCol === i ? '' : 'st-fg'" />
          {{ s === 'live' ? t('souk.lb.colLive') : t('souk.st_' + s) }}
          <span class="min-w-[20px] h-5 px-1 rounded-full text-[12px] tabular-nums flex items-center justify-center"
-               :class="activeCol === i ? 'bg-white/20' : 'bg-stone-100 text-stone-600'">{{ col(s).length }}</span>
+               :class="activeCol === i ? 'bg-white/25' : 'st-tint st-ink'">{{ col(s).length }}</span>
          <span v-if="col(s).some((c) => c.late || c.error)" class="w-1.5 h-1.5 -ms-0.5 rounded-full bg-rose-600" />
        </button>
      </div>
@@ -171,13 +176,15 @@
       <div class="flex gap-2.5 min-w-max items-start sm:grid sm:min-w-[1240px] sm:[grid-template-columns:repeat(var(--cols),minmax(172px,1fr))]"
            :style="{ '--cols': data.stages.length }">
         <section v-for="s in data.stages" :key="s" :aria-label="s === 'live' ? t('souk.lb.colLive') : t('souk.st_' + s)"
-                 class="w-[80vw] max-w-[300px] sm:w-auto sm:max-w-none shrink-0 snap-start bg-stone-200 rounded-xl p-2 flex flex-col gap-2">
-          <div class="px-1.5 pt-1 pb-0.5 flex flex-col gap-px">
-            <div class="flex items-baseline justify-between gap-2">
-              <span class="text-[13px] font-bold text-stone-900 truncate">{{ s === 'live' ? t('souk.lb.colLive') : t('souk.st_' + s) }}</span>
-              <span class="text-[12px] font-semibold text-stone-600 tabular-nums">{{ col(s).length }}</span>
+                 class="colm w-[80vw] max-w-[300px] sm:w-auto sm:max-w-none shrink-0 snap-start rounded-2xl p-2 flex flex-col gap-2"
+                 :class="stageClass(s)">
+          <div class="px-1 pt-1 pb-1 flex flex-col gap-1">
+            <div class="flex items-center gap-2">
+              <span class="sk-ico sk-ico-sm sk-ico-solid"><Icon :name="stageIcon(s)" :size="14" :stroke-width="2.1" /></span>
+              <span class="flex-1 min-w-0 text-[13px] font-bold st-ink truncate">{{ s === 'live' ? t('souk.lb.colLive') : t('souk.st_' + s) }}</span>
+              <span class="min-w-[22px] h-[22px] px-1.5 rounded-full bg-white/80 text-[12px] font-bold st-ink tabular-nums flex items-center justify-center">{{ col(s).length }}</span>
             </div>
-            <span class="text-[12px] text-stone-600 tabular-nums">
+            <span class="text-[12px] text-stone-600 tabular-nums ps-0.5">
               <template v-if="s === 'live'">{{ fill(t('souk.lb.colSold'), { n: fmt(colSold(s)) }) }}</template>
               <template v-else>{{ fmt(colSum(s)) }} MAD</template>
               <template v-if="data.stageDays?.[s]"> · {{ fill(t('souk.lb.colDeadline'), { n: data.stageDays[s] }) }}</template>
@@ -185,8 +192,8 @@
           </div>
           <div v-for="c in col(s)" :key="c.name" class="flex flex-col gap-1">
             <router-link :to="{ name: 'SoukProduct', params: { name: c.name } }"
-                         class="bg-white rounded-[10px] p-[9px] flex flex-col gap-[7px] ring-inset text-stone-900"
-                         :class="hot(c) ? 'ring-[1.5px] ring-rose-600' : 'ring-1 ring-stone-200 hover:ring-stone-400'">
+                         class="card bg-white rounded-xl p-[10px] flex flex-col gap-[7px] ring-inset text-stone-900"
+                         :class="hot(c) ? 'ring-[1.5px] ring-rose-600' : 'ring-1 ring-stone-200/80 hover:ring-[rgb(var(--st)/.5)]'">
               <div class="flex gap-2 items-start">
                 <Thumb :src="c.image" />
                 <div class="min-w-0 flex-1 flex flex-col gap-px">
@@ -200,7 +207,8 @@
               </div>
               <div class="flex items-center justify-between gap-2">
                 <span class="text-[11px] font-bold px-[7px] py-0.5 rounded-md tabular-nums whitespace-nowrap truncate"
-                      :class="c.error || c.late ? 'bg-rose-50 text-rose-700' : 'bg-stone-100 text-stone-700'">{{ agePill(c) }}</span>
+                      :class="c.error || c.late ? 'bg-rose-50 text-rose-700' : 'st-tint st-ink'">
+                  <Icon :name="c.error || c.late ? 'alert-triangle' : 'clock'" :size="11" class="inline -mt-px me-0.5" />{{ agePill(c) }}</span>
                 <span v-if="c.claimedBy" role="img"
                       class="w-[22px] h-[22px] shrink-0 rounded-full ring-1 ring-inset text-[11px] font-bold flex items-center justify-center"
                       :class="c.claimedBy === data.me ? 'bg-[var(--accent-50)] ring-[var(--accent-300)] text-[var(--accent-700)]' : 'bg-stone-100 ring-stone-300 text-stone-700'"
@@ -213,17 +221,17 @@
               </div>
             </router-link>
             <router-link v-if="c.stage === 'bought' && c.po && data.canReceive" :to="{ name: 'SoukReceive', params: { po: c.po } }"
-                         class="act bg-[var(--accent-600)] hover:bg-[var(--accent-700)]">{{ t('souk.receiveBtn') }}</router-link>
+                         class="act st-solid"><Icon name="package-check" :size="15" />{{ t('souk.receiveBtn') }}</router-link>
             <router-link v-if="c.stage === 'photos' && data.canPhoto" :to="{ name: 'SoukPhoto', params: { name: c.name } }"
-                         class="act bg-stone-900">{{ t('souk.shootBtn') }}</router-link>
+                         class="act st-solid"><Icon name="camera" :size="15" />{{ t('souk.shootBtn') }}</router-link>
             <router-link v-if="c.stage === 'studio' && data.canStudio" :to="{ name: 'SoukStudio', params: { name: c.name } }"
-                         class="act bg-stone-900">{{ t('souk.finalsBtn') }}</router-link>
+                         class="act st-solid"><Icon name="sparkles" :size="15" />{{ t('souk.finalsBtn') }}</router-link>
             <router-link v-if="c.stage === 'content' && data.canContent" :to="{ name: 'SoukContent', params: { name: c.name } }"
-                         class="act bg-stone-900">{{ t('souk.contentBtn') }}</router-link>
+                         class="act st-solid"><Icon name="notebook-pen" :size="15" />{{ t('souk.contentBtn') }}</router-link>
             <router-link v-if="c.stage === 'review' && data.canReview" :to="{ name: 'SoukReview', params: { name: c.name } }"
-                         class="act bg-[var(--accent-600)] hover:bg-[var(--accent-700)]">{{ t('souk.reviewBtn') }}</router-link>
+                         class="act st-solid"><Icon name="clipboard-check" :size="15" />{{ t('souk.reviewBtn') }}</router-link>
           </div>
-          <div v-if="!col(s).length" class="text-center text-[12px] text-stone-500 py-4">—</div>
+          <div v-if="!col(s).length" class="text-center text-[12px] st-ink opacity-60 py-5 rounded-xl border border-dashed border-[rgb(var(--st)/.3)]">—</div>
         </section>
       </div>
       <p v-if="filtered && !shown.length" class="text-center text-[13px] text-stone-500 py-3">{{ t('souk.lb.none') }}</p>
@@ -235,6 +243,7 @@
 <script setup>
 import { ref, computed, onMounted, h } from "vue";
 import Icon from "@/components/ui/Icon.vue";
+import { stageClass, stageIcon } from "@/souk/stages";
 import { api } from "@/lib/resource";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
@@ -378,12 +387,8 @@ const timeSegs = computed(() => {
   const seen = new Set();
   const segs = order.filter((s) => st[s] && st[s].avg > 0 && !seen.has(s) && seen.add(s))
     .map((s) => ({ s, avg: st[s].avg, n: st[s].n, limit: Number(days[s]) || 0, over: !!days[s] && st[s].avg > days[s] }));
-  // Design: the stage that eats the most time is terracotta, the rest step
-  // through the stone greys (dark text on the lightest one).
-  const top = segs.reduce((b, g) => (!b || g.avg > b.avg ? g : b), null);
-  const greys = ["bg-stone-600 text-white", "bg-stone-500 text-white", "bg-stone-400 text-stone-900"];
-  let k = 0;
-  return segs.map((g) => ({ ...g, cls: g === top ? "bg-[var(--accent-600)] text-white" : greys[k++ % greys.length] }));
+  // Each segment wears its stage's colour, the same as its board column.
+  return segs.map((g) => ({ ...g, cls: stageClass(g.s) + " st-solid" }));
 });
 const timeTotal = computed(() => timeSegs.value.reduce((a, g) => a + g.avg, 0) || 1);
 
@@ -403,12 +408,13 @@ onMounted(load);
 <style scoped>
 /* KPI tile — design: white, radius 12, 1px inset #e7e5e4, 14px 16px. */
 .tile {
-  display: flex; flex-direction: column; gap: 2px; min-width: 0;
-  padding: 14px 16px; border-radius: 12px; background: #fff;
-  box-shadow: inset 0 0 0 1px rgb(231 229 228);
+  display: flex; flex-direction: column; gap: 3px; min-width: 0;
+  padding: 14px 16px; border-radius: 16px;
+  background: linear-gradient(160deg, rgb(var(--st) / .09), #fff 55%);
+  box-shadow: inset 0 0 0 1px rgb(var(--st) / .18), 0 1px 2px rgba(28, 25, 23, .04);
 }
-.tile-late { background: rgb(255 241 242); box-shadow: inset 0 0 0 1px rgb(254 205 211); }
-.tile-k { font-size: 12px; font-weight: 600; color: rgb(120 113 108); }
+.tile-late { background: linear-gradient(160deg, rgb(255 228 230), rgb(255 241 242) 60%); box-shadow: inset 0 0 0 1px rgb(254 205 211); }
+.tile-k { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: rgb(87 83 78); margin-bottom: 4px; }
 .tile-v { font-size: 24px; font-weight: 800; line-height: 1.33; font-variant-numeric: tabular-nums; }
 .tile-u { font-size: 14px; font-weight: 600; color: rgb(120 113 108); }
 .tile-s { font-size: 12px; color: rgb(87 83 78); font-variant-numeric: tabular-nums; }
@@ -416,10 +422,10 @@ onMounted(load);
   .tile { padding: 12px 14px; }
   .tile-v { font-size: 21px; }
 }
-:global(html[data-theme="dark"]) .tile { background: #292524; box-shadow: inset 0 0 0 1px rgb(68 64 60); }
-:global(html[data-theme="dark"]) .tile-late { background: rgba(136, 19, 55, .3); box-shadow: inset 0 0 0 1px #9f1239; }
-:global(html[data-theme="dark"]) .tile-k, :global(html[data-theme="dark"]) .tile-u { color: #a8a29e; }
-:global(html[data-theme="dark"]) .tile-s { color: #c0bbb5; }
+:global(html[data-theme="dark"] .tile) { background: linear-gradient(160deg, rgb(var(--st) / .14), #292524 60%); box-shadow: inset 0 0 0 1px rgb(var(--st) / .25); }
+:global(html[data-theme="dark"] .tile-late) { background: rgba(136, 19, 55, .3); box-shadow: inset 0 0 0 1px #9f1239; }
+:global(html[data-theme="dark"] .tile-k), :global(html[data-theme="dark"] .tile-u) { color: #a8a29e; }
+:global(html[data-theme="dark"] .tile-s) { color: #c0bbb5; }
 
 /* Filter chip — design: 30px pill, 12px/600, white + 1px inset ring;
    touch screens keep a 44px target. */
@@ -428,17 +434,26 @@ onMounted(load);
   white-space: nowrap; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;
   background: #fff; color: rgb(68 64 60); box-shadow: inset 0 0 0 1px rgb(231 229 228);
 }
-.chip-on { background: rgb(28 25 23); color: #fff; box-shadow: none; }
-.chip-set { box-shadow: inset 0 0 0 1.5px rgb(28 25 23); color: rgb(28 25 23); }
+.chip-on { background: var(--accent-600); color: #fff; box-shadow: 0 3px 10px -4px rgba(196, 73, 42, .6); }
+.chip-set { box-shadow: inset 0 0 0 1.5px var(--accent-600); color: var(--accent-700); background: var(--accent-50); }
 .chip-select { max-width: 220px; padding-inline-end: 2rem; }
 @media (min-width: 1024px) { .chip { height: 30px; } }
-:global(html[data-theme="dark"]) .chip:not(.chip-on) { background: #292524; color: #d6d3d1; box-shadow: inset 0 0 0 1px rgb(68 64 60); }
-:global(html[data-theme="dark"]) .chip-on { background: #f5f5f4; color: #1c1917; }
+:global(html[data-theme="dark"] .chip:not(.chip-on)) { background: #292524; color: #d6d3d1; box-shadow: inset 0 0 0 1px rgb(68 64 60); }
+:global(html[data-theme="dark"] .chip-on) { background: var(--accent-600); color: #fff; }
 
 /* The next-step button under a card. */
 .act {
-  display: flex; align-items: center; justify-content: center; height: 2.75rem;
-  border-radius: 8px; color: #fff; font-size: 13px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; gap: 6px; height: 2.75rem;
+  border-radius: 10px; font-size: 13px; font-weight: 700;
+  box-shadow: 0 3px 10px -5px rgb(var(--st) / .9);
 }
+.act:hover { filter: brightness(.94); }
+
+/* A stage column: its colour, softly, top to bottom; a 3px cap in the colour. */
+.colm { background: linear-gradient(180deg, rgb(var(--st) / .13), rgb(var(--st) / .05) 220px);
+  box-shadow: inset 0 3px 0 rgb(var(--st)); }
+.card { box-shadow: 0 1px 2px rgba(28, 25, 23, .05); transition: box-shadow .15s, transform .15s; }
+@media (hover: hover) { .card:hover { box-shadow: 0 6px 16px -8px rgba(28, 25, 23, .25); } }
+:global(html[data-theme="dark"] .card) { background: #292524; color: #f5f5f4; }
 @media (min-width: 1024px) { .act { height: 2rem; } }
 </style>
