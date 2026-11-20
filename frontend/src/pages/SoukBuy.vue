@@ -231,6 +231,28 @@
             </div>
           </div>
 
+          <!-- the same stall twice? the phone or a name that reads the same -->
+          <div v-if="!f.stall && stMatch.length && !f.newStall.sure" role="status"
+               class="rounded-xl bg-amber-50 ring-1 ring-inset ring-amber-200 p-3 flex flex-col gap-2">
+            <span class="text-[13px] font-bold text-amber-900 inline-flex items-center gap-1.5">
+              <Icon name="alert-triangle" :size="14" />{{ t('souk.stl.didYouMean') }}
+            </span>
+            <button v-for="m in stMatch" :key="m.name" type="button" @click="useMatch(m)"
+                    class="lp-tap min-h-11 flex items-center gap-2.5 rounded-lg bg-white ring-1 ring-inset ring-amber-200 px-2.5 py-1.5 text-start">
+              <img v-if="m.photo" :src="m.photo" alt="" class="w-9 h-9 rounded-md object-cover shrink-0" />
+              <span v-else class="sk-ico sk-ico-sm"><Icon name="store" :size="14" /></span>
+              <span class="min-w-0 flex-1 flex flex-col">
+                <span class="text-[14px] font-semibold text-stone-900 truncate" dir="ltr">{{ m.label }}</span>
+                <span class="text-[12px] text-stone-600 truncate">
+                  {{ m.why === 'phone' ? t('souk.stl.samePhone') : t('souk.stl.sameName') }}<template v-if="m.place"> · {{ m.place }}</template><template v-if="m.phone"> · <span dir="ltr">{{ m.phone }}</span></template>
+                </span>
+              </span>
+              <span class="shrink-0 text-[12px] font-bold st-ink">{{ t('souk.stl.useIt') }}</span>
+            </button>
+            <button type="button" class="self-start text-[13px] font-semibold text-stone-700 underline underline-offset-2 min-h-9"
+                    @click="f.newStall.sure = true">{{ t('souk.stl.another') }}</button>
+          </div>
+
           <div v-if="tab === 'new' && cat" class="flex items-center justify-between gap-2.5 st-soft rounded-xl px-3 py-2.5">
             <div class="min-w-0 flex flex-col">
               <span class="text-[13px] font-semibold text-stone-700">{{ t('souk.brandOnSite') }}</span>
@@ -654,7 +676,7 @@ const sendError = ref("");
 const draftOk = ref(true);
 const lastCat = ref(readJSON(CAT_KEY, "") || "");
 
-const blank = () => ({ stall: "", newStall: { name: "", phone: "" }, title: "", category: lastCat.value || "", colors: [] });
+const blank = () => ({ stall: "", newStall: { name: "", phone: "", sure: false }, title: "", category: lastCat.value || "", colors: [] });
 const f = reactive(blank());
 const sizes = ref([]);           // [{id, label, code}] — label is what the customer reads, code goes into the SKU
 const qty = reactive({});
@@ -772,6 +794,29 @@ function removeEditing() {
   editSize.value = null;
   if (i >= 0) removeSize(i);
 }
+// A new stall that may already be one: asked while the buyer types.
+const stMatch = ref([]);
+let stTimer = null;
+watch(() => [f.stall, f.newStall.name, f.newStall.phone], ([stall, name, phone], old) => {
+  clearTimeout(stTimer);
+  if (old && (old[1] !== name || old[2] !== phone)) f.newStall.sure = false;
+  const n = (name || "").replace(/[^A-Za-z0-9]/g, "");
+  const p = (phone || "").replace(/\D/g, "");
+  if (stall || (n.length < 3 && p.length < 9)) { stMatch.value = []; return; }
+  stTimer = setTimeout(async () => {
+    try {
+      const r = await api("souk_stalls.similar_stalls", { name, phone });
+      if (f.newStall.name === name && f.newStall.phone === phone) stMatch.value = (r && r.rows) || [];
+    } catch (_) { stMatch.value = []; }
+  }, 450);
+});
+function useMatch(m) {
+  if (boot.value && !boot.value.stalls.some((s) => s.name === m.name)) boot.value.stalls.unshift({ name: m.name, label: m.label });
+  f.stall = m.name;
+  f.newStall = { name: "", phone: "", sure: false };
+  stMatch.value = [];
+}
+
 // "+" beside the stall list: a new stall, typed below.
 function newStall() {
   f.stall = "";

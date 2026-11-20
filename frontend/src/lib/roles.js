@@ -392,6 +392,7 @@ export const ROLE_CONFIG = {
         items: [
           { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
           { to: "SoukBuy", label: "nav.soukBuy", icon: "shopping-bag" },
+          { to: "SoukStalls", label: "nav.soukStalls", icon: "store" },
           { to: "SoukBoard", label: "nav.soukBoard", icon: "kanban" },
         ],
       },
@@ -405,6 +406,7 @@ export const ROLE_CONFIG = {
         section: "nav.souk",
         items: [
           { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
+          { to: "SoukStalls", label: "nav.soukStalls", icon: "store" },
           { to: "SoukBoard", label: "nav.soukBoard", icon: "kanban" },
           // Only the accounts section is theirs (custody cash, loss accounts).
           { to: "SoukSettings", label: "nav.settings", icon: "settings" },
@@ -579,6 +581,7 @@ const SOUK_MANAGER = {
         { to: "SoukBoard", label: "nav.soukBoard", icon: "kanban" },
         { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
         { to: "SoukBuy", label: "nav.soukBuy", icon: "shopping-bag" },
+        { to: "SoukStalls", label: "nav.soukStalls", icon: "store" },
       ],
     },
     {

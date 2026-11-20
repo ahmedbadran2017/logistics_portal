@@ -55,6 +55,7 @@ export default {
     souk: "Sourcing souk",
     soukBoard: "Tableau de lancement",
     soukBuy: "Acheter",
+    soukStalls: "Boutiques",
     soukCustody: "Caisse",
     soukPortal: "Portail sourcing souk",
     soukPortalShort: "Sourcing souk",

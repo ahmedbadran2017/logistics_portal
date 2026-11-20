@@ -1036,6 +1036,13 @@ def upload_photo(kind, target):
         # Proof for the stall (Debit Note) or for our loss accounts.
         _gate_receive()
         dt, dn, field = "Purchase Order", target, None
+    elif kind == "stall":
+        # The storefront, on the Supplier's own image.
+        from logistics_portal.api import souk_stalls
+        souk_stalls._gate()
+        if frappe.db.get_value("Supplier", target, "supplier_group") != SUPPLIER_GROUP:
+            frappe.throw("Unknown stall.")
+        dt, dn, field = "Supplier", target, "image"
     elif kind == "receipt":
         if frappe.db.exists("Purchase Order", target):
             _souk_po(target)
@@ -1226,24 +1233,16 @@ def _souk_po_sql(alias="po"):
 
 def _resolve_stall(stall, new_stall):
     """An existing stall, or a new one: one Supplier per stall, in the souk
-    group, plain English capitals so it reads the same on every paper."""
+    group, plain English capitals so it reads the same on every paper. A new
+    stall whose phone is already a stall's is refused unless the buyer said
+    it is another one (souk_stalls.create)."""
     if stall:
         if not frappe.db.exists("Supplier", stall):
             frappe.throw("Unknown stall.")
         return stall
+    from logistics_portal.api import souk_stalls
     ns = new_stall or {}
-    name = re.sub(r"\s+", " ", re.sub(r"[^A-Za-z0-9 &'.-]", "", (ns.get("name") or ""))).strip().upper()
-    if len(name) < 3:
-        frappe.throw("The stall's name, in Latin letters (e.g. AMINE DERB OMAR).")
-    if frappe.db.exists("Supplier", name):
-        return name
-    phone = re.sub(r"[^\d+]", "", ns.get("phone") or "")
-    sup = frappe.get_doc({
-        "doctype": "Supplier", "supplier_name": name, "supplier_group": SUPPLIER_GROUP,
-        "supplier_type": "Company", "country": "Morocco", "default_currency": "MAD",
-        "supplier_details": f"Souk stall · {ns.get('place') or 'Derb Omar'}" + (f" · {phone}" if phone else ""),
-    }).insert(ignore_permissions=True)
-    return sup.name
+    return souk_stalls.create(ns, sure=bool(ns.get("sure")))
 
 
 def _validate_variants(base, colors, sizes, lines, color_map):

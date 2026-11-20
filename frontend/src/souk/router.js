@@ -24,6 +24,10 @@ const routes = [
       { path: "launch", name: "SoukBoard", component: () => import("@/pages/SoukBoard.vue") },
       { path: "custody", name: "SoukTrip", component: () => import("@/pages/SoukTrip.vue") },
       { path: "buy", name: "SoukBuy", component: () => import("@/pages/SoukBuy.vue") },
+      // The stalls: the directory and each one's account (the buyer sees the
+      // balance only; the statement is the manager's and the accountant's).
+      { path: "stalls/:name?", name: "SoukStalls", component: () => import("@/pages/SoukStalls.vue"),
+        meta: { roles: ["manager", "sourcing", "accountant"] } },
       { path: "p/:name", name: "SoukProduct", component: () => import("@/pages/SoukProduct.vue") },
       { path: "receive/:po?", name: "SoukReceive", component: () => import("@/pages/SoukReceive.vue") },
       { path: "photo/:name?", name: "SoukPhoto", component: () => import("@/pages/SoukPhoto.vue") },
