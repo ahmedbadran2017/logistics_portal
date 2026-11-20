@@ -283,6 +283,9 @@ scheduler_events = {
             # Keep the contact center's heavy caches hot (speed dashboard,
             # first-touch, risky set) — cold cost measured at up to 13.7s.
             "logistics_portal.api.contact_center.warm_cc_caches",
+            # A Shopify bundle arrives as a plain stock item; copy its recipe
+            # from Shopify into a Product Bundle and unstick its open orders.
+            "logistics_portal.api.catalog_hub.bundles.sync_tick",
         ],
     },
     # One alert per local supplier per day: an order nobody ordered, or one
