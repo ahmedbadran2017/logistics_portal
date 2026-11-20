@@ -190,8 +190,41 @@
           <template v-if="tab === 'new'">
             <div class="flex flex-col gap-1.5">
               <label for="sb-title" class="text-[13px] font-semibold text-stone-700">{{ t('souk.name') }}</label>
-              <input id="sb-title" v-model="f.title" :placeholder="t('souk.namePh')" autocomplete="off"
-                     class="w-full h-11 rounded-lg ring-1 ring-inset ring-stone-300 bg-white px-3 text-[16px]" @input="lookSimilar" />
+              <div class="flex gap-1.5">
+                <input id="sb-title" v-model="f.title" :placeholder="t('souk.namePh')" autocomplete="off"
+                       class="flex-1 min-w-0 h-11 rounded-lg ring-1 ring-inset ring-stone-300 bg-white px-3 text-[16px]" @input="lookSimilar" />
+                <button type="button" class="shrink-0 w-11 h-11 rounded-xl st-tint st-ink inline-flex items-center justify-center"
+                        :aria-label="t('souk.scan.btn')" :title="t('souk.scan.btn')" @click="openScan('new')">
+                  <Icon name="scan-barcode" :size="18" :stroke-width="2" />
+                </button>
+              </div>
+            </div>
+            <!-- the box's barcode: known = buy it again; unknown = kept on the new product -->
+            <div v-if="f.barcode" class="flex flex-col gap-2">
+              <div class="flex items-center gap-2 text-[12px]">
+                <span class="inline-flex items-center gap-1 rounded-full bg-stone-100 text-stone-800 font-semibold px-2.5 h-7">
+                  <Icon name="scan-barcode" :size="13" />{{ t('souk.scan.label') }} <span class="mono" dir="ltr">{{ f.barcode }}</span>
+                </span>
+                <button type="button" class="h-9 px-2 rounded-lg text-stone-600 underline underline-offset-2" @click="clearBarcode">{{ t('souk.scan.remove') }}</button>
+              </div>
+              <p v-if="bcBusy" class="text-[12px] text-stone-600">{{ t('souk.scan.checking') }}</p>
+              <div v-else-if="bcHits.length && !f.barcodeSure" role="alert" class="rounded-xl bg-rose-50 ring-1 ring-inset ring-rose-200 p-3 flex flex-col gap-2">
+                <span class="text-[14px] font-bold text-rose-800 inline-flex items-center gap-1.5"><Icon name="alert-triangle" :size="15" />{{ t('souk.scan.knownTitle') }}</span>
+                <span class="text-[12px] text-rose-900/80">{{ tt('souk.scan.knownSub', { code: f.barcode }) }}</span>
+                <div v-for="r in bcHits" :key="r.kind + r.key" class="bg-white rounded-lg ps-2 pe-1 py-1 flex items-center gap-2">
+                  <img v-if="r.image" :src="r.image" class="w-10 h-10 rounded-md object-cover shrink-0" alt="" loading="lazy" />
+                  <div v-else class="w-10 h-10 rounded-md bg-stone-100 shrink-0 flex items-center justify-center"><Icon name="package" :size="14" class="text-stone-500" /></div>
+                  <div class="flex-1 min-w-0 flex flex-col">
+                    <span class="text-[13px] font-semibold text-stone-900 truncate" dir="auto">{{ r.title }}</span>
+                    <span class="text-[12px] text-stone-600 truncate"><span class="mono" dir="ltr">{{ r.sku }}</span> ·
+                      <span :class="r.stock > 0 ? 'text-emerald-700 font-semibold' : ''">{{ r.stock > 0 ? tt('souk.buy.onShelf', { n: r.stock }) : t('souk.buy.noneOnShelf') }}</span></span>
+                  </div>
+                  <button class="shrink-0 h-11 px-3 rounded-lg st-solid text-[13px] font-bold" @click="startAgain(r)">{{ t('souk.buyAgain') }}</button>
+                </div>
+                <button type="button" class="self-start min-h-9 text-[13px] font-semibold text-stone-700 underline underline-offset-2" @click="f.barcodeSure = true">{{ t('souk.scan.different') }}</button>
+              </div>
+              <p v-else-if="bcHits.length" class="text-[12px] text-amber-800">{{ t('souk.scan.differentNote') }}</p>
+              <p v-else class="text-[12px] text-emerald-800">{{ tt('souk.scan.isNew', { code: f.barcode }) }}</p>
             </div>
             <div class="flex flex-col gap-1.5">
               <label for="sb-cat" class="text-[13px] font-semibold text-stone-700">{{ t('souk.category') }}</label>
@@ -451,8 +484,15 @@
         <template v-else>
           <section class="sk-sec st-buying p-3.5 flex flex-col gap-1.5">
             <label for="sb-find" class="text-[13px] font-bold text-stone-800 inline-flex items-center gap-2"><span class="sk-ico sk-ico-sm"><Icon name="search" :size="14" /></span>{{ t('souk.findProduct') }}</label>
-            <input id="sb-find" v-model="againQ" :placeholder="t('souk.findPh')" autocomplete="off"
-                   class="w-full h-11 rounded-lg ring-1 ring-inset ring-stone-300 bg-white px-3 text-[16px]" @input="lookAgain" />
+            <div class="flex gap-1.5">
+              <input id="sb-find" v-model="againQ" :placeholder="t('souk.findPh')" autocomplete="off"
+                     class="flex-1 min-w-0 h-11 rounded-lg ring-1 ring-inset ring-stone-300 bg-white px-3 text-[16px]" @input="lookAgain" />
+              <button type="button" class="shrink-0 w-11 h-11 rounded-xl st-tint st-ink inline-flex items-center justify-center"
+                      :aria-label="t('souk.scan.btn')" :title="t('souk.scan.btn')" @click="openScan('again')">
+                <Icon name="scan-barcode" :size="18" :stroke-width="2" />
+              </button>
+            </div>
+            <p v-if="againBarcode && againNone && !again" class="text-[12px] text-amber-800">{{ tt('souk.scan.againNone', { code: againBarcode }) }}</p>
             <div v-if="againRows.length && !again" class="flex flex-col gap-1.5 pt-1">
               <button v-for="r in againRows" :key="r.kind + r.key"
                       class="w-full min-h-[56px] p-2 rounded-lg ring-1 ring-inset ring-stone-200 flex items-center gap-2.5 text-start hover:bg-stone-50" @click="startAgain(r)">
@@ -593,6 +633,7 @@
         </button>
       </div>
     </footer>
+    <BarcodeScan v-model:open="scanOpen" @code="onCode" />
   </div>
 </template>
 
@@ -603,6 +644,7 @@ import Icon from "@/components/ui/Icon.vue";
 import { swatch } from "@/souk/stages";
 import { api, apiPost } from "@/lib/resource";
 import { shrink } from "@/lib/soukPhoto";
+import BarcodeScan from "@/souk/BarcodeScan.vue";
 import { outbox, enqueue, onDone, newKey, flush, retry as retryJob, discard as discardJob } from "@/lib/soukOutbox";
 import { useI18n } from "@/composables/useI18n";
 import { useToast } from "@/composables/useToast";
@@ -676,7 +718,8 @@ const sendError = ref("");
 const draftOk = ref(true);
 const lastCat = ref(readJSON(CAT_KEY, "") || "");
 
-const blank = () => ({ stall: "", newStall: { name: "", phone: "", sure: false }, title: "", category: lastCat.value || "", colors: [] });
+const blank = () => ({ stall: "", newStall: { name: "", phone: "", sure: false }, title: "", category: lastCat.value || "", colors: [],
+                       barcode: "", barcodeSure: false });
 const f = reactive(blank());
 const sizes = ref([]);           // [{id, label, code}] — label is what the customer reads, code goes into the SKU
 const qty = reactive({});
@@ -906,6 +949,7 @@ const why = computed(() => {
     if (r) return W("cost", { z: r.sku });
   } else {
     if (f.title.trim().length < 3) return W("title");
+    if (f.barcode && bcHits.value.length && !f.barcodeSure) return t("souk.scan.why");
     if (!f.category) return W("category");
     if (!stallOk.value) return W("stall");
     const bad = namedSizes.value.find((s) => !effCode(s));
@@ -971,7 +1015,7 @@ function lookSimilar() {
   simTimer = setTimeout(async () => {
     const q = f.title.trim();
     if (q.length < 3) { similarRows.value = []; return; }
-    try { similarRows.value = (await api("souk.similar", { q })).rows.slice(0, 4); } catch (_) { /* advisory only */ }
+    try { similarRows.value = (await api("souk.similar", { q, category: f.category || "" })).rows.slice(0, 4); } catch (_) { /* advisory only */ }
   }, 450);
 }
 let agTimer = null;
@@ -983,6 +1027,55 @@ function lookAgain() {
     try { againRows.value = (await api("souk.similar", { q })).rows; } catch (_) { /* advisory only */ }
   }, 400);
 }
+// ── the box's barcode ────────────────────────────────────────────────────────
+// Scanned on "new": known = the buyer is shown the product to buy again (the
+// server refuses a new one unless they say it is different); unknown = kept
+// on the new product. Scanned on "again": one match opens it straight away.
+const scanOpen = ref(false);
+const scanFor = ref("new");
+const bcHits = ref([]);
+const bcBusy = ref(false);
+const againBarcode = ref("");
+const againNone = ref(false);
+function openScan(where) {
+  scanFor.value = where;
+  scanOpen.value = true;
+}
+async function onCode(code) {
+  if (scanFor.value === "again") {
+    againBarcode.value = code;
+    againNone.value = false;
+    again.value = null;
+    try {
+      const rows = (await api("souk.similar", { barcode: code })).rows || [];
+      if (rows.length === 1) startAgain(rows[0]);
+      else { againRows.value = rows; againNone.value = !rows.length; }
+    } catch (e) {
+      warn(t("souk.failed"), String(e.message || e));
+    }
+    return;
+  }
+  f.barcodeSure = false;
+  f.barcode = code;
+}
+function clearBarcode() {
+  f.barcode = "";
+  f.barcodeSure = false;
+  bcHits.value = [];
+}
+// Also after a draft comes back with a barcode in it.
+watch(() => f.barcode, async (code) => {
+  bcHits.value = [];
+  if (!code) return;
+  bcBusy.value = true;
+  try {
+    const rows = (await api("souk.similar", { barcode: code })).rows || [];
+    if (f.barcode === code) bcHits.value = rows;
+  } catch (_) { /* the server checks again at submit */ } finally {
+    bcBusy.value = false;
+  }
+}, { immediate: true });
+
 async function startAgain(r) {
   tab.value = "again";
   try {
@@ -1053,6 +1146,7 @@ function clearForm() {
   refFile.value = null; refPreview.value = "";
   receiptFile.value = null; receiptPreview.value = "";
   similarRows.value = []; similarHidden.value = [];
+  bcHits.value = []; againBarcode.value = ""; againNone.value = false;
   again.value = null; againQ.value = ""; againRows.value = [];
   clientKey.value = "";
   sendError.value = "";
@@ -1133,6 +1227,7 @@ async function submit() {
                                            qty: l.qty, cost: l.cost, price: l.price })),
           payment: { method: pay.method, ref: pay.ref.trim(), due: pay.due },
           clientKey: clientKey.value,
+          ...(f.barcode ? { barcode: f.barcode, barcodeSure: !!f.barcodeSure } : {}),
         },
       };
     } else {
@@ -1143,6 +1238,8 @@ async function submit() {
           lines: againLines.value.map((x) => ({ itemCode: x.itemCode, qty: Number(x.qty), cost: Number(x.cost) })),
           payment: { method: pay.method, ref: pay.ref.trim(), due: pay.due },
           clientKey: clientKey.value,
+          // Scanned but unknown, then found by name: the catalogue learns it.
+          ...(againBarcode.value && againNone.value ? { barcode: againBarcode.value } : {}),
         },
       };
     }

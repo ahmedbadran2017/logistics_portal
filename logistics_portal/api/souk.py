@@ -1142,53 +1142,199 @@ def _last_pay_by_stall():
     return out
 
 
-@frappe.whitelist()
-def similar(q=""):
-    """Before buying: do we already sell something like this? Souk products
-    first (with their last stall), then the catalogue by name."""
-    _gate_view()
-    q = (q or "").strip()
-    if len(q) < 3:
-        return {"rows": []}
-    like = f"%{q}%"
+# --- do we already have it? -----------------------------------------------------
+# Two ways in (Ahmed, 2026-11-20): the barcode printed on the box — exact,
+# 47k catalogue items carry one — and the words of the name, each on its own
+# and in any order ("boite rangement" finds "Boîte de rangement"; the old
+# whole-phrase LIKE missed half). The catalogue is French (19 Arabic names in
+# 160k), so Arabic words mostly find souk products, whose titles the buyer wrote.
+
+_STOP = {"de", "du", "des", "la", "le", "les", "un", "une", "et", "en", "pour", "avec", "au", "aux",
+         "sur", "the", "of", "and", "for", "with", "pcs", "pc", "pieces", "piece",
+         "من", "في", "على", "مع", "او", "عن", "الى", "قطعه", "قطع"}
+_AR_FOLD = str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي", "ة": "ه", "ؤ": "و", "ئ": "ي", "ـ": ""})
+
+
+def _fold(text):
+    """Lower case, no accents, no Arabic diacritics, one alef / ya / ha."""
+    import unicodedata
+    t = unicodedata.normalize("NFKD", str(text or "").lower())
+    return "".join(ch for ch in t if not unicodedata.combining(ch)).translate(_AR_FOLD)
+
+
+def _tokens(q):
     out = []
+    for w in re.findall(r"\w+", _fold(q)):
+        if w in _STOP or len(w) < 2:
+            continue
+        if re.fullmatch(r"[\u0600-\u06ff]+", w) and w.startswith("ال") and len(w) >= 5:
+            w = w[2:]                       # الصحون → صحون
+        elif re.fullmatch(r"[a-z]+", w) and len(w) >= 5 and w[-1] in "sx":
+            w = w[:-1]                      # boites → boite, plateaux → plateau
+        if w not in out:
+            out.append(w)
+    return out[:6]
+
+
+def _need(n):
+    """Words that must match: all of one or two, all but one of more."""
+    return n if n <= 2 else n - 1
+
+
+def _barcode_norm(v):
+    v = re.sub(r"\s+", "", str(v or ""))[:40]
+    return v if re.fullmatch(r"[A-Za-z0-9-]{4,40}", v) else ""
+
+
+def _barcode_forms(code):
+    """EAN-13 and UPC-A are the same number with or without a leading 0."""
+    out = [code]
+    if code.isdigit():
+        if len(code) == 12:
+            out.append("0" + code)
+        elif len(code) == 13 and code.startswith("0"):
+            out.append(code[1:])
+    return tuple(out)
+
+
+def _barcode_hits(code):
+    forms = _barcode_forms(code)
+    out, seen = [], set()
     for p in frappe.db.sql(
             f"""SELECT name, title, stage, supplier, ref_image, variants_json FROM `tab{DT_PRODUCT}`
-                WHERE (title LIKE %s OR name LIKE %s) AND stage != 'dropped'
-                ORDER BY creation DESC LIMIT 5""", (like, like), as_dict=True):
+                WHERE stage != 'dropped' AND ({" OR ".join(["variants_json LIKE %s"] * len(forms))})
+                ORDER BY creation DESC LIMIT 5""",
+            tuple(f'%"boxBarcode": "{f}"%' for f in forms), as_dict=True):
         codes = [v.get("itemCode") for v in (_loads(p.variants_json) or []) if v.get("itemCode")]
-        out.append({"kind": "souk", "key": p.name, "sku": p.name, "title": p.title,
-                    "stage": p.stage, "stall": p.supplier or "", "image": p.ref_image or "", "codes": codes})
-    for i in frappe.db.sql(
-            """SELECT name, custom_sku, item_name, image FROM `tabItem`
-               WHERE disabled = 0 AND has_variants = 0 AND (item_name LIKE %s OR custom_sku LIKE %s)
-               ORDER BY modified DESC LIMIT 6""", (like, like), as_dict=True):
+        seen.update(codes)
+        out.append({"kind": "souk", "key": p.name, "sku": p.name, "title": p.title, "stage": p.stage,
+                    "stall": p.supplier or "", "image": p.ref_image or "", "codes": codes, "exact": True})
+    # Three indexed lookups (barcode, SKU — many catalogue SKUs ARE the EAN —
+    # and the item code), each on its own: one OR / UNION subquery makes the
+    # planner scan the 160k items (2.3 s on prod, 2026-11-20).
+    names = set()
+    for sql in ("SELECT parent FROM `tabItem Barcode` WHERE barcode IN %(f)s",
+                "SELECT name FROM `tabItem` WHERE custom_sku IN %(f)s",
+                "SELECT name FROM `tabItem` WHERE name IN %(f)s"):
+        names.update(r[0] for r in frappe.db.sql(sql, {"f": forms}))
+    found = frappe.db.sql(
+        """SELECT name, custom_sku, item_name, image FROM `tabItem`
+           WHERE name IN %(n)s AND disabled = 0 AND has_variants = 0 LIMIT 6""",
+        {"n": tuple(names)}, as_dict=True) if names else []
+    for i in found:
+        if i.name in seen:
+            continue
         last = _last_stall(i.name)
-        out.append({"kind": "item", "key": i.name, "sku": i.custom_sku or i.name,
-                    "title": i.item_name, "stage": "", "stall": (last or {}).get("supplier") or "",
-                    "image": i.image or "", "codes": [i.name]})
-    out = out[:10]
+        out.append({"kind": "item", "key": i.name, "sku": i.custom_sku or i.name, "title": i.item_name,
+                    "stage": "", "stall": (last or {}).get("supplier") or "", "image": i.image or "",
+                    "codes": [i.name], "exact": True})
+    return out
+
+
+def _word_hits(q, category=""):
+    toks = _tokens(q)
+    if not toks:
+        return []
+    need = _need(len(toks))
+    scored = []
+    # Souk products: a small table, matched here so Arabic folds as it should.
+    for p in frappe.db.sql(
+            f"""SELECT name, title, stage, supplier, ref_image, variants_json, category FROM `tab{DT_PRODUCT}`
+                WHERE stage != 'dropped' ORDER BY creation DESC LIMIT 3000""", as_dict=True):
+        hay = _fold(f"{p.title} {p.name}")
+        n = sum(1 for t in toks if t in hay)
+        if n >= need:
+            codes = [v.get("itemCode") for v in (_loads(p.variants_json) or []) if v.get("itemCode")]
+            scored.append((n / len(toks) + (0.25 if category and p.category == category else 0) + 0.05, {
+                "kind": "souk", "key": p.name, "sku": p.name, "title": p.title, "stage": p.stage,
+                "stall": p.supplier or "", "image": p.ref_image or "", "codes": codes}))
+    # The catalogue: every word on its own (the DB collation ignores accents).
+    if max(len(t) for t in toks) >= 3:
+        # A word with a digit may be a SKU; plain words are looked for in the
+        # name only (half the scanning).
+        parts, likes = [], []
+        for t in toks:
+            if re.search(r"\d", t):
+                parts.append("(i.item_name LIKE %s OR i.custom_sku LIKE %s)")
+                likes += [f"%{t}%", f"%{t}%"]
+            else:
+                parts.append("(i.item_name LIKE %s)")
+                likes.append(f"%{t}%")
+        rows = frappe.db.sql(
+            f"""SELECT i.name, i.custom_sku, i.item_name, i.image, i.variant_of, ({" + ".join(parts)}) AS score
+                FROM `tabItem` i WHERE i.disabled = 0 AND i.has_variants = 0 AND ({" OR ".join(parts)})
+                HAVING score >= %s ORDER BY score DESC, i.modified DESC LIMIT 80""",
+            tuple(likes + likes + [need]), as_dict=True)
+        souk_codes = {c for _, r in scored for c in r["codes"]}
+        tmpl_seen = set()
+        for i in rows:
+            # One line per product: ten sizes of one template are one answer.
+            group = i.variant_of or i.name
+            if group in tmpl_seen or i.name in souk_codes:
+                continue
+            tmpl_seen.add(group)
+            scored.append((cint(i.score) / len(toks), {
+                "kind": "item", "key": i.name, "sku": i.custom_sku or i.name, "title": i.item_name,
+                "stage": "", "stall": "", "image": i.image or "", "codes": [i.name]}))
+            if len(tmpl_seen) >= 12:
+                break
+    scored.sort(key=lambda x: -x[0])
+    out = [r for _, r in scored[:10]]
+    for r in out:
+        if r["kind"] == "item":
+            r["stall"] = (_last_stall(r["key"]) or {}).get("supplier") or ""
+    return out
+
+
+@frappe.whitelist()
+def similar(q="", barcode="", category=""):
+    """Before buying: do we already sell this? By the box's barcode (exact)
+    or by the words of its name. Each answer says what is on the shelf and
+    when it last sold."""
+    _gate_view()
+    code = _barcode_norm(barcode)
+    if code:
+        out = _barcode_hits(code)
+    else:
+        q = (q or "").strip()
+        if len(q) < 3:
+            return {"rows": []}
+        out = _word_hits(q, category)
     # On the shelf now, and when it last sold: "we have 12" and "sold out
     # since March" are different reasons not to buy it again.
     codes = sorted({c for r in out for c in r["codes"]})
     stock, sold = {}, {}
     if codes:
-        for code, qty in frappe.db.sql(
+        for c, qty in frappe.db.sql(
                 """SELECT item_code, SUM(actual_qty) FROM `tabBin`
                    WHERE item_code IN %s AND warehouse IN (SELECT erpnext_warehouse FROM `tabShopify Warehouse Mapping`)
                    GROUP BY item_code""", (tuple(codes),)):
-            stock[code] = flt(qty)
-        for code, last in frappe.db.sql(
+            stock[c] = flt(qty)
+        for c, last in frappe.db.sql(
                 """SELECT soi.item_code, MAX(so.transaction_date) FROM `tabSales Order Item` soi
                    JOIN `tabSales Order` so ON so.name = soi.parent
                    WHERE soi.item_code IN %s AND so.docstatus = 1
                    GROUP BY soi.item_code""", (tuple(codes),)):
-            sold[code] = str(last or "")
+            sold[c] = str(last or "")
     for r in out:
         r["stock"] = cint(sum(stock.get(c, 0) for c in r["codes"]))
         r["lastSold"] = max((sold.get(c, "") for c in r["codes"]), default="")
         r.pop("codes")
-    return {"rows": out}
+    return {"rows": out, "barcode": code}
+
+
+def _attach_barcode(item_code, code):
+    """Teach the catalogue the box's barcode, so the next buy finds it. A
+    child row written directly: saving the Item would run the Shopify hooks."""
+    code = _barcode_norm(code)
+    if not code or not item_code or not frappe.db.exists("Item", item_code):
+        return False
+    if frappe.db.sql("SELECT 1 FROM `tabItem Barcode` WHERE barcode IN %s LIMIT 1", (_barcode_forms(code),)):
+        return False
+    idx = cint(frappe.db.sql("SELECT MAX(idx) FROM `tabItem Barcode` WHERE parent = %s", item_code)[0][0]) + 1
+    frappe.get_doc({"doctype": "Item Barcode", "parent": item_code, "parenttype": "Item",
+                    "parentfield": "barcodes", "idx": idx, "barcode": code}).db_insert()
+    return True
 
 
 def _client_key(p):
@@ -1316,6 +1462,12 @@ def create_buy(payload):
     color_map = {c["code"]: c for c in s["colors"]}
     colors = [c for c in (p.get("colors") or []) if c]
     sizes = [z for z in (p.get("sizes") or []) if (z or "").strip()]
+    barcode = _barcode_norm(p.get("barcode"))
+    if barcode and not p.get("barcodeSure"):
+        hit = (_barcode_hits(barcode) or [None])[0]
+        if hit:
+            frappe.throw(f"This barcode is already {hit['sku']} · {hit['title']}. Buy it again instead "
+                         "of making a new product, or confirm that the product is different.")
     stall = _resolve_stall(p.get("stall"), p.get("newStall"))
 
     # Reserve the SKU number: the unique name is the lock.
@@ -1324,6 +1476,11 @@ def create_buy(payload):
     for _ in range(5):
         base = f"{prefix}{_next_sku_number(prefix)}"
         variants = _validate_variants(base, colors, sizes, p.get("lines") or [], color_map)
+        if barcode:
+            # The box's barcode, on every variant: the next buy finds the
+            # product by it; the catalogue learns it once the item exists.
+            for v in variants:
+                v["boxBarcode"] = barcode
         total = round(sum(v["qty"] * v["cost"] for v in variants), 2)
         try:
             doc = frappe.get_doc({
@@ -1513,6 +1670,13 @@ def finish_buy(name):
         if frappe.db.get_value("Item", v["itemCode"], "custom_sku") != v["sku"]:
             frappe.db.set_value("Item", v["itemCode"], "custom_sku", v["sku"], update_modified=False)
     doc.db_set("variants_json", json.dumps(variants, ensure_ascii=False))
+    # One variant: the box's barcode is that item's. Several: it is one of
+    # them and we do not know which — the souk card keeps it for matching.
+    if len(variants) == 1 and variants[0].get("boxBarcode"):
+        try:
+            _attach_barcode(variants[0]["itemCode"], variants[0]["boxBarcode"])
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:2000], f"souk barcode {doc.name}")
 
     try:
         # Two calls at once (the phone's outbox and a manual retry) must not
@@ -1666,6 +1830,13 @@ def create_rebuy(payload):
     if not lines:
         frappe.throw("Enter at least one quantity.")
     total = sum(q * c for _, q, c in lines)
+    # Found by name, then its box scanned: the catalogue learns the barcode
+    # (only when one item is bought — with several we would not know whose).
+    if len(lines) == 1 and _barcode_norm(p.get("barcode")):
+        try:
+            _attach_barcode(lines[0][0], p.get("barcode"))
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:2000], "souk rebuy barcode")
     product = p.get("product") if p.get("kind") == "souk" else ""
     po = _make_po(stall, trip.name if trip else "", product, lines, client_key=ckey if keyed else "",
                   pay=pay, buyer=frappe.session.user)
