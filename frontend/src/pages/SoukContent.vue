@@ -149,19 +149,26 @@
                   <Icon name="info" :size="15" class="shrink-0" />{{ t('souk.wr.noFinals') }}
                 </div>
                 <template v-else>
-                  <div v-if="writing" class="flex items-center gap-2.5 rounded-xl st-soft px-3 py-2.5 text-[13px] font-semibold st-ink">
-                    <Icon name="refresh-cw" :size="15" class="animate-spin" />{{ t('souk.wr.writing') }}
+                  <div v-if="writing" class="rounded-xl st-soft px-3 py-2.5 text-[13px] font-semibold st-ink flex flex-col gap-1">
+                    <div class="flex items-center gap-2.5">
+                      <Icon name="refresh-cw" :size="15" class="animate-spin shrink-0" /><span class="min-w-0 flex-1">{{ t('souk.wr.writing') }}</span>
+                      <span v-if="wrElapsed" class="tabular-nums shrink-0" dir="ltr">{{ wrElapsed }}</span>
+                    </div>
+                    <p v-if="wrSlow" class="text-[12px] font-normal text-stone-600">{{ t('souk.wr.slow') }}</p>
                   </div>
                   <div v-else-if="wr.state === 'error'" class="rounded-xl bg-rose-50 ring-1 ring-inset ring-rose-200 px-3 py-2.5 text-[13px] text-rose-800 flex gap-2 items-start">
                     <Icon name="alert-triangle" :size="15" class="shrink-0 mt-0.5" /><span class="min-w-0 break-words">{{ t('souk.wr.failed').replace('{e}', wr.error) }}</span>
                   </div>
 
                   <!-- the suggestion: a short preview, apply, and what to check -->
-                  <div v-if="wr.result && !writing" class="rounded-xl ring-1 ring-inset ring-[rgb(var(--st)/.25)] bg-white overflow-hidden">
+                  <div v-if="wr.result && !writing" ref="wrCard" class="rounded-xl ring-1 ring-inset ring-[rgb(var(--st)/.25)] bg-white overflow-hidden">
                     <div class="px-3 py-2 st-soft flex flex-wrap items-center gap-2">
                       <Icon name="check" :size="14" class="st-fg" />
                       <span class="text-[13px] font-bold st-ink">{{ t('souk.wr.ready') }}</span>
                       <span class="text-[12px] text-stone-500 tabular-nums" dir="ltr">{{ wr.at }}</span>
+                      <span v-if="wrIsApplied" class="ms-auto h-6 px-2 rounded-full bg-emerald-50 ring-1 ring-inset ring-emerald-200 text-emerald-800 text-[12px] font-semibold inline-flex items-center gap-1">
+                        <Icon name="check" :size="12" />{{ t('souk.wr.appliedTag') }}
+                      </span>
                     </div>
                     <div class="px-3 py-2.5 flex flex-col gap-1.5">
                       <div class="text-[14px] font-semibold text-stone-900 break-words" dir="ltr" lang="fr">{{ wr.result.fr.title }}</div>
@@ -176,9 +183,9 @@
                       <p v-else class="text-[13px] text-stone-500">{{ t('souk.wr.none') }}</p>
                     </div>
                     <div class="px-3 py-2.5 border-t border-stone-100 flex flex-wrap items-center gap-2">
-                      <button class="btn btn-st" @click="applyWr"><Icon name="check" :size="14" :stroke-width="2.2" />{{ t('souk.wr.apply') }}</button>
+                      <button v-if="!wrIsApplied" class="btn btn-st" @click="applyWr()"><Icon name="check" :size="14" :stroke-width="2.2" />{{ t('souk.wr.apply') }}</button>
                       <button v-if="undoWr" class="btn btn-line" @click="undoApply"><Icon name="undo-2" :size="14" />{{ t('souk.wr.undo') }}</button>
-                      <span class="text-[12px] text-stone-500 min-w-0 basis-full sm:basis-auto sm:flex-1">{{ t('souk.wr.replaces') }}</span>
+                      <span class="text-[12px] text-stone-500 min-w-0 basis-full sm:basis-auto sm:flex-1">{{ wrIsApplied ? t('souk.wr.applied') : t('souk.wr.replaces') }}</span>
                     </div>
                   </div>
 
@@ -286,12 +293,17 @@
                       {{ t('souk.pub.addCollection') }}
                     </button>
                   </div>
-                  <div v-if="d.canEdit && (addingCol || !c.collections.length)" class="relative">
-                    <Icon name="search" :size="15" class="absolute top-1/2 -translate-y-1/2 start-3 text-stone-400 pointer-events-none" />
-                    <input v-model="colQuery" class="w-full h-11 rounded-lg border border-stone-300 bg-white ps-9 pe-3 text-[14px]" :placeholder="t('souk.collectionSearch')"
-                           :aria-label="t('souk.collectionSearch')" @keydown.esc="colQuery = ''; addingCol = false" />
-                    <div v-if="colQuery.trim()" class="absolute z-10 mt-1 w-full max-h-[240px] overflow-auto bg-white ring-1 ring-stone-200 rounded-lg shadow-lg">
-                      <button v-for="x in colHits" :key="x.id" class="block w-full text-start px-3 py-2.5 text-[13px] hover:bg-stone-50" @click="addCol(x.id)">{{ x.title }}</button>
+                  <div v-if="d.canEdit && (addingCol || !c.collections.length)">
+                    <div class="relative">
+                      <Icon name="search" :size="15" class="absolute top-1/2 -translate-y-1/2 start-3 text-stone-400 pointer-events-none" />
+                      <input v-model="colQuery" class="w-full h-11 rounded-lg border border-stone-300 bg-white ps-9 pe-3 text-[14px]" :placeholder="t('souk.collectionSearch')"
+                             :aria-label="t('souk.collectionSearch')" @keydown.esc="colQuery = ''; addingCol = false" @keydown.enter.prevent="colHits[0] && addCol(colHits[0].id)" />
+                    </div>
+                    <div v-if="colQuery.trim()" class="mt-1.5 max-h-[260px] overflow-auto bg-white ring-1 ring-inset ring-stone-200 rounded-lg divide-y divide-stone-100">
+                      <button v-for="x in colHits" :key="x.id" class="w-full text-start px-3 py-2.5 hover:bg-stone-50 flex items-baseline gap-2 min-w-0" @click="addCol(x.id)">
+                        <span class="text-[13px] font-medium text-stone-900 truncate">{{ x.title }}</span>
+                        <span v-if="x.handle && x.handle !== x.title" class="text-[11px] text-stone-400 truncate" dir="ltr">{{ x.handle }}</span>
+                      </button>
                       <div v-if="!colHits.length" class="px-3 py-2 text-[13px] text-stone-500">—</div>
                     </div>
                   </div>
@@ -459,7 +471,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter, onBeforeRouteUpdate, onBeforeRouteLeave } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
@@ -534,9 +546,20 @@ const marginOf = (g) => {
   return p ? Math.round(((p - g.landed) / p) * 100) : 0;
 };
 const colTitle = (id) => (d.value?.collections || []).find((x) => x.id === id)?.title || id.split("/").pop();
+const fold = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 const colHits = computed(() => {
-  const q = colQuery.value.trim().toLowerCase();
-  return (d.value?.collections || []).filter((x) => !c.value.collections.includes(x.id) && x.title.toLowerCase().includes(q)).slice(0, 30);
+  const words = fold(colQuery.value).split(/[\s,|&-]+/).filter(Boolean);
+  if (!words.length) return [];
+  return (d.value?.collections || [])
+    .filter((x) => !c.value.collections.includes(x.id))
+    .map((x) => {
+      const hay = fold(x.title) + " " + fold(x.handle).replace(/-/g, " ");
+      return { x, hay, start: fold(x.title).startsWith(words[0]) };
+    })
+    .filter((r) => words.every((w) => r.hay.includes(w)))
+    .sort((a, b) => Number(b.start) - Number(a.start))
+    .map((r) => r.x)
+    .slice(0, 40);
 });
 function addCol(id) {
   c.value.collections.push(id);
@@ -731,6 +754,28 @@ const writing = computed(() => !!wr.value && ["queued", "running"].includes(wr.v
 const wrBusy = ref(false);
 const wrNote = ref("");
 const undoWr = ref(null);
+const wrCard = ref(null);
+// Jobs started from this screen are written into the fields as soon as they
+// land: a suggestion nobody applies is a page nobody wrote.
+const wrMine = new Set();
+const wrApplied = ref("");          // "<name>|<at>" of the result now in the fields
+const wrIsApplied = computed(() => !!wr.value?.result && wrApplied.value === `${d.value?.name}|${wr.value.at}`);
+const wrSince = ref(0);
+const wrNow = ref(Date.now());
+let wrClock = null;
+const wrSecs = computed(() => (wrSince.value ? Math.max(0, Math.round((wrNow.value - wrSince.value) / 1000)) : 0));
+const wrElapsed = computed(() => (wrSecs.value ? `${Math.floor(wrSecs.value / 60)}:${String(wrSecs.value % 60).padStart(2, "0")}` : ""));
+const wrSlow = computed(() => wrSecs.value > 120);
+watch(writing, (on) => {
+  clearInterval(wrClock);
+  if (on) {
+    if (!wrSince.value) wrSince.value = Date.now();
+    wrClock = setInterval(() => (wrNow.value = Date.now()), 1000);
+  } else {
+    wrSince.value = 0;
+  }
+}, { immediate: true });
+onBeforeUnmount(() => clearInterval(wrClock));
 let wrTimer = null;
 function setWr(w) {
   if (d.value) data.value = { ...data.value, detail: { ...d.value, write: w } };
@@ -744,7 +789,7 @@ function pollWr() {
       const w = await api("souk_write.poll", { name });
       if (d.value?.name !== name) return;
       setWr(w);
-      if (w.state === "done") success(t("souk.wr.ready"));
+      if (w.state === "done" && !wrMine.has(name)) success(t("souk.wr.ready"));
     } catch (e) {
       /* a missed poll: try again on the next tick */
     }
@@ -754,6 +799,8 @@ function pollWr() {
 async function startWr() {
   wrBusy.value = true;
   try {
+    wrMine.add(d.value.name);
+    wrSince.value = Date.now();
     setWr(await apiPost("souk_write.start", { name: d.value.name, note: wrNote.value.trim() }));
     pollWr();
   } catch (e) {
@@ -762,9 +809,10 @@ async function startWr() {
     wrBusy.value = false;
   }
 }
-function applyWr() {
+function applyWr({ auto = false } = {}) {
   const r = wr.value?.result;
   if (!r) return;
+  wrApplied.value = `${d.value?.name}|${wr.value.at}`;
   undoWr.value = { c: JSON.parse(JSON.stringify(c.value)), tags: tagsText.value };
   c.value.fr = { title: r.fr.title, description: r.fr.description };
   c.value.ar = { title: r.ar.title, description: r.ar.description };
@@ -776,18 +824,29 @@ function applyWr() {
   for (const x of r.tags || []) if (!have.some((h) => h.toLowerCase() === x.toLowerCase())) have.push(x);
   tagsText.value = have.join(", ");
   success(t("souk.wr.applied"));
+  if (auto) nextTick(() => wrCard.value?.scrollIntoView?.({ behavior: "smooth", block: "start" }));
 }
 function undoApply() {
   if (!undoWr.value) return;
   c.value = undoWr.value.c;
   tagsText.value = undoWr.value.tags;
   undoWr.value = null;
+  wrApplied.value = "";
 }
 watch(() => d.value?.name, () => {
   undoWr.value = null;
+  wrApplied.value = "";
   wrNote.value = "";
   pollWr();
 });
+// A job started here lands in the fields, whichever reply brings it: the poll,
+// an autosave's echo, or coming back to this product later.
+watch(() => [d.value?.name, wr.value?.state, wr.value?.at], ([name, state]) => {
+  if (name && state === "done" && wr.value?.result && wrMine.has(name)) {
+    wrMine.delete(name);
+    applyWr({ auto: true });
+  }
+}, { flush: "post" });
 
 async function send() {
   if (!(await save())) {

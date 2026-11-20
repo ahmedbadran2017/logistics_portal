@@ -3954,7 +3954,7 @@ def _desc_html(text):
 _COLLECTIONS_Q = """
 query($after: String) {
   collections(first: 250, after: $after, query: "collection_type:custom") {
-    nodes { id title } pageInfo { hasNextPage endCursor }
+    nodes { id title handle } pageInfo { hasNextPage endCursor }
   }
 }
 """
@@ -3962,14 +3962,14 @@ query($after: String) {
 
 def _collections():
     """Shopify's manual collections (a smart one fills itself from its rules)."""
-    key = "lp_souk_collections"
+    key = "lp_souk_collections2"     # 2: with the handle, searched too
     hit = frappe.cache().get_value(key)
     if hit:
         return hit
     out, after = [], None
     for _i in range(8):
         con = ((_gql()(_COLLECTIONS_Q, {"after": after}).get("data") or {}).get("collections") or {})
-        out += [{"id": n["id"], "title": n["title"]} for n in (con.get("nodes") or [])]
+        out += [{"id": n["id"], "title": n["title"], "handle": n.get("handle") or ""} for n in (con.get("nodes") or [])]
         pi = con.get("pageInfo") or {}
         if not pi.get("hasNextPage"):
             break
