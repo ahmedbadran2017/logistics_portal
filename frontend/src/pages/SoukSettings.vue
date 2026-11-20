@@ -206,6 +206,16 @@
         </div>
       </section>
 
+      <!-- ── selling price: a formula, not typed by the buyer ───────── -->
+      <section v-if="boot.isManager" id="set-price" class="lp-card p-4 space-y-1 scroll-mt-3">
+        <SecHead icon="dollar-sign" :title="t('souk.set.price.title')" :hint="t('souk.set.price.hint')" />
+        <NumRow v-model="form.priceMargin" id="ss-margin" :label="t('souk.set.price.margin')" :hint="t('souk.set.price.marginHint')"
+                unit="%" :min="0" :max="500" :bad="!!errs.days.margin" />
+        <NumRow v-model="form.priceVat" id="ss-vat" :label="t('souk.set.price.vat')" :hint="t('souk.set.price.vatHint')"
+                unit="%" :min="0" :max="30" :bad="!!errs.days.vat" />
+        <p class="text-[12px] text-stone-600 pt-2">{{ t('souk.set.price.example').replace('{p}', priceExample) }}</p>
+      </section>
+
       <!-- ── receiving ──────────────────────────────────────────────── -->
       <section v-if="boot.isManager" id="set-receiving" class="lp-card p-4 space-y-1 scroll-mt-3">
         <SecHead icon="package-check" :title="t('souk.set.receiving.title')" />
@@ -453,7 +463,13 @@ const tt = (k, vars = {}) => {
 const inp = "w-full h-11 rounded-lg bg-white ring-1 ring-stone-300 px-3 text-[15px] text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[var(--accent-500)]";
 const bad = "!ring-rose-400 !ring-2";
 
-const JUMPS = ["sku", "cats", "colors", "days", "receiving", "publish", "ai", "write", "accounts", "log"];
+// What a 100 MAD cost sells at under the rule being edited (sell_price).
+const priceExample = computed(() => {
+  const m = Number(form.priceMargin) || 0;
+  const v = Number(form.priceVat) || 0;
+  return String(Math.ceil(Math.round(100 * (1 + m / 100) * (1 + v / 100) * 1e6) / 1e6));
+});
+const JUMPS = ["sku", "cats", "colors", "days", "price", "receiving", "publish", "ai", "write", "accounts", "log"];
 const JUMP_ICON = { sku: "tag", cats: "layers", colors: "sparkles", days: "clock", receiving: "package-check",
                     publish: "send", ai: "image", write: "pen-line", accounts: "wallet", log: "history" };
 // Which section the reader is in (desk side list): the last one whose top
@@ -478,7 +494,7 @@ const ACCTS = [
 ];
 const SECTION_KEYS = {
   sku: ["skuPrefix", "skuStart"], cats: ["categories"], colors: ["colors"],
-  days: ["stageDays", "escalateDays", "launchDays"], receiving: ["studioSamples"],
+  days: ["stageDays", "escalateDays", "launchDays"], price: ["priceMargin", "priceVat"], receiving: ["studioSamples"],
   publish: ["publishChannels"], ai: ["aiWebPack"], write: ["aiContent"], accounts: ACCOUNT_KEYS, log: [],
 };
 
@@ -765,6 +781,8 @@ const errs = computed(() => {
   range("escalateDays", "escalate", t("souk.set.days.escalate"), form.escalateDays, 1, 90);
   range("launchDays", "launch", t("souk.set.days.launch"), form.launchDays, 1, 60);
   range("studioSamples", "samples", t("souk.set.receiving.samples"), form.studioSamples, 0, 10);
+  range("priceMargin", "margin", t("souk.set.price.margin"), form.priceMargin, 0, 500);
+  range("priceVat", "vat", t("souk.set.price.vat"), form.priceVat, 0, 30);
   if (form.aiWebPack) range("aiWebPack", "aiCap", t("souk.st.setCap"), form.aiWebPack.monthlyCap, 0, 100000);
   if (form.aiContent) range("aiContent", "wrCap", t("souk.wr.setCap"), form.aiContent.monthlyCap, 0, 100000);
   return out;
@@ -784,7 +802,8 @@ function payload() {
     if (k === "categories") out[k] = v.map(({ key, ar, fr, productType, brand }) => ({
       key: key.trim(), ar: ar.trim(), fr: fr.trim(), productType: productType.trim(), brand: brand.trim() }));
     else if (k === "colors") out[k] = v.map(({ code, fr, ar }) => ({ code, fr: fr.trim(), ar: ar.trim() }));
-    else if (k === "skuStart" || k === "escalateDays" || k === "launchDays" || k === "studioSamples") out[k] = Number(v);
+    else if (k === "skuStart" || k === "escalateDays" || k === "launchDays" || k === "studioSamples"
+             || k === "priceMargin" || k === "priceVat") out[k] = Number(v);
     else if (k === "aiWebPack" || k === "aiContent") out[k] = norm(k, v);
     else if (k === "stageDays") out[k] = Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Number(b)]));
     else out[k] = v;

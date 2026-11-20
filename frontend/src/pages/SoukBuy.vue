@@ -2,8 +2,11 @@
   <!-- Souk buying, on the buyer's phone in the market. A NEW product is born
        as a Shopify Draft (vendor = our house brand by category), its Next
        items come from the sync, and a PO on the stall is paid from the
-       custody. BUY AGAIN is a PO only. Backend: souk.create_buy / finish_buy /
-       create_rebuy — always through the outbox (lib/soukOutbox): Derb Omar
+       custody. BUY AGAIN is a PO only. Everything bought at ONE stall is one
+       basket (Ahmed 2026-11-20): the stall and the payment once, N new
+       products + buy-again lines, ONE PO; each new product still gets its own
+       card and moves on alone. Backend: souk.create_basket / finish_basket
+       — always through the outbox (lib/soukOutbox): Derb Omar
        drops the line, so a purchase is a job kept on the phone with its
        photos and a clientKey, never lost and never made twice. The form
        itself is kept on the phone (localStorage) until it is sent.
@@ -42,6 +45,52 @@
 
     <div class="max-w-[520px] mx-auto px-4 flex flex-col gap-3.5" :class="done ? 'pt-7 pb-6' : formMode ? 'pt-3.5 pb-48' : 'pt-3.5 pb-6'">
       <div v-if="loading && !boot" class="h-[320px] lp-card animate-pulse" />
+
+      <!-- ── done: a basket (one PO, N products) ──────────────────────────── -->
+      <template v-else-if="done && done.basket">
+        <div class="flex flex-col items-center gap-2 text-center pt-2 pb-1">
+          <div class="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center shadow-[0_8px_24px_-8px_rgba(5,150,105,.7)] ring-4 ring-emerald-100">
+            <Icon name="check" :size="30" :stroke-width="2.8" />
+          </div>
+          <h1 class="text-[18px] font-bold text-stone-900">{{ tt('souk.basket.doneTitle', { n: done.count, stall: done.stall || '—' }) }}</h1>
+          <p class="text-[13px] text-stone-600">{{ t('souk.basket.doneSub') }}</p>
+        </div>
+        <section class="sk-sec">
+          <div v-for="c in done.cards" :key="c.name || c.title" class="px-3.5 py-3 border-b border-stone-100 flex flex-col gap-1 st-live">
+            <div class="flex items-center gap-2.5">
+              <span class="sk-ico sk-ico-sm"><Icon name="sparkles" :size="14" /></span>
+              <span class="flex-1 min-w-0 text-[14px] font-semibold text-stone-900 truncate" dir="auto">{{ c.title }}</span>
+              <span class="shrink-0 text-[11px] font-bold rounded-md px-[7px] py-0.5 bg-stone-100 text-stone-600">DRAFT</span>
+            </div>
+            <div class="ps-[38px] text-[12px] text-stone-600 mono break-words" dir="ltr">
+              <template v-for="(v, i) in c.variants" :key="v.sku"><template v-if="i"> · </template>{{ v.sku }} ×{{ v.qty }}</template>
+            </div>
+          </div>
+          <div v-for="a in done.again" :key="a.title" class="px-3.5 py-3 border-b border-stone-100 flex items-center gap-2.5 st-live">
+            <span class="sk-ico sk-ico-sm"><Icon name="refresh-cw" :size="14" /></span>
+            <span class="flex-1 min-w-0 text-[14px] font-semibold text-stone-900 truncate" dir="auto">{{ a.title }}</span>
+            <span class="shrink-0 text-[12px] text-stone-600 tabular-nums">{{ a.units }} {{ t('souk.pcs') }}</span>
+          </div>
+          <div class="px-3.5 py-3 flex items-center gap-2.5 st-live">
+            <span class="sk-ico sk-ico-sm"><Icon name="file-text" :size="14" /></span>
+            <div class="flex-1 min-w-0 flex flex-col">
+              <span class="text-[14px] font-semibold text-stone-900">{{ tt('souk.buy.done.poPay', { stall: done.stall || '—', pay: payLabel(done.pay) }) }}</span>
+              <span class="text-start text-[12px] text-stone-600 tabular-nums break-words">
+                <span class="mono" dir="ltr"><template v-if="done.po">{{ done.po }} · </template>{{ fmt(done.amount) }} MAD</span>
+                <span> · {{ done.units }} {{ t('souk.pcs') }}</span>
+              </span>
+            </div>
+          </div>
+        </section>
+        <div v-if="done.left != null" class="sk-wallet rounded-2xl text-white px-4 py-3.5 flex items-center justify-between gap-2">
+          <span class="text-[13px] text-white/80 inline-flex items-center gap-2"><Icon name="wallet" :size="16" />{{ t('souk.leftWithYou') }}</span>
+          <span class="text-[16px] font-extrabold tabular-nums">{{ fmt(done.left) }} MAD</span>
+        </div>
+        <div class="flex flex-col gap-2 pt-2">
+          <button class="h-12 rounded-xl bg-[var(--accent-600)] text-white text-[15px] font-bold px-3 inline-flex items-center justify-center gap-2 shadow-[0_6px_16px_-6px_rgba(196,73,42,.7)]" @click="another"><Icon name="plus" :size="17" :stroke-width="2.4" />{{ t('souk.basket.nextStall') }}</button>
+          <router-link :to="{ name: 'SoukTrip' }" class="h-12 rounded-[10px] bg-white ring-1 ring-inset ring-stone-300 text-stone-900 text-[15px] font-semibold inline-flex items-center justify-center">{{ t('souk.buy.done.trip') }}</router-link>
+        </div>
+      </template>
 
       <!-- ── done (BuyDone) ───────────────────────────────────────────────── -->
       <template v-else-if="done">
@@ -117,7 +166,7 @@
         </section>
 
         <section class="lp-card px-3.5 py-3 space-y-1">
-          <div class="text-[14px] font-bold text-stone-900 truncate">{{ sent.summary.title }}</div>
+          <div class="text-[14px] font-bold text-stone-900 truncate">{{ sent.summary.title }}<template v-if="sent.summary.count > 1"> {{ tt('souk.basket.more', { n: sent.summary.count - 1 }) }}</template></div>
           <div class="text-[13px] text-stone-600 truncate">{{ sent.summary.stall }} · {{ sent.summary.units }} {{ t('souk.pcs') }}</div>
           <div class="text-[15px] font-extrabold tabular-nums text-stone-900">{{ fmt(sent.summary.total) }} MAD</div>
           <div v-if="sent.pending" class="mono text-[12px] text-stone-500" dir="ltr">{{ sent.pending }}</div>
@@ -158,6 +207,106 @@
 
       <!-- ── the form ─────────────────────────────────────────────────────── -->
       <template v-else-if="boot">
+        <!-- THE STALL: once for the whole basket (one stall, one payment, one PO) -->
+        <section class="sk-sec st-buying">
+          <div class="sk-sec-h">
+            <span class="sk-ico"><Icon name="store" :size="16" /></span>
+            <div class="min-w-0 flex flex-col">
+              <h2 class="sk-sec-t">{{ t('souk.stall') }}</h2>
+              <span class="sk-sec-s">{{ t('souk.basket.stallSub') }}</span>
+            </div>
+          </div>
+          <div class="sk-sec-b flex flex-col gap-3">
+          <div class="flex flex-col gap-1.5">
+            <label for="sb-stall" class="text-[13px] font-semibold text-stone-700">{{ t('souk.stall') }}</label>
+            <div class="flex gap-1.5">
+              <select id="sb-stall" v-model="f.stall" class="flex-1 min-w-0 h-11 rounded-lg ring-1 ring-inset ring-stone-300 bg-white px-2.5 text-[15px]">
+                <option value="">{{ t('souk.newStall') }}</option>
+                <option v-for="s in boot.stalls" :key="s.name" :value="s.name">{{ s.label }}</option>
+              </select>
+              <button type="button" class="shrink-0 w-11 h-11 rounded-xl st-tint st-ink inline-flex items-center justify-center"
+                      :aria-label="t('souk.buy.newStallBtn')" :title="t('souk.buy.newStallBtn')" @click="newStall">
+                <Icon name="plus" :size="16" :stroke-width="2.2" />
+              </button>
+            </div>
+          </div>
+          <div v-if="!f.stall" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="flex flex-col gap-1.5">
+              <label for="sb-stall-name" class="text-[13px] font-semibold text-stone-700">{{ t('souk.buy.stallNameLbl') }}</label>
+              <input id="sb-stall-name" v-model="f.newStall.name" dir="ltr" placeholder="AMINE DERB OMAR" autocomplete="off"
+                     class="w-full h-11 rounded-lg ring-1 ring-inset ring-stone-300 bg-white px-3 text-[16px] uppercase" />
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <label for="sb-stall-phone" class="text-[13px] font-semibold text-stone-700">{{ t('souk.buy.stallPhoneLbl') }}</label>
+              <input id="sb-stall-phone" v-model="f.newStall.phone" dir="ltr" inputmode="tel" type="tel" placeholder="06…"
+                     class="w-full h-11 rounded-lg ring-1 ring-inset ring-stone-300 bg-white px-3 text-[16px]" />
+            </div>
+          </div>
+
+          <!-- the same stall twice? the phone or a name that reads the same -->
+          <div v-if="!f.stall && stMatch.length && !f.newStall.sure" role="status"
+               class="rounded-xl bg-amber-50 ring-1 ring-inset ring-amber-200 p-3 flex flex-col gap-2">
+            <span class="text-[13px] font-bold text-amber-900 inline-flex items-center gap-1.5">
+              <Icon name="alert-triangle" :size="14" />{{ t('souk.stl.didYouMean') }}
+            </span>
+            <button v-for="m in stMatch" :key="m.name" type="button" @click="useMatch(m)"
+                    class="lp-tap min-h-11 flex items-center gap-2.5 rounded-lg bg-white ring-1 ring-inset ring-amber-200 px-2.5 py-1.5 text-start">
+              <img v-if="m.photo" :src="m.photo" alt="" class="w-9 h-9 rounded-md object-cover shrink-0" />
+              <span v-else class="sk-ico sk-ico-sm"><Icon name="store" :size="14" /></span>
+              <span class="min-w-0 flex-1 flex flex-col">
+                <span class="text-[14px] font-semibold text-stone-900 truncate" dir="ltr">{{ m.label }}</span>
+                <span class="text-[12px] text-stone-600 truncate">
+                  {{ m.why === 'phone' ? t('souk.stl.samePhone') : t('souk.stl.sameName') }}<template v-if="m.place"> · {{ m.place }}</template><template v-if="m.phone"> · <span dir="ltr">{{ m.phone }}</span></template>
+                </span>
+              </span>
+              <span class="shrink-0 text-[12px] font-bold st-ink">{{ t('souk.stl.useIt') }}</span>
+            </button>
+            <button type="button" class="self-start text-[13px] font-semibold text-stone-700 underline underline-offset-2 min-h-9"
+                    @click="f.newStall.sure = true">{{ t('souk.stl.another') }}</button>
+          </div>
+
+          </div>
+        </section>
+
+        <!-- THE BASKET: what is already added from this stall -->
+        <section v-if="basket.products.length || basket.again.length" class="sk-sec st-buying" aria-labelledby="sb-bk-h">
+          <div class="sk-sec-h">
+            <span class="sk-ico"><Icon name="shopping-bag" :size="16" /></span>
+            <div class="min-w-0 flex-1 flex flex-col">
+              <h2 id="sb-bk-h" class="sk-sec-t">{{ tt('souk.basket.title', { n: basket.products.length + basket.again.length }) }}</h2>
+              <span class="sk-sec-s">{{ t('souk.basket.sub') }}</span>
+            </div>
+            <span class="shrink-0 text-[14px] font-extrabold tabular-nums text-stone-900">{{ fmt(savedTotal) }} <small class="text-[11px] font-semibold text-stone-500">MAD</small></span>
+          </div>
+          <ul class="flex flex-col">
+            <li v-for="(p, i) in basket.products" :key="p.id" class="ps-3.5 pe-1.5 py-2 border-t border-stone-100 flex items-center gap-2.5">
+              <img v-if="p.refPreview" :src="p.refPreview" class="w-11 h-11 rounded-lg object-cover shrink-0 ring-1 ring-stone-200" alt="" />
+              <span v-else class="sk-ico shrink-0"><Icon name="sparkles" :size="15" /></span>
+              <div class="flex-1 min-w-0 flex flex-col">
+                <span class="text-[14px] font-semibold text-stone-900 truncate" dir="auto">{{ p.title }}</span>
+                <span class="text-[12px] text-stone-600 tabular-nums truncate">
+                  <span class="mono" dir="ltr">{{ skuBase(i) }}</span> · {{ p.units }} {{ t('souk.pcs') }} · {{ fmt(p.total) }} MAD
+                </span>
+              </div>
+              <button type="button" class="shrink-0 w-11 h-11 rounded-lg inline-flex items-center justify-center text-stone-600 hover:bg-stone-100"
+                      :aria-label="tt('souk.basket.edit', { t: p.title })" @click="editProduct(i)"><Icon name="edit" :size="16" /></button>
+              <button type="button" class="shrink-0 w-11 h-11 rounded-lg inline-flex items-center justify-center text-rose-700 hover:bg-rose-50"
+                      :aria-label="tt('souk.basket.remove', { t: p.title })" @click="removeProduct(i)"><Icon name="trash-2" :size="16" /></button>
+            </li>
+            <li v-for="(a, i) in basket.again" :key="a.id" class="ps-3.5 pe-1.5 py-2 border-t border-stone-100 flex items-center gap-2.5">
+              <span class="sk-ico shrink-0"><Icon name="refresh-cw" :size="15" /></span>
+              <div class="flex-1 min-w-0 flex flex-col">
+                <span class="text-[14px] font-semibold text-stone-900 truncate" dir="auto">{{ a.title }}</span>
+                <span class="text-[12px] text-stone-600 tabular-nums truncate">{{ t('souk.basket.againTag') }} · {{ a.units }} {{ t('souk.pcs') }} · {{ fmt(a.total) }} MAD</span>
+              </div>
+              <button type="button" class="shrink-0 w-11 h-11 rounded-lg inline-flex items-center justify-center text-stone-600 hover:bg-stone-100"
+                      :aria-label="tt('souk.basket.edit', { t: a.title })" @click="editAgain(i)"><Icon name="edit" :size="16" /></button>
+              <button type="button" class="shrink-0 w-11 h-11 rounded-lg inline-flex items-center justify-center text-rose-700 hover:bg-rose-50"
+                      :aria-label="tt('souk.basket.remove', { t: a.title })" @click="removeAgain(i)"><Icon name="trash-2" :size="16" /></button>
+            </li>
+          </ul>
+        </section>
+
         <!-- NEW PRODUCT: reference photo -->
         <section v-if="tab === 'new'" class="sk-sec st-buying p-3.5 flex gap-3 items-center">
           <label class="w-[84px] h-[84px] shrink-0 rounded-2xl flex items-center justify-center overflow-hidden cursor-pointer"
@@ -177,14 +326,17 @@
           </div>
         </section>
 
-        <!-- name, category, stall, brand (the stall card only, to buy again) -->
-        <section class="sk-sec st-buying">
+        <!-- name, category, brand -->
+        <section v-if="tab === 'new'" class="sk-sec st-buying">
           <div class="sk-sec-h">
-            <span class="sk-ico"><Icon :name="tab === 'new' ? 'tag' : 'building'" :size="16" /></span>
+            <span class="sk-ico"><Icon name="tag" :size="16" /></span>
             <div class="min-w-0 flex flex-col">
-              <h2 class="sk-sec-t">{{ tab === 'new' ? t('souk.buy.secProduct') : t('souk.stall') }}</h2>
-              <span v-if="tab === 'new'" class="sk-sec-s">{{ t('souk.buy.secProductSub') }}</span>
+              <h2 class="sk-sec-t">{{ basket.products.length ? tt('souk.basket.productN', { n: basket.products.length + 1 }) : t('souk.buy.secProduct') }}</h2>
+              <span class="sk-sec-s">{{ t('souk.buy.secProductSub') }}</span>
             </div>
+            <button v-if="basketCount && productHasContent" type="button"
+                    class="ms-auto shrink-0 h-11 -my-2.5 px-2 rounded-lg text-[13px] font-semibold text-rose-700 hover:bg-rose-50"
+                    @click="discardCurrent">{{ t('souk.basket.drop') }}</button>
           </div>
           <div class="sk-sec-b flex flex-col gap-3">
           <template v-if="tab === 'new'">
@@ -238,54 +390,6 @@
             </div>
           </template>
 
-          <div class="flex flex-col gap-1.5">
-            <label for="sb-stall" class="text-[13px] font-semibold text-stone-700">{{ t('souk.stall') }}</label>
-            <div class="flex gap-1.5">
-              <select id="sb-stall" v-model="f.stall" class="flex-1 min-w-0 h-11 rounded-lg ring-1 ring-inset ring-stone-300 bg-white px-2.5 text-[15px]">
-                <option value="">{{ t('souk.newStall') }}</option>
-                <option v-for="s in boot.stalls" :key="s.name" :value="s.name">{{ s.label }}</option>
-              </select>
-              <button type="button" class="shrink-0 w-11 h-11 rounded-xl st-tint st-ink inline-flex items-center justify-center"
-                      :aria-label="t('souk.buy.newStallBtn')" :title="t('souk.buy.newStallBtn')" @click="newStall">
-                <Icon name="plus" :size="16" :stroke-width="2.2" />
-              </button>
-            </div>
-          </div>
-          <div v-if="!f.stall" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div class="flex flex-col gap-1.5">
-              <label for="sb-stall-name" class="text-[13px] font-semibold text-stone-700">{{ t('souk.buy.stallNameLbl') }}</label>
-              <input id="sb-stall-name" v-model="f.newStall.name" dir="ltr" placeholder="AMINE DERB OMAR" autocomplete="off"
-                     class="w-full h-11 rounded-lg ring-1 ring-inset ring-stone-300 bg-white px-3 text-[16px] uppercase" />
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <label for="sb-stall-phone" class="text-[13px] font-semibold text-stone-700">{{ t('souk.buy.stallPhoneLbl') }}</label>
-              <input id="sb-stall-phone" v-model="f.newStall.phone" dir="ltr" inputmode="tel" type="tel" placeholder="06…"
-                     class="w-full h-11 rounded-lg ring-1 ring-inset ring-stone-300 bg-white px-3 text-[16px]" />
-            </div>
-          </div>
-
-          <!-- the same stall twice? the phone or a name that reads the same -->
-          <div v-if="!f.stall && stMatch.length && !f.newStall.sure" role="status"
-               class="rounded-xl bg-amber-50 ring-1 ring-inset ring-amber-200 p-3 flex flex-col gap-2">
-            <span class="text-[13px] font-bold text-amber-900 inline-flex items-center gap-1.5">
-              <Icon name="alert-triangle" :size="14" />{{ t('souk.stl.didYouMean') }}
-            </span>
-            <button v-for="m in stMatch" :key="m.name" type="button" @click="useMatch(m)"
-                    class="lp-tap min-h-11 flex items-center gap-2.5 rounded-lg bg-white ring-1 ring-inset ring-amber-200 px-2.5 py-1.5 text-start">
-              <img v-if="m.photo" :src="m.photo" alt="" class="w-9 h-9 rounded-md object-cover shrink-0" />
-              <span v-else class="sk-ico sk-ico-sm"><Icon name="store" :size="14" /></span>
-              <span class="min-w-0 flex-1 flex flex-col">
-                <span class="text-[14px] font-semibold text-stone-900 truncate" dir="ltr">{{ m.label }}</span>
-                <span class="text-[12px] text-stone-600 truncate">
-                  {{ m.why === 'phone' ? t('souk.stl.samePhone') : t('souk.stl.sameName') }}<template v-if="m.place"> · {{ m.place }}</template><template v-if="m.phone"> · <span dir="ltr">{{ m.phone }}</span></template>
-                </span>
-              </span>
-              <span class="shrink-0 text-[12px] font-bold st-ink">{{ t('souk.stl.useIt') }}</span>
-            </button>
-            <button type="button" class="self-start text-[13px] font-semibold text-stone-700 underline underline-offset-2 min-h-9"
-                    @click="f.newStall.sure = true">{{ t('souk.stl.another') }}</button>
-          </div>
-
           <div v-if="tab === 'new' && cat" class="flex items-center justify-between gap-2.5 st-soft rounded-xl px-3 py-2.5">
             <div class="min-w-0 flex flex-col">
               <span class="text-[13px] font-semibold text-stone-700">{{ t('souk.brandOnSite') }}</span>
@@ -293,7 +397,6 @@
             </div>
             <span class="shrink-0 text-[13px] font-bold st-ink bg-white ring-1 ring-inset ring-[rgb(var(--st)/.3)] rounded-lg px-2.5 py-[3px] inline-flex items-center gap-1"><Icon name="award" :size="13" />{{ cat.brand }}</span>
           </div>
-          <p v-if="tab === 'again'" class="text-[12px] text-stone-600">{{ t('souk.stallHint') }}</p>
           </div>
         </section>
 
@@ -413,10 +516,31 @@
               </div>
             </div>
 
-            <div v-if="lines.length" class="bg-stone-50 rounded-xl px-3 py-2.5 flex flex-col gap-1">
+            <div v-if="lines.length === 1" class="bg-stone-50 rounded-xl px-3 py-2.5 flex flex-col gap-1">
               <span class="text-[12px] font-semibold text-stone-600 inline-flex items-center gap-1.5"><Icon name="tag" :size="13" />{{ t('souk.buy.skusLbl') }}</span>
               <div class="text-start text-[12px] leading-[1.7] text-stone-800 mono break-words">
-                <span dir="ltr"><template v-for="(l, i) in lines" :key="l.sku"><template v-if="i"> · </template><span :class="l.sku.length > boot.skuMax ? 'text-rose-700 font-bold' : ''">{{ l.sku }}</span></template></span>
+                <span dir="ltr" :class="lines[0].sku.length > boot.skuMax ? 'text-rose-700 font-bold' : ''">{{ lines[0].sku }}</span>
+              </div>
+            </div>
+            <!-- several variants: each its own SKU, and its own box barcode -->
+            <div v-else-if="lines.length > 1" class="bg-stone-50 rounded-xl px-3 py-2 flex flex-col">
+              <span class="text-[12px] font-semibold text-stone-600 inline-flex items-center gap-1.5 py-1"><Icon name="scan-barcode" :size="13" />{{ t('souk.basket.variantBarcodes') }}</span>
+              <div v-for="l in lines" :key="l.k" class="flex flex-col border-t border-stone-200/70 first-of-type:border-t-0">
+                <div class="flex items-center gap-2 min-h-[48px]">
+                  <span class="flex-1 min-w-0 mono text-[12px] truncate" dir="ltr" :class="l.sku.length > boot.skuMax ? 'text-rose-700 font-bold' : 'text-stone-900'">{{ l.sku }}</span>
+                  <template v-if="bcs[l.k] && bcs[l.k].code">
+                    <span class="shrink-0 mono text-[12px] text-stone-800 bg-white rounded-md ring-1 ring-inset ring-stone-200 px-2 h-8 inline-flex items-center" dir="ltr">{{ bcs[l.k].code }}</span>
+                    <button type="button" class="shrink-0 w-11 h-11 -me-2 rounded-lg inline-flex items-center justify-center text-stone-500 hover:bg-stone-100"
+                            :aria-label="t('souk.scan.remove')" @click="clearLineBc(l.k)"><Icon name="x" :size="15" /></button>
+                  </template>
+                  <button v-else type="button" class="shrink-0 h-9 px-2.5 rounded-lg bg-white ring-1 ring-inset ring-stone-300 text-[12px] font-semibold text-stone-700 inline-flex items-center gap-1.5"
+                          :aria-label="tt('souk.basket.scanFor', { sku: l.sku })" @click="openScan('line:' + l.k)"><Icon name="scan-barcode" :size="14" />{{ t('souk.basket.scanShort') }}</button>
+                </div>
+                <div v-if="bcs[l.k] && bcs[l.k].hits.length && !bcs[l.k].sure" role="alert"
+                     class="mb-2 rounded-lg bg-rose-50 ring-1 ring-inset ring-rose-200 px-2.5 py-2 text-[12px] text-rose-900 flex flex-col gap-1">
+                  <span>{{ tt('souk.basket.lineKnown', { sku: bcs[l.k].hits[0].sku, title: bcs[l.k].hits[0].title }) }}</span>
+                  <button type="button" class="self-start min-h-9 font-semibold underline underline-offset-2" @click="bcs[l.k].sure = true">{{ t('souk.scan.different') }}</button>
+                </div>
               </div>
             </div>
             </div>
@@ -431,7 +555,7 @@
                 <span class="sk-sec-s">{{ t('souk.buy.secPriceSub') }}</span>
               </div>
               <button v-if="sizeCols.length > 1" class="shrink-0 h-11 -my-2.5 px-2 rounded-lg text-[13px] font-semibold text-[var(--accent-700)] hover:bg-[var(--accent-50)] disabled:opacity-40"
-                      :disabled="!(Number(cost[sizeCols[0].id]) > 0)" @click="samePrices">{{ t('souk.buy.samePrices') }}</button>
+                      :disabled="!(Number(cost[sizeCols[0].id]) > 0)" @click="samePrices">{{ t('souk.basket.sameCost') }}</button>
             </div>
             <div class="sk-sec-b flex flex-col gap-3">
             <div class="grid grid-cols-2 gap-2.5">
@@ -445,37 +569,18 @@
                   </div>
                 </div>
                 <div class="flex flex-col gap-1.5 min-w-0">
-                  <label :for="'sb-p-' + z.id" class="text-[13px] font-semibold text-stone-700 truncate">{{ tt('souk.buy.sellLbl', { z: zName(z) }) }}</label>
-                  <div class="relative">
-                    <input :id="'sb-p-' + z.id" v-model.number="price[z.id]" type="number" inputmode="decimal" min="0" placeholder="0"
-                           class="w-full h-11 rounded-lg ring-1 ring-inset ps-3 pe-11 text-[16px] tabular-nums"
-                           :class="Number(price[z.id]) > 0 && Number(price[z.id]) <= Number(cost[z.id]) ? 'ring-rose-400 bg-rose-50' : 'ring-stone-300 bg-white'" />
-                    <span class="absolute inset-y-0 end-3 flex items-center text-[13px] text-stone-500 pointer-events-none">MAD</span>
-                  </div>
+                  <span class="text-[13px] font-semibold text-stone-700 truncate">{{ tt('souk.buy.sellLbl', { z: zName(z) }) }}</span>
+                  <output class="relative h-11 rounded-lg bg-stone-100 ps-3 pe-11 flex items-center text-[16px] font-bold tabular-nums"
+                          :class="sell(cost[z.id]) ? 'text-stone-900' : 'text-stone-400'" :aria-live="'polite'">
+                    {{ sell(cost[z.id]) ? fmt(sell(cost[z.id])) : '—' }}
+                    <span class="absolute inset-y-0 end-3 flex items-center text-[13px] font-normal text-stone-500 pointer-events-none">MAD</span>
+                  </output>
                 </div>
               </template>
             </div>
-            <!-- margin before shipping, per size. (The design's "after delivery
-                 and returns" row needs a per-category delivery-cost + return-rate
-                 number the backend does not send yet — not shown.) -->
-            <div class="rounded-xl ring-1 ring-inset ring-stone-200 overflow-x-auto text-[13px] tabular-nums">
-              <div class="w-max min-w-full">
-                <div class="grid gap-1.5 px-2.5 py-[7px] bg-stone-50 font-semibold text-stone-600" :style="marginCols">
-                  <span>{{ t('souk.buy.margin') }}</span>
-                  <span v-for="z in sizeCols" :key="z.id" class="text-center truncate">{{ z.label ? zName(z) : t('souk.buy.oneSize') }}</span>
-                </div>
-                <div class="grid gap-1.5 px-2.5 py-[7px]" :style="marginCols">
-                  <span class="text-stone-700">{{ t('souk.buy.marginBefore') }}</span>
-                  <span v-for="z in sizeCols" :key="z.id" class="text-center font-semibold"
-                        :class="margin(z.id) === null ? 'text-stone-300' : margin(z.id) < 40 ? 'text-rose-600' : 'text-emerald-700'">
-                    <span v-if="margin(z.id) !== null" class="inline-flex items-center justify-center min-w-[52px] rounded-full px-2 py-0.5"
-                          :class="margin(z.id) < 40 ? 'bg-rose-50' : 'bg-emerald-50'">{{ margin(z.id) }}%</span>
-                    <template v-else>—</template>
-                  </span>
-                </div>
-              </div>
-            </div>
-            <p class="text-[12px] text-stone-600 leading-normal">{{ t('souk.marginHint') }}</p>
+            <p class="text-[12px] text-stone-600 leading-normal flex items-start gap-1.5">
+              <Icon name="info" :size="13" class="mt-[2px] shrink-0" />{{ tt('souk.basket.priceRule', { m: priceRule.m, v: priceRule.v }) }}
+            </p>
             </div>
           </section>
         </template>
@@ -542,6 +647,15 @@
             </div>
           </section>
         </template>
+
+        <!-- MORE FROM THIS STALL: the product above joins the basket -->
+        <div v-if="currentActive || basketCount < 1" class="flex flex-col gap-1.5">
+          <button type="button" class="w-full min-h-12 rounded-xl bg-white ring-1 ring-inset ring-[var(--accent-200)] text-[var(--accent-700)] text-[15px] font-bold px-3 inline-flex items-center justify-center gap-2 disabled:opacity-40"
+                  :disabled="!canAdd" @click="addAnother">
+            <Icon name="plus" :size="17" :stroke-width="2.4" />{{ tab === 'new' ? t('souk.basket.addAnother') : t('souk.basket.addAgain') }}
+          </button>
+          <p class="text-[12px] text-stone-600 leading-normal">{{ basketFull ? tt('souk.basket.full', { n: boot.basketMax || 12 }) : t('souk.basket.addNote') }}</p>
+        </div>
 
         <!-- PAYMENT: how the stall is paid. The purchase is a PO; receiving
              makes the PR and the accountant the PI and the payment — this
@@ -621,7 +735,7 @@
     <footer v-if="formMode" class="lp-footer px-4 pt-3 pb-4">
       <div class="max-w-[520px] mx-auto flex flex-col gap-2">
         <div class="flex items-center justify-between gap-2 text-[13px] text-stone-700 tabular-nums">
-          <span class="min-w-0 truncate inline-flex items-center gap-1.5"><Icon name="shopping-bag" :size="14" class="text-[var(--accent-600)] shrink-0" />{{ tt(tab === 'new' ? 'souk.buy.summary' : 'souk.buy.summaryAgain', { v: lineCount, n: units }) }}</span>
+          <span class="min-w-0 truncate inline-flex items-center gap-1.5"><Icon name="shopping-bag" :size="14" class="text-[var(--accent-600)] shrink-0" />{{ basketCount > 1 ? tt('souk.basket.summary', { p: basketCount, n: units }) : tt(tab === 'new' ? 'souk.buy.summary' : 'souk.buy.summaryAgain', { v: lineCount, n: units }) }}</span>
           <span class="shrink-0 text-[17px] font-extrabold text-stone-900">{{ fmt(total) }} <small class="text-[12px] font-semibold text-stone-500">MAD</small></span>
         </div>
         <p v-if="why" class="text-[12px] font-semibold text-amber-800 flex items-start gap-1.5" aria-live="polite">
@@ -629,7 +743,7 @@
         </p>
         <button class="w-full h-12 rounded-xl bg-gradient-to-b from-[var(--accent-500)] to-[var(--accent-700)] text-white text-[15px] font-bold disabled:opacity-40 disabled:from-stone-400 disabled:to-stone-500 shadow-[0_6px_16px_-6px_rgba(196,73,42,.7)] disabled:shadow-none"
                 :disabled="busy || !!why" @click="submit">
-          {{ busy ? t('souk.sending') : tab === 'new' ? t('souk.buy.createBtn') : t('souk.confirmRebuy') }}
+          {{ busy ? t('souk.sending') : basketCount > 1 ? tt('souk.basket.confirm', { n: basketCount }) : tab === 'new' ? t('souk.buy.createBtn') : t('souk.confirmRebuy') }}
         </button>
       </div>
     </footer>
@@ -736,8 +850,24 @@ const againQ = ref("");
 const againRows = ref([]);
 const again = ref(null);
 const queued = ref(readJSON(QUEUED_KEY, {}) || {});
+// Products already added from this stall (the editor above holds the next).
+const basket = reactive({ products: [], again: [] });
+// Each variant's own box barcode: key(colour, size) -> {code, hits, sure}.
+const bcs = reactive({});
 
 const fmt = (n) => Math.round(Number(n || 0)).toLocaleString("fr-FR");
+// The selling price is not typed (Ahmed 2026-11-20): cost HT + margin, then
+// TVA on the total, rounded UP to the dirham — the server's sell_price.
+const priceRule = computed(() => ({ m: Number(boot.value?.priceMargin ?? 50), v: Number(boot.value?.priceVat ?? 20) }));
+function sell(c) {
+  const x = Number(c) || 0;
+  if (x <= 0) return 0;
+  const raw = x * (1 + priceRule.value.m / 100) * (1 + priceRule.value.v / 100);
+  return Math.ceil(Math.round(raw * 1e6) / 1e6);
+}
+// The SKU the i-th new product of the basket will most likely get (the
+// server reserves the real one when the basket is saved).
+const skuBase = (i) => (boot.value ? `${boot.value.skuPrefix}${Number(boot.value.skuNext || 0) + i}` : "");
 const cat = computed(() => boot.value?.categories.find((c) => c.key === f.category));
 const formMode = computed(() => !!(boot.value && !done.value && !sent.value));
 
@@ -872,14 +1002,10 @@ const colorRows = computed(() => (f.colors.length ? f.colors : [""]));
 // Grid tracks: the name column, then one per size (the box scrolls sideways
 // past what a phone can hold — never the page).
 const qtyCols = computed(() => ({ gridTemplateColumns: `minmax(64px, 1fr) repeat(${sizeCols.value.length}, 104px)` }));
-const marginCols = computed(() => ({ gridTemplateColumns: `minmax(96px, 1fr) repeat(${sizeCols.value.length}, minmax(56px, max-content))` }));
 const key = (c, z) => `${c}|${z}`;
 function samePrices() {
   const first = sizeCols.value[0];
-  for (const z of sizeCols.value.slice(1)) {
-    cost[z.id] = cost[first.id];
-    price[z.id] = price[first.id];
-  }
+  for (const z of sizeCols.value.slice(1)) cost[z.id] = cost[first.id];
 }
 
 const lines = computed(() => {
@@ -891,28 +1017,35 @@ const lines = computed(() => {
       if (q <= 0) continue;
       const label = (z.label || "").trim();
       const code = label ? effCode(z) : "";
-      const sku = [boot.value.nextSku, c, code].filter(Boolean).join("-");
-      out.push({ color: c, size: label, sizeCode: label ? (z.code || "").trim() : "", code, zid: z.id,
-                 qty: q, cost: Number(cost[z.id]) || 0, price: Number(price[z.id]) || 0, sku });
+      const sku = [skuBase(basket.products.length), c, code].filter(Boolean).join("-");
+      const k = key(c, z.id);
+      const bc = bcs[k] || {};
+      out.push({ color: c, size: label, sizeCode: label ? (z.code || "").trim() : "", code, zid: z.id, k,
+                 qty: q, cost: Number(cost[z.id]) || 0, price: sell(cost[z.id]), sku,
+                 barcode: bc.code || "", barcodeSure: !!bc.sure, barcodeKnown: !!(bc.hits && bc.hits.length) });
     }
   }
   return out;
 });
-function margin(zid) {
-  const c = Number(cost[zid]) || 0;
-  const p = Number(price[zid]) || 0;
-  if (!c || !p) return null;
-  return Math.round(((p - c) / p) * 100);
-}
 
 const againLines = computed(() => (again.value?.rows || []).filter((r) => (Number(r.qty) || 0) > 0));
-const units = computed(() => (tab.value === "again"
+const productHasContent = computed(() => !!(f.title.trim() || f.colors.length || sizes.value.length || f.barcode
+  || refFile.value || Object.values(qty).some((v) => Number(v) > 0)));
+// The editor counts as a basket line when it holds something.
+const currentActive = computed(() => (tab.value === "new" ? productHasContent.value : !!again.value));
+const curUnits = computed(() => (!currentActive.value ? 0 : tab.value === "again"
   ? againLines.value.reduce((s, r) => s + (Number(r.qty) || 0), 0)
   : lines.value.reduce((s, l) => s + l.qty, 0)));
-const lineCount = computed(() => (tab.value === "again" ? againLines.value.length : lines.value.length));
-const total = computed(() => (tab.value === "again"
+const curTotal = computed(() => (!currentActive.value ? 0 : tab.value === "again"
   ? againLines.value.reduce((s, r) => s + (Number(r.qty) || 0) * (Number(r.cost) || 0), 0)
   : lines.value.reduce((s, l) => s + l.qty * l.cost, 0)));
+const savedTotal = computed(() => basket.products.reduce((s, p) => s + p.total, 0) + basket.again.reduce((s, a) => s + a.total, 0));
+const savedUnits = computed(() => basket.products.reduce((s, p) => s + p.units, 0) + basket.again.reduce((s, a) => s + a.units, 0));
+const basketCount = computed(() => basket.products.length + basket.again.length + (currentActive.value ? 1 : 0));
+const basketFull = computed(() => basket.products.length + (tab.value === "new" ? 1 : 0) >= (boot.value?.basketMax || 12));
+const units = computed(() => savedUnits.value + curUnits.value);
+const lineCount = computed(() => (tab.value === "again" ? againLines.value.length : lines.value.length));
+const total = computed(() => savedTotal.value + curTotal.value);
 
 // Custody left: the server's number, minus what is waiting on this phone and
 // has not reached the server yet (a purchase made offline is money spent).
@@ -937,36 +1070,54 @@ function setQueued(id, amount) {
 
 const stallOk = computed(() => !!f.stall || (f.newStall.name || "").replace(/[^A-Za-z0-9]/g, "").length >= 3);
 
+// What is still missing in the editor (a product or a buy-again line).
+const W = (k, v) => tt("souk.buy.why." + k, v);
+const productWhy = computed(() => {
+  if (!boot.value) return "";
+  // A known barcode first: the answer is "buy it again", not "fill the form".
+  if (f.barcode && bcHits.value.length && !f.barcodeSure) return t("souk.scan.why");
+  if (f.title.trim().length < 3) return W("title");
+  if (!f.category) return W("category");
+  const bad = namedSizes.value.find((s) => !effCode(s));
+  if (bad) return W("sizeCode", { z: bad.label.trim() });
+  const labels = namedSizes.value.map((s) => s.label.trim().toLowerCase());
+  const codes = namedSizes.value.map(effCode);
+  if (new Set(labels).size !== labels.length || new Set(codes).size !== codes.length) return W("sizeDup");
+  if (!lines.value.length) return W("qty");
+  for (const l of lines.value) {
+    const z = l.code || l.size || t("souk.buy.oneSize");
+    if (!(l.cost > 0)) return W("cost", { z });
+    if (!(l.price > l.cost)) return W("priceLow", { z });
+  }
+  const long = lines.value.find((l) => l.sku.length > boot.value.skuMax);
+  if (long) return W("skuLong", { sku: long.sku, n: boot.value.skuMax });
+  if (lines.value.some((l) => l.barcodeKnown && !l.barcodeSure)) return t("souk.scan.why");
+  const own = lines.value.map((l) => l.barcode).filter(Boolean);
+  if (new Set(own).size !== own.length) return t("souk.basket.sameBarcode");
+  return "";
+});
+const againWhy = computed(() => {
+  if (!again.value) return W("pick");
+  if (!againLines.value.length) return W("qty");
+  const r = againLines.value.find((x) => !(Number(x.cost) > 0));
+  if (r) return W("cost", { z: r.sku });
+  const taken = new Set(basket.again.flatMap((a) => a.rows.map((x) => x.itemCode)));
+  if (againLines.value.some((x) => taken.has(x.itemCode))) return t("souk.basket.dupAgain");
+  return "";
+});
+const currentWhy = computed(() => (tab.value === "new" ? productWhy.value : againWhy.value));
+const canAdd = computed(() => !!boot.value && currentActive.value && !currentWhy.value
+  && !(tab.value === "new" && basketFull.value));
+
 // Why the button is grey — the first thing to fix, in words.
 const why = computed(() => {
   if (!boot.value) return "";
-  const W = (k, v) => tt("souk.buy.why." + k, v);
-  if (tab.value === "again") {
-    if (!again.value) return W("pick");
-    if (!stallOk.value) return W("stall");
-    if (!againLines.value.length) return W("qty");
-    const r = againLines.value.find((x) => !(Number(x.cost) > 0));
-    if (r) return W("cost", { z: r.sku });
-  } else {
-    // A known barcode first: the answer is "buy it again", not "fill the form".
-    if (f.barcode && bcHits.value.length && !f.barcodeSure) return t("souk.scan.why");
-    if (f.title.trim().length < 3) return W("title");
-    if (!f.category) return W("category");
-    if (!stallOk.value) return W("stall");
-    const bad = namedSizes.value.find((s) => !effCode(s));
-    if (bad) return W("sizeCode", { z: bad.label.trim() });
-    const labels = namedSizes.value.map((s) => s.label.trim().toLowerCase());
-    const codes = namedSizes.value.map(effCode);
-    if (new Set(labels).size !== labels.length || new Set(codes).size !== codes.length) return W("sizeDup");
-    if (!lines.value.length) return W("qty");
-    for (const l of lines.value) {
-      const z = l.code || l.size || t("souk.buy.oneSize");
-      if (!(l.cost > 0)) return W("cost", { z });
-      if (!(l.price > 0)) return W("price", { z });
-      if (l.price <= l.cost) return W("priceLow", { z });
-    }
-    const long = lines.value.find((l) => l.sku.length > boot.value.skuMax);
-    if (long) return W("skuLong", { sku: long.sku, n: boot.value.skuMax });
+  if (currentActive.value || !(basket.products.length + basket.again.length)) {
+    if (currentWhy.value) return currentWhy.value;
+  }
+  if (!stallOk.value) return W("stall");
+  if (basket.products.length + (tab.value === "new" && currentActive.value ? 1 : 0) > (boot.value.basketMax || 12)) {
+    return tt("souk.basket.full", { n: boot.value.basketMax || 12 });
   }
   if (total.value <= 0) return W("qty");
   if (!pay.method) return W("pay");
@@ -1043,6 +1194,15 @@ function openScan(where) {
   scanOpen.value = true;
 }
 async function onCode(code) {
+  if (scanFor.value.startsWith("line:")) {
+    const k = scanFor.value.slice(5);
+    bcs[k] = { code, hits: [], sure: false };
+    try {
+      const rows = (await api("souk.similar", { barcode: code })).rows || [];
+      if (bcs[k] && bcs[k].code === code) bcs[k].hits = rows.slice(0, 1);
+    } catch (_) { /* the server checks again at submit */ }
+    return;
+  }
   if (scanFor.value === "again") {
     againBarcode.value = code;
     againNone.value = false;
@@ -1058,6 +1218,9 @@ async function onCode(code) {
   }
   f.barcodeSure = false;
   f.barcode = code;
+}
+function clearLineBc(k) {
+  delete bcs[k];
 }
 function clearBarcode() {
   f.barcode = "";
@@ -1082,7 +1245,9 @@ async function startAgain(r) {
   try {
     const d = await api("souk.rebuy_lookup", { key: r.key, kind: r.kind });
     again.value = { ...d, key: r.key, kind: r.kind, rows: d.rows.map((x) => ({ ...x, qty: null })) };
-    if (d.lastStall && boot.value?.stalls.some((s) => s.name === d.lastStall)) f.stall = d.lastStall;
+    // The stall is the basket's: only an empty basket takes the last one.
+    if (!basket.products.length && !basket.again.length && !f.stall && !f.newStall.name
+        && d.lastStall && boot.value?.stalls.some((s) => s.name === d.lastStall)) f.stall = d.lastStall;
   } catch (e) {
     warn(t("souk.failed"), String(e.message || e));
   }
@@ -1090,7 +1255,8 @@ async function startAgain(r) {
 
 // ── keep the form on the phone ───────────────────────────────────────────────
 const hasContent = computed(() => !!(f.title.trim() || f.colors.length || sizes.value.length || f.newStall.name
-  || Object.values(qty).some((v) => Number(v) > 0) || again.value));
+  || Object.values(qty).some((v) => Number(v) > 0) || again.value || basket.products.length || basket.again.length));
+const plain = (p) => ({ ...p, refFile: null, refPreview: "" });
 function saveDraft() {
   draftOk.value = writeJSON(DRAFT_KEY, {
     v: 2, tab: tab.value,
@@ -1099,6 +1265,8 @@ function saveDraft() {
     qty: { ...qty }, cost: { ...cost }, price: { ...price },
     clientKey: clientKey.value, again: again.value,
     pay: { ...pay },
+    bcs: JSON.parse(JSON.stringify(bcs)),
+    basket: { products: basket.products.map(plain), again: basket.again },
   });
 }
 function loadDraft() {
@@ -1129,10 +1297,125 @@ function loadDraft() {
   if (d.tab === "again" || d.tab === "new") tab.value = d.tab;
   if (d.again && Array.isArray(d.again.rows)) again.value = d.again;
   if (d.pay && PAY.some((m) => m.k === d.pay.method)) Object.assign(pay, { ref: "", due: "", ...d.pay });
+  Object.assign(bcs, d.bcs || {});
+  if (d.basket) {
+    basket.products = (d.basket.products || []).map((p) => ({ ...p, refFile: null, refPreview: "" }));
+    basket.again = d.basket.again || [];
+  }
 }
-watch([f, sizes, qty, cost, price, tab, again, clientKey, pay], saveDraft, { deep: true });
+watch([f, sizes, qty, cost, price, tab, again, clientKey, pay, bcs, basket], saveDraft, { deep: true });
 watch([() => f.stall, boot], defaultPay);
 watch(() => f.category, (c) => { if (c) { lastCat.value = c; writeJSON(CAT_KEY, c); } });
+
+// ── the basket ───────────────────────────────────────────────────────────────
+function snapProduct() {
+  return {
+    id: sid(), title: f.title.trim(), category: f.category, colors: [...f.colors],
+    barcode: f.barcode, barcodeSure: !!f.barcodeSure,
+    sizes: sizes.value.map((z) => ({ ...z })), qty: { ...qty }, cost: { ...cost },
+    bcs: JSON.parse(JSON.stringify(bcs)),
+    refFile: refFile.value, refPreview: refPreview.value,
+    sizeNames: namedSizes.value.map((z) => z.label.trim()),
+    lines: lines.value.map((l) => ({ color: l.color, size: l.size, sizeCode: l.sizeCode, code: l.code, sku: l.sku,
+                                     qty: l.qty, cost: l.cost, price: l.price, barcode: l.barcode, barcodeSure: l.barcodeSure })),
+    units: lines.value.reduce((s, l) => s + l.qty, 0),
+    total: lines.value.reduce((s, l) => s + l.qty * l.cost, 0),
+    brand: cat.value?.brand || "",
+  };
+}
+// The editor emptied for the next product; the stall and the payment stay.
+function clearProduct(revoke = false) {
+  if (revoke && refPreview.value) URL.revokeObjectURL(refPreview.value);
+  Object.assign(f, { title: "", category: lastCat.value || "", colors: [], barcode: "", barcodeSure: false });
+  sizes.value = [];
+  editSize.value = null;
+  colorsOpen.value = false;
+  for (const o of [qty, cost, price, bcs]) for (const k of Object.keys(o)) delete o[k];
+  refFile.value = null; refPreview.value = "";
+  similarRows.value = []; similarHidden.value = [];
+  bcHits.value = [];
+}
+function loadProduct(p) {
+  clearProduct();
+  Object.assign(f, { title: p.title, category: p.category, colors: [...p.colors], barcode: p.barcode || "",
+                     barcodeSure: !!p.barcodeSure });
+  sizes.value = (p.sizes || []).map((z) => ({ ...z }));
+  Object.assign(qty, p.qty || {});
+  Object.assign(cost, p.cost || {});
+  Object.assign(bcs, JSON.parse(JSON.stringify(p.bcs || {})));
+  refFile.value = p.refFile || null;
+  refPreview.value = p.refPreview || "";
+}
+function snapAgain() {
+  const rows = againLines.value.map((r) => ({ itemCode: r.itemCode, sku: r.sku, label: r.label,
+                                              qty: Number(r.qty), cost: Number(r.cost) }));
+  return {
+    id: sid(), key: again.value.key, kind: again.value.kind, title: again.value.title,
+    // Scanned but unknown, then found by name: the catalogue learns it.
+    barcode: againBarcode.value && againNone.value ? againBarcode.value : "",
+    full: JSON.parse(JSON.stringify(again.value)), rows,
+    units: rows.reduce((s, r) => s + r.qty, 0), total: rows.reduce((s, r) => s + r.qty * r.cost, 0),
+  };
+}
+function clearAgain() {
+  again.value = null; againQ.value = ""; againRows.value = [];
+  againBarcode.value = ""; againNone.value = false;
+}
+function addAnother() {
+  if (!canAdd.value) return;
+  if (tab.value === "new") {
+    basket.products.push(snapProduct());
+    clearProduct();
+  } else {
+    basket.again.push(snapAgain());
+    clearAgain();
+  }
+  window.scrollTo?.({ top: 0, behavior: "smooth" });
+}
+// Open a saved line again: what the editor holds goes into the basket first
+// (only when complete — a half-filled product is never lost silently).
+function stashCurrent() {
+  if (!currentActive.value) return true;
+  if (currentWhy.value) {
+    warn(t("souk.basket.finishFirst"), currentWhy.value);
+    return false;
+  }
+  if (tab.value === "new") { basket.products.push(snapProduct()); clearProduct(); }
+  else { basket.again.push(snapAgain()); clearAgain(); }
+  return true;
+}
+function editProduct(i) {
+  const p = basket.products[i];
+  if (!p || !stashCurrent()) return;
+  basket.products.splice(basket.products.indexOf(p), 1);
+  tab.value = "new";
+  loadProduct(p);
+  window.scrollTo?.({ top: 0, behavior: "smooth" });
+}
+function editAgain(i) {
+  const a = basket.again[i];
+  if (!a || !stashCurrent()) return;
+  basket.again.splice(basket.again.indexOf(a), 1);
+  tab.value = "again";
+  again.value = a.full;
+  againBarcode.value = a.barcode || "";
+  againNone.value = !!a.barcode;
+}
+function removeProduct(i) {
+  const p = basket.products[i];
+  if (!p || !window.confirm(tt("souk.basket.removeConfirm", { t: p.title }))) return;
+  if (p.refPreview) URL.revokeObjectURL(p.refPreview);
+  basket.products.splice(i, 1);
+}
+function removeAgain(i) {
+  const a = basket.again[i];
+  if (!a || !window.confirm(tt("souk.basket.removeConfirm", { t: a.title }))) return;
+  basket.again.splice(i, 1);
+}
+function discardCurrent() {
+  if (!window.confirm(tt("souk.basket.removeConfirm", { t: f.title.trim() || t("souk.basket.thisProduct") }))) return;
+  clearProduct(true);
+}
 
 function clearForm() {
   Object.assign(f, blank());
@@ -1141,7 +1424,10 @@ function clearForm() {
   sizes.value = [];
   editSize.value = null;
   colorsOpen.value = false;
-  for (const o of [qty, cost, price]) for (const k of Object.keys(o)) delete o[k];
+  for (const o of [qty, cost, price, bcs]) for (const k of Object.keys(o)) delete o[k];
+  for (const p of basket.products) if (p.refPreview && p.refPreview !== refPreview.value) URL.revokeObjectURL(p.refPreview);
+  basket.products = [];
+  basket.again = [];
   if (refPreview.value) URL.revokeObjectURL(refPreview.value);
   if (receiptPreview.value) URL.revokeObjectURL(receiptPreview.value);
   refFile.value = null; refPreview.value = "";
@@ -1173,6 +1459,18 @@ const stallLabel = () => (f.stall ? (boot.value?.stalls.find((s) => s.name === f
   : (f.newStall.name || "").trim().toUpperCase());
 
 function finish(summary, r) {
+  if (summary.basket) {
+    const cards = (r?.cards || []).filter((c) => c.stage !== "dropped");
+    done.value = {
+      basket: true, stall: summary.stall, pay: summary.pay, amount: summary.total, units: summary.units,
+      count: summary.count, po: r?.po || "", left: summary.pay === "cash" ? (r?.left ?? null) : null,
+      cards: cards.length ? cards : (summary.products || []).map((p) => ({ title: p.title, variants: p.lines })),
+      again: summary.againBlocks || [],
+    };
+    setSent(null);
+    load();
+    return;
+  }
   done.value = {
     again: summary.again, title: summary.title, stall: summary.stall, brand: summary.brand,
     amount: summary.total, units: summary.units,
@@ -1192,10 +1490,11 @@ function classify(kind, summary, jst, epending) {
   if (!made) return "refused";
   if (epending) return "stuck";
   if (kind === "rebuy") return "photo";
-  if ((summary.hasRef && !jst.ref) || (summary.hasReceipt && !jst.receipt)) return "photo";
+  if ((summary.hasRef && !(jst.ref || jst.refs)) || (summary.hasReceipt && !jst.receipt)) return "photo";
   return "stuck";
 }
 
+const plainJSON = (x) => JSON.parse(JSON.stringify(x));
 async function submit() {
   if (busy.value || why.value) return;
   // The key is made ONCE, when the button is first pressed, and kept in the
@@ -1204,46 +1503,48 @@ async function submit() {
   saveDraft();
   busy.value = true;
   sendError.value = "";
-  const isNew = tab.value === "new";
-  const jobId = (isNew ? "buy-" : "rebuy-") + clientKey.value;
-  const summary = {
-    again: !isNew, title: isNew ? f.title.trim() : again.value.title, stall: stallLabel(),
-    brand: isNew ? cat.value?.brand || "" : "", total: total.value, units: units.value,
-    hasRef: isNew && !!refFile.value, hasReceipt: !!receiptFile.value, pay: pay.method,
-    lines: isNew ? lines.value.map((l) => ({ sku: l.sku, qty: l.qty, cost: l.cost }))
-      : againLines.value.map((r) => ({ sku: r.sku, qty: Number(r.qty), cost: Number(r.cost) })),
-  };
+  const prods = [...basket.products];
+  const agains = [...basket.again];
+  if (currentActive.value) {
+    if (tab.value === "new") prods.push(snapProduct());
+    else agains.push(snapAgain());
+  }
+  const jobId = "basket-" + clientKey.value;
+  const count = prods.length + agains.length;
+  const summary = plainJSON({
+    basket: true, count, title: (prods[0] || agains[0]).title, stall: stallLabel(),
+    total: total.value, units: units.value, pay: pay.method,
+    hasRef: prods.some((p) => p.refFile), hasReceipt: !!receiptFile.value,
+    products: prods.map((p) => ({ title: p.title, lines: p.lines.map((l) => ({ sku: l.sku, qty: l.qty, cost: l.cost })) })),
+    againBlocks: agains.map((a) => ({ title: a.title, units: a.units })),
+  });
   try {
     const receipt = receiptFile.value ? await shrink(receiptFile.value) : null;
-    let job;
-    if (isNew) {
-      const ref = refFile.value ? await shrink(refFile.value) : null;
-      job = {
-        id: jobId, kind: "buy", label: summary.title, ref, receipt,
-        payload: {
-          title: f.title.trim(), category: f.category, colors: [...f.colors],
-          sizes: namedSizes.value.map((s) => s.label.trim()),
-          stall: f.stall, newStall: { ...f.newStall },
-          lines: lines.value.map((l) => ({ color: l.color, size: l.size, ...(l.sizeCode ? { sizeCode: l.sizeCode } : {}),
-                                           qty: l.qty, cost: l.cost, price: l.price })),
-          payment: { method: pay.method, ref: pay.ref.trim(), due: pay.due },
-          clientKey: clientKey.value,
-          ...(f.barcode ? { barcode: f.barcode, barcodeSure: !!f.barcodeSure } : {}),
-        },
-      };
-    } else {
-      job = {
-        id: jobId, kind: "rebuy", label: summary.title, receipt,
-        payload: {
-          kind: again.value.kind, product: again.value.key, stall: f.stall, newStall: { ...f.newStall },
-          lines: againLines.value.map((x) => ({ itemCode: x.itemCode, qty: Number(x.qty), cost: Number(x.cost) })),
-          payment: { method: pay.method, ref: pay.ref.trim(), due: pay.due },
-          clientKey: clientKey.value,
-          // Scanned but unknown, then found by name: the catalogue learns it.
-          ...(againBarcode.value && againNone.value ? { barcode: againBarcode.value } : {}),
-        },
-      };
-    }
+    const refs = [];
+    for (const p of prods) refs.push(p.refFile ? await shrink(p.refFile) : null);
+    const job = {
+      id: jobId, kind: "basket", label: summary.title + (count > 1 ? ` +${count - 1}` : ""), refs, receipt,
+      // Plain data: the job is stored in IndexedDB, which cannot clone the
+      // reactive basket.
+      payload: plainJSON({
+        clientKey: clientKey.value, stall: f.stall, newStall: { ...f.newStall },
+        payment: { method: pay.method, ref: pay.ref.trim(), due: pay.due },
+        // Cash counts against the custody open NOW, even if the line only
+        // comes back tomorrow.
+        trip: pay.method === "cash" && boot.value?.trip ? boot.value.trip.name : null,
+        products: prods.map((p) => ({
+          title: p.title, category: p.category, colors: p.colors, sizes: p.sizeNames,
+          lines: p.lines.map((l) => ({ color: l.color, size: l.size, ...(l.sizeCode ? { sizeCode: l.sizeCode } : {}),
+                                       qty: l.qty, cost: l.cost,
+                                       ...(l.barcode ? { barcode: l.barcode, barcodeSure: !!l.barcodeSure } : {}) })),
+          ...(p.barcode ? { barcode: p.barcode, barcodeSure: !!p.barcodeSure } : {}),
+        })),
+        again: agains.flatMap((a) => a.rows.map((r) => ({
+          itemCode: r.itemCode, qty: r.qty, cost: r.cost, product: a.kind === "souk" ? a.key : "",
+          ...(a.barcode && a.rows.length === 1 ? { barcode: a.barcode } : {}),
+        }))),
+      }),
+    };
     setQueued(jobId, pay.method === "cash" ? summary.total : 0);
     const r = await enqueue(job);
     clearForm();
@@ -1257,15 +1558,15 @@ async function submit() {
   } catch (e) {
     const msg = String((e && e.message) || e);
     const j = outbox.jobs.find((x) => x.id === jobId);
-    const state = classify(isNew ? "buy" : "rebuy", summary, j?.state || {}, e?.pending);
+    const state = classify("basket", summary, j?.state || {}, e?.pending);
     if (state !== "refused") {
       // The server has the purchase; what failed is a photo or the last step.
       clearForm();
-      setSent({ jobId, kind: isNew ? "buy" : "rebuy", summary, pending: j?.state?.name || e?.pending || "",
+      setSent({ jobId, kind: "basket", summary, pending: j?.state?.name || e?.pending || "",
                 po: j?.state?.po || "", state, error: msg });
     } else {
-      // Refused (custody left, unknown stall…): nothing was made. The form is
-      // still here, so the job goes — pressing again sends the same key.
+      // Refused (unknown stall, a known barcode…): nothing was made. The form
+      // is still here, so the job goes — pressing again sends the same key.
       setQueued(jobId, null);
       if (j) await discardJob(jobId).catch(() => {});
       sendError.value = msg;
@@ -1282,7 +1583,9 @@ async function checkPending(rounds = 1) {
   busy.value = true;
   try {
     for (let i = 0; i < rounds; i++) {
-      const r = await apiPost("souk.finish_buy", { name: s.pending });
+      const r = s.kind === "basket"
+        ? await apiPost("souk.finish_basket", { key: s.pending })
+        : await apiPost("souk.finish_buy", { name: s.pending });
       if (!r.pending) {
         await discardJob(s.jobId).catch(() => {});
         setQueued(s.jobId, null);
@@ -1366,7 +1669,7 @@ const sentBody = computed(() => {
 
 // A job that was waiting finished (or was refused) while this screen is open.
 const offDone = onDone((job, res) => {
-  if (job.kind !== "buy" && job.kind !== "rebuy") return;
+  if (job.kind !== "buy" && job.kind !== "rebuy" && job.kind !== "basket") return;
   if (sent.value && job.id === sent.value.jobId) {
     setQueued(job.id, null);
     finish(sent.value.summary, res);

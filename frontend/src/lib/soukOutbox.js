@@ -3,6 +3,8 @@
 // the phone retries. So a write the buyer makes is a JOB kept on the phone
 // (IndexedDB, photos included as blobs) until the server has it:
 //
+//   basket    create_basket → each product's ref photo → receipt photo →
+//             finish_basket until the PO exists (one stall, N products)
 //   buy       create_buy → ref photo → receipt photo → finish_buy until 'bought'
 //   rebuy     create_rebuy → receipt photo
 //   transport set_transport (+ the taxi receipt photo)
@@ -109,6 +111,39 @@ async function photo(job, step, kind, target, blob) {
 }
 
 const RUN = {
+  async basket(job) {
+    const key = job.payload.clientKey;
+    if (!(job.state || {}).name) {
+      const r = await apiPost("souk.create_basket", { payload: JSON.stringify(job.payload) });
+      job.state = { ...(job.state || {}), name: key, po: r.po || "", cards: (r.cards || []).map((c) => c.name),
+                    result: r.pending ? null : r };
+      await save(job);
+    }
+    const cards = job.state.cards || [];
+    for (let i = 0; i < (job.refs || []).length; i++) {
+      if (cards[i]) await photo(job, "ref" + i, "ref", cards[i], job.refs[i]);
+    }
+    if (!job.state.refs) { job.state = { ...job.state, refs: 1 }; await save(job); }
+    // On the PO when it exists; else on the first card, which hands it to
+    // the PO when finish_basket makes it.
+    const rt = job.state.po || cards[0];
+    if (rt) await photo(job, "receipt", "receipt", rt, job.receipt);
+    if (job.state.result) return job.state.result;
+    // Each product's Shopify Draft and items take a few seconds; then the PO.
+    for (let i = 0; i < 15; i++) {
+      const r = await apiPost("souk.finish_basket", { key });
+      if (!r.pending) return r;
+      if (r.error) {
+        const e = new Error(r.error);
+        e.pending = key;
+        throw e;
+      }
+      await new Promise((ok) => setTimeout(ok, 4000));
+    }
+    const e = new Error("pending");
+    e.wait = true;
+    throw e;
+  },
   async buy(job) {
     const st = job.state || {};
     if (!st.name) {

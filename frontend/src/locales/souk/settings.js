@@ -9,7 +9,7 @@ export default {
       acctOnly: "You can change the accounts. The rest of the settings are the manager's.",
       loadFail: "Couldn't load the settings.",
       retry: "Retry",
-      jump: { sku: "SKU", cats: "Categories", colors: "Colours", days: "Deadlines", receiving: "Receiving", publish: "Publishing", ai: "Website photos", write: "Content writer", accounts: "Accounts", log: "Changes" },
+      jump: { sku: "SKU", cats: "Categories", colors: "Colours", days: "Deadlines", price: "Price", receiving: "Receiving", publish: "Publishing", ai: "Website photos", write: "Content writer", accounts: "Accounts", log: "Changes" },
       sku: {
         title: "SKU",
         hint: "Every new product takes the next number after the prefix. Its variants add the colour code and the size code.",
@@ -63,6 +63,15 @@ export default {
         launchHint: "The goal from receipt to Live — the board's headline number.",
         unit: "days",
       },
+      price: {
+        title: "Selling price",
+        hint: "The buyer types the cost only; the selling price follows this rule, rounded up to the dirham.",
+        margin: "Margin on cost",
+        marginHint: "Added to the cost before VAT.",
+        vat: "VAT",
+        vatHint: "Added on cost + margin.",
+        example: "A piece bought at 100 MAD sells at {p} MAD.",
+      },
       receiving: {
         title: "Receiving",
         samples: "Studio samples",
@@ -100,7 +109,7 @@ export default {
       keys: {
         skuPrefix: "SKU prefix", skuStart: "first SKU number", categories: "categories", colors: "colours",
         stageDays: "deadlines", escalateDays: "escalation", launchDays: "launch target",
-        studioSamples: "studio samples", publishChannels: "sales channels", aiWebPack: "website photos", aiContent: "content writer", custodyAccount: "custody account",
+        studioSamples: "studio samples", priceMargin: "margin", priceVat: "VAT", publishChannels: "sales channels", aiWebPack: "website photos", aiContent: "content writer", custodyAccount: "custody account",
         transportLossAccount: "transport breakage account", warehouseLossAccount: "warehouse breakage account",
       },
       bar: {
@@ -135,7 +144,7 @@ export default {
       acctOnly: "Vous pouvez modifier les comptes. Le reste des paramètres revient au manager.",
       loadFail: "Impossible de charger les paramètres.",
       retry: "Réessayer",
-      jump: { sku: "SKU", cats: "Catégories", colors: "Couleurs", days: "Délais", receiving: "Réception", publish: "Publication", ai: "Photos site", write: "Rédaction", accounts: "Comptes", log: "Historique" },
+      jump: { sku: "SKU", cats: "Catégories", colors: "Couleurs", days: "Délais", price: "Prix", receiving: "Réception", publish: "Publication", ai: "Photos site", write: "Rédaction", accounts: "Comptes", log: "Historique" },
       sku: {
         title: "SKU",
         hint: "Chaque nouveau produit prend le numéro suivant après le préfixe. Ses variantes ajoutent le code couleur et le code taille.",
@@ -189,6 +198,15 @@ export default {
         launchHint: "L'objectif de la réception à la mise en ligne — le chiffre clé du tableau.",
         unit: "jours",
       },
+      price: {
+        title: "Prix de vente",
+        hint: "L'acheteur saisit seulement le coût ; le prix de vente suit cette règle, arrondi au dirham supérieur.",
+        margin: "Marge sur le coût",
+        marginHint: "Ajoutée au coût avant la TVA.",
+        vat: "TVA",
+        vatHint: "Ajoutée sur coût + marge.",
+        example: "Une pièce achetée 100 MAD se vend {p} MAD.",
+      },
       receiving: {
         title: "Réception",
         samples: "Échantillons studio",
@@ -226,7 +244,7 @@ export default {
       keys: {
         skuPrefix: "préfixe SKU", skuStart: "premier numéro SKU", categories: "catégories", colors: "couleurs",
         stageDays: "délais", escalateDays: "escalade", launchDays: "objectif de lancement",
-        studioSamples: "échantillons studio", publishChannels: "canaux de vente", aiWebPack: "photos site", aiContent: "rédaction IA", custodyAccount: "compte de caisse",
+        studioSamples: "échantillons studio", priceMargin: "marge", priceVat: "TVA", publishChannels: "canaux de vente", aiWebPack: "photos site", aiContent: "rédaction IA", custodyAccount: "compte de caisse",
         transportLossAccount: "compte casse transport", warehouseLossAccount: "compte casse entrepôt",
       },
       bar: {
@@ -261,7 +279,7 @@ export default {
       acctOnly: "يمكنك تعديل الحسابات. أما باقي الإعدادات فمن صلاحيات المدير.",
       loadFail: "تعذّر تحميل الإعدادات.",
       retry: "إعادة المحاولة",
-      jump: { sku: "SKU", cats: "الفئات", colors: "الألوان", days: "المهل", receiving: "الاستلام", publish: "النشر", ai: "صور الموقع", write: "كتابة المحتوى", accounts: "الحسابات", log: "التغييرات" },
+      jump: { sku: "SKU", cats: "الفئات", colors: "الألوان", days: "المهل", price: "السعر", receiving: "الاستلام", publish: "النشر", ai: "صور الموقع", write: "كتابة المحتوى", accounts: "الحسابات", log: "التغييرات" },
       sku: {
         title: "SKU",
         hint: "يأخذ كل منتج جديد الرقم التالي بعد البادئة. وتضيف خياراته رمز اللون ورمز المقاس.",
@@ -315,6 +333,15 @@ export default {
         launchHint: "الهدف من الاستلام حتى النشر — الرقم الرئيسي في اللوحة.",
         unit: "يوم",
       },
+      price: {
+        title: "سعر البيع",
+        hint: "يُدخل المشتري التكلفة فقط، ويُحسب سعر البيع وفق هذه القاعدة مقرَّبًا إلى الدرهم الأعلى.",
+        margin: "الهامش على التكلفة",
+        marginHint: "يُضاف إلى التكلفة قبل الضريبة.",
+        vat: "ضريبة القيمة المضافة",
+        vatHint: "تُضاف على التكلفة مع الهامش.",
+        example: "القطعة المشتراة بـ 100 درهم تُباع بـ {p} درهم.",
+      },
       receiving: {
         title: "الاستلام",
         samples: "عينات الاستوديو",
@@ -352,7 +379,7 @@ export default {
       keys: {
         skuPrefix: "بادئة SKU", skuStart: "أول رقم SKU", categories: "الفئات", colors: "الألوان",
         stageDays: "المهل", escalateDays: "التصعيد", launchDays: "هدف الإطلاق",
-        studioSamples: "عينات الاستوديو", publishChannels: "قنوات البيع", aiWebPack: "صور الموقع", aiContent: "كتابة المحتوى", custodyAccount: "حساب العهدة",
+        studioSamples: "عينات الاستوديو", priceMargin: "الهامش", priceVat: "الضريبة", publishChannels: "قنوات البيع", aiWebPack: "صور الموقع", aiContent: "كتابة المحتوى", custodyAccount: "حساب العهدة",
         transportLossAccount: "حساب تلف النقل", warehouseLossAccount: "حساب تلف المستودع",
       },
       bar: {

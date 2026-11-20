@@ -12,6 +12,8 @@
        Layout = the Receive artboard: one quantity table (good stepper, broken
        box that opens "where did it break"), its amber footer for what the
        stall owes and the broken, then weight, studio + shelf, labels.
+       A basket PO (several products bought at one stall) is received one
+       product at a time (?part=<card> / _again): each gets its own receipt.
        Backend: souk.receive_queue / receive_boot / receive. -->
   <div class="pb-40 text-stone-900">
     <header class="st-bought bg-white/85 backdrop-blur border-b border-stone-200">
@@ -19,9 +21,12 @@
         <span class="sk-ico sk-ico-solid mt-0.5"><Icon name="package-check" :size="17" :stroke-width="2" /></span>
         <div class="min-w-0 flex-1 flex flex-col gap-0.5">
           <span class="text-[12px] font-bold st-ink">{{ b && b.isNew ? t('souk.recv.kickerNew') : t('souk.recv.kicker') }}</span>
-          <h1 class="m-0 text-[17px] font-extrabold leading-snug truncate">{{ b ? (b.title || b.po) : t('souk.recvTitle') }}</h1>
+          <h1 class="m-0 text-[17px] font-extrabold leading-snug truncate">{{ b ? (b.title || (b.again ? t('souk.recv.againPart') : b.po)) : t('souk.recvTitle') }}</h1>
           <span v-if="b" class="text-[12px] text-stone-600 truncate">
             <span class="font-mono" dir="ltr">{{ b.po }} · {{ b.stall }}</span><template v-if="b.trip"> · {{ t('souk.tripNo').replace('{n}', b.trip) }}</template>
+          </span>
+          <span v-if="b && b.parts && b.parts.length > 1" class="self-start mt-0.5 text-[12px] font-bold st-ink st-tint rounded-full px-2.5 py-0.5">
+            {{ t('souk.recv.basketOf').replace('{i}', b.parts.findIndex((x) => x.key === b.part) + 1).replace('{n}', b.parts.length) }}
           </span>
         </div>
         <router-link v-if="po" :to="{ name: 'SoukReceive' }"
@@ -45,15 +50,15 @@
             <h2 class="sk-sec-t flex-1">{{ t('souk.recv.waiting') }}</h2>
             <span class="shrink-0 min-w-[26px] h-[26px] px-2 rounded-full st-solid text-[13px] font-bold tabular-nums inline-flex items-center justify-center">{{ queue.length }}</span>
           </div>
-          <router-link v-for="(r, i) in queue" :key="r.po" :to="{ name: 'SoukReceive', params: { po: r.po } }"
+          <router-link v-for="(r, i) in queue" :key="r.po + r.part" :to="{ name: 'SoukReceive', params: { po: r.po }, query: r.basket > 1 ? { part: r.part } : {} }"
                        class="flex items-center gap-3 px-3.5 py-3 min-h-[72px] hover:bg-amber-50/40"
                        :class="i ? 'border-t border-stone-100' : ''">
             <img v-if="r.image" :src="r.image" class="w-12 h-12 shrink-0 rounded-xl object-cover ring-1 ring-stone-200" alt="" />
             <div v-else class="w-12 h-12 shrink-0 rounded-xl st-tint st-fg flex items-center justify-center"><Icon name="package" :size="18" /></div>
             <div class="min-w-0 flex-1">
-              <div class="text-[14px] font-semibold truncate">{{ r.title || r.po }}</div>
+              <div class="text-[14px] font-semibold truncate">{{ r.title || (r.again ? t('souk.recv.againPart') : r.po) }}</div>
               <div class="text-[12px] text-stone-600 truncate">{{ r.stall }} · {{ r.units }} {{ t('souk.pcs') }} · <span class="tabular-nums">{{ r.date }}</span></div>
-              <div class="font-mono text-[11px] text-stone-500 truncate self-start" dir="ltr" :class="isRTL ? 'text-right' : ''">{{ r.po }}</div>
+              <div class="text-[11px] text-stone-500 truncate"><span class="font-mono" dir="ltr">{{ r.po }}</span><template v-if="r.basket > 1"> · {{ t('souk.recv.basketChip').replace('{n}', r.basket) }}</template></div>
             </div>
             <span v-if="r.draft" class="shrink-0 h-6 px-2 rounded-md bg-amber-50 text-amber-800 text-[12px] font-bold inline-flex items-center">{{ t('souk.recv.draftChip') }}</span>
             <span class="shrink-0 w-8 h-8 rounded-full st-tint st-ink flex items-center justify-center"><Icon :name="isRTL ? 'chevron-left' : 'chevron-right'" :size="16" /></span>
@@ -84,6 +89,11 @@
           {{ t('souk.owedLine').replace('{n}', fmt(result.owed)).replace('{s}', b.stall) }}
         </div>
         <div v-for="(n, i) in result.notes" :key="i" class="bg-white ring-1 ring-inset ring-stone-200 rounded-xl p-3 text-[13px] text-stone-600">{{ n }}</div>
+        <router-link v-for="n in (result.nextParts || []).slice(0, 1)" :key="n.key"
+                     :to="{ name: 'SoukReceive', params: { po: b.po }, query: { part: n.key } }"
+                     class="w-full min-h-12 rounded-xl st-solid text-[14px] font-bold inline-flex items-center justify-center gap-1.5 px-3 text-center">
+          <Icon name="package-check" :size="16" />{{ t('souk.recv.nextPart').replace('{t}', n.title || t('souk.recv.againPart')).replace('{n}', result.nextParts.length) }}
+        </router-link>
         <div class="grid grid-cols-2 gap-2">
           <router-link :to="{ name: 'SoukReceive' }" class="h-12 rounded-xl bg-white ring-1 ring-inset ring-stone-300 text-[14px] font-bold inline-flex items-center justify-center gap-1.5"><Icon name="truck" :size="15" />{{ t('souk.recvNext') }}</router-link>
           <router-link v-if="result.product" :to="{ name: 'SoukProduct', params: { name: result.product } }"
@@ -411,6 +421,10 @@ const { t, isRTL, locale } = useI18n();
 const { warn } = useToast();
 const route = useRoute();
 const po = computed(() => route.params.po || "");
+const part = computed(() => String(route.query.part || ""));
+// The phone's draft of a count: per PO, and per product of a basket PO.
+const dk = (poName, key, many) => poName + (many && key ? "#" + key : "");
+const dkey = computed(() => (b.value ? dk(b.value.po, b.value.part, (b.value.parts || []).length > 1) : ""));
 const loading = ref(true);
 const busy = ref(false);
 const queue = ref([]);
@@ -709,7 +723,7 @@ function initForm() {
     touched[l.itemCode] = pending(l) === 0;
   }
   for (const g of groups.value) weights[g.key] = g.initial || "";
-  const d = readDraft(b.value.po);
+  const d = readDraft(dkey.value);
   const codes = b.value.lines.map((l) => l.itemCode).sort().join("|");
   if (d && d.codes === codes) {
     for (const l of b.value.lines) {
@@ -731,7 +745,7 @@ function initForm() {
     draftAt.value = new Date(d.at || Date.now()).toLocaleString(locale.value === "ar" ? "ar-EG" : locale.value === "fr" ? "fr-FR" : "en-GB",
       { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   } else if (d) {
-    clearDraft(b.value.po);
+    clearDraft(dkey.value);
   }
   // A restored draft is not a new change: keep its time.
   lastSaved = draftState.value || "";
@@ -740,7 +754,7 @@ function initForm() {
 
 function resetDraft() {
   if (!window.confirm(t("souk.recv.draftResetConfirm"))) return;
-  clearDraft(b.value.po);
+  clearDraft(dkey.value);
   initForm();
   draftAt.value = "";
 }
@@ -760,8 +774,8 @@ const draftState = computed(() => {
 watch(draftState, (s) => {
   if (!ready || s === null || !b.value || s === lastSaved) return;
   lastSaved = s;
-  if (s === "") { clearDraft(b.value.po); return; }
-  writeDraft(b.value.po, { ...JSON.parse(s), at: Date.now() });
+  if (s === "") { clearDraft(dkey.value); return; }
+  writeDraft(dkey.value, { ...JSON.parse(s), at: Date.now() });
 });
 
 // Good can drop under a hand-set sample: keep the sample inside it.
@@ -783,11 +797,11 @@ async function load() {
   refBig.value = false;
   try {
     if (!po.value) {
-      queue.value = ((await api("souk.receive_queue")).rows || []).map((r) => ({ ...r, draft: hasDraft(r.po) }));
+      queue.value = ((await api("souk.receive_queue")).rows || []).map((r) => ({ ...r, draft: hasDraft(dk(r.po, r.part, r.basket > 1)) }));
       b.value = null;
     } else {
-      b.value = await api("souk.receive_boot", { po: po.value });
-      if (b.value.done) clearDraft(b.value.po);
+      b.value = await api("souk.receive_boot", { po: po.value, ...(part.value ? { part: part.value } : {}) });
+      if (b.value.done) clearDraft(dkey.value);
       else initForm();
     }
   } catch (e) {
@@ -809,6 +823,7 @@ async function post() {
   busy.value = true;
   try {
     const res = await apiPost("souk.receive", { po: b.value.po, payload: JSON.stringify({
+      part: b.value.part || "",
       target: target.value, labels: labels.value ? 1 : 0, labelsMode: labelsMode.value, note: note.value, nothingCame: nothingCame.value ? 1 : 0,
       studio: { ...effStudio.value },
       lines: b.value.lines.map((l) => ({
@@ -816,7 +831,7 @@ async function post() {
         broken: { supplier: c[l.itemCode].supplier, transport: c[l.itemCode].transport, warehouse: c[l.itemCode].warehouse },
       })),
     }) });
-    clearDraft(b.value.po);
+    clearDraft(dkey.value);
     result.value = res;
   } catch (e) {
     warn(t("souk.failed"), String(e.message || e));
@@ -825,6 +840,6 @@ async function post() {
   }
 }
 
-watch(po, load);
+watch([po, part], load);
 onMounted(load);
 </script>

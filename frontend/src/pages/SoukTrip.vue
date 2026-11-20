@@ -199,9 +199,9 @@
         <section v-if="data.isAccountant && tr.transport > 0" class="lp-card px-3.5 py-2 min-h-[56px] flex items-center gap-2 text-[13px]">
           <span v-if="tr.transportLcv" class="text-emerald-700 font-semibold">{{ t('souk.transportDone').replace('{v}', tr.transportLcv) }}</span>
           <template v-else>
-            <span class="flex-1 text-stone-600">{{ tr.allReceived ? t('souk.transportReady') : t('souk.transportWait') }}</span>
+            <span class="flex-1 text-stone-600">{{ tr.status === 'Open' ? t('souk.basket.allocateAfterClose') : tr.allReceived ? t('souk.transportReady') : t('souk.transportWait') }}</span>
             <button class="shrink-0 h-11 px-3 rounded-lg bg-stone-900 text-white text-[13px] font-bold disabled:opacity-40"
-                    :disabled="busy || !tr.allReceived || !data.accounts?.custody" @click="allocate(tr)">{{ t('souk.transportBtn') }}</button>
+                    :disabled="busy || tr.status === 'Open' || !tr.allReceived || !data.accounts?.custody" @click="allocate(tr)">{{ t('souk.transportBtn') }}</button>
           </template>
         </section>
 
@@ -272,8 +272,9 @@
              the first one closes from the fixed footer -->
         <div v-if="tr.status === 'Open' && (tr.buyer === data.me || data.isAccountant) && tr !== footTrip" class="space-y-1.5">
           <p v-if="tr.missingReceipts" class="text-[12px] text-stone-600 text-center">{{ t('souk.missingN').replace('{n}', tr.missingReceipts) }}</p>
+          <p v-if="waiting && tr.buyer === data.me" class="text-[12px] font-semibold text-amber-800 text-center">{{ t('souk.basket.closeWaiting').replace('{n}', waiting) }}</p>
           <button class="w-full min-h-[50px] px-3 py-2 rounded-[10px] bg-[var(--accent-600)] text-white text-[15px] leading-snug font-bold disabled:bg-stone-200 disabled:text-stone-600"
-                  :disabled="busy || !tr.canClose" @click="close(tr)">
+                  :disabled="busy || !tr.canClose || (waiting && tr.buyer === data.me)" @click="close(tr)">
             {{ t('souk.closeBtn').replace('{n}', fmt(tr.expected)) }}
           </button>
         </div>
@@ -317,8 +318,8 @@
           </span>
           <button v-if="data.isAccountant && tr.transport > 0 && !tr.transportLcv"
                   class="shrink-0 h-11 px-3 rounded-lg bg-stone-900 text-white text-[12px] font-bold disabled:opacity-40"
-                  :disabled="busy || !tr.allReceived || !data.accounts?.custody"
-                  :title="tr.allReceived ? '' : t('souk.transportWait')" @click="allocate(tr)">{{ t('souk.transportBtn') }}</button>
+                  :disabled="busy || tr.status === 'Open' || !tr.allReceived || !data.accounts?.custody"
+                  :title="tr.status === 'Open' ? t('souk.basket.allocateAfterClose') : tr.allReceived ? '' : t('souk.transportWait')" @click="allocate(tr)">{{ t('souk.transportBtn') }}</button>
         </div>
       </section>
 
@@ -349,8 +350,9 @@
     <footer v-if="footTrip" class="lp-footer px-4 pt-3 pb-4">
       <div class="max-w-[600px] mx-auto flex flex-col gap-1.5">
         <p v-if="footTrip.missingReceipts" class="text-[12px] text-stone-600 text-center">{{ t('souk.missingN').replace('{n}', footTrip.missingReceipts) }}</p>
+        <p v-if="waiting && footTrip.buyer === data.me" class="text-[12px] font-semibold text-amber-800 text-center">{{ t('souk.basket.closeWaiting').replace('{n}', waiting) }}</p>
         <button class="w-full min-h-[50px] px-3 py-2 rounded-[10px] bg-[var(--accent-600)] text-white text-[15px] leading-snug font-bold disabled:bg-stone-200 disabled:text-stone-600"
-                :disabled="busy || !footTrip.canClose" @click="close(footTrip)">
+                :disabled="busy || !footTrip.canClose || (waiting && footTrip.buyer === data.me)" @click="close(footTrip)">
           {{ t('souk.closeBtn').replace('{n}', fmt(footTrip.expected)) }}
         </button>
       </div>
@@ -602,6 +604,9 @@ function refuse(b) {
 }
 const allocate = (tr) => run(() => apiPost("souk.allocate_transport", { trip: tr.name }), t("souk.transportOk"));
 function close(tr) {
+  // A purchase still on this phone counts against this custody: closing
+  // first would leave it out of the count (the server then refuses it).
+  if (waiting.value && tr.buyer === data.value?.me) return;
   if (!window.confirm(t("souk.closeConfirm").replace("{n}", fmt(tr.expected)))) return;
   run(() => apiPost("souk.close_trip", { trip: tr.name }), t("souk.closed"));
 }

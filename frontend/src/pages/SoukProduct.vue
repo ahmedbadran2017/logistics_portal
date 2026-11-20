@@ -287,6 +287,7 @@
                 </div>
                 <div class="flex items-center gap-1.5 flex-wrap text-[12px]">
                   <span class="chip-meta"><Icon name="building" :size="12" />{{ p.stall }}</span>
+                  <span v-if="p.basket > 1" class="chip-meta"><Icon name="shopping-bag" :size="12" />{{ t('souk.basket.poShared').replace('{n}', p.basket) }}</span>
                   <span v-if="p.pay" class="chip-meta" :class="PAY_CLS[p.pay]"><Icon :name="PAY_ICON[p.pay] || 'wallet'" :size="12" class="st-fg" />{{ t('souk.buy.pay.' + p.pay) }}<span v-if="p.payRef" class="mono" dir="ltr"> · {{ p.payRef }}</span><span v-if="p.payDue" dir="ltr"> · {{ p.payDue }}</span></span>
                 </div>
                 <div class="flex items-center gap-2">
@@ -595,7 +596,8 @@ async function claim(release) {
 
 // --- drop ---------------------------------------------------------------------
 // The server refuses a card still being created, so the button waits for it.
-const canDropNow = computed(() => d.value?.canDrop && !["buying", "live", "dropped"].includes(d.value?.stage));
+// A card stuck before its PO is dropped by the manager too (the server says so).
+const canDropNow = computed(() => d.value?.canDrop && !["live", "dropped"].includes(d.value?.stage));
 const dropOpen = ref(false);
 const why = ref("");
 const note = ref("");

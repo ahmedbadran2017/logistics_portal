@@ -249,7 +249,7 @@ def _profiles(names):
     bought_cats = {}
     for sup, cat in frappe.db.sql(
             f"""SELECT DISTINCT po.supplier, p.category FROM `tabPurchase Order` po
-                JOIN `tab{S.DT_PRODUCT}` p ON p.name = po.custom_souk_product
+                JOIN `tab{S.DT_PRODUCT}` p ON (p.name = po.custom_souk_product OR p.purchase_order = po.name)
                 WHERE po.docstatus = 1 AND po.supplier IN %s AND IFNULL(p.category, '') != ''""",
             (tuple(names),)):
         bought_cats.setdefault(sup, []).append(cat)
