@@ -220,7 +220,7 @@ def _source_rows(include_disabled=False):
         h = handle_of(r.website)
         if not h or (r.disabled and not include_disabled):
             continue
-        out.append(dict(r, handle=h))
+        out.append(frappe._dict(r, handle=h))   # read as r.handle below
     return out
 
 
