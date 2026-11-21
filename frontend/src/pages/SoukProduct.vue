@@ -125,6 +125,9 @@
             <div class="sk-sec-h">
               <span class="sk-ico"><Icon name="layers" :size="16" /></span>
               <h2 class="sk-sec-t flex-1">{{ t('souk.variants') }}</h2>
+              <button v-if="d.variants.some((v) => v.itemCode)" type="button" class="btn btn-line btn-sm inline-flex items-center" @click="openLabels">
+                <Icon name="printer" :size="14" />{{ t('souk.pd.lblBtn') }}
+              </button>
               <span class="text-[12px] font-bold st-ink st-tint rounded-full px-2.5 py-1 tabular-nums">{{ d.variants.length }}</span>
             </div>
             <div class="divide-y divide-stone-100">
@@ -334,6 +337,47 @@
       </button>
     </div>
 
+    <!-- labels: print again on this device (a receipt that went through
+         without printing, a torn label) -->
+    <div v-if="lbl.open" class="fixed inset-0 z-50 bg-stone-900/40 flex items-end sm:items-center justify-center sm:p-4"
+         role="dialog" aria-modal="true" :aria-label="t('souk.pd.lblTitle')" @click.self="lbl.open = false" @keydown.esc="lbl.open = false">
+      <form class="bg-white w-full sm:max-w-md rounded-t-xl sm:rounded-xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col gap-3 max-h-[90vh] overflow-y-auto" @submit.prevent="printLabels">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h2 class="text-[15px] font-bold text-stone-900">{{ t('souk.pd.lblTitle') }}</h2>
+            <p class="text-[13px] text-stone-600 mt-0.5">{{ t('souk.pd.lblIntro') }}</p>
+          </div>
+          <button type="button" class="w-11 h-11 -me-2 -mt-2 shrink-0 rounded-lg flex items-center justify-center text-stone-500" :aria-label="t('souk.cancel')" @click="lbl.open = false">
+            <Icon name="x" :size="18" />
+          </button>
+        </div>
+        <div v-if="lbl.loading" class="h-24 rounded-xl bg-stone-100 animate-pulse" />
+        <p v-else-if="!lbl.items.length" class="text-[13px] text-stone-600">{{ t('souk.pd.lblNone') }}</p>
+        <ul v-else class="flex flex-col divide-y divide-stone-100 rounded-xl ring-1 ring-inset ring-stone-200">
+          <li v-for="it in lbl.items" :key="it.itemCode" class="flex items-center gap-3 px-3 py-2">
+            <div class="min-w-0 flex-1 flex flex-col">
+              <span class="mono text-[13px] font-semibold text-stone-900 truncate" dir="ltr">{{ it.sku }}</span>
+              <span class="text-[12px] text-stone-600 truncate">
+                <template v-if="it.colour || it.size">{{ [it.colour, it.size].filter(Boolean).join(' · ') }} · </template>{{ fill(t('souk.pd.lblReceived'), { n: it.received }) }}
+              </span>
+            </div>
+            <label class="shrink-0">
+              <span class="sr-only">{{ it.sku }}</span>
+              <input v-model.number="it.copies" type="number" min="0" max="500" inputmode="numeric" dir="ltr"
+                     class="w-20 h-11 rounded-lg ring-1 ring-inset ring-stone-300 text-center text-[15px] font-bold tabular-nums" />
+            </label>
+          </li>
+        </ul>
+        <p v-if="lbl.err" role="alert" class="text-[13px] font-semibold text-rose-700">{{ lbl.err }}</p>
+        <div class="flex gap-2">
+          <button type="button" class="btn btn-line flex-1 justify-center" @click="lbl.open = false">{{ t('souk.cancel') }}</button>
+          <button type="submit" class="btn flex-1 justify-center st-solid st-live font-bold inline-flex items-center gap-1.5 disabled:opacity-40" :disabled="lbl.loading || !lblTotal">
+            <Icon name="printer" :size="15" />{{ fill(t('souk.pd.lblPrint'), { n: lblTotal }) }}
+          </button>
+        </div>
+      </form>
+    </div>
+
     <!-- drop: won't be published -->
     <div v-if="dropOpen" class="fixed inset-0 z-50 bg-stone-900/40 flex items-end sm:items-center justify-center sm:p-4"
          role="dialog" aria-modal="true" :aria-label="t('souk.pd.dropTitle')" @click.self="dropOpen = false" @keydown.esc="dropOpen = false">
@@ -379,6 +423,7 @@ import { useI18n } from "@/composables/useI18n";
 import { eventText as souEvent } from "@/lib/soukEvents";
 import { useToast } from "@/composables/useToast";
 import { useAuth } from "@/composables/useAuth";
+import { LABEL_SIZES, printShelfLabels } from "@/lib/shelfLabelPrint.js";
 
 const STAGES = ["buying", "bought", "photos", "studio", "content", "review", "live"];
 const { t, isRTL, locale } = useI18n();
@@ -598,6 +643,34 @@ async function claim(release) {
 // The server refuses a card still being created, so the button waits for it.
 // A card stuck before its PO is dropped by the manager too (the server says so).
 const canDropNow = computed(() => d.value?.canDrop && !["live", "dropped"].includes(d.value?.stage));
+// Labels on demand: the same payloads the receiving print uses.
+const lbl = ref({ open: false, loading: false, items: [], err: "" });
+const lblTotal = computed(() => lbl.value.items.reduce((s, x) => s + Math.max(0, Math.floor(Number(x.copies) || 0)), 0));
+async function openLabels() {
+  lbl.value = { open: true, loading: true, items: [], err: "" };
+  try {
+    const r = await api("souk.product_labels", { name: d.value.name });
+    lbl.value.items = (r.items || []).map((x) => ({ ...x, copies: x.received || 1 }));
+  } catch (e) {
+    warn(t("souk.failed"), String(e.message || e));
+    lbl.value.open = false;
+  } finally {
+    lbl.value.loading = false;
+  }
+}
+function printLabels() {
+  let sz = LABEL_SIZES[0];
+  try { sz = LABEL_SIZES.find((x) => x.key === localStorage.getItem("lp_print_size")) || sz; } catch (_) { /* default size */ }
+  const ok = printShelfLabels({
+    shelf: "",
+    items: lbl.value.items.map((x) => ({ sku: x.sku, barcode: x.barcode, name: x.name, qty: 1, copies: Math.max(0, Math.floor(Number(x.copies) || 0)) })),
+    copies: "sku",
+    size: sz,
+    inPage: true,
+  });
+  lbl.value.err = ok ? "" : t("souk.pd.lblFailed");
+  if (ok) lbl.value.open = false;
+}
 const dropOpen = ref(false);
 const why = ref("");
 const note = ref("");

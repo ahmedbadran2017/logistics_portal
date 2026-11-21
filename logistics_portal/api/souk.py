@@ -2604,6 +2604,39 @@ def product(name):
     }
 
 
+@frappe.whitelist()
+def product_labels(name):
+    """Labels for one product, printed on the asking device (a receipt that
+    went through without printing, a label that tore). Same payloads as the
+    receiving print; the default count per variant = good pieces received,
+    else 1. The page lets the person change the counts before printing."""
+    _gate_view()
+    doc = frappe.get_doc(DT_PRODUCT, name)
+    variants = [v for v in json.loads(doc.variants_json or "[]") if v.get("itemCode")]
+    good = {}
+    for (out,) in frappe.db.sql(
+            """SELECT custom_souk_outcome FROM `tabPurchase Order`
+               WHERE (custom_souk_product = %s OR name = %s) AND docstatus = 1""",
+            (doc.name, doc.purchase_order or "-")):
+        o = _loads(out) or {}
+        # A basket keeps every part's lines AND their concatenation: one, not both.
+        parts = o.get("parts") or {}
+        lines = [ln for part in parts.values() for ln in (part or {}).get("lines") or []] if parts \
+            else list(o.get("lines") or [])
+        for ln in lines:
+            if ln.get("itemCode"):
+                good[ln["itemCode"]] = good.get(ln["itemCode"], 0) + cint(ln.get("good"))
+    from logistics_portal.api.labelprint import label_items
+    items = label_items([(v["itemCode"], max(1, good.get(v["itemCode"], 0))) for v in variants])
+    info = {v["itemCode"]: v for v in variants}
+    for it in items:
+        v = info.get(it["itemCode"]) or {}
+        it["received"] = good.get(it["itemCode"], 0)
+        it["colour"] = v.get("colour") or v.get("color") or ""
+        it["size"] = v.get("sizeLabel") or v.get("size") or ""
+    return {"items": items}
+
+
 def _money(doc, variants, pos):
     """Where the money went, per piece: what we paid the stall, the share
     of the taxi, what broke on our side, and what the stall owes back."""

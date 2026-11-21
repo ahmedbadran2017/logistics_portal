@@ -67,7 +67,7 @@
       </template>
 
       <!-- done -->
-      <section v-else-if="result" class="flex flex-col gap-3">
+      <section v-else-if="result" class="flex flex-col gap-3 st-bought">
         <div class="sk-hero st-live flex flex-col gap-1 items-center text-center !py-6">
           <span class="w-16 h-16 mb-2 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center shadow-[0_8px_24px_-8px_rgba(5,150,105,.7)] ring-4 ring-emerald-100">
             <Icon name="check" :size="30" :stroke-width="2.8" />
@@ -331,7 +331,7 @@
             </div>
             <div class="min-w-0 flex-1 flex flex-col">
               <span class="text-[13px] font-semibold">{{ t('souk.recv.labelsTitle').replace('{n}', totalGood) }}</span>
-              <span class="text-[12px] text-stone-600">{{ labelsMode === 'here' ? t('souk.recv.labelsHereSub') : t('souk.recv.labelsStation') }}</span>
+              <span class="text-[12px] text-stone-600">{{ t('souk.recv.labelsHereSub') }}</span>
             </div>
             <input v-model="labels" type="checkbox" class="peer sr-only" />
             <span aria-hidden="true" class="w-[22px] h-[22px] shrink-0 rounded-md flex items-center justify-center peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--accent-600)]/40"
@@ -339,12 +339,6 @@
               <Icon v-if="labels" name="check" :size="13" :stroke-width="3" />
             </span>
           </label>
-          <div v-if="labels" role="radiogroup" class="grid grid-cols-2 gap-2 px-3.5 pb-3">
-            <button v-for="m in ['here', 'station']" :key="m" type="button" role="radio" :aria-checked="labelsMode === m"
-                    class="min-h-11 rounded-lg px-2 text-[13px] font-semibold ring-1 ring-inset"
-                    :class="labelsMode === m ? 'st-solid ring-transparent' : 'bg-white ring-stone-300 text-stone-700'"
-                    @click="labelsMode = m">{{ m === 'here' ? t('souk.recv.labelsHere') : t('souk.recv.labelsStationOpt') }}</button>
-          </div>
         </section>
       </template>
     </div>
@@ -372,7 +366,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, defineComponent, h } from "vue";
+import { ref, reactive, computed, watch, onMounted, nextTick, defineComponent, h } from "vue";
 import { useRoute } from "vue-router";
 import Icon from "@/components/ui/Icon.vue";
 import { api, apiPost } from "@/lib/resource";
@@ -438,10 +432,10 @@ const studioManual = ref(null);
 const studioEdit = ref(false);
 const target = ref("");
 const labels = ref(true);
-// Labels print on this device (a printer on the receiving phone/PC) or wait
-// in the floor print station's queue. Remembered per device.
-const labelsMode = ref((() => { try { return localStorage.getItem("lp_souk_labels_mode") || "here"; } catch (_) { return "here"; } })());
-watch(labelsMode, (v) => { try { localStorage.setItem("lp_souk_labels_mode", v); } catch (_) { /* private mode */ } });
+// Labels print on this device, on this page, the moment the receipt posts
+// (2026-11-21: the station queue left them waiting for nobody). The old
+// per-device "station" choice is ignored.
+const labelsMode = ref("here");
 const printed = ref(false);
 const printErr = ref("");
 const printCount = computed(() => (result.value?.printItems || []).reduce((s, x) => s + (Number(x.copies) || 0), 0));
@@ -455,6 +449,7 @@ function printHere() {
     items: items.map((x) => ({ sku: x.sku, barcode: x.barcode, name: x.name, qty: 1, copies: x.copies })),
     copies: "sku",
     size: sz,
+    inPage: true,
   });
   printErr.value = ok ? "" : t("souk.recv.printBlocked");
   if (ok) printed.value = true;
@@ -833,6 +828,7 @@ async function post() {
     }) });
     clearDraft(dkey.value);
     result.value = res;
+    if ((res?.printItems || []).length) nextTick(printHere);
   } catch (e) {
     warn(t("souk.failed"), String(e.message || e));
   } finally {

@@ -69,7 +69,10 @@ function labelHTML(item, shelf, sizeMM) {
  * @param {object}   opts.size      a LABEL_SIZES entry
  * @returns {boolean}  false if the popup was blocked
  */
-export function printShelfLabels({ shelf, items, copies, size }) {
+// inPage: print from a hidden frame in this page instead of a new window. A
+// window opened after an await (not inside the click) is blocked as a pop-up;
+// a frame is not, so the page can print the moment the server answers.
+export function printShelfLabels({ shelf, items, copies, size, inPage = false }) {
   const sizeMM = size || LABEL_SIZES[0];
   const printable = (items || []).filter((i) => i.sku && !i.noSku);
 
@@ -118,6 +121,22 @@ export function printShelfLabels({ shelf, items, copies, size }) {
   <script>window.onload = function () { window.print(); };</` + `script>
 </body></html>`;
 
+  if (inPage) {
+    const f = document.createElement("iframe");
+    f.setAttribute("aria-hidden", "true");
+    f.tabIndex = -1;
+    f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+    document.body.appendChild(f);
+    const d = f.contentWindow && f.contentWindow.document;
+    if (!d) { f.remove(); return false; }
+    d.open();
+    d.write(html);     // its onload prints the frame, not the page
+    d.close();
+    const drop = () => setTimeout(() => f.isConnected && f.remove(), 1000);
+    f.contentWindow.addEventListener("afterprint", drop);
+    setTimeout(() => f.isConnected && f.remove(), 120000);
+    return true;
+  }
   const w = window.open("", "_blank");
   if (!w) return false;
   w.document.write(html);
