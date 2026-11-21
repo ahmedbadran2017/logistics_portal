@@ -67,6 +67,11 @@ TAG_MODEL = "claude-haiku-5-5"
 TAG_BATCH = 12
 TAG_RUN = 480             # picks tagged per run at most
 TAG_USAGE_KEY = "lp_souk_tag_usage"
+# Bump when the prompt's idea of "noise" changes: the next run reads the
+# noise picks again. v2 (2026-11-20): v1 called half of them noise from a
+# generic caption while the photo was one product.
+TAG_PROMPT_V = 2
+TAG_PROMPT_KEY = "lp_souk_tag_prompt_v"
 TAG_FIELDS = [
     {"fieldname": "kind", "fieldtype": "Data", "label": "Kind (AI)", "search_index": 1},
     {"fieldname": "ai_price", "fieldtype": "Currency", "label": "Price in the post (AI)"},
@@ -1079,7 +1084,8 @@ TAG_SYSTEM = """You sort the products Moroccan wholesalers post on their Telegra
 
 For every item return:
 - kind, one of:
-  kitchen (cookware, utensils, tableware, glasses, food containers), appliances (small electric home and kitchen appliances: kettle, blender, fryer, heater, iron, fan), decor (decoration, frames, rugs, cushions, curtains, bedding, towels), storage (organisers, boxes, racks, hangers, shelves), cleaning (mops, brushes, cleaning products, laundry), bathroom (bathroom accessories), garden (garden, outdoor, hose, plants, camping, terrace), lighting (lamps, bulbs, LED strips, solar lights), tools (DIY, hand and power tools, hardware), electronics (phones accessories, chargers, cables, earphones, speakers, watches, gadgets), beauty (cosmetics, hair and body care, beauty devices), women (women's clothing, bags, shoes, jewellery), men (men's clothing, shoes, accessories), kids (baby, children, toys, school), sport (sport, fitness, travel, luggage), auto (car accessories), other (a product that fits none of these), noise (NOT a single product: a shop banner or logo, a price list, a text-only image, a collage of many unrelated products, a delivery or payment notice).
+  kitchen (cookware, utensils, tableware, glasses, food containers), appliances (small electric home and kitchen appliances: kettle, blender, fryer, heater, iron, fan), decor (decoration, frames, rugs, cushions, curtains, bedding, towels), storage (organisers, boxes, racks, hangers, shelves), cleaning (mops, brushes, cleaning products, laundry), bathroom (bathroom accessories), garden (garden, outdoor, hose, plants, camping, terrace), lighting (lamps, bulbs, LED strips, solar lights), tools (DIY, hand and power tools, hardware), electronics (phones accessories, chargers, cables, earphones, speakers, watches, gadgets), beauty (cosmetics, hair and body care, beauty devices), women (women's clothing, bags, shoes, jewellery), men (men's clothing, shoes, accessories), kids (baby, children, toys, school), sport (sport, fitness, travel, luggage), auto (car accessories), other (a product that fits none of these), noise (the PHOTO is not one product: a shop banner, logo or opening announcement, a price list or text-only image, a religious or greeting image, a collage of many unrelated products, a shop, warehouse, truck or people scene with no product in focus).
+  Judge noise from the photo, never from the caption: most captions are only a shop name, contact links or an empty "Prix :" / "الثمن :", and a post with such a caption and a photo of one product is that product's kind. A product photo stamped "OUT OF STOCK" or crossed out is still that product's kind. A product with several colours or a poster about one product is that product.
 - title: the product's name in French, at most 60 characters, product type first, then the one or two facts a buyer needs that you can see or read (capacity, size, number of pieces). Like "Bouilloire électrique inox 5 L" or "Dévidoir tuyau d'arrosage 15 m". Never a shop name, never a brand name, never a price. "" for noise.
 - price: the price per piece in dirhams written in the caption or on the photo, as a number; 0 when there is none or it is unclear.
 - pack: the number of pieces per carton or per "colis" when the post states it (e.g. "Colis : 40 Pcs" → 40); 0 otherwise.
@@ -1126,6 +1132,10 @@ def tag_pending(limit=TAG_RUN):
     key = W_key()
     if not key:
         return
+    if cint(frappe.db.get_default(TAG_PROMPT_KEY)) < TAG_PROMPT_V:
+        frappe.db.sql(f"UPDATE `tab{DT_PICK}` SET kind = NULL, ai_at = NULL WHERE kind = %s", (NOISE,))
+        frappe.db.set_default(TAG_PROMPT_KEY, str(TAG_PROMPT_V))
+        frappe.db.commit()
     import anthropic
     client = anthropic.Anthropic(api_key=key, timeout=180, max_retries=2)
     rows = frappe.db.sql(f"""SELECT name, photo, caption FROM `tab{DT_PICK}`
