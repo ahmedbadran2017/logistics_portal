@@ -220,7 +220,7 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
         if stage == "to_pick":
             pick_avail = _pick_availability()
             pick_buckets = {k: len(pick_avail.get(k) or [])
-                            for k in ("ready", "partial", "oos", "local")}
+                            for k in ("ready", "partial", "oos", "local", "move")}
             # City fence: orders held out of the pool until a dispatcher fixes
             # the city — their own chip, so they stop hiding inside "Ready".
             from logistics_portal.api.picking import city_held as _city_held
@@ -230,7 +230,7 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
             # Bank transfers accounting has not posted: out of Ready, on a chip.
             transfer_hold = _transfer_held(80)
             pick_buckets["transfer"] = transfer_hold["n"]
-            if pick in ("ready", "partial", "oos", "local"):
+            if pick in ("ready", "partial", "oos", "local", "move"):
                 pick_names = pick_avail.get(pick) or []
             elif pick == "transfer":
                 pick_names = [r["so"] for r in transfer_hold["rows"]]
@@ -296,8 +296,12 @@ def board(stage="to_pick", track=None, limit=50, q=None, offset=0, city=None, so
             resp["pickStuck"] = pick_avail.get("stuck", {})
             resp["blocking"] = pick_avail.get("blocking", [])
             resp["rescuable"] = pick_avail.get("rescuable", {})
-            if pick in ("partial", "oos", "local"):
+            if pick in ("partial", "oos", "local", "move"):
                 resp["pickMissing"] = {r["no"]: pick_avail["missing"].get(r["no"], []) for r in rows}
+                ml = pick_avail.get("moveLines") or {}
+                resp["pickMoveLines"] = {r["no"]: ml[r["no"]] for r in rows if r["no"] in ml}
+            if pick == "move":
+                resp["moveWork"] = _move_work_view(pick_avail.get("moveWork") or [])
         return resp
     except Exception:
         frappe.log_error(frappe.get_traceback(), "logistics_portal.orders.board")
@@ -393,7 +397,7 @@ def find(q=None, limit=20):
     if pending_pick:
         avail = _pick_availability()
         for row in pending_pick:
-            for k in ("ready", "partial", "local", "oos"):
+            for k in ("ready", "move", "partial", "local", "oos"):
                 if row["no"] in (avail.get(k) or []):
                     row["bucket"] = k
                     break
@@ -870,9 +874,45 @@ def _row(r, **extra):
 # configurable pickable-warehouse policy (structural families always excluded;
 # Return/Receiving/etc. zones toggled by a manager in Settings). Values are %s
 # params so this splices safely into queries that also carry %s args.
-_EMPTY_AVAIL = {"ready": [], "partial": [], "oos": [], "local": [],
-                "missing": {}, "missByOrder": {},
-                "blocking": [], "localSupply": {}, "stuck": {"oos": 0, "partial": 0, "local": 0}}
+_EMPTY_AVAIL = {"ready": [], "partial": [], "oos": [], "local": [], "move": [],
+                "missing": {}, "missByOrder": {}, "moveWork": [], "moveLines": {},
+                "blocking": [], "localSupply": {},
+                "stuck": {"oos": 0, "partial": 0, "local": 0, "move": 0}}
+
+
+def _reserve_stock(codes):
+    """item_code -> [(warehouse, free qty)] in the building but NOT on a pick
+    face: SLOW / STOCK ZONE and the like. Same source rule as Move Stock (so a
+    row here is always a move the screen will accept: no Defective, no transit,
+    no container at sea), minus everything the pick engine can already take.
+    Biggest holding first — that is where the mover goes."""
+    codes = [c for c in set(codes or []) if c]
+    if not codes:
+        return {}
+    from logistics_portal.api.stock_moves import _movable_condition, _SUPPLY_ONLY_LIKE
+    from logistics_portal.api.warehouses import pickable_condition
+    from logistics_portal.api.picking import _ee_rejected
+    mcond, margs = _movable_condition("b.warehouse", as_source=True)
+    pcond, pargs = pickable_condition("b.warehouse")
+    rej = _ee_rejected()
+    # Move Stock may pull from Yakuplu, but Yakuplu is in Istanbul: that is a
+    # shipment, not a walk to SLOW ZONE (1 unit of a blocked item sat there
+    # on 2026-11-23 and would have been offered as "in the building").
+    far = " ".join(["AND b.warehouse NOT LIKE %s"] * len(_SUPPLY_ONLY_LIKE))
+    out = {}
+    for r in frappe.db.sql(
+            f"""SELECT b.item_code ic, b.warehouse wh,
+                       GREATEST(b.actual_qty - b.reserved_qty, 0) q, ({pcond}) pick
+                FROM `tabBin` b
+                WHERE b.item_code IN %s AND b.actual_qty > 0 AND {mcond} {far}
+                ORDER BY b.actual_qty DESC""",
+            tuple(pargs + [tuple(codes)] + margs + list(_SUPPLY_ONLY_LIKE)), as_dict=True):
+        if float(r.q or 0) <= 0:
+            continue
+        if int(r.pick or 0) and r.wh not in rej:
+            continue        # already counted as pickable
+        out.setdefault(r.ic, []).append((r.wh, float(r.q)))
+    return out
 
 
 def _th_sql():
@@ -985,6 +1025,39 @@ def _pick_availability():
                         d["missing"].append(nm)
                     d["miss_codes"].append((code, nm))
 
+    # ── Stock in the building, just not on a pick face ───────────────────
+    # Ahmed 2026-11-23: MCH09449 read "missing" on three orders with 21 in
+    # SLOW ZONE. That is a ten-minute move, not a purchase, and it sat in the
+    # same tab as orders waiting on a container. Second pass, same queue
+    # order: a blocked order goes to "move" only if EVERY line fits in what is
+    # left on the faces PLUS the reserve, and it spends the reserve as it goes
+    # — 21 units never promise 25 orders. Faces first, so the move is only
+    # the part the face cannot give.
+    move_names, move_draw, move_orders = [], {}, {}
+    try:
+        reserve_src = _reserve_stock({c for d in per.values() for c, _n in d["miss_codes"]})
+    except Exception:
+        frappe.log_error(frappe.get_traceback()[:2000], "orders._reserve_stock")
+        reserve_src = {}
+    reserve_left = {c: sum(q for _w, q in v) for c, v in reserve_src.items()}
+    face_left = dict(ceiling)
+    for name in sorted(per, key=lambda s: (_has_own(s), str(per[s]["created"] or ""))):
+        d = per[name]
+        if d["enough"] >= d["n"] or not d["miss_codes"]:
+            continue
+        if not all(face_left.get(c, 0) + reserve_left.get(c, 0) >= need
+                   for c, need, _nm in d["lines"]):
+            continue
+        move_names.append(name)
+        for c, need, _nm in d["lines"]:
+            take = min(face_left.get(c, 0), need)
+            face_left[c] = face_left.get(c, 0) - take
+            if need > take:
+                reserve_left[c] -= need - take
+                move_draw[c] = move_draw.get(c, 0) + (need - take)
+                move_orders.setdefault(c, set()).add(name)
+    move_set = set(move_names)
+
     # There was briefly a "cooling" bucket here, mirroring _pick_gate's 24-hour
     # cool-down on short-picked ORDERS. Both are gone: the report is about a
     # shelf, not an order, so it is now recorded against (item, warehouse) and
@@ -996,9 +1069,18 @@ def _pick_availability():
     block = {}  # code -> {name, orders:set, mad, oldest}
     miss_by_order = {}  # order -> [(missing item_code, item_name)] for SKU-rescue
     stuck_oos = stuck_partial = 0.0
+    move, stuck_move = [], 0.0
     for name, d in per.items():
         if d["enough"] >= d["n"]:
             ready.append(name); continue
+        if name in move_set:
+            # Not a purchase and not a shortage: a move. Kept out of the
+            # restock worklist and the supplier facet — nobody should call a
+            # vendor for a box that is in SLOW ZONE.
+            move.append(name)
+            missing[name] = d["missing"]
+            stuck_move += d["val"]
+            continue
         blocked = d["some"] == 0   # nothing at all in stock (vs short = some)
         (oos if blocked else partial).append(name)
         missing[name] = d["missing"]
@@ -1108,9 +1190,27 @@ def _pick_availability():
         stuck_oos -= sum(moved_oos)
         stuck_partial -= sum(moved_partial)
 
-    out = {"ready": ready, "partial": partial, "oos": oos, "local": local,
+    # The move worklist, one row per ITEM (the floor moves a box, not an
+    # order): how many to bring to the face, from where, for which orders.
+    item_names = {c: nm for d in per.values() for c, _need, nm in d["lines"]}
+    move_work = sorted(
+        ({"itemCode": c, "name": item_names.get(c) or c, "qty": int(-(-q // 1)),
+          "orders": sorted(move_orders.get(c) or []),
+          "mad": round(sum(per[n]["val"] for n in move_orders.get(c) or [])),
+          "from": [{"warehouse": w, "qty": int(x)} for w, x in reserve_src.get(c, [])[:3]]}
+         for c, q in move_draw.items() if q > 0),
+        key=lambda x: (-len(x["orders"]), -x["mad"]))
+    # Orders still blocked by something else, whose line(s) COULD come from
+    # the reserve: those lines get an amber chip instead of "missing".
+    move_lines = {}
+    for n in oos + partial + local:
+        lines = [nm for c, nm in miss_by_order.get(n, []) if reserve_src.get(c)]
+        if lines:
+            move_lines[n] = lines
+
+    out = {"ready": ready, "partial": partial, "oos": oos, "local": local, "move": move,
            "missing": missing, "blocking": blocking, "rescuable": rescuable,
-           "localSupply": local_supply,
+           "localSupply": local_supply, "moveWork": move_work, "moveLines": move_lines,
            # Per-order blocking (code, name) pairs. Every blocked order, not
            # just the local ones: the supplier column and filter on the main
            # table are built from this, and they cover Partial and Out of
@@ -1119,8 +1219,41 @@ def _pick_availability():
                            for n in (local + oos + partial)},
            "stuck": {"oos": round(max(0.0, stuck_oos)),
                      "partial": round(max(0.0, stuck_partial)),
-                     "local": round(stuck_local)}}
+                     "local": round(stuck_local), "move": round(stuck_move)}}
     cache.set_value("lp_pick_avail", _json.dumps(out), expires_in_sec=120)
+    return out
+
+
+def _move_work_view(work):
+    """The cached move worklist, dressed for the screen: SKU, image, and
+    WHERE to put it — the last pick face the item lived on (its Bin row stays
+    after the shelf empties), so Move Stock opens with both ends filled.
+    No face ever: the mover picks one, as on the slotting no-face list."""
+    if not work:
+        return []
+    codes = tuple(w["itemCode"] for w in work)
+    meta = {r.name: r for r in frappe.db.sql(
+        "SELECT name, custom_sku, image FROM `tabItem` WHERE name IN %s", (codes,), as_dict=True)}
+    from logistics_portal.api.warehouses import pickable_condition
+    from logistics_portal.api.picking import _ee_rejected
+    from logistics_portal.api.stock_moves import _movable_condition
+    pcond, pargs = pickable_condition("b.warehouse")
+    mcond, margs = _movable_condition("b.warehouse")
+    rej = _ee_rejected()
+    face = {}
+    for r in frappe.db.sql(
+            f"""SELECT b.item_code ic, b.warehouse wh FROM `tabBin` b
+                WHERE b.item_code IN %s AND {pcond} AND {mcond}
+                  AND b.warehouse NOT LIKE %s AND b.warehouse NOT LIKE %s
+                ORDER BY b.actual_qty DESC, b.modified DESC""",
+            tuple([codes] + pargs + margs + ["%receiv%", "%reception%"]), as_dict=True):
+        if r.wh not in rej:
+            face.setdefault(r.ic, r.wh)
+    out = []
+    for w in work:
+        m = meta.get(w["itemCode"]) or {}
+        out.append({**w, "sku": (m.get("custom_sku") or "").strip(), "image": m.get("image") or "",
+                    "target": face.get(w["itemCode"], "")})
     return out
 
 

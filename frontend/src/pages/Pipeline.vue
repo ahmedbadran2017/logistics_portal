@@ -176,6 +176,8 @@
         v-for="tb in [
           { k: 'ready',   label: t('ordersPg.pickReady'),   hex: '#059669' },
           { k: 'partial', label: t('ordersPg.pickPartial'), hex: '#d97706' },
+          ...((pickBuckets.move || 0) > 0 || pickTab === 'move'
+            ? [{ k: 'move', label: t('ordersPg.pickMove'), hex: '#ca8a04' }] : []),
           { k: 'local',   label: t('ordersPg.pickLocal'),   hex: '#7c3aed' },
           { k: 'oos',     label: t('ordersPg.pickOos'),     hex: '#e11d48' },
           { k: 'city',    label: t('ordersPg.pickCity'),    hex: '#0369a1' },
@@ -194,6 +196,7 @@
         {{ pickTab === 'ready' ? t('ordersPg.pickReadyHint')
            : pickTab === 'partial' ? t('ordersPg.pickPartialHint')
            : pickTab === 'local' ? t('ordersPg.pickLocalHint')
+           : pickTab === 'move' ? t('ordersPg.pickMoveHint')
            : pickTab === 'city' ? t('ordersPg.pickCityHint')
            : pickTab === 'transfer' ? t('ordersPg.pickTransferHint') : t('ordersPg.pickOosHint') }}
       </span>
@@ -330,6 +333,49 @@
           <button v-else-if="r.action === 'openDraft' && r.drafts.length"
                   class="h-8 px-3 rounded-lg text-[12px] font-semibold text-sky-800 bg-sky-50 ring-1 ring-sky-200 hover:bg-sky-100 flex-shrink-0"
                   @click="$router.push({ name: 'PickLists', query: { q: r.drafts[0].pl } })">{{ t('ordersPg.fooOpenPl') }}</button>
+        </li>
+      </ul>
+    </div>
+
+    <!-- Move from reserve: one row per ITEM, because the action is one move.
+         Move Stock opens with the item, the reserve bin, the face and the
+         quantity filled; once it lands the orders turn Ready by themselves. -->
+    <div v-if="pickTab === 'move'" class="mb-3 rounded-xl ring-1 ring-amber-200/80 bg-white overflow-hidden">
+      <div class="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 flex-wrap">
+        <Icon name="move" :size="14" class="text-amber-600" />
+        <span class="text-[12px] font-semibold text-stone-900">{{ t('ordersPg.moveTitle') }}</span>
+        <span class="text-[11.5px] text-stone-400 tabular-nums">
+          {{ t('ordersPg.moveSub').replace('{n}', String(moveWork.length)).replace('{o}', String(pickBuckets.move || 0)).replace('{mad}', fmtMAD(pickStuck.move || 0)) }}
+        </span>
+      </div>
+      <div v-if="!moveWork.length" class="text-center text-[12.5px] text-emerald-600 py-8">{{ t('ordersPg.moveNone') }}</div>
+      <ul v-else class="divide-y divide-stone-100">
+        <li v-for="w in moveWork" :key="w.itemCode" class="p-3 flex items-center gap-3 flex-wrap sm:flex-nowrap">
+          <img v-if="w.image" :src="w.image" alt="" @error="hideImg"
+               class="w-11 h-11 rounded-lg object-cover ring-1 ring-stone-200 bg-stone-50 flex-shrink-0" />
+          <span v-else class="w-11 h-11 rounded-lg bg-stone-100 ring-1 ring-stone-200 flex items-center justify-center flex-shrink-0 text-stone-400"><Icon name="package" :size="16" /></span>
+          <div class="min-w-0 flex-1">
+            <div class="text-[12.5px] font-semibold text-stone-900 truncate" :title="w.name">{{ w.name }}</div>
+            <div class="font-mono text-[11px] text-stone-500 truncate">{{ w.sku || w.itemCode }}</div>
+            <div class="flex items-center gap-1.5 mt-1 flex-wrap text-[11px]">
+              <span class="text-stone-400">{{ t('ordersPg.moveFrom') }}</span>
+              <span v-for="f in w.from" :key="f.warehouse" class="font-mono font-semibold text-amber-800 bg-amber-50 ring-1 ring-amber-200 rounded px-1.5 py-px">
+                {{ f.warehouse.replace(' - JM', '') }} · {{ f.qty }}
+              </span>
+              <Icon name="arrow-right" :size="11" class="text-stone-400 rtl:rotate-180" />
+              <span v-if="w.target" class="font-mono font-semibold text-emerald-800 bg-emerald-50 ring-1 ring-emerald-200 rounded px-1.5 py-px">{{ w.target.replace(' - JM', '') }}</span>
+              <span v-else class="text-stone-500 italic">{{ t('ordersPg.moveNoFace') }}</span>
+            </div>
+          </div>
+          <button class="text-[11px] font-bold text-amber-800 bg-amber-50 ring-1 ring-amber-200/70 rounded-md px-2 py-0.5 tabular-nums hover:bg-amber-100 flex-shrink-0"
+                  :title="w.orders.join(' · ')" @click="showBlockingOrders({ sku: w.itemCode, name: w.name })">
+            {{ t('ordersPg.moveOrders').replace('{n}', String(w.orders.length)) }}
+          </button>
+          <span class="text-[12px] font-bold text-stone-800 tabular-nums flex-shrink-0">{{ t('ordersPg.moveQty').replace('{n}', String(w.qty)) }}</span>
+          <button class="h-9 px-3.5 rounded-lg text-[12.5px] font-bold text-white bg-amber-600 hover:bg-amber-700 inline-flex items-center gap-1.5 flex-shrink-0"
+                  @click="goMove(w)">
+            <Icon name="move" :size="13" />{{ t('ordersPg.moveBtn') }}
+          </button>
         </li>
       </ul>
     </div>
@@ -638,10 +684,15 @@
                   </template>
                 </div>
                 <div v-if="pickMissing[r.no] && pickMissing[r.no].length" class="flex items-center gap-1 mt-1 flex-wrap">
-                  <span class="text-[10px] font-semibold text-rose-500 uppercase tracking-wide me-0.5">{{ t('ordersPg.missing') }}</span>
+                  <span class="text-[10px] font-semibold uppercase tracking-wide me-0.5"
+                        :class="pickTab === 'move' ? 'text-amber-600' : 'text-rose-500'">{{ pickTab === 'move' ? t('ordersPg.qvMove') : t('ordersPg.missing') }}</span>
+                  <!-- amber = in the building, needs a move; rose = not here -->
                   <span v-for="(mi, k) in pickMissing[r.no].slice(0, 3)" :key="k"
-                        class="inline-flex items-center text-[10.5px] font-medium text-rose-700 bg-rose-50 ring-1 ring-rose-200/60 rounded px-1.5 py-0.5 truncate max-w-[150px]" :title="mi">
-                    {{ mi }}
+                        class="inline-flex items-center gap-1 text-[10.5px] font-medium rounded px-1.5 py-0.5 truncate max-w-[170px] ring-1"
+                        :class="pickTab === 'move' || (pickMoveLines[r.no] || []).includes(mi)
+                          ? 'text-amber-800 bg-amber-50 ring-amber-200/70' : 'text-rose-700 bg-rose-50 ring-rose-200/60'"
+                        :title="pickTab !== 'move' && (pickMoveLines[r.no] || []).includes(mi) ? t('ordersPg.qvMoveHint') : mi">
+                    <Icon v-if="pickTab !== 'move' && (pickMoveLines[r.no] || []).includes(mi)" name="move" :size="10" class="flex-shrink-0" />{{ mi }}
                   </span>
                   <span v-if="pickMissing[r.no].length > 3" class="text-[10.5px] text-rose-400">+{{ pickMissing[r.no].length - 3 }}</span>
                 </div>
@@ -879,6 +930,13 @@
                         class="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-700 ring-1 ring-violet-200 whitespace-nowrap flex-shrink-0">
                     {{ t('ordersPg.qvLocal') }}
                   </span>
+                  <!-- ours to sell, not on a pick face: the green dot here
+                       read "in stock" on an order the board called missing -->
+                  <span v-else-if="it.offFace"
+                        class="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-800 ring-1 ring-amber-200 whitespace-nowrap flex-shrink-0 tabular-nums"
+                        :title="t('ordersPg.qvMoveHint')">
+                    {{ t('ordersPg.qvMove') }}<template v-if="it.avail"> · {{ it.avail }}</template>
+                  </span>
                   <span v-else class="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" :title="t('ordersPg.qvInStock')" />
                   <span class="font-mono text-[12px] font-semibold text-stone-800 tabular-nums">{{ fmtMAD(it.line) }}</span>
                 </div>
@@ -1078,6 +1136,18 @@ async function showBlockingOrders(b) {
   blockedOrders.value = Array.isArray(res) ? res : [];
   blockedLoading.value = false;
 }
+// A broken product photo: hide it, keep the row's layout.
+function hideImg(e) {
+  if (e?.target) e.target.style.visibility = "hidden";
+}
+// The move worklist's one action: Move Stock with item, reserve bin, face
+// and quantity filled in — the mover checks and confirms.
+function goMove(w) {
+  const query = { item: w.itemCode, qty: w.qty };
+  if (w.from && w.from.length) query.from = w.from[0].warehouse;
+  if (w.target) query.target = w.target;
+  router.push({ name: "MoveStock", query });
+}
 function openBlockedOrder(no) {
   blockedFor.value = null;
   router.push({ name: "OrderDetail", params: { name: String(no).replace('#', '') } });
@@ -1155,6 +1225,8 @@ const localBoard = ref(null);
 const falseOos = ref(null);
 const openSup = ref("");
 const pickMissing = ref({});
+const pickMoveLines = ref({});
+const moveWork = ref([]);
 const pickSuppliers = ref({});
 // The panel mixes two jobs: stock we can move today, and stock a supplier
 // owes us. With only 12 rows, one crowds the other off the screen.
@@ -1206,6 +1278,8 @@ async function load(stage, track = "", keepPage = false) {
     if (pickTab.value === "oos") loadFalseOos();
     else falseOos.value = null;
     pickMissing.value = live.pickMissing || {};
+    pickMoveLines.value = live.pickMoveLines || {};
+    moveWork.value = live.moveWork || [];
     pickSuppliers.value = live.pickSuppliers || {};
     suppliers.value = live.suppliers || [];
     rescuable.value = live.rescuable || {};
