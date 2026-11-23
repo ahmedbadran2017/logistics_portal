@@ -128,6 +128,20 @@ export default {
       said: "Sent back by {by}:",
       rawEdit: "Edit the in-house photos",
       rawInStudio: "Marketing has this card: a retaken or added photo reaches them right away, and the card stays at its step.",
+      rawInContent: "This card is at Content: a retaken or added photo stays on the card for reference. The shop shows the pro photos, so change those from \"Edit the pro photos\".",
+    },
+    // Changing the pro photos of a card already at Content (its photos are
+    // on the Shopify Draft).
+    fe: {
+      editFinals: "Edit the pro photos",
+      atContent: "This card is at Content and its pro photos are already on the Shopify Draft. Add, remove or reorder them here, then press \"Update the Shopify Draft\".",
+      synced: "The Shopify Draft shows these photos.",
+      notSynced: "Changed here: the Shopify Draft still shows the old photos.",
+      notSyncedContent: "The pro photos were changed and are not on the Shopify Draft yet. Sending to review puts them on it.",
+      push: "Update the Shopify Draft",
+      pushed: "{n} photos on the Shopify Draft.",
+      pushNote: "Each colour's first photo becomes its variants' image. The card stays at Content.",
+      backToContent: "Back to the content",
     },
   },
   fr: {
@@ -253,6 +267,18 @@ export default {
       said: "Renvoyé par {by} :",
       rawEdit: "Modifier les photos internes",
       rawInStudio: "Le marketing a cette carte : une photo reprise ou ajoutée lui arrive tout de suite, et la carte reste à son étape.",
+      rawInContent: "Cette carte est au contenu : une photo reprise ou ajoutée reste sur la carte comme référence. La boutique montre les photos pro : modifiez-les avec « Modifier les photos pro ».",
+    },
+    fe: {
+      editFinals: "Modifier les photos pro",
+      atContent: "Cette carte est au contenu et ses photos pro sont déjà sur le brouillon Shopify. Ajoutez, retirez ou réordonnez-les ici, puis appuyez sur « Mettre à jour le brouillon Shopify ».",
+      synced: "Le brouillon Shopify montre ces photos.",
+      notSynced: "Modifiées ici : le brouillon Shopify montre encore les anciennes photos.",
+      notSyncedContent: "Les photos pro ont été modifiées et ne sont pas encore sur le brouillon Shopify. L'envoi en relecture les y met.",
+      push: "Mettre à jour le brouillon Shopify",
+      pushed: "{n} photos sur le brouillon Shopify.",
+      pushNote: "La première photo de chaque couleur devient l'image de ses variantes. La carte reste au contenu.",
+      backToContent: "Retour au contenu",
     },
   },
   ar: {
@@ -378,6 +404,18 @@ export default {
       said: "أعادها {by}:",
       rawEdit: "تعديل الصور الداخلية",
       rawInStudio: "البطاقة لدى التسويق: أي صورة تعيد تصويرها أو تضيفها تصلهم فورًا، وتبقى البطاقة في مرحلتها.",
+      rawInContent: "البطاقة في مرحلة المحتوى: الصورة التي تعيد تصويرها أو تضيفها تبقى على البطاقة مرجعًا فقط. المتجر يعرض الصور الاحترافية، فعدّلها من «تعديل الصور الاحترافية».",
+    },
+    fe: {
+      editFinals: "تعديل الصور الاحترافية",
+      atContent: "البطاقة في مرحلة المحتوى وصورها الاحترافية موجودة على مسودة شوبيفاي. أضف الصور أو احذفها أو أعد ترتيبها هنا، ثم اضغط «تحديث مسودة شوبيفاي».",
+      synced: "مسودة شوبيفاي تعرض هذه الصور.",
+      notSynced: "عُدّلت هنا، ومسودة شوبيفاي ما زالت تعرض الصور القديمة.",
+      notSyncedContent: "عُدّلت الصور الاحترافية ولم تُرفع إلى مسودة شوبيفاي بعد. الإرسال إلى المراجعة يرفعها.",
+      push: "تحديث مسودة شوبيفاي",
+      pushed: "{n} صورة على مسودة شوبيفاي.",
+      pushNote: "أول صورة لكل لون تصبح صورة متغيراته. تبقى البطاقة في مرحلة المحتوى.",
+      backToContent: "العودة إلى المحتوى",
     },
   },
 };

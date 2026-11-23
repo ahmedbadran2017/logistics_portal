@@ -101,10 +101,16 @@
             <Icon name="undo-2" :size="15" class="shrink-0 mt-0.5 text-amber-700" /><span><b>{{ t('souk.bk.said').replace('{by}', d.backNote.by) }}</b> {{ d.backNote.note }}</span>
           </div>
           <div v-if="!d.canEdit" class="bg-stone-100 rounded-xl px-3 py-2.5 text-[13px] text-stone-700">{{ t('souk.studioNotNow') }}</div>
+          <!-- a card already at content: its photos are on the Shopify Draft;
+               changes here go back onto it with one press -->
+          <div v-else-if="atContent" class="st-content rounded-xl st-soft px-3.5 py-3 text-[13px] text-stone-800 flex gap-2.5 items-start">
+            <Icon name="notebook-pen" :size="16" class="shrink-0 mt-0.5 st-ink" />
+            <span class="min-w-0">{{ t('souk.fe.atContent') }}</span>
+          </div>
 
           <!-- the photo set (souk_set): drawn shots checked against the floor
                photos, the words drawn by code, a person accepts -->
-          <section v-if="ps && d.canEdit && (ps.ready || ps.items.length || ps.why === 'setoff' && isManager)" class="sk-sec st-studio">
+          <section v-if="ps && d.canEdit && !atContent && (ps.ready || ps.items.length || ps.why === 'setoff' && isManager)" class="sk-sec st-studio">
             <div class="sk-sec-h">
               <span class="sk-ico sk-ico-sm sk-ico-solid"><Icon name="layout-grid" :size="14" /></span>
               <div class="min-w-0 flex-1">
@@ -241,7 +247,7 @@
           </section>
 
           <!-- web pack: the AI's suggestions, each accepted by a person -->
-          <section v-if="ai && d.canEdit" class="sk-sec st-studio">
+          <section v-if="ai && d.canEdit && !atContent" class="sk-sec st-studio">
             <div class="sk-sec-h">
               <span class="sk-ico sk-ico-sm sk-ico-solid"><Icon name="sparkles" :size="14" /></span>
               <div class="min-w-0 flex-1">
@@ -322,7 +328,7 @@
               <span class="sk-ico sk-ico-sm"><Icon name="camera" :size="14" /></span>
               <div class="min-w-0 flex-1">
                 <div class="sk-sec-t">{{ t('souk.rawPhotos') }} · {{ d.photos.length }}</div>
-                <div class="sk-sec-s">{{ ai && ai.ready && d.canEdit ? t('souk.st.rawSubAi') : t('souk.st.rawSub') }}</div>
+                <div class="sk-sec-s">{{ ai && ai.ready && d.canEdit && !atContent ? t('souk.st.rawSubAi') : t('souk.st.rawSub') }}</div>
               </div>
               <router-link v-if="d.canRaw" :to="{ name: 'SoukPhoto', params: { name: d.name } }" class="lp-tap shrink-0 h-9 px-3 rounded-xl bg-white/80 ring-1 ring-inset ring-stone-200 text-[13px] font-semibold text-stone-700 inline-flex items-center gap-1.5 hover:bg-white">
                 <Icon name="camera" :size="14" />{{ t('souk.bk.rawEdit') }}
@@ -343,7 +349,7 @@
                       <img :src="p.url" class="w-full h-full object-cover" alt="" loading="lazy" />
                     </a>
                     <span class="absolute bottom-1 start-1 text-[10px] font-semibold rounded px-1 bg-black/55 text-white max-w-[calc(100%-2.5rem)] truncate">{{ slotName(p.slot) }}</span>
-                    <button v-if="ai && ai.ready && d.canEdit && !hasAi(p.url)" class="absolute top-1 end-1 w-7 h-7 rounded-lg bg-white/90 st-studio st-ink hover:bg-white inline-flex items-center justify-center disabled:opacity-40"
+                    <button v-if="ai && ai.ready && d.canEdit && !atContent && !hasAi(p.url)" class="absolute top-1 end-1 w-7 h-7 rounded-lg bg-white/90 st-studio st-ink hover:bg-white inline-flex items-center justify-center disabled:opacity-40"
                             :disabled="aiBusy" :title="t('souk.st.makeOne')" :aria-label="t('souk.st.makeOne')" @click="aiStart([p.url])"><Icon name="sparkles" :size="13" /></button>
                   </div>
                 </div>
@@ -451,8 +457,25 @@
             </div>
           </section>
 
+          <!-- at content: put the changed photos back on the Draft -->
+          <section v-if="d.canEdit && atContent" class="lp-card p-4 space-y-3">
+            <p class="text-[13px] font-semibold" :class="d.synced ? 'text-emerald-700' : 'text-amber-800'">
+              <Icon :name="d.synced ? 'check-circle' : 'alert-circle'" :size="15" class="inline -mt-0.5 me-1" />{{ d.synced ? t('souk.fe.synced') : t('souk.fe.notSynced') }}
+            </p>
+            <div class="flex gap-2 flex-wrap items-center">
+              <button class="st-content w-full sm:w-auto h-12 px-5 rounded-xl st-solid text-[15px] font-bold inline-flex items-center justify-center gap-2 disabled:!bg-stone-200 disabled:!text-stone-500 disabled:shadow-none"
+                      :disabled="busy || !!uploading || orderSaving || !order.length || d.colorsWithout.length > 0 || (d.synced && sameOrder())" @click="pushFinals">
+                <Icon name="upload-cloud" :size="17" />{{ busy && !orderSaving ? t('souk.sending') : t('souk.fe.push') }}
+              </button>
+              <router-link :to="{ name: 'SoukContent', params: { name: d.name } }" class="w-full sm:w-auto min-h-[44px] py-2 px-4 rounded-xl bg-white ring-1 ring-inset ring-stone-300 text-[14px] font-semibold text-stone-700 hover:bg-stone-50 inline-flex items-center justify-center gap-1.5">
+                <Icon name="chevron-left" :size="15" class="rtl:rotate-180" />{{ t('souk.fe.backToContent') }}
+              </router-link>
+            </div>
+            <p class="text-[12px] text-stone-500">{{ t('souk.fe.pushNote') }}</p>
+          </section>
+
           <!-- actions -->
-          <section v-if="d.canEdit" class="lp-card p-4 space-y-3">
+          <section v-if="d.canEdit && !atContent" class="lp-card p-4 space-y-3">
             <div v-if="returning" class="space-y-2 rounded-xl bg-amber-50/70 p-3">
               <label class="block text-[13px] font-bold" for="souk-return">{{ t('souk.returnWhy') }}</label>
               <textarea id="souk-return" v-model="reason" rows="2" class="w-full rounded-xl border border-stone-300 px-3 py-2 text-[14px] bg-white" :placeholder="t('souk.returnHint')" />
@@ -524,6 +547,8 @@ const isManager = computed(() => auth.role?.value === "manager");
 
 // --- web pack (souk_ai): suggestions a person accepts --------------------------
 const ai = computed(() => d.value?.ai || null);
+// The same editor for a card already at content (its photos on the Draft).
+const atContent = computed(() => d.value?.stage === "content");
 const aiBusy = ref(false);
 const big = ref(null);
 const cutWorking = computed(() => !!ai.value && ["queued", "running"].includes(ai.value.state) && ai.value.todo.length > 0);
@@ -866,6 +891,22 @@ async function send() {
     const r = await apiPost("souk.studio_send", { name: d.value.name });
     success(t("souk.sentToContent").replace("{n}", r.media));
     await go();
+  } catch (e) {
+    warn(t("souk.failed"), String(e.message || e));
+    await load();
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function pushFinals() {
+  clearTimeout(nudgeTimer);
+  if (!sameOrder()) await save(order.value);
+  busy.value = true;
+  try {
+    const r = await apiPost("souk.finals_push", { name: d.value.name });
+    success(t("souk.fe.pushed").replace("{n}", r.media));
+    await router.push({ name: "SoukContent", params: { name: d.value.name } });
   } catch (e) {
     warn(t("souk.failed"), String(e.message || e));
     await load();

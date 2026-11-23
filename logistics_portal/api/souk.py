@@ -2607,6 +2607,8 @@ def product(name):
         "me": frappe.session.user, "isManager": _role() == "manager",
         "canClaim": doc.stage not in ("live", "dropped"),
         "backTo": _back_targets(doc), "canRaw": _raw_edit_ok(doc.stage),
+        "canFinals": _final_edit_ok(doc.stage),
+        "finalsSynced": _finals_synced(doc) if doc.stage == "content" else True,
         "backNote": _arrival_note(doc),
     }
 
@@ -3391,13 +3393,39 @@ def _gate_raw():
 
 def _raw_edit_ok(stage):
     """The in-house photos are shot at 'photos'. While marketing works on
-    the card (studio) the floor or marketing can still retake or add one,
-    without sending the card back and losing the studio's work."""
+    the card (studio) or the text is being written (content) the floor or
+    marketing can still retake or add one, without sending the card back
+    and losing the later step's work."""
     if stage == "photos":
         return _can_photo()
-    if stage == "studio":
+    if stage in ("studio", "content"):
         return _can_photo() or _can_studio()
     return False
+
+
+def _final_edit_ok(stage):
+    """The pro photos belong to the studio; at content they are already on
+    the Shopify Draft, so a change there is put back with finals_push."""
+    return stage in ("studio", "content") and _can_studio()
+
+
+def _finals_synced(doc, finals=None):
+    """At content: is the Draft showing these finals, in this order? Every
+    change at content marks the finals unpushed; a push marks them pushed.
+    Cards pushed before the flag existed count as pushed while untouched."""
+    if finals is None:
+        finals = _loads(doc.finals_json) or []
+    ours = _loads(doc.shopify_media) or []
+    return len(finals) == len(ours) and all(f.get("pushed", True) for f in finals)
+
+
+def _finals_touched(doc, finals):
+    """A change to the finals at content: the Draft no longer matches."""
+    if doc.stage == "content":
+        for f in finals:
+            f["pushed"] = False
+    return finals
+
 
 
 # Sending a card back: from each stage, the earlier steps it may return to.
@@ -3564,8 +3592,8 @@ def photo_add(name, color="", slot="front"):
                    "by": _user_name(frappe.session.user), "at": str(now_datetime())[:16]})
     doc.db_set("photos_json", json.dumps(photos, ensure_ascii=False), update_modified=False)
     _drop_files(doc.name, replaced)
-    if doc.stage == "studio":
-        doc.add_comment("Comment", f"Souk: in-house photo {'retaken' if replaced else 'added'} during the studio "
+    if doc.stage in ("studio", "content"):
+        doc.add_comment("Comment", f"Souk: in-house photo {'retaken' if replaced else 'added'} during the {doc.stage} "
                                    f"by {_user_name(frappe.session.user)} · {color or 'ALL'} {slot}")
     frappe.db.commit()
     return {"photos": photos, "missing": _missing(colors, photos)}
@@ -3580,7 +3608,7 @@ def photo_remove(name, url, which="raw"):
     else:
         _gate_raw()
     doc = _lock_product(name)
-    if which == "final" and doc.stage != "studio":
+    if which == "final" and not _final_edit_ok(doc.stage):
         frappe.throw("This product is no longer at that step.")
     if which != "final" and not _raw_edit_ok(doc.stage):
         frappe.throw("This product's in-house photos can no longer be changed here.")
@@ -3590,9 +3618,13 @@ def photo_remove(name, url, which="raw"):
     if len(keep) == len(rows):
         frappe.throw("Photo not found on this product.")
     gone = next(p for p in rows if p.get("url") == url)
-    if which != "final" and doc.stage == "studio" and gone.get("slot") != EXTRA_SLOT:
-        # Marketing has the card: every required angle stays on it.
-        frappe.throw("Retake this angle instead of removing it: the card is with marketing.")
+    if which != "final" and doc.stage != "photos" and gone.get("slot") != EXTRA_SLOT:
+        # Past the floor: every required angle stays on the card.
+        frappe.throw("Retake this angle instead of removing it: the card is past the in-house photos.")
+    if which == "final":
+        _finals_touched(doc, keep)
+        if doc.stage == "content":
+            doc.add_comment("Comment", f"Souk: final photo removed during the content by {_user_name(frappe.session.user)}")
     doc.db_set(field, json.dumps(keep, ensure_ascii=False), update_modified=False)
     _drop_files(doc.name, [url])
     frappe.db.commit()
@@ -3674,7 +3706,8 @@ def _studio_detail(name):
         # Only colours that really are colours need their own final.
         "colorsWithout": [c["code"] for c in colors if c["code"] and c["code"] not in tied]
         if len(colors) > 1 else [],
-        "canEdit": doc.stage == "studio",
+        "canEdit": _final_edit_ok(doc.stage),
+        "synced": _finals_synced(doc, finals) if doc.stage == "content" else None,
         "canRaw": _raw_edit_ok(doc.stage), "backNote": _arrival_note(doc),
         "deadline": _deadline(doc),
         "ai": _ai_block(doc),
@@ -3725,8 +3758,8 @@ def final_add(name, color=""):
     _gate_studio()
     content, ext = _read_upload(max_mb=20)
     doc = _lock_product(name)
-    if doc.stage != "studio":
-        frappe.throw("This product is not waiting for its final photos.")
+    if not _final_edit_ok(doc.stage):
+        frappe.throw("This product's final photos can no longer be changed here.")
     color = (color or "").upper()
     if color and color not in [c["code"] for c in _colors(_loads(doc.variants_json) or [])]:
         frappe.throw(f"Unknown colour {color}.")
@@ -3736,7 +3769,10 @@ def final_add(name, color=""):
     fdoc = _insert_file("final", DT_PRODUCT, doc.name, content, ext)
     finals.append({"url": fdoc.file_url, "color": color, "by": _user_name(frappe.session.user),
                    "at": str(now_datetime())[:16]})
+    _finals_touched(doc, finals)
     doc.db_set("finals_json", json.dumps(finals, ensure_ascii=False), update_modified=False)
+    if doc.stage == "content":
+        doc.add_comment("Comment", f"Souk: final photo added during the content by {_user_name(frappe.session.user)}")
     frappe.db.commit()
     return _studio_detail(doc.name)
 
@@ -3748,8 +3784,8 @@ def final_set(name, finals):
     _gate_studio()
     want = json.loads(finals) if isinstance(finals, str) else (finals or [])
     doc = _lock_product(name)
-    if doc.stage != "studio":
-        frappe.throw("This product is not waiting for its final photos.")
+    if not _final_edit_ok(doc.stage):
+        frappe.throw("This product's final photos can no longer be changed here.")
     cur = {f["url"]: f for f in (_loads(doc.finals_json) or [])}
     if sorted(cur) != sorted(w.get("url") for w in want):
         frappe.throw("The photo list changed meanwhile — reload.")
@@ -3760,6 +3796,9 @@ def final_set(name, finals):
         if color and color not in codes:
             frappe.throw(f"Unknown colour {color}.")
         out.append({**cur[w["url"]], "color": color})
+    before = [(f["url"], f.get("color") or "") for f in (_loads(doc.finals_json) or [])]
+    if [(f["url"], f.get("color") or "") for f in out] != before:
+        _finals_touched(doc, out)
     doc.db_set("finals_json", json.dumps(out, ensure_ascii=False), update_modified=False)
     frappe.db.commit()
     return _studio_detail(doc.name)
@@ -3921,11 +3960,57 @@ def studio_send(name):
         frappe.throw(f"Shopify did not take the photos: {str(e)[:300]}")
     from logistics_portal.api import souk_ai
     souk_ai.clear(doc)
-    _set_stage(doc, "content", shopify_media=json.dumps(mine), error="")
+    for f in finals:
+        f["pushed"] = True
+    _set_stage(doc, "content", shopify_media=json.dumps(mine), error="",
+               finals_json=json.dumps(finals, ensure_ascii=False))
     doc.add_comment("Comment", f"Souk: {len(finals)} final photos on the Shopify Draft by "
                                f"{_user_name(frappe.session.user)} · to content.")
     frappe.db.commit()
     return {"ok": True, "media": len(mine)}
+
+
+def _repush_finals(doc):
+    """The finals as they are now → the Draft (at content). Throws if
+    Shopify refuses; marks them pushed when it takes them."""
+    variants = _loads(doc.variants_json) or []
+    colors = _colors(variants)
+    finals = _loads(doc.finals_json) or []
+    if not finals:
+        frappe.throw("Upload the final photos first.")
+    tied = {f.get("color") for f in finals}
+    without = [c["code"] for c in colors if c["code"] and c["code"] not in tied] if len(colors) > 1 else []
+    if without:
+        frappe.throw("Every colour needs at least one final photo: " + ", ".join(without))
+    if not doc.shopify_product_id:
+        frappe.throw("This product has no Shopify Draft.")
+    try:
+        mine = _push_finals(doc, finals, variants, colors)
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(frappe.get_traceback()[:3000], f"souk.finals_push {doc.name}")
+        frappe.db.set_value(DT_PRODUCT, doc.name, "error", f"Shopify photos: {str(e)[:400]}", update_modified=False)
+        frappe.db.commit()
+        frappe.throw(f"Shopify did not take the photos: {str(e)[:300]}")
+    for f in finals:
+        f["pushed"] = True
+    doc.db_set({"finals_json": json.dumps(finals, ensure_ascii=False), "shopify_media": json.dumps(mine),
+                "error": ""}, update_modified=False)
+    doc.add_comment("Comment", f"Souk: {len(finals)} final photos updated on the Shopify Draft by "
+                               f"{_user_name(frappe.session.user)}")
+    return len(mine)
+
+
+@frappe.whitelist(methods=["POST"])
+def finals_push(name):
+    """Pro photos changed at content → put them back on the Shopify Draft."""
+    _gate_studio()
+    doc = _lock_product(name)
+    if doc.stage != "content":
+        frappe.throw("Only a product at the content step updates its photos this way.")
+    n = _repush_finals(doc)
+    frappe.db.commit()
+    return {"ok": True, "media": n}
 
 
 # --- content, review, live -------------------------------------------------------
@@ -4159,6 +4244,8 @@ def _content_detail(name, with_collections=True):
         "stock": {"shelf": shelf, "studio": studio},
         "collections": cols, "collectionsError": cols_err,
         "canEdit": doc.stage == "content",
+        "canRaw": _raw_edit_ok(doc.stage), "canFinals": _final_edit_ok(doc.stage),
+        "finalsSynced": _finals_synced(doc) if doc.stage == "content" else True,
         "hoursLeft": _hours_left(doc.stage_at, doc.stage) if doc.stage in ("content", "review") else None,
         "rejects": cint(doc.reject_count), "reviewNote": doc.review_note or "", "backNote": _arrival_note(doc),
         "shopifyAdmin": _shopify_admin_url(doc.shopify_product_id),
@@ -4394,6 +4481,11 @@ def content_send(name):
         frappe.throw("Not complete yet: " + ", ".join(failed))
     if not doc.shopify_product_id:
         frappe.throw("This product has no Shopify Draft.")
+    if not _finals_synced(doc):
+        # The pro photos were changed here and not yet put on the Draft.
+        _repush_finals(doc)
+        frappe.db.commit()
+        doc = _lock_product(name)
     try:
         handle, arabic = _push_content(doc, c, variants)
     except Exception as e:

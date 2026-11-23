@@ -169,10 +169,14 @@
           </section>
 
           <!-- photos -->
-          <section v-if="d.finals.length || d.photos.length || d.specs || d.canRaw" class="sk-sec st-studio">
-            <div class="sk-sec-h">
+          <section v-if="d.finals.length || d.photos.length || d.specs || d.canRaw || d.canFinals" class="sk-sec st-studio">
+            <div class="sk-sec-h flex-wrap">
               <span class="sk-ico"><Icon name="image" :size="16" /></span>
               <h2 class="sk-sec-t flex-1">{{ t('souk.pd.photosTitle') }}</h2>
+              <!-- pro photos: still editable at studio and content -->
+              <router-link v-if="d.canFinals" :to="{ name: 'SoukStudio', params: { name: d.name } }" class="btn btn-line btn-sm inline-flex items-center">
+                <Icon name="sparkles" :size="14" />{{ t('souk.fe.editFinals') }}
+              </router-link>
               <!-- in-house photos: retake or add while marketing has the card -->
               <router-link v-if="d.canRaw" :to="{ name: 'SoukPhoto', params: { name: d.name } }" class="btn btn-line btn-sm inline-flex items-center">
                 <Icon name="camera" :size="14" />{{ t('souk.bk.rawEdit') }}
@@ -612,7 +616,7 @@ const brokenOf = (p) => sum(p.outcome?.lines, "brokenSupplier") + sum(p.outcome?
 const EVENT_KIND = [
   [/bought again/i, "refresh-cw", "st-buying"], [/bought from/i, "shopping-bag", "st-buying"],
   [/received|nothing of ours/i, "package-check", "st-bought"], [/sent back to in-house|in-house photos/i, "camera", "st-photos"],
-  [/final photos/i, "sparkles", "st-studio"], [/content on/i, "notebook-pen", "st-content"],
+  [/final photos|final photo (added|removed)/i, "sparkles", "st-studio"], [/content on/i, "notebook-pen", "st-content"],
   [/review sent it back|sent back from/i, "undo-2", "st-review"], [/in-house photo (retaken|added)/i, "camera", "st-photos"], [/will NOT be published/i, "ban", "st-dropped"],
   [/LIVE by/i, "zap", "st-live"], [/took it|released/i, "hand", "st-dropped"],
 ];

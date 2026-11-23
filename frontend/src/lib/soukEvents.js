@@ -15,6 +15,8 @@ const W = {
     short: "{1} manquantes", nothing: "rien de notre commande n'est arrivé", owes: "le marchand doit {1} MAD", labels: "{1} étiquettes",
     inhouse: "{1} photos internes par {2}", toMarketing: "vers le marketing", sentBackPhotos: "renvoyé aux photos internes par {1}",
     movedBack: "renvoyé de {1} à {2} par {3}", rawStudio: "photo interne {1} pendant le studio par {2}",
+    rawContent: "photo interne {1} pendant le contenu par {2}", finalContent: "photo pro {1} pendant le contenu par {2}",
+    finalsUpdated: "{1} photos pro mises à jour sur le brouillon Shopify par {2}", removed: "retirée",
     retaken: "reprise", added: "ajoutée",
     finals: "{1} photos finales sur le brouillon Shopify par {2}", toContent: "vers le contenu",
     content: "contenu sur le brouillon Shopify par {1}", arabicMissing: "arabe PAS sur Shopify ({1})", toReview: "vers la relecture",
@@ -34,6 +36,8 @@ const W = {
     short: "{1} ناقص", nothing: "لم يصل شيء من طلبيتنا", owes: "مستحق على التاجر {1} MAD", labels: "{1} ملصق",
     inhouse: "{1} صورة داخلية بواسطة {2}", toMarketing: "أُحيل إلى التسويق", sentBackPhotos: "أُعيد إلى التصوير الداخلي بواسطة {1}",
     movedBack: "أُعيد من {1} إلى {2} بواسطة {3}", rawStudio: "صورة داخلية {1} أثناء مرحلة الاستوديو بواسطة {2}",
+    rawContent: "صورة داخلية {1} أثناء مرحلة المحتوى بواسطة {2}", finalContent: "صورة احترافية {1} أثناء مرحلة المحتوى بواسطة {2}",
+    finalsUpdated: "حُدّثت {1} صورة احترافية على مسودة شوبيفاي بواسطة {2}", removed: "حُذفت",
     retaken: "أُعيد تصويرها", added: "أُضيفت",
     finals: "{1} صورة احترافية على مسودة شوبيفاي بواسطة {2}", toContent: "أُحيل إلى المحتوى",
     content: "كُتب المحتوى على مسودة شوبيفاي بواسطة {1}", arabicMissing: "النص العربي غير موجود على شوبيفاي ({1})", toReview: "أُحيل إلى المراجعة",
@@ -71,6 +75,9 @@ const P = [
   [/^sent back to in-house photos by (.+)$/, "sentBackPhotos"],
   [/^sent back from (\w+) to (\w+) by (.+)$/, "movedBack"],
   [/^in-house photo (retaken|added) during the studio by (.+)$/, "rawStudio"],
+  [/^in-house photo (retaken|added) during the content by (.+)$/, "rawContent"],
+  [/^final photo (added|removed) during the content by (.+)$/, "finalContent"],
+  [/^(\d+) final photos updated on the Shopify Draft by (.+)$/, "finalsUpdated"],
   [/^(\d+) final photos on the Shopify Draft by (.+)$/, "finals"],
   [/^to content$/, "toContent"],
   [/^content on the Shopify Draft by (.+)$/, "content"],
@@ -101,7 +108,7 @@ function fragment(f, words, stageName) {
     for (let i = 1; i <= 3; i++) {
       let v = m[i] == null ? "" : m[i];
       if ((key === "took" && i === 2) || (key === "reviewBack" && i === 1) || (key === "movedBack" && i < 3)) v = stageName(v);
-      if (key === "rawStudio" && i === 1) v = words[v] || v;
+      if (["rawStudio", "rawContent", "finalContent"].includes(key) && i === 1) v = words[v] || v;
       out = out.replace(`{${i}}`, v);
     }
     // received … (n to the studio) and owes … (debit note) carry an optional tail.

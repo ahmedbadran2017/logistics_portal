@@ -86,9 +86,9 @@
           <span class="min-w-0 break-words"><b>{{ t('souk.bk.said').replace('{by}', d.backNote.by) }}</b> {{ d.backNote.note }}</span>
         </div>
         <!-- marketing has the card: a retake reaches them, nothing is sent -->
-        <div v-if="d.canEdit && d.stage === 'studio'" class="st-studio rounded-xl st-soft px-3.5 py-3 text-[13px] text-stone-800 flex gap-2.5 items-start">
+        <div v-if="d.canEdit && (d.stage === 'studio' || d.stage === 'content')" class="st-studio rounded-xl st-soft px-3.5 py-3 text-[13px] text-stone-800 flex gap-2.5 items-start">
           <Icon name="sparkles" :size="16" class="shrink-0 mt-0.5 st-fg" />
-          <span class="min-w-0">{{ t('souk.bk.rawInStudio') }}
+          <span class="min-w-0">{{ d.stage === 'content' ? t('souk.bk.rawInContent') : t('souk.bk.rawInStudio') }}
             <router-link :to="{ name: 'SoukProduct', params: { name: d.name } }" class="font-bold underline">{{ t('souk.toProduct') }}</router-link>
           </span>
         </div>

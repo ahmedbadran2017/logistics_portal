@@ -421,7 +421,7 @@
               </div>
             </section>
 
-            <section v-if="d.finals.length" class="sk-sec st-studio">
+            <section v-if="d.finals.length || d.canFinals || d.canRaw" class="sk-sec st-studio">
               <div class="sk-sec-h">
                 <span class="sk-ico"><Icon name="sparkles" :size="16" /></span>
                 <div class="min-w-0 flex-1 flex flex-col">
@@ -430,7 +430,22 @@
                 </div>
                 <span class="text-[12px] font-bold st-ink st-tint rounded-full px-2.5 py-1 tabular-nums">{{ d.finals.length }}</span>
               </div>
-              <div class="sk-sec-b grid grid-cols-5 gap-1.5">
+              <!-- photos can still change here: the pro ones (back onto the
+                   Draft from the studio screen) and the in-house ones -->
+              <div v-if="d.canFinals || d.canRaw" class="px-3.5 pt-1 flex flex-wrap gap-2">
+                <router-link v-if="d.canFinals" :to="{ name: 'SoukStudio', params: { name: d.name } }"
+                             class="lp-tap min-h-[40px] px-3 rounded-xl bg-white ring-1 ring-inset ring-stone-300 text-[13px] font-semibold text-stone-700 hover:bg-stone-50 inline-flex items-center gap-1.5">
+                  <Icon name="image" :size="14" />{{ t('souk.fe.editFinals') }}
+                </router-link>
+                <router-link v-if="d.canRaw" :to="{ name: 'SoukPhoto', params: { name: d.name } }"
+                             class="lp-tap min-h-[40px] px-3 rounded-xl bg-white ring-1 ring-inset ring-stone-300 text-[13px] font-semibold text-stone-700 hover:bg-stone-50 inline-flex items-center gap-1.5">
+                  <Icon name="camera" :size="14" />{{ t('souk.bk.rawEdit') }}
+                </router-link>
+              </div>
+              <p v-if="!d.finalsSynced" class="mx-3.5 mt-2 text-[12px] text-amber-800 bg-amber-50 rounded-lg px-2.5 py-2 flex gap-1.5 items-start">
+                <Icon name="alert-circle" :size="14" class="shrink-0 mt-px" />{{ t('souk.fe.notSyncedContent') }}
+              </p>
+              <div v-if="d.finals.length" class="sk-sec-b grid grid-cols-5 gap-1.5">
                 <a v-for="f in d.finals" :key="f.url" :href="f.url" target="_blank" rel="noopener" class="block aspect-[4/5] rounded-lg overflow-hidden bg-stone-100 ring-1 ring-stone-200">
                   <img :src="f.url" class="w-full h-full object-cover" alt="" loading="lazy" />
                 </a>
