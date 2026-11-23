@@ -14,6 +14,8 @@ const W = {
     brokenStall: "{1} cassées chez le marchand", brokenTransport: "{1} cassées au transport", brokenWh: "{1} cassées à l'entrepôt",
     short: "{1} manquantes", nothing: "rien de notre commande n'est arrivé", owes: "le marchand doit {1} MAD", labels: "{1} étiquettes",
     inhouse: "{1} photos internes par {2}", toMarketing: "vers le marketing", sentBackPhotos: "renvoyé aux photos internes par {1}",
+    movedBack: "renvoyé de {1} à {2} par {3}", rawStudio: "photo interne {1} pendant le studio par {2}",
+    retaken: "reprise", added: "ajoutée",
     finals: "{1} photos finales sur le brouillon Shopify par {2}", toContent: "vers le contenu",
     content: "contenu sur le brouillon Shopify par {1}", arabicMissing: "arabe PAS sur Shopify ({1})", toReview: "vers la relecture",
     reviewBack: "la relecture l'a renvoyé à {1} ({2}×) par {3}",
@@ -31,6 +33,8 @@ const W = {
     brokenStall: "{1} تالف لدى التاجر", brokenTransport: "{1} تالف أثناء النقل", brokenWh: "{1} تالف في المستودع",
     short: "{1} ناقص", nothing: "لم يصل شيء من طلبيتنا", owes: "مستحق على التاجر {1} MAD", labels: "{1} ملصق",
     inhouse: "{1} صورة داخلية بواسطة {2}", toMarketing: "أُحيل إلى التسويق", sentBackPhotos: "أُعيد إلى التصوير الداخلي بواسطة {1}",
+    movedBack: "أُعيد من {1} إلى {2} بواسطة {3}", rawStudio: "صورة داخلية {1} أثناء مرحلة الاستوديو بواسطة {2}",
+    retaken: "أُعيد تصويرها", added: "أُضيفت",
     finals: "{1} صورة احترافية على مسودة شوبيفاي بواسطة {2}", toContent: "أُحيل إلى المحتوى",
     content: "كُتب المحتوى على مسودة شوبيفاي بواسطة {1}", arabicMissing: "النص العربي غير موجود على شوبيفاي ({1})", toReview: "أُحيل إلى المراجعة",
     reviewBack: "أعادته المراجعة إلى {1} ({2}×) بواسطة {3}",
@@ -65,6 +69,8 @@ const P = [
   [/^(\d+) in-house photos by (.+)$/, "inhouse"],
   [/^to marketing$/, "toMarketing"],
   [/^sent back to in-house photos by (.+)$/, "sentBackPhotos"],
+  [/^sent back from (\w+) to (\w+) by (.+)$/, "movedBack"],
+  [/^in-house photo (retaken|added) during the studio by (.+)$/, "rawStudio"],
   [/^(\d+) final photos on the Shopify Draft by (.+)$/, "finals"],
   [/^to content$/, "toContent"],
   [/^content on the Shopify Draft by (.+)$/, "content"],
@@ -94,7 +100,8 @@ function fragment(f, words, stageName) {
     let out = words[key];
     for (let i = 1; i <= 3; i++) {
       let v = m[i] == null ? "" : m[i];
-      if ((key === "took" && i === 2) || (key === "reviewBack" && i === 1)) v = stageName(v);
+      if ((key === "took" && i === 2) || (key === "reviewBack" && i === 1) || (key === "movedBack" && i < 3)) v = stageName(v);
+      if (key === "rawStudio" && i === 1) v = words[v] || v;
       out = out.replace(`{${i}}`, v);
     }
     // received … (n to the studio) and owes … (debit note) carry an optional tail.

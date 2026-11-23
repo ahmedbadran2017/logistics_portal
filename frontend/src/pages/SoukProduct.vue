@@ -68,6 +68,9 @@
             <a v-if="d.shopifyAdmin" :href="d.shopifyAdmin" target="_blank" rel="noopener" class="btn btn-line">
               <Icon name="shopping-bag" :size="14" />Shopify<Icon name="external-link" :size="12" class="opacity-60" />
             </a>
+            <button v-if="d.backTo && d.backTo.length" class="btn btn-line disabled:opacity-40" :disabled="busy" @click="openBack">
+              <Icon name="undo-2" :size="14" />{{ t('souk.bk.btn') }}
+            </button>
             <button v-if="canDropNow" class="btn bg-white ring-1 ring-inset ring-rose-200 text-rose-700 hover:bg-rose-50" @click="openDrop">
               <Icon name="ban" :size="14" />{{ t('souk.pd.drop') }}
             </button>
@@ -77,6 +80,11 @@
 
       <div v-if="d.error" class="bg-rose-50 ring-1 ring-inset ring-rose-200 rounded-2xl px-4 py-3 text-[13px] text-rose-800 flex gap-2.5 items-start">
         <Icon name="alert-triangle" :size="16" class="shrink-0 mt-0.5" /><span class="mono break-words">{{ d.error }}</span>
+      </div>
+
+      <div v-if="d.backNote" class="bg-amber-50 ring-1 ring-inset ring-amber-200 rounded-2xl px-4 py-3 text-[13px] text-amber-900 flex gap-2.5 items-start">
+        <Icon name="undo-2" :size="16" class="shrink-0 mt-0.5 text-amber-700" />
+        <span class="min-w-0 break-words"><b>{{ fill(t('souk.bk.said'), { by: d.backNote.by }) }}</b> {{ d.backNote.note }}</span>
       </div>
 
       <div v-if="d.stage === 'dropped'" class="sk-sec st-dropped px-4 py-3 text-[13px] text-stone-800 flex gap-2.5 items-start">
@@ -161,10 +169,14 @@
           </section>
 
           <!-- photos -->
-          <section v-if="d.finals.length || d.photos.length || d.specs" class="sk-sec st-studio">
+          <section v-if="d.finals.length || d.photos.length || d.specs || d.canRaw" class="sk-sec st-studio">
             <div class="sk-sec-h">
               <span class="sk-ico"><Icon name="image" :size="16" /></span>
-              <h2 class="sk-sec-t">{{ t('souk.pd.photosTitle') }}</h2>
+              <h2 class="sk-sec-t flex-1">{{ t('souk.pd.photosTitle') }}</h2>
+              <!-- in-house photos: retake or add while marketing has the card -->
+              <router-link v-if="d.canRaw" :to="{ name: 'SoukPhoto', params: { name: d.name } }" class="btn btn-line btn-sm inline-flex items-center">
+                <Icon name="camera" :size="14" />{{ t('souk.bk.rawEdit') }}
+              </router-link>
             </div>
             <div class="sk-sec-b flex flex-col gap-3.5">
               <div v-if="d.finals.length" class="flex flex-col gap-2">
@@ -378,6 +390,42 @@
       </form>
     </div>
 
+    <!-- send back: to an earlier step, with why -->
+    <div v-if="back.open" class="fixed inset-0 z-50 bg-stone-900/40 flex items-end sm:items-center justify-center sm:p-4"
+         role="dialog" aria-modal="true" :aria-label="t('souk.bk.title')" @click.self="back.open = false" @keydown.esc="back.open = false">
+      <form class="bg-white w-full sm:max-w-md rounded-t-xl sm:rounded-xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col gap-3 max-h-[90vh] overflow-y-auto" @submit.prevent="sendBack">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h2 class="text-[15px] font-bold text-stone-900">{{ t('souk.bk.title') }}</h2>
+            <p class="text-[13px] text-stone-600 mt-0.5">{{ t('souk.bk.intro') }}</p>
+          </div>
+          <button type="button" class="w-11 h-11 -me-2 -mt-2 shrink-0 rounded-lg flex items-center justify-center text-stone-500" :aria-label="t('souk.cancel')" @click="back.open = false">
+            <Icon name="x" :size="18" />
+          </button>
+        </div>
+        <div class="flex flex-col gap-2" role="radiogroup">
+          <label v-for="s in d.backTo" :key="s" :class="[stageClass(s), back.to === s ? 'st-soft' : 'ring-1 ring-inset ring-stone-200 bg-white']"
+                 class="min-h-[56px] rounded-xl p-3 cursor-pointer flex items-center gap-3"
+                 :style="back.to === s ? { boxShadow: 'inset 0 0 0 1.5px rgb(var(--st))' } : {}">
+            <input v-model="back.to" type="radio" name="back-to" :value="s" class="sr-only" />
+            <span class="sk-ico sk-ico-sm" :class="back.to === s ? 'sk-ico-solid' : ''"><Icon :name="stageIcon(s)" :size="14" /></span>
+            <span class="min-w-0 flex flex-col gap-0.5">
+              <span class="text-[13px] font-bold text-stone-900">{{ t('souk.st_' + s) }}</span>
+              <span class="text-[12px] text-stone-600">{{ t('souk.bk.hint_' + s) }}</span>
+            </span>
+          </label>
+        </div>
+        <p v-if="d.stage === 'review'" class="text-[12px] text-amber-800 bg-amber-50 rounded-lg px-3 py-2">{{ t('souk.bk.fromReview') }}</p>
+        <textarea v-model="back.note" rows="3" required
+                  class="w-full rounded-lg border border-stone-200 p-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  :placeholder="t('souk.bk.notePh')" />
+        <div class="flex gap-2">
+          <button type="button" class="btn btn-line flex-1 justify-center" @click="back.open = false">{{ t('souk.cancel') }}</button>
+          <button type="submit" class="btn flex-1 justify-center bg-amber-600 text-white font-bold disabled:opacity-40" :disabled="busy || !back.to || !back.note.trim()">{{ t('souk.bk.confirm') }}</button>
+        </div>
+      </form>
+    </div>
+
     <!-- drop: won't be published -->
     <div v-if="dropOpen" class="fixed inset-0 z-50 bg-stone-900/40 flex items-end sm:items-center justify-center sm:p-4"
          role="dialog" aria-modal="true" :aria-label="t('souk.pd.dropTitle')" @click.self="dropOpen = false" @keydown.esc="dropOpen = false">
@@ -565,7 +613,7 @@ const EVENT_KIND = [
   [/bought again/i, "refresh-cw", "st-buying"], [/bought from/i, "shopping-bag", "st-buying"],
   [/received|nothing of ours/i, "package-check", "st-bought"], [/sent back to in-house|in-house photos/i, "camera", "st-photos"],
   [/final photos/i, "sparkles", "st-studio"], [/content on/i, "notebook-pen", "st-content"],
-  [/review sent it back/i, "undo-2", "st-review"], [/will NOT be published/i, "ban", "st-dropped"],
+  [/review sent it back|sent back from/i, "undo-2", "st-review"], [/in-house photo (retaken|added)/i, "camera", "st-photos"], [/will NOT be published/i, "ban", "st-dropped"],
   [/LIVE by/i, "zap", "st-live"], [/took it|released/i, "hand", "st-dropped"],
 ];
 const events = computed(() => [...(d.value?.events || [])].reverse().map((e) => {
@@ -670,6 +718,27 @@ function printLabels() {
   });
   lbl.value.err = ok ? "" : t("souk.pd.lblFailed");
   if (ok) lbl.value.open = false;
+}
+// --- send back ------------------------------------------------------------------
+// The server lists where this viewer may send the card (backTo); the nearest
+// step is picked first.
+const back = ref({ open: false, to: "", note: "" });
+function openBack() {
+  back.value = { open: true, to: (d.value.backTo || [])[0] || "", note: "" };
+}
+async function sendBack() {
+  if (!back.value.to || !back.value.note.trim()) return;
+  busy.value = true;
+  try {
+    const r = await apiPost("souk.stage_back", { name: d.value.name, to: back.value.to, note: back.value.note.trim() });
+    success(fill(t("souk.bk.done"), { s: t("souk.st_" + (r?.stage || back.value.to)) }));
+    back.value.open = false;
+    await load();
+  } catch (e) {
+    warn(t("souk.failed"), String(e.message || e));
+  } finally {
+    busy.value = false;
+  }
 }
 const dropOpen = ref(false);
 const why = ref("");

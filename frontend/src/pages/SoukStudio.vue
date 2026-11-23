@@ -97,6 +97,9 @@
           </section>
 
           <div v-if="d.error" class="bg-rose-50 rounded-xl px-3 py-2.5 text-[13px] text-rose-700 break-words flex gap-2"><Icon name="alert-circle" :size="15" class="shrink-0 mt-0.5" />{{ d.error }}</div>
+          <div v-if="d.backNote" class="bg-amber-50 ring-1 ring-inset ring-amber-200 rounded-xl px-3 py-2.5 text-[13px] text-amber-900 break-words flex gap-2">
+            <Icon name="undo-2" :size="15" class="shrink-0 mt-0.5 text-amber-700" /><span><b>{{ t('souk.bk.said').replace('{by}', d.backNote.by) }}</b> {{ d.backNote.note }}</span>
+          </div>
           <div v-if="!d.canEdit" class="bg-stone-100 rounded-xl px-3 py-2.5 text-[13px] text-stone-700">{{ t('souk.studioNotNow') }}</div>
 
           <!-- the photo set (souk_set): drawn shots checked against the floor
@@ -321,6 +324,9 @@
                 <div class="sk-sec-t">{{ t('souk.rawPhotos') }} · {{ d.photos.length }}</div>
                 <div class="sk-sec-s">{{ ai && ai.ready && d.canEdit ? t('souk.st.rawSubAi') : t('souk.st.rawSub') }}</div>
               </div>
+              <router-link v-if="d.canRaw" :to="{ name: 'SoukPhoto', params: { name: d.name } }" class="lp-tap shrink-0 h-9 px-3 rounded-xl bg-white/80 ring-1 ring-inset ring-stone-200 text-[13px] font-semibold text-stone-700 inline-flex items-center gap-1.5 hover:bg-white">
+                <Icon name="camera" :size="14" />{{ t('souk.bk.rawEdit') }}
+              </router-link>
               <a v-if="d.photos.length" :href="zipUrl" class="lp-tap shrink-0 h-9 px-3 rounded-xl bg-white/80 ring-1 ring-inset ring-stone-200 text-[13px] font-semibold text-stone-700 inline-flex items-center gap-1.5 hover:bg-white">
                 <Icon name="download" :size="14" />{{ t('souk.downloadAll') }}
               </a>

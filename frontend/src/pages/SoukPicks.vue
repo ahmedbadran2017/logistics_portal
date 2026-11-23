@@ -61,6 +61,15 @@
         </p>
         <p v-if="kind === 'noise'" class="text-[12px] text-stone-600 leading-normal">{{ t('souk.pk.noiseHint') }}</p>
       </div>
+      <!-- price: what has none, and what waits for the stall's answer -->
+      <div v-if="(tab === 'feed' || tab === 'interest') && data?.priceOn" class="flex gap-1.5 overflow-x-auto -mx-1 px-1" role="group" :aria-label="t('souk.pk.priceFilter')">
+        <button type="button" class="cat inline-flex items-center gap-1" :aria-pressed="only === 'noprice'" @click="setOnly(only === 'noprice' ? '' : 'noprice')">
+          <Icon name="tag" :size="14" />{{ t('souk.pk.noPrice') }} · {{ data.priceCounts?.noprice || 0 }}
+        </button>
+        <button type="button" class="cat inline-flex items-center gap-1" :aria-pressed="only === 'asked'" @click="setOnly(only === 'asked' ? '' : 'asked')">
+          <Icon name="message-circle" :size="14" />{{ t('souk.pk.askedWait') }} · {{ data.priceCounts?.asked || 0 }}
+        </button>
+      </div>
       <p v-if="tab === 'interest'" class="text-[13px] text-stone-600 leading-normal">
         {{ data?.canDecide ? t('souk.pk.interestYou') : tt('souk.pk.interestWait', { who: deciderNames || '—' }) }}
       </p>
@@ -79,7 +88,9 @@
               <span v-if="p.saturated" class="badge bg-stone-800/85 text-white">{{ t('souk.pk.saturated') }}</span>
             </span>
             <span v-if="p.status !== 'new' && p.status !== 'interested'" class="absolute bottom-1.5 start-1.5 badge" :class="statusCls(p.status)">{{ t('souk.pk.st_' + p.status) }}</span>
-            <span v-if="p.priceSeen" class="absolute bottom-1.5 end-1.5 badge bg-white/95 text-stone-900 tabular-nums" dir="ltr">{{ fmt(p.priceSeen) }} MAD</span>
+            <span v-if="p.priceSeen" class="absolute bottom-1.5 end-1.5 badge tabular-nums" dir="ltr"
+                  :class="p.priceFromStall ? 'bg-emerald-600 text-white' : 'bg-white/95 text-stone-900'">{{ fmt(p.priceSeen) }} MAD</span>
+            <span v-else-if="p.priceAsked" class="absolute bottom-1.5 end-1.5 badge bg-amber-100 text-amber-900"><Icon name="message-circle" :size="11" />{{ t('souk.pk.asked') }}</span>
             <span v-if="p.packN" class="absolute top-1.5 end-1.5 badge bg-white/95 text-stone-800 tabular-nums">{{ tt('souk.pk.packN', { n: p.packN }) }}</span>
           </button>
           <div class="p-2.5 flex flex-col gap-1 flex-1">
@@ -113,24 +124,54 @@
           <span class="sk-ico"><Icon name="store" :size="16" /></span>
           <div class="min-w-0 flex-1">
             <h2 class="sk-sec-t truncate" dir="ltr">{{ g.label || t('souk.pk.noSource') }}</h2>
-            <p class="sk-sec-s">{{ tt('souk.pk.groupSum', { n: g.picks.length, q: g.pieces, b: fmt(g.budget) }) }}<template v-if="!g.stall && g.source"> · {{ t('souk.pk.leadTag') }}</template></p>
+            <p class="sk-sec-s">{{ tt('souk.pk.groupSum', { n: g.picks.length, q: g.pieces, b: fmt(g.budget) }) }}<template v-if="g.noMax"> · {{ tt('souk.pk.groupNoMax', { n: g.noMax }) }}</template><template v-if="!g.stall && g.source"> · {{ t('souk.pk.leadTag') }}</template></p>
           </div>
-          <a v-if="g.wa" :href="g.wa" target="_blank" rel="noopener" class="btn btn-line btn-sm inline-flex items-center"><Icon name="message-circle" :size="14" />WhatsApp</a>
+          <a v-if="g.wa" :href="waHref(g.wa)" target="_blank" rel="noopener" class="btn btn-line btn-sm inline-flex items-center"><Icon name="message-circle" :size="14" />WhatsApp</a>
           <a v-if="g.handle" :href="'https://t.me/' + g.handle" target="_blank" rel="noopener" class="btn btn-line btn-sm inline-flex items-center"><Icon name="send" :size="14" />Telegram</a>
+          <!-- several from this source in one purchase: untick what you won't take -->
+          <router-link v-if="data.canBuy && g.picks.length > 1 && chosen(g).length"
+                       :to="{ name: 'SoukBuy', query: { picks: chosen(g).join(',') } }" class="btn btn-st btn-sm inline-flex items-center">
+            <Icon name="shopping-bag" :size="14" />{{ tt('souk.pk.buySelected', { n: chosen(g).length }) }}
+          </router-link>
         </div>
         <ul>
-          <li v-for="(n, i) in g.picks" :key="n" class="flex items-center gap-3 px-3.5 py-2.5" :class="i ? 'border-t border-stone-100' : ''">
+          <li v-for="(n, i) in g.picks" :key="n" class="px-3.5 py-2.5 flex flex-col gap-2" :class="i ? 'border-t border-stone-100' : ''">
+           <div class="flex items-center gap-3">
+            <label v-if="data.canBuy && g.picks.length > 1" class="shrink-0 w-10 h-10 -ms-1.5 flex items-center justify-center cursor-pointer">
+              <input type="checkbox" class="w-5 h-5 accent-[var(--accent-600)]" :checked="!unsel[n]"
+                     :aria-label="tt('souk.pk.selectOne', { t: byName[n]?.title || '' })" @change="unsel[n] = !$event.target.checked" />
+            </label>
             <button type="button" class="w-14 h-14 shrink-0 rounded-xl overflow-hidden bg-stone-100 ring-1 ring-stone-200" :aria-label="tt('souk.pk.open', { t: byName[n]?.title })" @click="open(n)">
               <img v-if="byName[n]?.photo" :src="byName[n].photo" alt="" class="w-full h-full object-cover" />
             </button>
             <div class="min-w-0 flex-1 flex flex-col">
               <span class="text-[14px] font-semibold text-stone-900 truncate" dir="auto">{{ byName[n]?.title || '—' }}</span>
-              <span class="text-[12px] text-stone-600 tabular-nums">{{ tt('souk.pk.targets', { q: byName[n]?.targetQty, p: fmt(byName[n]?.maxPrice) }) }}</span>
+              <span class="text-[12px] text-stone-600 tabular-nums">{{ targetText(byName[n]?.targetQty, byName[n]?.maxPrice) }}</span>
               <span v-if="byName[n]?.decidedBy" class="text-[11px] text-stone-500">{{ tt('souk.pk.decidedBy', { who: byName[n].decidedBy, d: ago(byName[n].decidedAt) }) }}</span>
             </div>
+            <!-- the decider changes their mind: back to waiting, or off the list -->
+            <template v-if="data.canDecide">
+              <button type="button" class="shrink-0 w-10 h-10 rounded-lg ring-1 ring-inset ring-stone-300 bg-white text-stone-700 inline-flex items-center justify-center disabled:opacity-40"
+                      :title="t('souk.pk.backToWait')" :aria-label="t('souk.pk.backToWait')" :disabled="saving" @click="rowDecide(n, 'undo')">
+                <Icon name="rotate-ccw" :size="16" />
+              </button>
+              <button type="button" class="shrink-0 w-10 h-10 rounded-lg ring-1 ring-inset inline-flex items-center justify-center disabled:opacity-40"
+                      :class="removing === n ? 'ring-rose-300 bg-rose-50 text-rose-700' : 'ring-stone-300 bg-white text-stone-700'"
+                      :title="t('souk.pk.removeFromList')" :aria-label="t('souk.pk.removeFromList')" :aria-expanded="removing === n" :disabled="saving"
+                      @click="removing = removing === n ? '' : n">
+                <Icon name="trash-2" :size="16" />
+              </button>
+            </template>
             <router-link v-if="data.canBuy" :to="{ name: 'SoukBuy', query: { pick: n } }" class="btn btn-st btn-sm inline-flex items-center">
               <Icon name="shopping-bag" :size="14" />{{ t('souk.pk.buyNow') }}
             </router-link>
+           </div>
+           <div v-if="removing === n" class="rounded-xl bg-rose-50/60 ring-1 ring-inset ring-rose-200 p-2.5 flex flex-col gap-2">
+             <span class="text-[13px] font-semibold text-stone-800">{{ t('souk.pk.removeWhy') }}</span>
+             <div class="flex flex-wrap gap-1.5" role="group" :aria-label="t('souk.pk.removeWhy')">
+               <button v-for="r in data.reasons" :key="r" type="button" class="cat" :disabled="saving" @click="rowDecide(n, 'no', r)">{{ t('souk.pk.why_' + r) }}</button>
+             </div>
+           </div>
           </li>
         </ul>
       </section>
@@ -244,7 +285,7 @@
                   <span class="chip" :class="statusCls(d.status)">{{ t('souk.pk.st_' + d.status) }}</span>
                   <span v-if="d.trending" class="chip bg-rose-50 text-rose-800"><Icon name="trending-up" :size="12" />{{ tt('souk.pk.trendSum', { n: d.trendN }) }}</span>
                   <span v-if="d.saturated" class="chip bg-stone-200 text-stone-800">{{ t('souk.pk.saturatedLong') }}</span>
-                  <span v-if="d.priceSeen" class="chip bg-white ring-1 ring-inset ring-stone-200 text-stone-900">{{ tt('souk.pk.priceSeen', { p: fmt(d.priceSeen) }) }}</span>
+                  <span v-if="d.priceSeen" class="chip ring-1 ring-inset" :class="d.priceFromStall ? 'bg-emerald-50 ring-emerald-200 text-emerald-900' : 'bg-white ring-stone-200 text-stone-900'">{{ tt(d.priceFromStall ? 'souk.pk.priceStall' : 'souk.pk.priceSeen', { p: fmt(d.priceSeen) }) }}</span>
                   <span class="chip bg-white ring-1 ring-inset ring-stone-200 text-stone-700">{{ tt('souk.pk.seenSum', { n: d.sourcesN, p: d.postsN, d: ago(d.firstSeen) }) }}</span>
                 </div>
                 <div v-if="d.interested.length" class="text-[13px] text-stone-700">
@@ -252,13 +293,19 @@
                 </div>
                 <p v-if="d.note" class="text-[13px] text-stone-700 whitespace-pre-line leading-normal" dir="auto">{{ d.note }}</p>
                 <div v-if="d.status === 'approved' || d.status === 'bought'" class="rounded-xl bg-sky-50 ring-1 ring-inset ring-sky-200 p-3 text-[13px] text-stone-800 flex flex-col gap-1">
-                  <b>{{ tt('souk.pk.targets', { q: d.targetQty, p: fmt(d.maxPrice) }) }}</b>
+                  <b>{{ targetText(d.targetQty, d.maxPrice) }}</b>
                   <span>{{ tt('souk.pk.fromSrc', { s: srcLabel(d.source) }) }}</span>
                   <span class="text-stone-600">{{ tt('souk.pk.decidedBy', { who: d.decidedBy, d: ago(d.decidedAt) }) }}</span>
                   <router-link v-if="d.card" :to="{ name: 'SoukProduct', params: { name: d.card.name } }" class="font-semibold underline underline-offset-2">{{ d.card.sku_base }} · {{ d.card.title }}</router-link>
                 </div>
                 <div v-if="d.status === 'rejected'" class="rounded-xl bg-stone-100 p-3 text-[13px] text-stone-800">
                   {{ t('souk.pk.why_' + d.reason) }} · {{ tt('souk.pk.decidedBy', { who: d.decidedBy, d: ago(d.decidedAt) }) }}
+                </div>
+                <div v-if="data?.canDecide && d.status === 'approved'" class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-stone-700">{{ t('souk.pk.removeWhy') }}</span>
+                  <div class="flex flex-wrap gap-1.5" role="group" :aria-label="t('souk.pk.removeWhy')">
+                    <button v-for="r in data.reasons" :key="r" type="button" class="cat" :disabled="saving" @click="rowDecide(d.name, 'no', r)">{{ t('souk.pk.why_' + r) }}</button>
+                  </div>
                 </div>
                 <div class="flex flex-wrap gap-2">
                   <button v-if="d.status === 'new' || d.status === 'interested'" type="button" class="btn inline-flex items-center"
@@ -275,6 +322,45 @@
               </div>
             </div>
 
+            <!-- the price: ask the stall on WhatsApp, write what it answers -->
+            <section v-if="data?.priceOn && ['new', 'interested', 'approved'].includes(d.status)" class="sk-sec">
+              <div class="sk-sec-h">
+                <span class="sk-ico"><Icon name="tag" :size="16" /></span>
+                <div class="min-w-0 flex-1">
+                  <h3 class="sk-sec-t">{{ t('souk.pk.priceTitle') }}</h3>
+                  <p class="sk-sec-s">
+                    <template v-if="d.priceFromStall">{{ tt('souk.pk.priceStallBy', { p: fmt(d.priceSeen), who: d.priceFromStall.by, d: ago(d.priceFromStall.at) }) }}</template>
+                    <template v-else-if="d.priceAsked">{{ tt('souk.pk.askedBy', { who: d.priceAsked.by, d: ago(d.priceAsked.at) }) }}</template>
+                    <template v-else>{{ t('souk.pk.priceSub') }}</template>
+                  </p>
+                </div>
+              </div>
+              <div class="sk-sec-b flex flex-col gap-3">
+                <div v-if="askTargets.length" class="flex flex-wrap gap-2">
+                  <a v-for="a in askTargets" :key="a.name" :href="a.href" target="_blank" rel="noopener"
+                     class="btn btn-line inline-flex items-center" @click="markAsked">
+                    <Icon name="message-circle" :size="15" />{{ tt('souk.pk.askOn', { s: a.label }) }}
+                  </a>
+                </div>
+                <div v-else class="flex flex-col gap-1.5">
+                  <span class="text-[12px] text-stone-600 leading-normal">{{ t('souk.pk.noPhone') }}</span>
+                  <a v-if="d.posts?.length" :href="d.posts[0].url" target="_blank" rel="noopener" class="btn btn-line self-start inline-flex items-center" @click="markAsked">
+                    <Icon name="send" :size="15" />{{ t('souk.pk.openPost') }}
+                  </a>
+                </div>
+                <form class="flex items-end gap-2" @submit.prevent="savePrice">
+                  <label class="flex flex-col gap-1 w-[160px]">
+                    <span class="text-[13px] font-semibold text-stone-700">{{ t('souk.pk.priceAnswer') }}</span>
+                    <input v-model.number="priceIn" type="number" min="0" step="0.5" inputmode="decimal" dir="ltr" class="fld" placeholder="0" />
+                  </label>
+                  <button type="submit" class="btn btn-st inline-flex items-center" :disabled="saving || !(priceIn > 0)">
+                    <Icon name="check" :size="15" />{{ t('souk.pk.priceSave') }}
+                  </button>
+                  <button v-if="d.priceFromStall" type="button" class="btn btn-line" :disabled="saving" @click="priceIn = 0; savePrice()">{{ t('souk.pk.priceClear') }}</button>
+                </form>
+              </div>
+            </section>
+
             <!-- the decision -->
             <section v-if="data?.canDecide && (d.status === 'new' || d.status === 'interested')" class="sk-sec">
               <div class="sk-sec-h"><span class="sk-ico"><Icon name="clipboard-check" :size="16" /></span><h3 class="sk-sec-t">{{ t('souk.pk.decision') }}</h3></div>
@@ -285,7 +371,7 @@
                     <input v-model.number="dec.qty" type="number" min="1" inputmode="numeric" dir="ltr" class="fld" />
                   </label>
                   <label class="flex flex-col gap-1">
-                    <span class="text-[13px] font-semibold text-stone-700">{{ t('souk.pk.maxLbl') }}</span>
+                    <span class="text-[13px] font-semibold text-stone-700">{{ t('souk.pk.maxLbl') }}<span v-if="!d.priceSeen" class="font-normal text-stone-500"> · {{ t('souk.pk.optional') }}</span></span>
                     <input v-model.number="dec.max" type="number" min="0" step="0.5" inputmode="decimal" dir="ltr" class="fld" />
                   </label>
                   <label class="flex flex-col gap-1">
@@ -306,7 +392,7 @@
                   <span class="text-[13px] font-semibold text-stone-700">{{ t('souk.pk.noteLbl') }}</span>
                   <input v-model="dec.note" dir="auto" autocomplete="off" class="fld" />
                 </label>
-                <button type="button" class="btn btn-st self-start inline-flex items-center" :disabled="saving || !(dec.qty > 0) || !(dec.max > 0) || !dec.source" @click="decide('buy')">
+                <button type="button" class="btn btn-st self-start inline-flex items-center" :disabled="saving || !(dec.qty > 0) || dec.max < 0 || !dec.source" @click="decide('buy')">
                   <Icon name="check" :size="15" :stroke-width="2.4" />{{ t('souk.pk.yesBtn') }}
                 </button>
                 <div class="border-t border-stone-100 pt-3 flex flex-col gap-2">
@@ -327,7 +413,7 @@
               <ul>
                 <li v-for="(s, i) in d.sources" :key="s.name" class="flex items-center gap-2 px-3.5 py-2" :class="i ? 'border-t border-stone-100' : ''">
                   <span class="flex-1 min-w-0 text-[13px] font-semibold text-stone-900 truncate" dir="ltr">{{ s.label }}<span class="font-normal text-stone-500"> · {{ ago(s.last) }}</span></span>
-                  <a v-if="s.wa" :href="s.wa" target="_blank" rel="noopener" class="shrink-0 h-9 px-2.5 rounded-lg ring-1 ring-inset ring-stone-300 text-[12px] font-semibold inline-flex items-center gap-1"><Icon name="message-circle" :size="13" />WhatsApp</a>
+                  <a v-if="s.wa" :href="waHref(s.wa)" target="_blank" rel="noopener" class="shrink-0 h-9 px-2.5 rounded-lg ring-1 ring-inset ring-stone-300 text-[12px] font-semibold inline-flex items-center gap-1"><Icon name="message-circle" :size="13" />WhatsApp</a>
                   <a v-if="s.handle" :href="'https://t.me/' + s.handle" target="_blank" rel="noopener" class="shrink-0 h-9 px-2.5 rounded-lg ring-1 ring-inset ring-stone-300 text-[12px] font-semibold inline-flex items-center gap-1"><Icon name="send" :size="13" />@{{ s.handle }}</a>
                 </li>
               </ul>
@@ -431,7 +517,7 @@ function go(x) {
 }
 function setOnly(v) {
   only.value = v;
-  if (v === "" || v === "trending" || v === "saturated") onlySource.value = "";
+  if (["", "trending", "saturated", "noprice", "asked"].includes(v)) onlySource.value = "";
   reload();
 }
 function setKind(v) {
@@ -475,6 +561,63 @@ async function decide(verdict) {
   }
 }
 
+// The shopping list's quantity and ceiling; 0 = no ceiling (no price known).
+// The server sends the bare international number (souk_stalls._wa).
+const waHref = (w) => (/^https?:/.test(w || "") ? w : "https://wa.me/" + String(w || "").replace(/\D/g, ""));
+const targetText = (q, p) => (Number(p) > 0 ? tt("souk.pk.targets", { q, p: fmt(p) }) : tt("souk.pk.targetsNoMax", { q }));
+
+// --- the price from the stall -----------------------------------------------------
+// WhatsApp opens with the question and the post's link; the card then says
+// who asked, so nobody asks twice. The stall's answer is typed back here.
+const priceIn = ref(null);
+const askTargets = computed(() => (d.value?.sources || []).filter((s) => s.wa).map((s) => {
+  const post = (d.value.posts || []).find((p) => p.source === s.name) || (d.value.posts || [])[0];
+  const msg = t("souk.pk.askMsg") + (post ? "\n" + post.url : "");
+  return { name: s.name, label: s.label, href: `${waHref(s.wa)}?text=${encodeURIComponent(msg)}` };
+}));
+async function markAsked() {
+  try {
+    patch(await apiPost("souk_picks.pick_price_asked", { name: d.value.name }));
+  } catch (e) {
+    warn(t("souk.failed"), String(e.message || e));
+  }
+}
+async function savePrice() {
+  saving.value = true;
+  try {
+    const card = await apiPost("souk_picks.pick_price", { name: d.value.name, price: priceIn.value || 0 });
+    patch(card);
+    if (card.priceSeen && (d.value.status === "new" || d.value.status === "interested")) dec.max = card.priceSeen;
+    success(t(priceIn.value > 0 ? "souk.pk.priceSaved" : "souk.pk.priceCleared"), "");
+  } catch (e) {
+    warn(t("souk.failed"), String(e.message || e));
+  } finally {
+    saving.value = false;
+  }
+}
+
+// From the shopping list: back to "waiting for a decision" (undo) or off the
+// list with a reason (no). The pick keeps its marks either way.
+const removing = ref("");
+// The shopping list's selection: everything is ticked; unticked names live here.
+const unsel = reactive({});
+const chosen = (g) => g.picks.filter((n) => !unsel[n]);
+async function rowDecide(n, verdict, reason = "") {
+  saving.value = true;
+  try {
+    const card = await apiPost("souk_picks.pick_decide", { name: n, verdict, reason });
+    patch(card);
+    removing.value = "";
+    success(t(verdict === "undo" ? "souk.pk.saved_back" : "souk.pk.saved_removed"), "");
+    if (name.value === n) close();
+    reload();
+  } catch (e) {
+    warn(t("souk.failed"), String(e.message || e));
+  } finally {
+    saving.value = false;
+  }
+}
+
 function open(n) {
   router.push({ name: "SoukPicks", params: { name: n }, query: route.query });
 }
@@ -496,6 +639,7 @@ async function loadOne(n) {
     Object.assign(dec, { qty: d.value.targetQty || null, max: d.value.maxPrice || d.value.priceSeen || null,
                          source: d.value.source || d.value.sources[0]?.name || "", category: d.value.category || shopCat(d.value),
                          note: "", reason: "" });
+    priceIn.value = d.value.priceFromStall ? d.value.priceSeen : null;
   } catch (e) {
     warn(t("souk.failed"), String(e.message || e));
   }

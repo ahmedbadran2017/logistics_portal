@@ -78,6 +78,15 @@ TAG_FIELDS = [
     {"fieldname": "pack_n", "fieldtype": "Int", "label": "Pieces per carton (AI)"},
     {"fieldname": "ai_at", "fieldtype": "Datetime", "label": "Read by AI at"},
 ]
+# The stall's own answer to "how much?" (asked on WhatsApp from the card):
+# it beats what a caption or the classifier read. Optional — nothing waits on it.
+PRICE_FIELDS = [
+    {"fieldname": "supplier_price", "fieldtype": "Currency", "label": "Price the stall gave"},
+    {"fieldname": "price_by", "fieldtype": "Data", "label": "Price written by"},
+    {"fieldname": "price_at", "fieldtype": "Datetime", "label": "Price written at"},
+    {"fieldname": "price_asked_by", "fieldtype": "Data", "label": "Price asked by"},
+    {"fieldname": "price_asked_at", "fieldtype": "Datetime", "label": "Price asked at"},
+]
 STATUSES = ("new", "interested", "approved", "rejected", "bought")
 UA = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36")
@@ -138,10 +147,15 @@ def ensure():
         except Exception:
             frappe.log_error(frappe.get_traceback()[:1500], "souk_picks.ensure unique")
     S._add_missing_fields(DT_PICK, TAG_FIELDS)
+    S._add_missing_fields(DT_PICK, PRICE_FIELDS)
 
 
 def _tagged():
     return S._has_col(DT_PICK, "kind")
+
+
+def _priced():
+    return S._has_col(DT_PICK, "supplier_price")
 
 
 def _ready():
@@ -443,6 +457,11 @@ def scrape_all():
         if budget[0] <= 0:
             break
         _scrape_source(r, budget, hashes)
+    try:
+        fill_phones()
+    except Exception:
+        frappe.db.rollback()
+        frappe.log_error(frappe.get_traceback()[:2000], "souk_picks.fill_phones")
     _enqueue_tag()
 
 
@@ -630,6 +649,39 @@ def _title_of(text):
     return ""
 
 
+_WA_LINK = re.compile(r"wa\.me/\+?(\d{9,15})")
+_PHONE = re.compile(r"(?<!\d)(?:\+?212|0)[ .-]?([5-7](?:[ .-]?\d){8})(?!\d)")
+
+
+def phone_of(text):
+    """A stall's WhatsApp number written in a caption (wa.me/212…, 06…,
+    +212 6…): the international form wa.me wants, or ""."""
+    t = str(text or "")
+    m = _WA_LINK.search(t)
+    if m:
+        return m.group(1)
+    m = _PHONE.search(t)
+    return "212" + re.sub(r"\D", "", m.group(1)) if m else ""
+
+
+def fill_phones():
+    """A source with no phone gets the first WhatsApp number its own posts
+    carry (half the channels write one under every product). Never
+    overwrites a phone someone typed."""
+    for r in frappe.db.sql(
+            f"""SELECT s.name FROM `tabSupplier` s
+                WHERE s.supplier_group IN (%s, %s) AND IFNULL(s.mobile_no, '') = ''
+                  AND EXISTS (SELECT 1 FROM `tab{DT_POST}` po WHERE po.source = s.name)""",
+            (LEAD_GROUP, S.SUPPLIER_GROUP), as_dict=True):
+        for c in frappe.db.sql(f"""SELECT caption FROM `tab{DT_POST}` WHERE source = %s
+                                   ORDER BY posted_at DESC LIMIT 40""", (r.name,), pluck=True):
+            ph = phone_of(c)
+            if ph:
+                frappe.db.set_value("Supplier", r.name, "mobile_no", "+" + ph, update_modified=False)
+                break
+    frappe.db.commit()
+
+
 def price_seen(text):
     """The first price written in a caption ("27dh", "110 درهم"): a hint for
     the decider, not a cost."""
@@ -776,7 +828,12 @@ def _card(r, srcs, me):
     who = _loads(r.interested_json, []) or []
     return {
         "name": str(r.name), "title": r.title or "", "photo": r.photo or "", "caption": (r.caption or "")[:400],
-        "priceSeen": price_seen(r.caption) or flt(r.get("ai_price")) or None, "status": r.status,
+        "priceSeen": flt(r.get("supplier_price")) or price_seen(r.caption) or flt(r.get("ai_price")) or None,
+        "priceFromStall": ({"by": S._user_name(r.get("price_by")), "at": str(r.get("price_at") or "")[:16]}
+                           if flt(r.get("supplier_price")) else None),
+        "priceAsked": ({"by": S._user_name(r.get("price_asked_by")), "at": str(r.get("price_asked_at") or "")[:16]}
+                       if r.get("price_asked_at") and not flt(r.get("supplier_price")) else None),
+        "status": r.status,
         "kind": r.get("kind") or "", "packN": cint(r.get("pack_n")), "shopCat": KINDS.get(r.get("kind") or "", ""), "firstSeen": str(r.first_seen or "")[:16], "lastSeen": str(r.last_seen or "")[:16],
         "posts": cint(r.posts_n), "sourcesN": cint(r.sources_n), "trendN": cint(r.trend_n),
         **_signals(r),
@@ -795,7 +852,8 @@ PICK_FIELDS = ["name", "title", "photo", "caption", "status", "first_seen", "las
 
 def _fields():
     """PICK_FIELDS plus what the classifier writes, once the migrate has added it."""
-    return PICK_FIELDS + (["kind", "ai_price", "pack_n"] if _tagged() else [])
+    return (PICK_FIELDS + (["kind", "ai_price", "pack_n"] if _tagged() else [])
+            + ([f["fieldname"] for f in PRICE_FIELDS] if _priced() else []))
 
 
 @frappe.whitelist()
@@ -839,7 +897,24 @@ def picks_boot(tab="feed", q="", start=0, only="", kind=""):
         cond.append("status = 'new' AND last_seen >= %(d14)s")
         args["d14"] = add_days(now_datetime(), -14)
         order = "(trend_n >= %(tr)s) DESC, last_seen DESC" % {"tr": TREND_SOURCES}
-    if only == "trending":
+    price_counts = {}
+    if _priced() and tab in ("feed", "interest"):
+        # Which of this tab's picks have no price at all, and which wait for
+        # the stall's answer. A caption price is read in Python, so the few
+        # hundred rows of the tab are scanned here.
+        scan = frappe.db.sql(
+            f"""SELECT name, caption, {"ai_price" if _tagged() else "0 ai_price"}, supplier_price, price_asked_at
+                FROM `tab{DT_PICK}` WHERE {" AND ".join(cond)}
+                {"AND IFNULL(kind, '') != 'noise'" if _tagged() else ""}""", args, as_dict=True)
+        nop = [str(r.name) for r in scan if not (flt(r.supplier_price) or flt(r.ai_price) or price_seen(r.caption))]
+        asked = [str(r.name) for r in scan if r.price_asked_at and not flt(r.supplier_price)]
+        price_counts = {"noprice": len(nop), "asked": len(asked)}
+        if only in ("noprice", "asked"):
+            cond.append("name IN %(pn)s")
+            args["pn"] = tuple(nop if only == "noprice" else asked) or ("-",)
+    if only in ("noprice", "asked"):
+        pass  # applied above, with the counts
+    elif only == "trending":
         cond.append(f"trend_n >= {TREND_SOURCES}")
     elif only == "saturated":
         cond.append(f"sources_n >= {SATURATED_SOURCES} AND first_seen <= %(sat)s")
@@ -873,7 +948,8 @@ def picks_boot(tab="feed", q="", start=0, only="", kind=""):
     rows = rows[:page]
     srcs = _sources_of([str(r.name) for r in rows])
     out = dict(base, tab=tab, counts=counts, more=more, picks=[_card(r, srcs, me) for r in rows],
-               kinds=kinds, untagged=pending, tagOn=bool(_tagged() and W_key()), kind=kind)
+               kinds=kinds, untagged=pending, tagOn=bool(_tagged() and W_key()), kind=kind,
+               priceCounts=price_counts, priceOn=bool(_priced()))
     if tab == "list":
         # Grouped by the stall to buy from: one visit, one call.
         groups = {}
@@ -891,6 +967,7 @@ def picks_boot(tab="feed", q="", start=0, only="", kind=""):
             "picks": [c["name"] for c in lst],
             "pieces": sum(c["targetQty"] for c in lst),
             "budget": round(sum(c["targetQty"] * c["maxPrice"] for c in lst), 2),
+            "noMax": sum(1 for c in lst if not c["maxPrice"]),
         } for g, lst in groups.items()]
     return out
 
@@ -973,7 +1050,8 @@ def pick_decide(name, verdict, reason="", note="", target_qty=0, max_price=0, so
             price = flt(max_price)
             if qty < 1 or qty > 100000:
                 frappe.throw("How many pieces?")
-            if price <= 0 or price > 1000000:
+            # 0 = no ceiling: nobody knows the price yet, the buyer bargains.
+            if price < 0 or price > 1000000:
                 frappe.throw("The highest cost per piece we accept.")
             if not source or not frappe.db.exists("Supplier", source):
                 frappe.throw("Buy from which source?")
@@ -1002,6 +1080,48 @@ def _one(name):
     return _card(r, _sources_of([str(name)]), frappe.session.user)
 
 
+def _need_priced():
+    _need_ready()
+    if not _priced():
+        frappe.throw("Prices from the stalls work after the next update.")
+
+
+@frappe.whitelist(methods=["POST"])
+def pick_price_asked(name):
+    """Someone opened WhatsApp to ask the stall: the card says so, so nobody
+    asks twice."""
+    S._gate_view()
+    _need_priced()
+    with _locked(name):
+        if not frappe.db.exists(DT_PICK, name):
+            frappe.throw("Unknown pick.")
+        frappe.db.set_value(DT_PICK, name, {"price_asked_by": frappe.session.user,
+                                            "price_asked_at": now_datetime()}, update_modified=False)
+    frappe.db.commit()
+    return _one(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def pick_price(name, price):
+    """The price the stall answered, per piece. 0 clears it."""
+    S._gate_view()
+    _need_priced()
+    p = flt(price)
+    if p < 0 or p > 1000000:
+        frappe.throw("Price per piece in MAD.")
+    with _locked(name):
+        d = frappe.db.get_value(DT_PICK, name, ["status"], as_dict=True)
+        if not d:
+            frappe.throw("Unknown pick.")
+        if d.status == "bought":
+            frappe.throw("Already bought: the card is on the board.")
+        frappe.db.set_value(DT_PICK, name, {"supplier_price": p or None,
+                                            "price_by": frappe.session.user if p else "",
+                                            "price_at": now_datetime() if p else None}, update_modified=False)
+    frappe.db.commit()
+    return _one(name)
+
+
 # --- the buy ---------------------------------------------------------------------
 
 @frappe.whitelist()
@@ -1020,7 +1140,8 @@ def pick_for_buy(name):
         title = ""
     return {
         "name": str(r.name), "title": title, "photo": r.photo or "", "targetQty": cint(r.target_qty),
-        "maxPrice": flt(r.max_price), "category": r.category or "", "note": r.note or "",
+        "maxPrice": flt(r.max_price), "stallPrice": flt(r.get("supplier_price")),
+        "category": r.category or "", "note": r.note or "",
         "decidedBy": S._user_name(r.decided_by) if r.decided_by else "",
         "stall": ({"name": src.name, "label": src.supplier_name or src.name, "phone": src.mobile_no or "",
                    "lead": src.supplier_group == LEAD_GROUP} if src else None),

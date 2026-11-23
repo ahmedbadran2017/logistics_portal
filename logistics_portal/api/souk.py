@@ -722,10 +722,12 @@ def _stage_log(doc_or_raw):
     return log if isinstance(log, list) else []
 
 
-def _set_stage(doc, stage, **extra):
+def _set_stage(doc, stage, note="", **extra):
     """Every stage change goes through here: it appends the card's history
     (who, when) so the board can time each stage after the card left it.
-    A stage change also frees the card: the next stage's people claim it."""
+    A stage change also frees the card: the next stage's people claim it.
+    A card sent back carries why in its history (`n`), shown to the step
+    that gets it."""
     now = now_datetime()
     vals = {"stage": stage, "stage_at": now, **extra}
     if _has_col(DT_PRODUCT, "stage_log"):
@@ -733,7 +735,10 @@ def _set_stage(doc, stage, **extra):
         if not log and doc.get("stage_at"):
             # A card from before the history: its current stage, as known.
             log.append({"s": doc.stage, "at": str(doc.stage_at)[:19], "by": ""})
-        log.append({"s": stage, "at": str(now)[:19], "by": frappe.session.user})
+        row = {"s": stage, "at": str(now)[:19], "by": frappe.session.user}
+        if note:
+            row["n"] = note[:500]
+        log.append(row)
         vals["stage_log"] = json.dumps(log[-80:])
     if _has_col(DT_PRODUCT, "claimed_by"):
         vals["claimed_by"] = ""
@@ -2601,6 +2606,8 @@ def product(name):
                    and not (doc.stage == "buying" and doc.purchase_order),
         "me": frappe.session.user, "isManager": _role() == "manager",
         "canClaim": doc.stage not in ("live", "dropped"),
+        "backTo": _back_targets(doc), "canRaw": _raw_edit_ok(doc.stage),
+        "backNote": _arrival_note(doc),
     }
 
 
@@ -3377,6 +3384,51 @@ def _gate_studio():
         frappe.throw("Only marketing hands in the final photos.", frappe.PermissionError)
 
 
+def _gate_raw():
+    if not (_can_photo() or _can_studio()):
+        frappe.throw("Not authorized to change the in-house photos.", frappe.PermissionError)
+
+
+def _raw_edit_ok(stage):
+    """The in-house photos are shot at 'photos'. While marketing works on
+    the card (studio) the floor or marketing can still retake or add one,
+    without sending the card back and losing the studio's work."""
+    if stage == "photos":
+        return _can_photo()
+    if stage == "studio":
+        return _can_photo() or _can_studio()
+    return False
+
+
+# Sending a card back: from each stage, the earlier steps it may return to.
+# Never to buying/bought (the goods are in) and never from live (published).
+BACK_TO = {"studio": ("photos",), "content": ("studio", "photos"), "review": ("content", "studio", "photos")}
+
+
+def _back_targets(doc):
+    order = BACK_TO.get(doc.stage) or ()
+    if not order:
+        return []
+    if _role() == "manager":
+        return list(order)
+    if doc.stage == "studio" and _can_studio():
+        return list(order)
+    if doc.stage == "content" and _can_content():
+        return list(order)
+    if doc.stage == "review" and _can_review() and doc.content_by != frappe.session.user:
+        return list(order)
+    return []
+
+
+def _arrival_note(doc):
+    """Why the card is at this step again, when it was sent back here."""
+    log = _stage_log(doc)
+    last = log[-1] if log else None
+    if last and last.get("s") == doc.stage and last.get("n"):
+        return {"note": last["n"], "by": _user_name(last.get("by")), "at": str(last.get("at") or "")[:16]}
+    return None
+
+
 def _colors(variants):
     """The product's colours in buying order; one blank colour when the
     product has none."""
@@ -3464,7 +3516,7 @@ def photo_queue():
 
 @frappe.whitelist()
 def photo_boot(name):
-    _gate_photo()
+    _gate_raw()
     doc = frappe.get_doc(DT_PRODUCT, name)
     variants = _loads(doc.variants_json) or []
     colors = _colors(variants)
@@ -3473,19 +3525,21 @@ def photo_boot(name):
             "colors": colors, "slots": list(RAW_SLOTS), "photos": photos,
             "missing": _missing(colors, photos), "specs": doc.specs or "",
             "hoursLeft": _hours_left(doc.stage_at, "photos") if doc.stage == "photos" else None,
-            "canEdit": doc.stage == "photos", "samples": _samples(variants),
+            "canEdit": _raw_edit_ok(doc.stage), "canSend": doc.stage == "photos" and _can_photo(),
+            "backNote": _arrival_note(doc), "samples": _samples(variants),
             "sizes": [x for x in dict.fromkeys(v.get("sizeLabel") for v in variants) if x]}
 
 
 @frappe.whitelist(methods=["POST"])
 def photo_add(name, color="", slot="front"):
     """One in-house photo for a colour × angle; a retake replaces the old one.
-    'extra' adds an optional photo (up to ten)."""
-    _gate_photo()
+    'extra' adds an optional photo (up to ten). Also while marketing has
+    the card: a retake or a missing angle, without sending it back."""
+    _gate_raw()
     content, ext = _read_upload()
     doc = _lock_product(name)
-    if doc.stage != "photos":
-        frappe.throw("This product is not waiting for in-house photos.")
+    if not _raw_edit_ok(doc.stage):
+        frappe.throw("This product's in-house photos can no longer be changed here.")
     colors = _colors(_loads(doc.variants_json) or [])
     color = (color or "").upper()
     if color not in [c["code"] for c in colors]:
@@ -3510,6 +3564,9 @@ def photo_add(name, color="", slot="front"):
                    "by": _user_name(frappe.session.user), "at": str(now_datetime())[:16]})
     doc.db_set("photos_json", json.dumps(photos, ensure_ascii=False), update_modified=False)
     _drop_files(doc.name, replaced)
+    if doc.stage == "studio":
+        doc.add_comment("Comment", f"Souk: in-house photo {'retaken' if replaced else 'added'} during the studio "
+                                   f"by {_user_name(frappe.session.user)} · {color or 'ALL'} {slot}")
     frappe.db.commit()
     return {"photos": photos, "missing": _missing(colors, photos)}
 
@@ -3521,15 +3578,21 @@ def photo_remove(name, url, which="raw"):
     if which == "final":
         _gate_studio()
     else:
-        _gate_photo()
+        _gate_raw()
     doc = _lock_product(name)
-    if doc.stage != ("studio" if which == "final" else "photos"):
+    if which == "final" and doc.stage != "studio":
         frappe.throw("This product is no longer at that step.")
+    if which != "final" and not _raw_edit_ok(doc.stage):
+        frappe.throw("This product's in-house photos can no longer be changed here.")
     field = "finals_json" if which == "final" else "photos_json"
     rows = _loads(doc.get(field)) or []
     keep = [p for p in rows if p.get("url") != url]
     if len(keep) == len(rows):
         frappe.throw("Photo not found on this product.")
+    gone = next(p for p in rows if p.get("url") == url)
+    if which != "final" and doc.stage == "studio" and gone.get("slot") != EXTRA_SLOT:
+        # Marketing has the card: every required angle stays on it.
+        frappe.throw("Retake this angle instead of removing it: the card is with marketing.")
     doc.db_set(field, json.dumps(keep, ensure_ascii=False), update_modified=False)
     _drop_files(doc.name, [url])
     frappe.db.commit()
@@ -3554,8 +3617,11 @@ def photos_send(name, specs=""):
     doc.add_comment("Comment", f"Souk: {len(photos)} in-house photos by {_user_name(frappe.session.user)}"
                                + (f" · {specs}" if specs else "") + " · to marketing.")
     frappe.db.commit()
-    from logistics_portal.api import souk_ai
-    souk_ai.auto_start(doc.name)
+    if not _loads(doc.finals_json):
+        # Back from a later step with its finals: the studio keeps them and
+        # makes new versions only if it asks (no second paid set by itself).
+        from logistics_portal.api import souk_ai
+        souk_ai.auto_start(doc.name)
     return {"ok": True}
 
 
@@ -3563,8 +3629,7 @@ def photos_send(name, specs=""):
 def raw_zip(name):
     """All in-house photos of a product in one download, named
     <sku>-<colour>-<angle>."""
-    if not (_can_studio() or _can_photo()):
-        frappe.throw("Not authorized.", frappe.PermissionError)
+    _gate_raw()
     import io
     import zipfile
 
@@ -3610,6 +3675,7 @@ def _studio_detail(name):
         "colorsWithout": [c["code"] for c in colors if c["code"] and c["code"] not in tied]
         if len(colors) > 1 else [],
         "canEdit": doc.stage == "studio",
+        "canRaw": _raw_edit_ok(doc.stage), "backNote": _arrival_note(doc),
         "deadline": _deadline(doc),
         "ai": _ai_block(doc),
         "aiSet": _set_block(doc),
@@ -3711,10 +3777,41 @@ def studio_return(name, reason):
         frappe.throw("This product is not with marketing.")
     from logistics_portal.api import souk_ai
     souk_ai.clear(doc)
-    _set_stage(doc, "photos")
+    _set_stage(doc, "photos", note=reason)
     doc.add_comment("Comment", f"Souk: sent back to in-house photos by {_user_name(frappe.session.user)} · {reason[:280]}")
     frappe.db.commit()
     return {"ok": True}
+
+
+@frappe.whitelist(methods=["POST"])
+def stage_back(name, to, note):
+    """Back to an earlier step from the product page (photos, studio,
+    content), with why. Nothing is lost: the in-house photos, the accepted
+    finals and the written content stay on the card; Shopify is rewritten
+    when the card moves forward again. From review it counts as a review
+    rejection."""
+    note = (note or "").strip()
+    if not note:
+        frappe.throw("Write what has to be redone.")
+    doc = _lock_product(name)
+    if to not in BACK_TO.get(doc.stage, ()):
+        frappe.throw("This card cannot go back to that step from here.")
+    if to not in _back_targets(doc):
+        frappe.throw("Not authorized to send this card back.", frappe.PermissionError)
+    frm = doc.stage
+    if frm == "studio":
+        from logistics_portal.api import souk_ai
+        souk_ai.clear(doc)
+    if frm == "review":
+        _set_stage(doc, to, note=note, reject_count=cint(doc.reject_count) + 1, review_note=note[:500])
+        doc.add_comment("Comment", f"Souk: review sent it back to {to} ({cint(doc.reject_count)}×) by "
+                                   f"{_user_name(frappe.session.user)} · {note[:280]}")
+    else:
+        _set_stage(doc, to, note=note)
+        doc.add_comment("Comment", f"Souk: sent back from {frm} to {to} by "
+                                   f"{_user_name(frappe.session.user)} · {note[:280]}")
+    frappe.db.commit()
+    return {"ok": True, "stage": to}
 
 
 _PRODUCT_MEDIA = """
@@ -4063,7 +4160,7 @@ def _content_detail(name, with_collections=True):
         "collections": cols, "collectionsError": cols_err,
         "canEdit": doc.stage == "content",
         "hoursLeft": _hours_left(doc.stage_at, doc.stage) if doc.stage in ("content", "review") else None,
-        "rejects": cint(doc.reject_count), "reviewNote": doc.review_note or "",
+        "rejects": cint(doc.reject_count), "reviewNote": doc.review_note or "", "backNote": _arrival_note(doc),
         "shopifyAdmin": _shopify_admin_url(doc.shopify_product_id),
         "productTypes": _product_types(c.get("productType")),
         "writer": _user_name(doc.content_by), "deadline": _deadline(doc), "age": _age_days(doc.stage_at),
@@ -4507,7 +4604,7 @@ def review_reject(name, to, note):
     if doc.stage != "review":
         frappe.throw("This product is not in review.")
     _gate_not_writer(doc)
-    _set_stage(doc, to, reject_count=cint(doc.reject_count) + 1, review_note=note[:500])
+    _set_stage(doc, to, note=note, reject_count=cint(doc.reject_count) + 1, review_note=note[:500])
     doc.add_comment("Comment", f"Souk: review sent it back to {to} ({cint(doc.reject_count)}×) by "
                                f"{_user_name(frappe.session.user)} · {note[:280]}")
     frappe.db.commit()

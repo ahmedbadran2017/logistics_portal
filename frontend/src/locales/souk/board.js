@@ -112,6 +112,23 @@ export default {
       confirm: "Drop it",
       droppedBanner: "Left the cycle at {s}",
     },
+    // Sending a card back to an earlier step (product page) and editing the
+    // in-house photos while marketing has the card.
+    bk: {
+      btn: "Send back…",
+      title: "Send back to an earlier step",
+      intro: "Nothing is lost: the in-house photos, the accepted final photos and the content stay on the card. Shopify is updated when it moves forward again.",
+      fromReview: "From review, this counts as a rejection.",
+      hint_photos: "Retake or add in-house photos",
+      hint_studio: "Redo or reorder the final photos",
+      hint_content: "Fix the text, the price or the collections",
+      notePh: "What has to be redone? (required)",
+      confirm: "Send back",
+      done: "Sent back to {s}.",
+      said: "Sent back by {by}:",
+      rawEdit: "Edit the in-house photos",
+      rawInStudio: "Marketing has this card: a retaken or added photo reaches them right away, and the card stays at its step.",
+    },
   },
   fr: {
     lb: {
@@ -222,6 +239,21 @@ export default {
       confirm: "Arrêter",
       droppedBanner: "Sorti du cycle à l'étape {s}",
     },
+    bk: {
+      btn: "Renvoyer…",
+      title: "Renvoyer à une étape précédente",
+      intro: "Rien n'est perdu : les photos internes, les photos finales acceptées et le contenu restent sur la carte. Shopify est mis à jour quand elle repart.",
+      fromReview: "Depuis la relecture, cela compte comme un rejet.",
+      hint_photos: "Reprendre ou ajouter des photos internes",
+      hint_studio: "Refaire ou réordonner les photos finales",
+      hint_content: "Corriger le texte, le prix ou les collections",
+      notePh: "Que faut-il refaire ? (obligatoire)",
+      confirm: "Renvoyer",
+      done: "Renvoyé à l'étape {s}.",
+      said: "Renvoyé par {by} :",
+      rawEdit: "Modifier les photos internes",
+      rawInStudio: "Le marketing a cette carte : une photo reprise ou ajoutée lui arrive tout de suite, et la carte reste à son étape.",
+    },
   },
   ar: {
     lb: {
@@ -331,6 +363,21 @@ export default {
       notePh: "ما المشكلة؟ (إلزامي)",
       confirm: "تأكيد الاستبعاد",
       droppedBanner: "خرج من الدورة في مرحلة {s}",
+    },
+    bk: {
+      btn: "إرجاع لمرحلة سابقة…",
+      title: "إرجاع البطاقة إلى مرحلة سابقة",
+      intro: "لن يضيع شيء: تبقى الصور الداخلية والصور الاحترافية المقبولة والمحتوى على البطاقة، ويُحدَّث شوبيفاي عندما تتقدّم من جديد.",
+      fromReview: "الإرجاع من المراجعة يُحتسب رفضًا.",
+      hint_photos: "إعادة تصوير صور داخلية أو إضافة صور جديدة",
+      hint_studio: "إعادة الصور الاحترافية أو تغيير ترتيبها",
+      hint_content: "تصحيح النص أو السعر أو المجموعات",
+      notePh: "ما الذي يجب إعادته؟ (إلزامي)",
+      confirm: "تأكيد الإرجاع",
+      done: "أُعيدت البطاقة إلى مرحلة {s}.",
+      said: "أعادها {by}:",
+      rawEdit: "تعديل الصور الداخلية",
+      rawInStudio: "البطاقة لدى التسويق: أي صورة تعيد تصويرها أو تضيفها تصلهم فورًا، وتبقى البطاقة في مرحلتها.",
     },
   },
 };

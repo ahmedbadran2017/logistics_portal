@@ -80,6 +80,19 @@
           <router-link :to="{ name: 'SoukProduct', params: { name: d.name } }" class="font-bold text-[var(--accent-700)] underline">{{ t('souk.toProduct') }}</router-link>
         </div>
 
+        <!-- sent back here: why -->
+        <div v-if="d.backNote" class="rounded-xl bg-amber-50 ring-1 ring-inset ring-amber-200 px-3.5 py-3 text-[13px] text-amber-900 flex gap-2.5 items-start">
+          <Icon name="undo-2" :size="16" class="shrink-0 mt-0.5 text-amber-700" />
+          <span class="min-w-0 break-words"><b>{{ t('souk.bk.said').replace('{by}', d.backNote.by) }}</b> {{ d.backNote.note }}</span>
+        </div>
+        <!-- marketing has the card: a retake reaches them, nothing is sent -->
+        <div v-if="d.canEdit && d.stage === 'studio'" class="st-studio rounded-xl st-soft px-3.5 py-3 text-[13px] text-stone-800 flex gap-2.5 items-start">
+          <Icon name="sparkles" :size="16" class="shrink-0 mt-0.5 st-fg" />
+          <span class="min-w-0">{{ t('souk.bk.rawInStudio') }}
+            <router-link :to="{ name: 'SoukProduct', params: { name: d.name } }" class="font-bold underline">{{ t('souk.toProduct') }}</router-link>
+          </span>
+        </div>
+
         <!-- colours -->
         <nav v-if="d.colors.length > 1" class="flex gap-1.5 overflow-x-auto" :aria-label="t('souk.nColors').replace('{n}', d.colors.length)">
           <button v-for="(c, i) in d.colors" :key="c.code" type="button" :aria-current="color === c.code ? 'true' : undefined"
@@ -160,7 +173,7 @@
               <div v-if="d.sizes.length" class="sk-sec-s">{{ t('souk.specsSizes').replace('{s}', d.sizes.join(' · ')) }}</div></div>
           </div>
           <div class="sk-sec-b">
-          <textarea id="souk-specs" v-model="specs" rows="3" :disabled="!d.canEdit"
+          <textarea id="souk-specs" v-model="specs" rows="3" :disabled="!d.canSend"
                     class="w-full rounded-xl border border-stone-300 p-3 text-[16px] bg-white outline-none focus:ring-2 focus:ring-sky-500/30" :placeholder="t('souk.specsHint')" />
           </div>
         </section>
@@ -169,7 +182,7 @@
       </template>
     </div>
 
-    <footer v-if="d && d.canEdit && name" class="lp-footer bg-white px-4 pt-3 pb-4">
+    <footer v-if="d && d.canSend && name" class="lp-footer bg-white px-4 pt-3 pb-4">
       <div class="max-w-[560px] mx-auto flex flex-col gap-1.5">
         <span v-if="d.missing.length" class="text-[12px] text-stone-600 text-center leading-snug">{{ missingText }}</span>
         <button type="button" class="st-studio w-full h-[52px] rounded-xl st-solid text-[15px] font-bold inline-flex items-center justify-center gap-2 disabled:!bg-stone-200 disabled:!text-stone-500 disabled:shadow-none"

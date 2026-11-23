@@ -326,6 +326,32 @@
           </div>
         </section>
 
+        <!-- more picks from the shopping list, waiting their turn in the editor -->
+        <section v-if="pickQueue.length" class="sk-sec st-buying" aria-labelledby="sb-queue-h">
+          <div class="sk-sec-h">
+            <span class="sk-ico"><Icon name="list-checks" :size="16" /></span>
+            <div class="min-w-0 flex-1">
+              <h2 id="sb-queue-h" class="sk-sec-t">{{ tt('souk.pk.queueTitle', { n: pickQueue.length }) }}</h2>
+              <p class="sk-sec-s">{{ t('souk.pk.queueNote') }}</p>
+            </div>
+          </div>
+          <ul class="sk-sec-b !py-2 flex flex-col">
+            <li v-for="(q, i) in pickQueue" :key="q.name" class="flex items-center gap-2.5 py-1.5" :class="i ? 'border-t border-stone-100' : ''">
+              <button type="button" class="min-w-0 flex-1 flex items-center gap-2.5 text-start" @click="takeQueued(i)">
+                <img v-if="q.photo" :src="q.photo" alt="" class="w-11 h-11 rounded-lg object-cover bg-stone-100 ring-1 ring-stone-200 shrink-0" />
+                <span class="min-w-0 flex flex-col">
+                  <span class="text-[13px] font-semibold text-stone-900 truncate" dir="auto">{{ q.title || '—' }}</span>
+                  <span class="text-[12px] text-stone-600 tabular-nums">{{ targetText(q.targetQty, q.maxPrice) }}</span>
+                </span>
+              </button>
+              <button type="button" class="shrink-0 w-10 h-10 rounded-lg text-stone-500 inline-flex items-center justify-center hover:bg-stone-100"
+                      :aria-label="tt('souk.pk.queueDrop', { t: q.title || '' })" @click="dropQueued(i)">
+                <Icon name="x" :size="16" />
+              </button>
+            </li>
+          </ul>
+        </section>
+
         <!-- bought from the shopping list (souk_picks): the decider's numbers -->
         <section v-if="tab === 'new' && f.pickInfo" class="rounded-2xl ring-1 ring-inset p-3 flex flex-col gap-1.5"
                  :class="overMax.length ? 'bg-rose-50 ring-rose-200' : 'bg-sky-50 ring-sky-200'" role="status">
@@ -334,7 +360,7 @@
             <span class="flex-1 min-w-0 text-[13px] font-bold text-stone-900">{{ t('souk.pk.fromList') }}</span>
             <button type="button" class="shrink-0 h-9 px-2.5 rounded-lg text-[12px] font-semibold text-stone-600 underline underline-offset-2" @click="unlinkPick">{{ t('souk.pk.unlink') }}</button>
           </div>
-          <span class="text-[13px] text-stone-700 tabular-nums">{{ tt('souk.pk.targets', { q: f.pickInfo.targetQty, p: fmt(f.pickInfo.maxPrice) }) }}<template v-if="f.pickInfo.decidedBy"> · {{ f.pickInfo.decidedBy }}</template></span>
+          <span class="text-[13px] text-stone-700 tabular-nums">{{ targetText(f.pickInfo.targetQty, f.pickInfo.maxPrice) }}<template v-if="f.pickInfo.decidedBy"> · {{ f.pickInfo.decidedBy }}</template><template v-if="f.pickInfo.stallPrice"> · {{ tt('souk.pk.priceStall', { p: fmt(f.pickInfo.stallPrice) }) }}</template></span>
           <span v-if="overMax.length" class="text-[13px] font-bold text-rose-800">{{ tt('souk.pk.overMax', { p: fmt(f.pickInfo.maxPrice), sku: overMax.join(', ') }) }}</span>
           <span v-else-if="curUnits && curUnits < f.pickInfo.targetQty" class="text-[12px] text-stone-600">{{ tt('souk.pk.underQty', { n: curUnits, q: f.pickInfo.targetQty }) }}</span>
         </section>
@@ -869,6 +895,9 @@ const again = ref(null);
 const queued = ref(readJSON(QUEUED_KEY, {}) || {});
 // Products already added from this stall (the editor above holds the next).
 const basket = reactive({ products: [], again: [] });
+// Picks chosen together on the shopping list wait here, one after the other
+// in the editor (each still needs its real colours, sizes and costs).
+const pickQueue = ref([]);
 // Each variant's own box barcode: key(colour, size) -> {code, hits, sure}.
 const bcs = reactive({});
 
@@ -1285,11 +1314,13 @@ function saveDraft() {
     pay: { ...pay },
     bcs: JSON.parse(JSON.stringify(bcs)),
     basket: { products: basket.products.map(plain), again: basket.again },
+    pickQueue: pickQueue.value,
   });
 }
 function loadDraft() {
   const d = readJSON(DRAFT_KEY, null);
   if (!d) return;
+  if (Array.isArray(d.pickQueue)) pickQueue.value = d.pickQueue;
   Object.assign(f, blank(), d.f || {});
   f.newStall = { name: "", phone: "", ...((d.f || {}).newStall || {}) };
   if (Array.isArray(d.sizes)) {
@@ -1321,7 +1352,7 @@ function loadDraft() {
     basket.again = d.basket.again || [];
   }
 }
-watch([f, sizes, qty, cost, price, tab, again, clientKey, pay, bcs, basket], saveDraft, { deep: true });
+watch([f, sizes, qty, cost, price, tab, again, clientKey, pay, bcs, basket, pickQueue], saveDraft, { deep: true });
 watch([() => f.stall, boot], defaultPay);
 watch(() => f.category, (c) => { if (c) { lastCat.value = c; writeJSON(CAT_KEY, c); } });
 
@@ -1385,6 +1416,7 @@ function addAnother() {
   if (tab.value === "new") {
     basket.products.push(snapProduct());
     clearProduct();
+    nextPick();
   } else {
     basket.again.push(snapAgain());
     clearAgain();
@@ -1447,6 +1479,7 @@ function clearForm() {
   for (const p of basket.products) if (p.refPreview && p.refPreview !== refPreview.value) URL.revokeObjectURL(p.refPreview);
   basket.products = [];
   basket.again = [];
+  pickQueue.value = [];
   if (refPreview.value) URL.revokeObjectURL(refPreview.value);
   if (receiptPreview.value) URL.revokeObjectURL(receiptPreview.value);
   refFile.value = null; refPreview.value = "";
@@ -1750,6 +1783,7 @@ async function load() {
 // ── from the shopping list (souk_picks) ──────────────────────────────────────
 // The decider set a quantity, a max cost per piece and the source: the photo,
 // the title and the stall come filled; a cost above the max is said in red.
+const targetText = (q, p) => (Number(p) > 0 ? tt("souk.pk.targets", { q, p: fmt(p) }) : tt("souk.pk.targetsNoMax", { q }));
 const overMax = computed(() => {
   const mx = Number(f.pickInfo?.maxPrice || 0);
   return mx > 0 ? lines.value.filter((l) => l.qty > 0 && Number(l.cost) > mx).map((l) => l.sku) : [];
@@ -1762,32 +1796,59 @@ function keepLeadStall() {
     boot.value.stalls.unshift({ name: st.name, label: st.label });
   }
 }
-async function startPick(name) {
-  let d;
-  try {
-    d = await api("souk_picks.pick_for_buy", { name });
-  } catch (e) {
-    warn(t("souk.failed"), String(e.message || e));
-    return;
+function loadPickInto(d) {
+  tab.value = "new";
+  Object.assign(f, { title: d.title || "", pick: d.name,
+                     pickInfo: { name: d.name, targetQty: d.targetQty, maxPrice: d.maxPrice, photo: d.photo,
+                                 stall: d.stall, decidedBy: d.decidedBy || "", stallPrice: d.stallPrice || 0 } });
+  if (d.category && boot.value?.categories.some((c) => c.key === d.category)) f.category = d.category;
+  if (!refFile.value) refPreview.value = d.photo || "";
+  const empty = !basket.products.length && !basket.again.length;
+  if (d.stall && (empty || !f.stall)) { f.stall = d.stall.name; f.newStall = { name: "", phone: "", sure: false }; }
+  else if (d.stall && f.stall !== d.stall.name) warn(t("souk.pk.otherStall"), d.stall.label);
+  keepLeadStall();
+}
+const editorBusy = computed(() => tab.value === "new" && currentActive.value);
+// The next waiting pick into the editor, when the editor is free.
+function nextPick() {
+  if (pickQueue.value.length && !editorBusy.value) loadPickInto(pickQueue.value.shift());
+}
+// A waiting pick chosen by hand: a complete product in the editor joins the
+// basket first; a half-filled one is never dropped.
+function takeQueued(i) {
+  const d = pickQueue.value[i];
+  if (!d) return;
+  if (editorBusy.value) {
+    if (currentWhy.value) { warn(t("souk.basket.finishFirst"), currentWhy.value); return; }
+    basket.products.push(snapProduct());
+    clearProduct();
   }
-  const inBasket = basket.products.some((p) => p.pick === d.name) || f.pick === d.name;
-  if (!inBasket) {
-    // The editor holds another product: it goes into the basket first.
-    if (tab.value === "new" && currentActive.value && !currentWhy.value) { basket.products.push(snapProduct()); clearProduct(); }
-    else if (tab.value === "new" && currentActive.value) { warn(t("souk.basket.finishFirst"), ""); return; }
-    tab.value = "new";
-    Object.assign(f, { title: d.title || "", pick: d.name,
-                       pickInfo: { name: d.name, targetQty: d.targetQty, maxPrice: d.maxPrice, photo: d.photo,
-                                   stall: d.stall, decidedBy: d.decidedBy || "" } });
-    if (d.category && boot.value?.categories.some((c) => c.key === d.category)) f.category = d.category;
-    if (!refFile.value) refPreview.value = d.photo || "";
-    const empty = !basket.products.length && !basket.again.length;
-    if (d.stall && (empty || !f.stall)) { f.stall = d.stall.name; f.newStall = { name: "", phone: "", sure: false }; }
-    else if (d.stall && f.stall !== d.stall.name) warn(t("souk.pk.otherStall"), d.stall.label);
-    keepLeadStall();
+  pickQueue.value.splice(i, 1);
+  loadPickInto(d);
+  window.scrollTo?.({ top: 0, behavior: "smooth" });
+}
+function dropQueued(i) {
+  pickQueue.value.splice(i, 1);
+}
+// One pick (its Buy button) or several (the source's "buy the selected").
+async function startPicks(names) {
+  const got = await Promise.all(names.map((n) => api("souk_picks.pick_for_buy", { name: n })
+    .catch((e) => ({ err: String(e.message || e) }))));
+  const bad = got.filter((d) => d.err);
+  if (bad.length) warn(t("souk.failed"), bad[0].err);
+  const known = (n) => basket.products.some((p) => p.pick === n) || f.pick === n || pickQueue.value.some((q) => q.name === n);
+  const fresh = got.filter((d) => !d.err && !known(d.name));
+  if (fresh.length) {
+    // A complete product in the editor goes into the basket; a half-filled
+    // one stays, and the list's products wait below it.
+    if (editorBusy.value && !currentWhy.value) { basket.products.push(snapProduct()); clearProduct(); }
+    pickQueue.value.push(...fresh);
+    if (editorBusy.value) warn(t("souk.pk.queuedWait"), currentWhy.value);
+    else nextPick();
   }
   const q = { ...route.query };
   delete q.pick;
+  delete q.picks;
   router.replace({ query: q });
 }
 function unlinkPick() {
@@ -1805,7 +1866,8 @@ onMounted(async () => {
   if (f.pickInfo && !refFile.value && !refPreview.value) refPreview.value = f.pickInfo.photo || "";
   keepLeadStall();
   if (route.query.again && !sent.value) await startAgain({ key: route.query.again, kind: route.query.kind || "souk" });
-  if (route.query.pick && !sent.value) await startPick(String(route.query.pick));
+  const asked = [route.query.pick, ...String(route.query.picks || "").split(",")].map((x) => String(x || "").trim()).filter(Boolean);
+  if (asked.length && !sent.value) await startPicks([...new Set(asked)]);
 });
 onBeforeUnmount(() => {
   offDone();

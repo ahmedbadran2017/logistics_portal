@@ -126,6 +126,10 @@
               <Icon name="undo-2" :size="16" class="shrink-0 mt-0.5" />
               <span class="min-w-0 break-words"><b>{{ t('souk.reviewSaid').replace('{n}', d.rejects) }}</b> {{ d.reviewNote }}</span>
             </div>
+            <div v-if="d.backNote && d.backNote.note !== d.reviewNote" class="bg-amber-50 ring-1 ring-inset ring-amber-200 rounded-2xl px-3.5 py-3 text-[13px] text-amber-800 flex gap-2.5 items-start">
+              <Icon name="undo-2" :size="16" class="shrink-0 mt-0.5" />
+              <span class="min-w-0 break-words"><b>{{ t('souk.bk.said').replace('{by}', d.backNote.by) }}</b> {{ d.backNote.note }}</span>
+            </div>
             <div v-if="!d.canEdit" class="bg-stone-100 rounded-2xl px-3.5 py-3 text-[13px] text-stone-700 flex gap-2.5 items-start">
               <Icon name="info" :size="16" class="shrink-0 mt-0.5" />{{ t('souk.contentNotNow') }}
             </div>
