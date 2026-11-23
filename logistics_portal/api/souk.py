@@ -52,6 +52,8 @@ from contextlib import contextmanager
 import frappe
 from frappe.utils import add_days, cint, flt, get_datetime, getdate, now_datetime, nowdate, time_diff_in_hours
 
+from logistics_portal.api import kv
+
 COMPANY = "Justyol Morocco"
 DT_TRIP = "LP Souk Trip"
 DT_PRODUCT = "LP Souk Product"
@@ -593,9 +595,9 @@ def save_settings(settings_json):
     if not changed:
         return cur
     cur.update(clean)
-    frappe.db.set_default(SETTINGS_KEY, json.dumps(cur, ensure_ascii=False))
+    kv.set_default(SETTINGS_KEY, json.dumps(cur, ensure_ascii=False))
     log = [{"at": str(now_datetime())[:19], "by": frappe.session.user, "keys": changed}] + _settings_log()
-    frappe.db.set_default(SETTINGS_LOG_KEY, json.dumps(log[:20], ensure_ascii=False))
+    kv.set_default(SETTINGS_LOG_KEY, json.dumps(log[:20], ensure_ascii=False))
     frappe.db.commit()
     return cur
 
@@ -4505,6 +4507,8 @@ def content_send(name):
     doc.add_comment("Comment", f"Souk: content on the Shopify Draft by {_user_name(frappe.session.user)}"
                                + ("" if arabic["ok"] else f" · Arabic NOT on Shopify ({arabic['error'][:120]})")
                                + " · to review.")
+    from logistics_portal.api import souk_write
+    souk_write.forget(name)     # the AI suggestion belonged to this step
     frappe.db.commit()
     return {"ok": True, "arabic": arabic}
 
@@ -4832,7 +4836,7 @@ def publish(name, channels, manual):
         frappe.throw(f"Shopify did not publish it: {str(e)[:300]}")
     cur = settings()
     cur["publishChannels"] = channels
-    frappe.db.set_default(SETTINGS_KEY, json.dumps(cur, ensure_ascii=False))
+    kv.set_default(SETTINGS_KEY, json.dumps(cur, ensure_ascii=False))
     _set_stage(doc, "live", reviewed_by=frappe.session.user, published_at=now_datetime(),
                error="", review_note="")
     names = {p["id"]: p["name"] for p in pubs}

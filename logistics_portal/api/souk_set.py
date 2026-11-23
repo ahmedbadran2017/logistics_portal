@@ -42,6 +42,7 @@ import frappe
 import requests
 from frappe.utils import cint, flt, now_datetime
 
+from logistics_portal.api import kv
 from logistics_portal.api import souk as S
 from logistics_portal.api import souk_ai as A
 from logistics_portal.api import souk_write as W
@@ -118,7 +119,7 @@ def _count(usd, sets=0):
     u = {k: v for k, v in u.items() if k >= str(int(m[:4]) - 1) + m[4:]}
     cur = u.get(m) if isinstance(u.get(m), dict) else {}
     u[m] = {"sets": cint(cur.get("sets")) + sets, "usd": round(flt(cur.get("usd")) + usd, 4)}
-    frappe.db.set_default(USAGE_KEY, json.dumps(u))
+    kv.set_default(USAGE_KEY, json.dumps(u))
 
 
 def estimate(n_ai):

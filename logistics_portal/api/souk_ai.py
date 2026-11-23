@@ -34,6 +34,7 @@ import frappe
 import requests
 from frappe.utils import cint, now_datetime
 
+from logistics_portal.api import kv
 from logistics_portal.api import souk as S
 
 KEY_DT, KEY_NAME, KEY_FIELD = "LP Souk Settings", "ai", "fal_key"
@@ -139,7 +140,7 @@ def _count(n=1):
     m = _month()
     u = {k: v for k, v in u.items() if k >= str(int(m[:4]) - 1) + m[4:]}   # a year of history
     u[m] = cint(u.get(m)) + n
-    frappe.db.set_default(USAGE_KEY, json.dumps(u))
+    kv.set_default(USAGE_KEY, json.dumps(u))
 
 
 def settings_block():

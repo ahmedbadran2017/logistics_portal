@@ -16,9 +16,14 @@ return. The prompt forbids anything not visible or recorded, and every
 guess goes to `verify` instead of the page. Third-party brands and logos are
 never named (the shop sells under its house brands).
 
-Nothing is written onto the card by the job. The result waits in the cache
-(a day); the content screen shows it and the writer applies it to the
+Nothing is written onto the card by the job. The result waits as a
+DefaultValue row (parent STATE_PARENT, one per product) until the card leaves
+the content step; the content screen shows it and the writer applies it to the
 fields, edits, and sends to review as before — review still checks it.
+
+Not Redis (2026-11-23): every frappe.db.set_default on this site clears the
+whole cache, this module's own usage counter included, so a result stored in
+the cache was deleted a moment after the job wrote it. See api/kv.py.
 
 Uses the server's Anthropic key (site_config `anthropic_api_key`, the same
 one the Audit digest uses) and the `anthropic` SDK already on the bench.
@@ -34,11 +39,11 @@ import re
 import frappe
 from frappe.utils import cint, flt, now_datetime
 
+from logistics_portal.api import kv
 from logistics_portal.api import souk as S
 
 USAGE_KEY = "lp_souk_write_usage"
-CACHE_KEY = "souk-write:{}"
-CACHE_TTL = 86400
+STATE_PARENT = "lp_souk_write"      # DefaultValue.parent of the per-product job rows
 JOB_TIMEOUT = 600
 
 # USD per million tokens (input, output), from the Anthropic price list
@@ -120,7 +125,7 @@ def _count(usd):
     u = {k: v for k, v in u.items() if k >= str(int(m[:4]) - 1) + m[4:]}   # a year of history
     cur = u.get(m) if isinstance(u.get(m), dict) else {}
     u[m] = {"pages": cint(cur.get("pages")) + 1, "usd": round(flt(cur.get("usd")) + usd, 4)}
-    frappe.db.set_default(USAGE_KEY, json.dumps(u))
+    kv.set_default(USAGE_KEY, json.dumps(u))
 
 
 def settings_block():
@@ -143,26 +148,39 @@ def _why_not():
     return ""
 
 
-# --- state (cache: the result is a suggestion, not the card's content) --------
+# --- state (a DB row: the result is a suggestion, not the card's content) -----
 
 def _get(name):
-    st = frappe.cache().get_value(CACHE_KEY.format(name))
+    try:
+        st = json.loads(kv.get_row(name, STATE_PARENT) or "{}")
+    except ValueError:
+        st = {}
     return st if isinstance(st, dict) else {}
 
 
 def _put(name, st):
-    frappe.cache().set_value(CACHE_KEY.format(name), st, expires_in_sec=CACHE_TTL)
+    kv.set_default(name, json.dumps(st, ensure_ascii=False), parent=STATE_PARENT)
 
 
-def block(name):
-    """What the content screen shows: can it run, and the last result."""
+def forget(name):
+    """The card left the content step: its suggestion goes with it."""
+    kv.set_default(name, None, parent=STATE_PARENT)
+
+
+def _alive(name):
+    from frappe.utils.background_jobs import is_job_enqueued
+    return is_job_enqueued(f"souk-write-{name}")
+
+
+def block(name, check=True):
+    """What the content screen shows: can it run, and the last result.
+    check=False skips the "is the job still alive" test (start() answers before
+    its job is handed to the queue, which happens on commit)."""
     c = cfg()
     st = _get(name)
-    if st.get("state") in ("queued", "running"):
-        from frappe.utils.background_jobs import is_job_enqueued
-        if not is_job_enqueued(f"souk-write-{name}"):
-            st = {**st, "state": "error", "error": "The writing job stopped. Try again."}
-            _put(name, st)
+    if check and st.get("state") in ("queued", "running") and not _alive(name):
+        # Shown, not stored: poll is a GET (rolled back); start() overwrites it.
+        st = {**st, "state": "error", "error": "The writing job stopped. Try again."}
     return {"state": st.get("state") or "", "error": st.get("error") or "", "at": st.get("at") or "",
             "by": st.get("by") or "", "result": st.get("result"), "why": _why_not(),
             "model": MODELS[c["model"]]["label"], "usd": MODELS[c["model"]]["usd"], "arabic": c["arabic"]}
@@ -188,13 +206,15 @@ def start(name, note=""):
     if not (S._loads(doc.finals_json) or []):
         frappe.throw("The product has no final photos to write from.")
     st = _get(name)
-    if st.get("state") in ("queued", "running"):
+    if st.get("state") in ("queued", "running") and _alive(name):
         return block(name)
     _put(name, {"state": "queued", "at": str(now_datetime())[:16], "by": S._user_name(frappe.session.user)})
+    # After commit: the job must find the "queued" row it is about to update.
     frappe.enqueue("logistics_portal.api.souk_write.run", queue="default", timeout=JOB_TIMEOUT,
-                   job_id=f"souk-write-{name}", deduplicate=True, name=name,
-                   note=str(note or "")[:500])
-    return block(name)
+                   job_id=f"souk-write-{name}", deduplicate=True, enqueue_after_commit=True,
+                   at_front=True,    # a person is waiting; the ads warmers are not
+                   name=name, note=str(note or "")[:500])
+    return block(name, check=False)
 
 
 @frappe.whitelist()
@@ -209,6 +229,7 @@ def run(name, note=""):
     st = _get(name)
     st.update({"state": "running"})
     _put(name, st)
+    frappe.db.commit()      # the screen polls from another connection
     c = cfg()
     usd = 0.0
     try:

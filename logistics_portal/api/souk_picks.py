@@ -33,6 +33,7 @@ from contextlib import contextmanager
 import frappe
 from frappe.utils import add_days, cint, flt, get_datetime, now_datetime
 
+from logistics_portal.api import kv
 from logistics_portal.api import souk as S
 
 DT_POST = "LP Souk Post"
@@ -223,7 +224,7 @@ def save_deciders(users):
             out.append(u)
     c = _conf()
     c["deciders"] = out[:5]
-    frappe.db.set_default(CONF_KEY, json.dumps(c))
+    kv.set_default(CONF_KEY, json.dumps(c))
     frappe.db.commit()
     return _people(c["deciders"])
 
@@ -285,7 +286,7 @@ def _state():
 
 
 def _save_state(st):
-    frappe.db.set_default(STATE_KEY, json.dumps(st))
+    kv.set_default(STATE_KEY, json.dumps(st))
 
 
 def add_source(name, link, phone="", note=""):
@@ -1243,7 +1244,7 @@ def _tag_count(items, usd):
     cur = u.get(m) or {}
     u = {k: v for k, v in u.items() if k >= str(int(m[:4]) - 1) + m[4:]}
     u[m] = {"items": cint(cur.get("items")) + items, "usd": round(flt(cur.get("usd")) + usd, 4)}
-    frappe.db.set_default(TAG_USAGE_KEY, json.dumps(u))
+    kv.set_default(TAG_USAGE_KEY, json.dumps(u))
 
 
 def tag_pending(limit=TAG_RUN):
@@ -1255,7 +1256,7 @@ def tag_pending(limit=TAG_RUN):
         return
     if cint(frappe.db.get_default(TAG_PROMPT_KEY)) < TAG_PROMPT_V:
         frappe.db.sql(f"UPDATE `tab{DT_PICK}` SET kind = NULL, ai_at = NULL WHERE kind = %s", (NOISE,))
-        frappe.db.set_default(TAG_PROMPT_KEY, str(TAG_PROMPT_V))
+        kv.set_default(TAG_PROMPT_KEY, str(TAG_PROMPT_V))
         frappe.db.commit()
     import anthropic
     client = anthropic.Anthropic(api_key=key, timeout=180, max_retries=2)
