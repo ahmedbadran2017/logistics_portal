@@ -84,14 +84,20 @@ def _item(code):
 
 def _sources(item_code):
     """Bins holding the item that stock may leave from, with what is free
-    there (actual − held for orders), richest first."""
-    from logistics_portal.api.stock_moves import _movable_condition
+    there (actual − held for orders), richest first.
+
+    Kits are assembled on the Moroccan floor, so the supply-only warehouses
+    (Yakuplu, in Istanbul) are never a source here, even though Move Stock may
+    pull from them. Being the richest bin, Yakuplu came up first and was taken
+    by default: STE-15959 (2026-11-24) drew 200 components from Istanbul."""
+    from logistics_portal.api.stock_moves import _movable_condition, _SUPPLY_ONLY_LIKE
     from logistics_portal.api.consignment import is_consignment_warehouse
     cond, args = _movable_condition("b.warehouse", as_source=True)
+    far = "".join(" AND b.warehouse NOT LIKE %s" for _ in _SUPPLY_ONLY_LIKE)
     rows = frappe.db.sql(
         f"""SELECT b.warehouse, b.actual_qty, IFNULL(b.reserved_stock, 0) AS held
-            FROM `tabBin` b WHERE b.item_code = %s AND b.actual_qty > 0 AND {cond}
-            ORDER BY b.actual_qty DESC""", tuple([item_code, *args]), as_dict=True)
+            FROM `tabBin` b WHERE b.item_code = %s AND b.actual_qty > 0 AND {cond}{far}
+            ORDER BY b.actual_qty DESC""", tuple([item_code, *args, *_SUPPLY_ONLY_LIKE]), as_dict=True)
     return [{"warehouse": r.warehouse, "qty": int(flt(r.actual_qty)),
              "free": max(int(flt(r.actual_qty) - flt(r.held)), 0)}
             for r in rows if not is_consignment_warehouse(r.warehouse)]
