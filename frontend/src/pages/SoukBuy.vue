@@ -434,7 +434,11 @@
               <span class="text-[13px] font-semibold text-stone-700">{{ t('souk.brandOnSite') }}</span>
               <span class="text-[12px] text-stone-600">{{ t('souk.buy.brandSub') }}</span>
             </div>
-            <span class="shrink-0 text-[13px] font-bold st-ink bg-white ring-1 ring-inset ring-[rgb(var(--st)/.3)] rounded-lg px-2.5 py-[3px] inline-flex items-center gap-1"><Icon name="award" :size="13" />{{ cat.brand }}</span>
+            <label for="sb-brand" class="sr-only">{{ t('souk.brandOnSite') }}</label>
+            <select id="sb-brand" v-model="brandPick"
+                    class="shrink-0 max-w-[50%] h-9 text-[13px] font-bold st-ink bg-white ring-1 ring-inset ring-[rgb(var(--st)/.3)] rounded-lg px-2">
+              <option v-for="b in brandList" :key="b" :value="b">{{ b }}</option>
+            </select>
           </div>
           </div>
         </section>
@@ -876,7 +880,7 @@ const draftOk = ref(true);
 const lastCat = ref(readJSON(CAT_KEY, "") || "");
 
 const blank = () => ({ stall: "", newStall: { name: "", phone: "", sure: false }, title: "", category: lastCat.value || "", colors: [],
-                       barcode: "", barcodeSure: false, pick: "", pickInfo: null });
+                       brand: "", barcode: "", barcodeSure: false, pick: "", pickInfo: null });
 const f = reactive(blank());
 const sizes = ref([]);           // [{id, label, code}] — label is what the customer reads, code goes into the SKU
 const qty = reactive({});
@@ -915,6 +919,17 @@ function sell(c) {
 // server reserves the real one when the basket is saved).
 const skuBase = (i) => (boot.value ? `${boot.value.skuPrefix}${Number(boot.value.skuNext || 0) + i}` : "");
 const cat = computed(() => boot.value?.categories.find((c) => c.key === f.category));
+// The website brand: the category's unless the buyer picked another
+// (f.brand stays "" for "the category's", so changing category follows it).
+const brandList = computed(() => {
+  const names = (boot.value?.brands || []).map((b) => b.name);
+  if (cat.value?.brand && !names.includes(cat.value.brand)) names.unshift(cat.value.brand);
+  return names;
+});
+const brandPick = computed({
+  get: () => f.brand || cat.value?.brand || "",
+  set: (v) => { f.brand = v === cat.value?.brand ? "" : v; },
+});
 const formMode = computed(() => !!(boot.value && !done.value && !sent.value));
 
 // ── payment ──────────────────────────────────────────────────────────────────
@@ -1370,13 +1385,13 @@ function snapProduct() {
                                      qty: l.qty, cost: l.cost, price: l.price, barcode: l.barcode, barcodeSure: l.barcodeSure })),
     units: lines.value.reduce((s, l) => s + l.qty, 0),
     total: lines.value.reduce((s, l) => s + l.qty * l.cost, 0),
-    brand: cat.value?.brand || "",
+    brand: f.brand || cat.value?.brand || "", brandSet: f.brand || "",
   };
 }
 // The editor emptied for the next product; the stall and the payment stay.
 function clearProduct(revoke = false) {
   if (revoke && refPreview.value) URL.revokeObjectURL(refPreview.value);
-  Object.assign(f, { title: "", category: lastCat.value || "", colors: [], barcode: "", barcodeSure: false, pick: "", pickInfo: null });
+  Object.assign(f, { title: "", category: lastCat.value || "", colors: [], brand: "", barcode: "", barcodeSure: false, pick: "", pickInfo: null });
   sizes.value = [];
   editSize.value = null;
   colorsOpen.value = false;
@@ -1387,7 +1402,7 @@ function clearProduct(revoke = false) {
 }
 function loadProduct(p) {
   clearProduct();
-  Object.assign(f, { title: p.title, category: p.category, colors: [...p.colors], barcode: p.barcode || "",
+  Object.assign(f, { title: p.title, category: p.category, colors: [...p.colors], brand: p.brandSet || "", barcode: p.barcode || "",
                      barcodeSure: !!p.barcodeSure, pick: p.pick || "", pickInfo: p.pickInfo || null });
   sizes.value = (p.sizes || []).map((z) => ({ ...z }));
   Object.assign(qty, p.qty || {});
@@ -1586,6 +1601,7 @@ async function submit() {
         trip: pay.method === "cash" && boot.value?.trip ? boot.value.trip.name : null,
         products: prods.map((p) => ({
           title: p.title, category: p.category, colors: p.colors, sizes: p.sizeNames,
+          ...(p.brand ? { brand: p.brand } : {}),
           lines: p.lines.map((l) => ({ color: l.color, size: l.size, ...(l.sizeCode ? { sizeCode: l.sizeCode } : {}),
                                        qty: l.qty, cost: l.cost,
                                        ...(l.barcode ? { barcode: l.barcode, barcodeSure: !!l.barcodeSure } : {}) })),

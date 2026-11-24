@@ -74,7 +74,7 @@ DEFAULT_SETTINGS = {
     "skuStart": 100,
     "custodyAccount": "",          # empty = PO only, accountant books it
     "categories": [
-        {"key": "kitchen", "ar": "المطبخ", "fr": "Cuisine", "productType": "Cuisine", "brand": "JHome"},
+        {"key": "kitchen", "ar": "المطبخ", "fr": "Cuisine", "productType": "Cuisine", "brand": "Jcuisine"},
         {"key": "home", "ar": "الديكور والمنزل", "fr": "Maison & Déco", "productType": "Maison", "brand": "JHome"},
         {"key": "storage", "ar": "التخزين والتنظيم", "fr": "Rangement", "productType": "Rangement", "brand": "JHome"},
         {"key": "women", "ar": "نسائي", "fr": "Femme", "productType": "Femme", "brand": "JWomen"},
@@ -622,6 +622,21 @@ def _house_brands(cats):
     return [{"name": n, "supplier": n in sup} for n in names]
 
 
+def _brand_pick(raw, cat, s=None):
+    """The website brand a card carries: the buyer's choice, else the
+    category's. A known brand typed in another case is the known one (one
+    vendor on Shopify, not "Jcuisine" and "jcuisine"); a new name is allowed —
+    ee makes its Supplier on the first sync, as it did for JMen."""
+    name = re.sub(r"\s+", " ", str(raw or "")).strip()
+    if not name:
+        return (cat or {}).get("brand") or ""
+    if len(name) > 80:
+        frappe.throw("The brand name is too long.")
+    s = s or settings()
+    known = {b["name"].lower(): b["name"] for b in _house_brands(s.get("categories") or [])}
+    return known.get(name.lower(), name)
+
+
 def _settings_usage():
     """How many souk cards use each colour / category: the screen warns
     before one in use is removed (removing only hides it from new buys)."""
@@ -1166,6 +1181,8 @@ def buy_boot():
         "canBuy": _role() in ("manager", "sourcing"),
         "trip": _trip_card(trip) if trip else None,
         "categories": s["categories"], "colors": s["colors"],
+        # The brand defaults to the category's; the buyer may pick another.
+        "brands": _house_brands(s["categories"]),
         "skuPrefix": s["skuPrefix"], "skuMax": SKU_MAX,
         "nextSku": f"{s['skuPrefix']}{_next_sku_number(s['skuPrefix'])}",
         "skuNext": _next_sku_number(s["skuPrefix"]),
@@ -1567,7 +1584,8 @@ def create_buy(payload):
             doc = frappe.get_doc({
                 "doctype": DT_PRODUCT, "sku_base": base, "title": title[:140],
                 "stage": "buying", "stage_at": now_datetime(),
-                "category": cat["key"], "product_type": cat["productType"], "brand": cat["brand"],
+                "category": cat["key"], "product_type": cat["productType"],
+                "brand": _brand_pick(p.get("brand"), cat, s),
                 "supplier": stall, "trip": str(trip.name) if trip else "", "buyer": frappe.session.user,
                 "units": sum(v["qty"] for v in variants), "total_cost": total,
                 "variants_json": json.dumps(variants, ensure_ascii=False),
@@ -2062,7 +2080,8 @@ def _basket_product(p, s, color_map):
             if hit:
                 frappe.throw(f"{title}: the barcode {bc} is already {hit['sku']} · {hit['title']}. "
                              "Buy it again instead, or confirm that the product is different.")
-    return {"title": title, "cat": cat, "colors": colors, "sizes": sizes, "lines": lines,
+    return {"title": title, "cat": cat, "brand": _brand_pick(p.get("brand"), cat, s),
+            "colors": colors, "sizes": sizes, "lines": lines,
             "barcode": _barcode_norm(p.get("barcode")), "refImage": str(p.get("refImage") or "")[:300],
             # Bought from the shopping list (souk_picks): its photo is the
             # reference until the buyer's own arrives, and the pick is done.
@@ -2099,7 +2118,7 @@ def _new_card(prod, i, key, pay, again, stall, trip, s, color_map):
                 "doctype": DT_PRODUCT, "sku_base": base, "title": prod["title"][:140],
                 "stage": "buying", "stage_at": now_datetime(),
                 "category": prod["cat"]["key"], "product_type": prod["cat"]["productType"],
-                "brand": prod["cat"]["brand"], "supplier": stall, "trip": str(trip.name) if trip else "",
+                "brand": prod.get("brand") or prod["cat"]["brand"], "supplier": stall, "trip": str(trip.name) if trip else "",
                 "buyer": frappe.session.user, "units": sum(v["qty"] for v in variants), "total_cost": total,
                 "variants_json": json.dumps(variants, ensure_ascii=False),
                 **({"ref_image": ref} if ref else {}),
@@ -2594,6 +2613,8 @@ def product(name):
         "canReceive": _can_receive(),
         "canPhoto": _can_photo(), "canStudio": _can_studio(),
         "canContent": _can_content(), "canReview": _can_review(),
+        "canBrand": _can_brand(doc),
+        "brands": _house_brands(settings()["categories"]) if _can_brand(doc) else [],
         "content": _loads(doc.content_json) or {}, "contentBy": _user_name(doc.content_by),
         "rejects": cint(doc.reject_count), "publishedBy": _user_name(doc.reviewed_by),
         "publishedAt": str(doc.published_at or "")[:16], "shopifyAdmin": _shopify_admin_url(doc.shopify_product_id),
@@ -4466,6 +4487,88 @@ def _push_content(doc, c, variants):
         # The French page stands on its own; review sees the Arabic gap.
         arabic = {"ok": False, "error": str(e)[:300]}
     return handle, arabic
+
+
+_PRODUCT_BRAND = """
+query($id: ID!) { product(id: $id) { id vendor tags seo { title description } } }
+"""
+
+
+def _can_brand(doc):
+    """Who may change a card's website brand: the buyers and the content team
+    while the page is not public; once live, the manager only."""
+    if doc.stage == "dropped":
+        return False
+    if doc.stage == "live":
+        return _role() == "manager"
+    return _role() in ("manager", "sourcing", "content", "marketing")
+
+
+def _swap_brand_tags(tags, old, new):
+    out = []
+    for t in tags or []:
+        t = new if (old and t == old) else t
+        if t and t not in out:
+            out.append(t)
+    return out
+
+
+def _swap_brand_title(title, old, new):
+    title = title or ""
+    if old and title.endswith(f" | {old}"):
+        return (title[: -len(old)] + new)[:META_TITLE_MAX]
+    return title
+
+
+@frappe.whitelist(methods=["POST"])
+def set_brand(name, brand):
+    """Change a card's website brand = its Shopify vendor (ee then writes it
+    into Item.default_supplier). The Draft or page follows at once: vendor,
+    the brand tag and the "… | Brand" SEO title; the card's saved content
+    too, so a later send does not put the old brand back."""
+    doc = _lock_product(name)
+    if not _can_brand(doc):
+        frappe.throw("Not authorized to change this product's brand." if doc.stage != "dropped"
+                     else "This product was dropped.", frappe.PermissionError)
+    s = settings()
+    cat = next((c for c in s["categories"] if c["key"] == doc.category), None) or {}
+    new = _brand_pick(brand, cat, s)
+    if not new:
+        frappe.throw("Choose a brand.")
+    old = doc.brand or ""
+    if new == old:
+        return {"ok": True, "brand": new, "shopify": False}
+    c = _loads(doc.content_json) or {}
+    if c:
+        c["tags"] = _swap_brand_tags(c.get("tags"), old, new)
+        if c.get("metaTitle"):
+            c["metaTitle"] = _swap_brand_title(c["metaTitle"], old, new)
+    shop = False
+    if doc.shopify_product_id:
+        pid = f"gid://shopify/Product/{doc.shopify_product_id}"
+        try:
+            cur = ((_gql()(_PRODUCT_BRAND, {"id": pid}).get("data") or {}).get("product")) or {}
+            if not cur:
+                raise Exception("product not found on Shopify")
+            upd = {"id": pid, "vendor": new}
+            tags = _swap_brand_tags(cur.get("tags"), old, new)
+            if tags != (cur.get("tags") or []):
+                upd["tags"] = tags
+            seo = cur.get("seo") or {}
+            st = _swap_brand_title(seo.get("title"), old, new)
+            if st != (seo.get("title") or ""):
+                upd["seo"] = {"title": st, **({"description": seo["description"]} if seo.get("description") else {})}
+            _gql_errors(_gql()(_PRODUCT_UPDATE, {"product": upd}), "productUpdate")
+            shop = True
+        except Exception as e:
+            frappe.db.rollback()
+            frappe.log_error(frappe.get_traceback()[:3000], f"souk.set_brand {name}")
+            frappe.throw(f"Shopify did not take the brand: {str(e)[:300]}")
+    doc.db_set({"brand": new, **({"content_json": json.dumps(c, ensure_ascii=False)} if c else {})})
+    doc.add_comment("Comment", f"Souk: brand {old or '—'} → {new} by {_user_name(frappe.session.user)}"
+                               + (" · Shopify vendor changed." if shop else "."))
+    frappe.db.commit()
+    return {"ok": True, "brand": new, "shopify": shop}
 
 
 @frappe.whitelist(methods=["POST"])

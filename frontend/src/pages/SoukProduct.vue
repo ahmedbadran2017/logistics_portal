@@ -31,11 +31,26 @@
             <div class="flex flex-wrap gap-1.5 text-[12px]">
               <span class="chip-meta mono" dir="ltr"><Icon name="tag" :size="12" />{{ d.name }}</span>
               <span v-if="d.stall" class="chip-meta"><Icon name="building" :size="12" />{{ d.stall }}</span>
-              <span v-if="d.brand" class="chip-meta"><Icon name="award" :size="12" />{{ d.brand }}</span>
+              <button v-if="d.brand && d.canBrand" type="button" class="chip-meta hover:ring-stone-400" :title="t('souk.pd.brandChange')"
+                      :aria-expanded="brandEd.open" @click="openBrand"><Icon name="award" :size="12" />{{ d.brand }}<Icon name="pen-line" :size="11" class="opacity-60" /></button>
+              <span v-else-if="d.brand" class="chip-meta"><Icon name="award" :size="12" />{{ d.brand }}</span>
               <span v-if="d.trip" class="chip-meta"><Icon name="wallet" :size="12" />{{ t('souk.tripNo').replace('{n}', d.trip) }}</span>
             </div>
           </div>
         </div>
+
+        <!-- website brand = Shopify vendor -->
+        <form v-if="brandEd.open" class="flex flex-col gap-2 bg-white/80 rounded-xl px-3 py-2.5 ring-1 ring-inset ring-[rgb(var(--st)/.18)]" @submit.prevent="saveBrand">
+          <label for="pd-brand" class="text-[13px] font-semibold text-stone-700">{{ t('souk.pd.brandChange') }}</label>
+          <div class="flex gap-2">
+            <select id="pd-brand" v-model="brandEd.value" class="flex-1 min-w-0 h-10 rounded-lg ring-1 ring-inset ring-stone-300 bg-white px-2.5 text-[14px]">
+              <option v-for="b in (d.brands || [])" :key="b.name" :value="b.name">{{ b.name }}</option>
+            </select>
+            <button type="submit" class="btn-primary h-10 px-4 text-[14px]" :disabled="busy || !brandEd.value || brandEd.value === d.brand">{{ t('souk.pd.brandSave') }}</button>
+          </div>
+          <span v-if="d.shopifyId" class="text-[12px] text-stone-600">{{ t('souk.pd.brandShopify') }}</span>
+          <span v-if="d.stage === 'live'" class="text-[12px] font-semibold text-amber-700">{{ t('souk.pd.brandLive') }}</span>
+        </form>
 
         <!-- in-stage clock -->
         <div v-if="clock" class="flex items-center gap-2.5 bg-white/70 rounded-xl px-3 py-2 ring-1 ring-inset ring-[rgb(var(--st)/.18)]">
@@ -663,6 +678,25 @@ async function load() {
   }
 }
 watch(() => route.params.name, (n, o) => { if (n && n !== o) load(); });
+
+// --- brand (the Shopify vendor) ------------------------------------------------
+const brandEd = ref({ open: false, value: "" });
+function openBrand() {
+  brandEd.value = { open: !brandEd.value.open, value: d.value?.brand || "" };
+}
+async function saveBrand() {
+  busy.value = true;
+  try {
+    const r = await apiPost("souk.set_brand", { name: d.value.name, brand: brandEd.value.value });
+    brandEd.value.open = false;
+    success(fill(t("souk.pd.brandDone"), { b: r?.brand || brandEd.value.value }));
+    await load();
+  } catch (e) {
+    warn(t("souk.failed"), String(e.message || e));
+  } finally {
+    busy.value = false;
+  }
+}
 
 async function finish() {
   busy.value = true;
