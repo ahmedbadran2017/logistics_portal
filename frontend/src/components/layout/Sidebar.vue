@@ -391,6 +391,7 @@ const ROLE_ICON = {
   cs: "message-circle",
   tracking: "map-pin",
   sourcing: "shopping-bag",
+  scout: "map-pin",
   accountant: "wallet",
   marketing: "image",
   content: "file-text",

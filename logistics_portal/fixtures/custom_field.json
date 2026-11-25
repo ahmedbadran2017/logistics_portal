@@ -69,7 +69,7 @@
   "fieldname": "custom_logistics_role",
   "label": "Logistics Role",
   "fieldtype": "Select",
-  "options": "\nmanager\ndispatcher\npicker\npacker\nreturns\nconfirmation\ncs\ntracking\nsourcing\naccountant\nmarketing\ncontent\nnone",
+  "options": "\nmanager\ndispatcher\npicker\npacker\nreturns\nconfirmation\ncs\ntracking\nsourcing\naccountant\nmarketing\ncontent\nscout\nnone",
   "insert_after": "role_profile_name",
   "description": "Portal role. Overrides the emergent-role heuristic in logistics_portal.api.auth."
  },

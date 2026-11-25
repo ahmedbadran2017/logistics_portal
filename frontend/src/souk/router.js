@@ -30,6 +30,9 @@ const routes = [
         meta: { roles: ["manager", "sourcing", "accountant"] } },
       // Selection: the wholesalers' Telegram posts → interest → the
       // decider's buy / no → the shopping list (souk_picks.py).
+      // The market round: the scout registers each shop (souk_scout.py).
+      { path: "scout/:visit?", name: "SoukScout", component: () => import("@/pages/SoukScout.vue"),
+        meta: { roles: ["manager", "sourcing", "scout"] } },
       { path: "selection/:name?", name: "SoukPicks", component: () => import("@/pages/SoukPicks.vue") },
       { path: "p/:name", name: "SoukProduct", component: () => import("@/pages/SoukProduct.vue") },
       { path: "receive/:po?", name: "SoukReceive", component: () => import("@/pages/SoukReceive.vue") },

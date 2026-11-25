@@ -10,6 +10,9 @@
 //   transport set_transport (+ the taxi receipt photo)
 //   voucher   voucher photo → set_voucher
 //   photo     one upload_photo (a receipt added later from the custody screen)
+//   scout     souk_scout.save_visit → the storefront → the business card
+//             (one shop of the market round; the card is read on the server
+//             when it was not read at the shop)
 //
 // Every job carries a clientKey (a uuid made when the buyer pressed the
 // button). The server keeps it on the product / PO and answers a retry with
@@ -200,6 +203,21 @@ const RUN = {
   },
   async photo(job) {
     return postPhoto("upload_photo", { kind: job.photoKind, target: job.target }, job.blob);
+  },
+  async scout(job) {
+    if (!(job.state || {}).visit) {
+      const r = await apiPost("souk_scout.save_visit", { payload: JSON.stringify(job.payload) });
+      job.state = { ...(job.state || {}), visit: r.visit, result: r };
+      await save(job);
+    }
+    for (const kind of ["shop", "card"]) {
+      const blob = job[kind];
+      if (!blob || job.state[kind]) continue;
+      await postPhoto("souk_scout.visit_photo", { visit: job.state.visit, kind }, blob);
+      job.state = { ...job.state, [kind]: 1 };
+      await save(job);
+    }
+    return job.state.result;
   },
 };
 

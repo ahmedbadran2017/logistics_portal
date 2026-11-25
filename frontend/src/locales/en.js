@@ -45,6 +45,7 @@ export default {
     accountant: "Accountant",
     marketing: "Marketing",
     content: "Content writer",
+    scout: "Market scout",
   },
   nav: {
     soukReceive: "Souk receiving",
@@ -56,6 +57,7 @@ export default {
     soukBoard: "Launch board",
     soukBuy: "Buy",
     soukPicks: "Selection",
+    soukScout: "Market round",
     soukStalls: "Stalls",
     soukCustody: "Custody",
     soukPortal: "Souk sourcing portal",

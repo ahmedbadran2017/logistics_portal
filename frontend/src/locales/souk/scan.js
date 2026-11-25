@@ -5,6 +5,9 @@ export default {
     scan: {
       btn: "Scan the barcode",
       title: "Scan the box's barcode",
+      qrTitle: "Scan the QR code",
+      qrAim: "Point the camera at the shop's Telegram QR code.",
+      qrNoCamera: "This phone cannot scan with the camera. Paste or type the link instead.",
       aim: "Point the camera at the barcode printed on the box.",
       noCamera: "This phone cannot scan with the camera. Type the digits printed under the barcode.",
       denied: "The camera was not allowed. Type the digits printed under the barcode instead.",
@@ -27,6 +30,9 @@ export default {
     scan: {
       btn: "Scanner le code-barres",
       title: "Scanner le code-barres de la boîte",
+      qrTitle: "Scanner le QR code",
+      qrAim: "Pointez la caméra vers le QR code Telegram de la boutique.",
+      qrNoCamera: "Ce téléphone ne peut pas scanner avec la caméra. Collez ou saisissez plutôt le lien.",
       aim: "Pointez la caméra vers le code-barres imprimé sur la boîte.",
       noCamera: "Ce téléphone ne peut pas scanner avec la caméra. Saisissez les chiffres imprimés sous le code-barres.",
       denied: "La caméra n'a pas été autorisée. Saisissez plutôt les chiffres sous le code-barres.",
@@ -49,6 +55,9 @@ export default {
     scan: {
       btn: "مسح الباركود",
       title: "مسح باركود العلبة",
+      qrTitle: "امسح رمز QR",
+      qrAim: "وجّه الكاميرا نحو رمز QR الخاص بقناة المحل على تيليجرام.",
+      qrNoCamera: "لا يمكن المسح بكاميرا هذا الهاتف. الصق الرابط أو اكتبه بدلًا من ذلك.",
       aim: "وجِّه الكاميرا نحو الباركود المطبوع على العلبة.",
       noCamera: "لا يدعم هذا الهاتف المسح بالكاميرا. اكتب الأرقام المطبوعة أسفل الباركود.",
       denied: "لم يُسمح باستخدام الكاميرا. اكتب الأرقام المطبوعة أسفل الباركود بدلًا من ذلك.",

@@ -34,13 +34,16 @@ export async function shrink(file, max = 1600, quality = 0.8) {
   }
 }
 
-/** POST one photo with form fields to a souk method; returns its message. */
+/** POST one photo with form fields to a souk method; returns its message.
+ *  `method` is a souk.py name ("upload_photo") or a module path
+ *  ("souk_scout.visit_photo"). */
 export async function postPhoto(method, fields, file, { max = 1600, quality = 0.8 } = {}) {
   const small = await shrink(file, max, quality);
   const fd = new FormData();
   for (const [k, v] of Object.entries(fields || {})) fd.append(k, String(v ?? ""));
   fd.append("file", small, small.name || "photo.jpg");
-  const res = await fetch("/api/method/logistics_portal.api.souk." + method, {
+  const path = method.includes(".") ? method : "souk." + method;
+  const res = await fetch("/api/method/logistics_portal.api." + path, {
     method: "POST",
     credentials: "include",
     headers: { "X-Frappe-CSRF-Token": csrf(), "X-Requested-With": "XMLHttpRequest" },

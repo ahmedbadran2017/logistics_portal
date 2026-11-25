@@ -153,6 +153,12 @@ def ensure_doctype():
             souk_picks.ensure()
         except Exception:
             frappe.log_error(frappe.get_traceback()[:2000], "souk_picks.ensure")
+        try:
+            # The market round (souk_scout): its own visit log.
+            from logistics_portal.api import souk_scout
+            souk_scout.ensure()
+        except Exception:
+            frappe.log_error(frappe.get_traceback()[:2000], "souk_scout.ensure")
         if not frappe.db.exists("Supplier Group", SUPPLIER_GROUP):
             frappe.get_doc({"doctype": "Supplier Group", "supplier_group_name": SUPPLIER_GROUP,
                             "parent_supplier_group": "All Supplier Groups"}).insert(ignore_permissions=True)

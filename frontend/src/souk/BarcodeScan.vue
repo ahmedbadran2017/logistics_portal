@@ -6,9 +6,9 @@
        typed digits stay at the foot for a refused camera. Emits `code` once
        and closes. -->
   <Teleport to="body">
-    <div v-if="open" class="fixed inset-0 z-[80] bg-stone-950 flex flex-col text-white" role="dialog" aria-modal="true" :aria-label="t('souk.scan.title')">
+    <div v-if="open" class="fixed inset-0 z-[80] bg-stone-950 flex flex-col text-white" role="dialog" aria-modal="true" :aria-label="t(qr ? 'souk.scan.qrTitle' : 'souk.scan.title')">
       <div class="flex items-center gap-2 px-4 pt-[max(12px,env(safe-area-inset-top))] pb-3">
-        <h2 class="flex-1 text-[16px] font-bold">{{ t('souk.scan.title') }}</h2>
+        <h2 class="flex-1 text-[16px] font-bold">{{ t(qr ? 'souk.scan.qrTitle' : 'souk.scan.title') }}</h2>
         <button type="button" class="w-11 h-11 rounded-full bg-white/10 inline-flex items-center justify-center" :aria-label="t('souk.scan.close')" @click="close">
           <Icon name="x" :size="20" />
         </button>
@@ -18,15 +18,18 @@
         <div v-if="live" class="relative w-full max-w-[520px] aspect-[3/4] sm:aspect-video rounded-2xl overflow-hidden bg-black">
           <video ref="videoEl" class="absolute inset-0 w-full h-full object-cover" playsinline muted autoplay />
           <!-- the aiming frame: a wide band, as barcodes are -->
-          <div class="absolute inset-x-[8%] top-1/2 -translate-y-1/2 h-[30%] rounded-xl ring-2 ring-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,.35)]" />
-          <div class="absolute inset-x-[10%] top-1/2 h-0.5 bg-rose-500/80 animate-pulse" />
+          <div v-if="qr" class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[62%] aspect-square rounded-2xl ring-2 ring-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,.35)]" />
+          <template v-else>
+            <div class="absolute inset-x-[8%] top-1/2 -translate-y-1/2 h-[30%] rounded-xl ring-2 ring-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,.35)]" />
+            <div class="absolute inset-x-[10%] top-1/2 h-0.5 bg-rose-500/80 animate-pulse" />
+          </template>
         </div>
         <p class="text-[14px] text-white/85 text-center max-w-[420px] leading-normal">
-          {{ live ? t('souk.scan.aim') : problem === 'denied' ? t('souk.scan.denied') : t('souk.scan.noCamera') }}
+          {{ live ? t(qr ? 'souk.scan.qrAim' : 'souk.scan.aim') : qr ? t('souk.scan.qrNoCamera') : problem === 'denied' ? t('souk.scan.denied') : t('souk.scan.noCamera') }}
         </p>
       </div>
 
-      <form class="px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 flex gap-2 max-w-[560px] w-full mx-auto" @submit.prevent="typed">
+      <form v-if="!qr" class="px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 flex gap-2 max-w-[560px] w-full mx-auto" @submit.prevent="typed">
         <label class="sr-only" for="bs-digits">{{ t('souk.scan.typePh') }}</label>
         <input id="bs-digits" ref="inputEl" v-model="digits" dir="ltr" inputmode="numeric" autocomplete="off" :placeholder="t('souk.scan.typePh')"
                class="flex-1 min-w-0 h-12 rounded-xl bg-white text-stone-900 px-3 text-[17px] tracking-wider" />
@@ -42,7 +45,9 @@ import { ref, watch, nextTick, onBeforeUnmount } from "vue";
 import Icon from "@/components/ui/Icon.vue";
 import { useI18n } from "@/composables/useI18n";
 
-const props = defineProps({ open: Boolean });
+// qr: read a QR code instead (the shop's Telegram link on the market round);
+// the result is the raw text, a link included.
+const props = defineProps({ open: Boolean, qr: Boolean });
 const emit = defineEmits(["update:open", "code"]);
 const { t } = useI18n();
 
@@ -55,7 +60,8 @@ let stream = null;
 let timer = null;
 let busy = false;
 
-const WANT = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "itf"];
+const BARS = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "itf"];
+const want = () => (props.qr ? ["qr_code"] : BARS);
 const clean = (s) => String(s || "").replace(/\s+/g, "");
 
 function stop() {
@@ -86,7 +92,7 @@ async function detectorClass() {
   if (BD) {
     try {
       const have = await BD.getSupportedFormats();
-      if (WANT.some((f) => have.includes(f))) return { BD, have };
+      if (want().some((f) => have.includes(f))) return { BD, have };
     } catch (_) { /* fall through to zxing */ }
   }
   if (!zx) {
@@ -96,7 +102,7 @@ async function detectorClass() {
     });
     zx = m.BarcodeDetector;
   }
-  return { BD: zx, have: WANT };
+  return { BD: zx, have: want() };
 }
 
 async function start() {
@@ -112,7 +118,7 @@ async function start() {
   try {
     const d = await detectorClass();
     BD = d.BD;
-    formats = WANT.filter((f) => d.have.includes(f));
+    formats = want().filter((f) => d.have.includes(f));
   } catch (_) {
     problem.value = "unsupported";
     return;

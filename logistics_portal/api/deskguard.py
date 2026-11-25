@@ -102,7 +102,7 @@ def block_desk_for_portal_team():
         # The souk buyer's portal is /souk (2026-11-17); the other three souk
         # roles never get here (exempt above).
         _bounce("/confirmation" if role in ("confirmation", "cs", "tracking")
-                else "/souk" if role == "sourcing"
+                else "/souk" if role in ("sourcing", "scout")
                 else _PORTAL_HOME)
     except HTTPException:
         # The bounce itself — must escape, or the fail-open below would swallow

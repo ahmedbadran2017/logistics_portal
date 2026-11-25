@@ -394,7 +394,22 @@ export const ROLE_CONFIG = {
           { to: "SoukBuy", label: "nav.soukBuy", icon: "shopping-bag" },
           { to: "SoukPicks", label: "nav.soukPicks", icon: "sparkles" },
           { to: "SoukStalls", label: "nav.soukStalls", icon: "store" },
+          { to: "SoukScout", label: "nav.soukScout", icon: "map-pin" },
           { to: "SoukBoard", label: "nav.soukBoard", icon: "kanban" },
+        ],
+      },
+    ],
+  },
+  scout: {
+    // Walks the wholesale markets and registers each shop: storefront, GPS,
+    // business card, Telegram (souk_scout.py, 2026-11-25). This screen only.
+    home: "SoukScout",
+    mobile: true,
+    nav: [
+      {
+        section: "nav.souk",
+        items: [
+          { to: "SoukScout", label: "nav.soukScout", icon: "map-pin" },
         ],
       },
     ],
@@ -586,6 +601,7 @@ const SOUK_MANAGER = {
         { to: "SoukTrip", label: "nav.soukCustody", icon: "wallet" },
         { to: "SoukBuy", label: "nav.soukBuy", icon: "shopping-bag" },
         { to: "SoukStalls", label: "nav.soukStalls", icon: "store" },
+        { to: "SoukScout", label: "nav.soukScout", icon: "map-pin" },
       ],
     },
     {

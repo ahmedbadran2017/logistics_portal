@@ -45,6 +45,7 @@ export default {
     accountant: "Comptable",
     marketing: "Marketing",
     content: "Rédaction",
+    scout: "Prospecteur souk",
   },
   nav: {
     soukReceive: "Réception souk",
@@ -56,6 +57,7 @@ export default {
     soukBoard: "Tableau de lancement",
     soukBuy: "Acheter",
     soukPicks: "Sélection",
+    soukScout: "Tournée du souk",
     soukStalls: "Boutiques",
     soukCustody: "Caisse",
     soukPortal: "Portail sourcing souk",

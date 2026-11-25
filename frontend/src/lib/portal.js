@@ -43,7 +43,8 @@ export function portalOf(role) {
   // The floor's own souk work (receiving the bags, the in-house photos) stays
   // on /logistics for dispatcher / packer / returns — only these four live
   // on the souk portal.
-  if (role === "sourcing" || role === "accountant" || role === "marketing" || role === "content") return "souk";
+  if (role === "sourcing" || role === "accountant" || role === "marketing" || role === "content"
+      || role === "scout") return "souk";
   if (role === "manager") return "both";
   return "floor";
 }

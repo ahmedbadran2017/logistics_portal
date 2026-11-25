@@ -45,6 +45,7 @@ export default {
     accountant: "المحاسب",
     marketing: "الماركتينج",
     content: "كاتب المحتوى",
+    scout: "مستكشف الأسواق",
   },
   nav: {
     soukReceive: "استلام السوق",
@@ -56,6 +57,7 @@ export default {
     soukBoard: "لوحة الإطلاق",
     soukBuy: "شراء",
     soukPicks: "اختيار المنتجات",
+    soukScout: "جولة السوق",
     soukStalls: "المحلات",
     soukCustody: "العهدة",
     soukPortal: "بوابة مشتريات السوق",
