@@ -244,7 +244,7 @@ CARD_SCHEMA = {
 
 def _card_reader_ok():
     from logistics_portal.api import souk_write
-    return bool(souk_write.api_key()) and souk_write._sdk_ok()
+    return bool(souk_write._key()) and souk_write._sdk_ok()
 
 
 def _read_card_bytes(content):
@@ -258,7 +258,7 @@ def _read_card_bytes(content):
     im.thumbnail((1568, 1568))
     buf = io.BytesIO()
     im.save(buf, "JPEG", quality=88)
-    client = anthropic.Anthropic(api_key=souk_write.api_key(), timeout=60, max_retries=1)
+    client = anthropic.Anthropic(api_key=souk_write._key(), timeout=60, max_retries=1)
     resp = client.messages.create(
         model=CARD_MODEL, max_tokens=1500, system=CARD_SYSTEM,
         output_config={"effort": "low", "format": {"type": "json_schema", "schema": CARD_SCHEMA}},
