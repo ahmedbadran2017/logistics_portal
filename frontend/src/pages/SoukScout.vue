@@ -111,10 +111,17 @@
           <div class="min-w-0 flex-1">
             <p class="text-[14px] font-bold text-stone-900">{{ t('souk.scout.gps.' + fixState) }}</p>
             <p v-if="fix" class="text-[12px] text-stone-600 tabular-nums">{{ tt('souk.scout.gps.acc', { n: Math.round(fix.acc) }) }}</p>
-            <p v-else-if="fixState === 'bad'" class="text-[12px] text-stone-600">{{ t('souk.scout.gps.badHint') }}</p>
+            <p v-else-if="fixState === 'bad' && gpsWhy !== 'denied'" class="text-[12px] text-stone-600">{{ t('souk.scout.gps.badHint') }}</p>
           </div>
+          <button v-if="fixState === 'bad'" type="button" class="btn btn-line !min-h-0 !py-1.5 !px-3 text-[13px] shrink-0" @click="retryGps">{{ t('souk.scout.gps.retry') }}</button>
           <a v-if="fix" :href="`https://maps.google.com/?q=${fix.lat},${fix.lng}`" target="_blank" rel="noopener"
              class="text-[12px] font-semibold st-ink underline">{{ t('souk.scout.gps.map') }}</a>
+        </div>
+        <!-- Blocked: say exactly where the switch is on this phone. -->
+        <div v-if="fixState === 'bad' && gpsWhy === 'denied'" class="gps-help">
+          <p class="font-bold text-[13px] text-stone-900">{{ t('souk.scout.gps.blocked') }}</p>
+          <p class="text-[13px] text-stone-700 leading-relaxed">{{ t('souk.scout.gps.how.' + gpsHow) }}</p>
+          <p class="text-[12px] text-stone-500">{{ t('souk.scout.gps.thenRetry') }}</p>
         </div>
 
         <div class="flex flex-col gap-2 mt-2">
@@ -354,6 +361,7 @@ const manual = ref(false);
 const reading = ref(false);
 const fix = ref(null);           // {lat, lng, acc}
 const fixState = ref("wait");    // wait | ok | bad
+const gpsWhy = ref("");          // "" | denied | timeout
 const hasDraft = ref(false);
 
 function saveDraft() {
@@ -398,7 +406,7 @@ function reset() {
   Object.assign(draft, blank());
   card.value = null; cardWhy.value = ""; cardUrl.value = ""; cardServer.value = "";
   shopUrl.value = ""; shopBlob = null; cardBlob = null; manual.value = false;
-  fix.value = null; fixState.value = "wait"; tg.value = null; tgKey = "";
+  fix.value = null; fixState.value = "wait"; gpsWhy.value = ""; tg.value = null; tgKey = "";
 }
 
 function startShop() {
@@ -432,20 +440,53 @@ watch(step, (s) => { saveDraft(); if (s === 1) startGps(); else if (fix.value ||
 // ── GPS: watched while the storefront is being shot; the best fix is kept ────
 let watchId = null;
 let shotAt = 0;
+let gpsDog = null;
+function gpsFailed(why) {
+  if (fix.value) return;
+  fixState.value = "bad";
+  gpsWhy.value = why;
+}
 function startGps() {
-  if (watchId != null || !navigator.geolocation) { if (!navigator.geolocation) fixState.value = "bad"; return; }
+  if (watchId != null) return;
+  if (!navigator.geolocation) { gpsFailed("timeout"); return; }
+  fixState.value = fix.value ? "ok" : "wait";
+  // A browser the phone has blocked often answers nothing at all (iPhone
+  // Chrome set to "Never" stayed on "Finding…" forever): ask the permission
+  // state, and give up after 25 s so the page says what to do.
+  try {
+    navigator.permissions && navigator.permissions.query({ name: "geolocation" })
+      .then((p) => { if (p.state === "denied") gpsFailed("denied"); }).catch(() => {});
+  } catch (e) { /* older Safari */ }
+  clearTimeout(gpsDog);
+  gpsDog = setTimeout(() => { if (!fix.value && fixState.value === "wait") gpsFailed("timeout"); }, 25000);
   watchId = navigator.geolocation.watchPosition((pos) => {
     const f = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy || 0 };
     // Before the photo: keep the most precise reading. After it the fix
     // belongs to the shot — only a first one is still taken.
     if (shotAt ? !fix.value : (!fix.value || f.acc <= fix.value.acc)) fix.value = f;
-    fixState.value = "ok";
-  }, () => { if (!fix.value) fixState.value = "bad"; }, { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 });
+    fixState.value = "ok"; gpsWhy.value = "";
+    clearTimeout(gpsDog);
+  }, (err) => gpsFailed(err && err.code === 1 ? "denied" : "timeout"),
+  { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 });
 }
 function stopGps() {
   if (watchId != null && navigator.geolocation) navigator.geolocation.clearWatch(watchId);
   watchId = null;
+  clearTimeout(gpsDog);
 }
+function retryGps() { stopGps(); gpsWhy.value = ""; startGps(); }
+// The camera sends the page to the background, which can freeze the watch:
+// on coming back to the storefront step with no fix, start it again.
+function onVisible() {
+  if (document.visibilityState === "visible" && step.value === 1 && !fix.value) retryGps();
+}
+// Where the location switch lives on this phone and browser.
+const gpsHow = (() => {
+  const ua = navigator.userAgent || "";
+  const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  if (ios) return /CriOS/.test(ua) ? "iosChrome" : /FxiOS|EdgiOS|OPiOS/.test(ua) ? "iosApp" : "iosSafari";
+  return /Android/.test(ua) ? "android" : "other";
+})();
 
 async function onShop(e) {
   const f = e.target.files && e.target.files[0];
@@ -656,11 +697,12 @@ async function load() {
 
 let offDone = null;
 onMounted(() => {
+  document.addEventListener("visibilitychange", onVisible);
   hasDraft.value = !!loadDraft();
   load();
   offDone = onDone((j) => { if (j.kind === "scout") load(); });
 });
-onBeforeUnmount(() => { stopGps(); offDone && offDone(); clearTimeout(tgTimer); });
+onBeforeUnmount(() => { document.removeEventListener("visibilitychange", onVisible); stopGps(); offDone && offDone(); clearTimeout(tgTimer); });
 watch(step, (s) => { if (s === 0) hasDraft.value = !!loadDraft(); });
 </script>
 
@@ -709,6 +751,8 @@ watch(step, (s) => { if (s === 0) hasDraft.value = !!loadDraft(); });
 .shot-dash { min-height: 190px; background: transparent; color: rgb(87 83 78); box-shadow: inset 0 0 0 2px rgb(var(--st) / .35); border-radius: 18px; }
 .gps { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; box-shadow: inset 0 0 0 1px rgb(214 211 209); background: #fff; }
 .gps.ok .sk-ico { background: rgb(5 150 105 / .12); color: rgb(6 95 70); }
+.gps-help { margin-top: 8px; padding: 10px 12px; border-radius: 14px; background: rgb(254 243 199 / .6); box-shadow: inset 0 0 0 1px rgb(253 230 138); display: flex; flex-direction: column; gap: 4px; }
+:global(html[data-theme="dark"] .st-buying .gps-help) { background: rgb(120 53 15 / .25); box-shadow: inset 0 0 0 1px rgb(146 64 14); }
 .gps.bad .sk-ico { background: rgb(217 119 6 / .14); color: rgb(146 64 14); }
 :global(html[data-theme="dark"] .st-buying .gps) { background: #1c1917; box-shadow: inset 0 0 0 1px rgb(68 64 60); }
 
