@@ -498,7 +498,46 @@ def _sells(v):
     return _ST()._clean_sells(v)
 
 
-def _create_shop(p, tg_state, tg_link):
+def _about(p, card):
+    """The shop's description lines: the person's note, what the card says
+    the shop sells, and its Instagram (the selection reads these; nothing
+    else on the Supplier holds them)."""
+    lines = [_text(p.get("note"), 300)]
+    sells = _text((card or {}).get("sells"), 160)
+    if sells:
+        lines.append("Sells: " + sells)
+    ig = _text(p.get("instagram") or (card or {}).get("instagram"), 80).lstrip("@")
+    if ig:
+        lines.append("Instagram: @" + ig)
+    return [x for x in lines if x]
+
+
+def _add_about(sup, lines):
+    """Append the lines the description does not hold yet (never replaces)."""
+    if not lines or not S._has_col("Supplier", "custom_business_description"):
+        return
+    had = frappe.db.get_value("Supplier", sup, "custom_business_description") or ""
+    new = [x for x in lines if x not in had]
+    if new:
+        frappe.db.set_value("Supplier", sup, "custom_business_description",
+                            "\n".join(([had] if had else []) + new)[:500], update_modified=False)
+
+
+def _card_extra_phones(card, have):
+    """The card's numbers past the two that fill the phone fields (the person
+    may have corrected those): every printed number reaches the Contact."""
+    ST = _ST()
+    keys = {ST._phone_key(x) for x in have if x}
+    out = []
+    for ph in list((card or {}).get("phones") or [])[2:]:
+        k = ST._phone_key(ph)
+        if k and k not in keys:
+            keys.add(k)
+            out.append(ph)
+    return out
+
+
+def _create_shop(p, tg_state, tg_link, card=None):
     ST, P = _ST(), _P()
     label = _free_name(ST._clean_name(p.get("name"))[:140])
     sup = frappe.get_doc({
@@ -508,17 +547,19 @@ def _create_shop(p, tg_state, tg_link):
         "supplier_details": ST.PLACE_PREFIX + (_place_text(p.get("market"), p.get("place")) or "Derb Omar"),
     }).insert(ignore_permissions=True)
     rest = {"sells": _sells(p.get("sells"))}
-    if _text(p.get("note"), 500):
-        rest["note"] = _text(p.get("note"), 500)
+    about = _about(p, card)
+    if about:
+        rest["note"] = "\n".join(about)[:500]
     ST._apply(sup.name, rest, label)
     if p.get("phone"):
         ST._set_phone(sup.name, label, p.get("phone"))
-    if p.get("phone2"):
-        _add_phone(sup.name, label, p.get("phone2"))
+    for ph in [p.get("phone2")] + _card_extra_phones(card, [p.get("phone"), p.get("phone2")]):
+        if ph:
+            _add_phone(sup.name, label, ph)
     return sup.name
 
 
-def _fill_shop(sup, p, tg_state, tg_link):
+def _fill_shop(sup, p, tg_state, tg_link, card=None):
     """An existing shop gets what it was missing; nothing it had is replaced
     (a buyer's corrections win over a second visit)."""
     ST, P = _ST(), _P()
@@ -539,13 +580,8 @@ def _fill_shop(sup, p, tg_state, tg_link):
         both = _sells(had + _sells(p.get("sells")))
         if both != had:
             frappe.db.set_value("Supplier", sup, "custom_product_categories", ",".join(both), update_modified=False)
-    note = _text(p.get("note"), 300)
-    if note and S._has_col("Supplier", "custom_business_description"):
-        had = frappe.db.get_value("Supplier", sup, "custom_business_description") or ""
-        if note not in had:
-            frappe.db.set_value("Supplier", sup, "custom_business_description",
-                                (had + ("\n" if had else "") + note)[:500], update_modified=False)
-    for ph in (p.get("phone"), p.get("phone2")):
+    _add_about(sup, _about(p, card))
+    for ph in [p.get("phone"), p.get("phone2")] + _card_extra_phones(card, [p.get("phone"), p.get("phone2")]):
         if ph:
             if cur.mobile_no:
                 _add_phone(sup, label, ph)
@@ -605,13 +641,16 @@ def save_visit(payload):
         else:
             sup = None
             dup = same[0]["label"] if same else ""
-    if sup:
-        new_channel = _fill_shop(sup, p, tg_state, tg_link)
-    else:
-        sup = _create_shop(p, tg_state, tg_link)
-        new_channel = tg_state == "public"
-
     card = p.get("card") if isinstance(p.get("card"), dict) else None
+    if card and card.get("isCard") is False:
+        card_for_shop = None
+    else:
+        card_for_shop = card
+    if sup:
+        new_channel = _fill_shop(sup, p, tg_state, tg_link, card_for_shop)
+    else:
+        sup = _create_shop(p, tg_state, tg_link, card_for_shop)
+        new_channel = tg_state == "public"
     v = frappe.get_doc({
         "doctype": DT_VISIT, "supplier": sup, "scout": frappe.session.user, "visited_at": now_datetime(),
         "outcome": outcome, "client_key": key or None, "market": _text(p.get("market"), 40),
@@ -686,15 +725,18 @@ def read_later(visit):
         frappe.log_error(frappe.get_traceback()[:2500], "souk_scout.read_later")
         return
     v.db_set("card_json", json.dumps(card, ensure_ascii=False)[:5000], update_modified=False)
-    p = {"phone": "", "phone2": "", "sells": [], "note": "", "market": "", "place": ""}
+    if card.get("isCard") is False:
+        frappe.db.commit()
+        return
+    p = {"phone": "", "phone2": "", "sells": [], "note": "", "market": "", "place": "",
+         "instagram": v.instagram or ""}
     phones = [x for x in card.get("phones") or [] if _ST()._phone_key(x) not in
               {_ST()._phone_key(v.phone or ""), _ST()._phone_key(v.phone2 or "")}]
-    if phones:
-        p["phone"] = phones[0]
-        if len(phones) > 1:
-            p["phone2"] = phones[1]
     tg_state, h, tg_link = _tg_of(card.get("telegram"))
-    new_channel = _fill_shop(v.supplier, p, tg_state, tg_link) if (phones or tg_state != "none") else False
+    # Every printed number the person did not type goes on the Contact; the
+    # fill never replaces anything the shop already holds.
+    new_channel = _fill_shop(v.supplier, p, tg_state, tg_link,
+                             {**card, "phones": [None, None] + phones})
     if tg_state != "none" and (v.tg_state or "none") == "none":
         v.db_set({"telegram": tg_link, "tg_state": tg_state}, update_modified=False)
     frappe.db.commit()
