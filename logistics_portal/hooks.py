@@ -68,6 +68,16 @@ override_whitelisted_methods = {
 }
 
 doc_events = {
+    # Stock on a shelf Shopify was never told about (api/shopify_stock_guard):
+    # a new consignment shelf gets its mapping row, and a mapping saved by
+    # hand re-pushes the items it newly covers.
+    "Warehouse": {
+        "after_insert": "logistics_portal.api.shopify_stock_guard.on_warehouse_change",
+        "on_update": "logistics_portal.api.shopify_stock_guard.on_warehouse_change",
+    },
+    "Shopify Setting": {
+        "on_update": "logistics_portal.api.shopify_stock_guard.on_setting_update",
+    },
     # Every Cathedis manifest, however it is submitted: the shortfall check
     # (printed parcels whose list finished sorting but are on no Shipment)
     # used to run only from the portal's close_manifest, which can submit
@@ -328,6 +338,9 @@ scheduler_events = {
         # The CS desk keeps its own promises the same way.
         "logistics_portal.api.cs.release_stale_claims",
         "logistics_portal.api.cs.wake_due",
+        # Consignment shelves Shopify can't see, and items pushed before
+        # their shelf was mapped (api/shopify_stock_guard).
+        "logistics_portal.api.shopify_stock_guard.run",
     ],
     "hourly_long": [
         # Post-delivery feedback: ask yesterday's deliveries how it went
