@@ -643,7 +643,7 @@ ADJUST_WH = "Returns Adjustment - JM"
 # 'Goods In Transit - JM' as restock destinations, and the server accepted them.
 _NOT_PUTAWAY_LIKE = [
     "Goods In Transit%", "Work In Progress%", "Cathedis%", "%receiving%",
-    "%reception%", "Turkey%", "V-Turkey%", "Yakuplu%", "dsers%", "ERPNext%",
+    "%reception%", "Turkey%", "V-Turkey%", "Yakuplu%", "Air Freight%", "Container%", "dsers%", "ERPNext%",
     "Stores%", "Finished Goods%", "Rejected%", "Return%", "Aria%", "ain sebaa%",
 ]
 _NOT_PUTAWAY_EXACT = ["Morocco - JM", RETURN_ZONE, ADJUST_WH]

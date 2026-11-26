@@ -26,7 +26,17 @@ _BLOCK_EXACT = ["Morocco - JM"]
 # from it onto Moroccan shelves 91 times (all to D3B) — from the DESK, because
 # this screen blocked it. Sending Moroccan stock the other way would be a
 # physical shipment, not a bin move, so the direction stays one-way.
-_SUPPLY_ONLY_LIKE = ["Yakuplu%"]
+#
+# Air Freight is the same kind of lane. Eman loads it from Yakuplu on the
+# Desk; the floor unloads it in Casablanca when the parcel lands. Before this
+# screen existed the unloading was a Desk transfer (Reda, Khadija: 49 of them
+# June–July, to Receiving or straight onto shelves). Once the screen blocked
+# the family, the STE-10960 load (2026-09-22, 490 units) had no way off it:
+# a towel in the hand on the Moroccan floor came back as "parked outside the
+# movable network". There is one Air Freight warehouse for every flight, so
+# the warehouse tree cannot say "landed" the way it does for a container.
+# Holding the piece in Casablanca is the proof it landed.
+_SUPPLY_ONLY_LIKE = ["Yakuplu%", "Air Freight%"]
 
 # A container that has ARRIVED is a supply point too: it is unloaded into
 # SLOW / Receiving, never loaded. Arrival is said in the warehouse tree — a

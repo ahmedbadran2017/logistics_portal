@@ -604,15 +604,18 @@ def no_face_list(cls="A", limit=60, offset=0, days=90):
     if not missing:
         return {"cls": cls, "total": 0, "sourced": 0, "noStock": 0, "rows": []}
 
-    from logistics_portal.api.stock_moves import _movable_condition
+    from logistics_portal.api.stock_moves import _movable_condition, _SUPPLY_ONLY_LIKE
     cond, args = _movable_condition("b.warehouse", as_source=True)
+    # A face is filled from the building: Yakuplu (Istanbul) and Air Freight
+    # (in the air until someone holds it here) are supply points, not sources.
+    far = "".join(" AND b.warehouse NOT LIKE %s" for _ in _SUPPLY_ONLY_LIKE)
     src = {}
     for r in frappe.db.sql(
             f"""SELECT b.item_code ic, b.warehouse wh, b.actual_qty q
                 FROM `tabBin` b
-                WHERE b.item_code IN %s AND b.actual_qty > 0 AND {cond}
+                WHERE b.item_code IN %s AND b.actual_qty > 0 AND {cond}{far}
                 ORDER BY b.actual_qty DESC""",
-            tuple([tuple(missing)] + args), as_dict=True):
+            tuple([tuple(missing)] + args + list(_SUPPLY_ONLY_LIKE)), as_dict=True):
         # First row per item wins — the biggest holding is the source to pull.
         src.setdefault(r.ic, (r.wh, float(r.q or 0)))
 
